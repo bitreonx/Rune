@@ -73,6 +73,7 @@ import {
   OrchestrationGetTurnDiffInput,
   OrchestrationRpcSchemas,
   OrchestrationGetWorkflowScriptError,
+  OrchestrationAgentChatError,
 } from "./orchestration.ts";
 import {
   ProviderUploadFeedbackError,
@@ -952,6 +953,30 @@ export const WsOrchestrationSearchThreadsRpc = Rpc.make(ORCHESTRATION_WS_METHODS
   error: Schema.Union([OrchestrationSearchThreadsError, EnvironmentAuthorizationError]),
 });
 
+export const WsOrchestrationGetAgentChatRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getAgentChat, {
+  payload: OrchestrationRpcSchemas.getAgentChat.input,
+  success: OrchestrationRpcSchemas.getAgentChat.output,
+  error: Schema.Union([OrchestrationAgentChatError, EnvironmentAuthorizationError]),
+});
+
+export const WsOrchestrationSendAgentMessageRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.sendAgentMessage,
+  {
+    payload: OrchestrationRpcSchemas.sendAgentMessage.input,
+    success: OrchestrationRpcSchemas.sendAgentMessage.output,
+    error: Schema.Union([OrchestrationAgentChatError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsOrchestrationInterruptAgentMessageRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.interruptAgentMessage,
+  {
+    payload: OrchestrationRpcSchemas.interruptAgentMessage.input,
+    success: OrchestrationRpcSchemas.interruptAgentMessage.output,
+    error: Schema.Union([OrchestrationAgentChatError, EnvironmentAuthorizationError]),
+  },
+);
+
 export const WsOrchestrationGetArchivedShellSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
   {
@@ -1128,6 +1153,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationSearchThreadsRpc,
+  WsOrchestrationGetAgentChatRpc,
+  WsOrchestrationSendAgentMessageRpc,
+  WsOrchestrationInterruptAgentMessageRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,

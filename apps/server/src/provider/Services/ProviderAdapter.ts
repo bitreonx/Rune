@@ -18,6 +18,7 @@ import type {
   ProviderSessionStartInput,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
+  RuntimeTaskId,
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
@@ -42,6 +43,21 @@ export interface ProviderThreadTurnSnapshot {
 export interface ProviderThreadSnapshot {
   readonly threadId: ThreadId;
   readonly turns: ReadonlyArray<ProviderThreadTurnSnapshot>;
+}
+
+export interface ProviderAgentThreadInput {
+  /** Logical parent thread owned by the provider session. */
+  readonly parentThreadId: ThreadId;
+  /** Opaque task id that the adapter resolves to a registered child thread. */
+  readonly agentId: RuntimeTaskId;
+}
+
+export interface ProviderAgentTurnInput extends ProviderAgentThreadInput {
+  readonly input: string;
+}
+
+export interface ProviderAgentInterruptInput extends ProviderAgentThreadInput {
+  readonly turnId?: TurnId;
 }
 
 export interface ProviderAdapterShape<TError> {
@@ -107,6 +123,19 @@ export interface ProviderAdapterShape<TError> {
    * Read a provider thread snapshot.
    */
   readonly readThread: (threadId: ThreadId) => Effect.Effect<ProviderThreadSnapshot, TError>;
+
+  /** Optional provider-native child-agent conversation support. */
+  readonly readAgentThread?: (
+    input: ProviderAgentThreadInput,
+  ) => Effect.Effect<ProviderThreadSnapshot, TError>;
+
+  readonly sendAgentTurn?: (
+    input: ProviderAgentTurnInput,
+  ) => Effect.Effect<ProviderTurnStartResult, TError>;
+
+  readonly interruptAgentTurn?: (
+    input: ProviderAgentInterruptInput,
+  ) => Effect.Effect<void, TError>;
 
   /**
    * Roll back a provider thread by N turns.

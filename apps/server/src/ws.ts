@@ -24,6 +24,7 @@ import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
+  OrchestrationAgentChatError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
@@ -87,6 +88,7 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
+import { normalizeProviderAgentChatSnapshot } from "./provider/agentChat.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -135,6 +137,14 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isOrchestrationAgentChatError = Schema.is(OrchestrationAgentChatError);
+
+function toOrchestrationAgentChatError(cause: unknown, message: string): OrchestrationAgentChatError {
+  if (isOrchestrationAgentChatError(cause)) {
+    return cause;
+  }
+  return new OrchestrationAgentChatError({ message, cause });
+}
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -1285,6 +1295,71 @@ const makeWsRpcLayer = (
                     message: "Failed to search threads",
                     cause,
                   }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.getAgentChat]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getAgentChat,
+            Effect.gen(function* () {
+              if (!providerService.readAgentThread) {
+                return yield* new OrchestrationAgentChatError({
+                  message: "This provider cannot open a child-agent chat.",
+                });
+              }
+              const snapshot = yield* providerService.readAgentThread({
+                parentThreadId: input.threadId,
+                agentId: input.agentId,
+              });
+              return normalizeProviderAgentChatSnapshot(input.agentId, snapshot);
+            }).pipe(
+              Effect.mapError((cause) =>
+                toOrchestrationAgentChatError(cause, "Unable to load the child-agent chat."),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.sendAgentMessage]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.sendAgentMessage,
+            Effect.gen(function* () {
+              if (!providerService.sendAgentTurn) {
+                return yield* new OrchestrationAgentChatError({
+                  message: "This provider cannot continue a child-agent chat.",
+                });
+              }
+              const result = yield* providerService.sendAgentTurn({
+                parentThreadId: input.threadId,
+                agentId: input.agentId,
+                input: input.input,
+              });
+              return { agentId: input.agentId, turnId: result.turnId };
+            }).pipe(
+              Effect.mapError((cause) =>
+                toOrchestrationAgentChatError(cause, "Unable to send the child-agent message."),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.interruptAgentMessage]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.interruptAgentMessage,
+            Effect.gen(function* () {
+              if (!providerService.interruptAgentTurn) {
+                return yield* new OrchestrationAgentChatError({
+                  message: "This provider cannot interrupt a child-agent chat.",
+                });
+              }
+              yield* providerService.interruptAgentTurn({
+                parentThreadId: input.threadId,
+                agentId: input.agentId,
+                ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
+              });
+              return {};
+            }).pipe(
+              Effect.mapError((cause) =>
+                toOrchestrationAgentChatError(cause, "Unable to interrupt the child-agent turn."),
               ),
             ),
             { "rpc.aggregate": "orchestration" },

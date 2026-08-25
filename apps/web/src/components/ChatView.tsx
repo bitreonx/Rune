@@ -88,6 +88,7 @@ import { isElectron } from "../env";
 import { APP_BASE_NAME } from "../branding";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { playSoundEffect } from "../sound/playback";
 import {
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
@@ -1314,7 +1315,19 @@ function ChatViewContent(props: ChatViewProps) {
   const setThreadInteractionMode = useAtomCommand(threadEnvironment.setInteractionMode, {
     reportFailure: false,
   });
-  const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const startThreadTurnCommand = useAtomCommand(threadEnvironment.startTurn, {
+    reportFailure: false,
+  });
+  // The send whoosh marks the hand-off of user-initiated work. Automatic
+  // continuations pass silent: their message is hidden end to end, so an
+  // audible "sent" for something the user never wrote would be a lie.
+  const startThreadTurn = useCallback(
+    async (value: Parameters<typeof startThreadTurnCommand>[0], opts: { silent?: boolean } = {}) => {
+      if (!opts.silent) playSoundEffect("sent");
+      return startThreadTurnCommand(value);
+    },
+    [startThreadTurnCommand],
+  );
   const uploadThreadFeedback = useAtomCommand(threadEnvironment.uploadFeedback, {
     reportFailure: false,
   });
@@ -3057,7 +3070,7 @@ function ChatViewContent(props: ChatViewProps) {
         interactionMode,
         createdAt: new Date().toISOString(),
       },
-    });
+    }, { silent: true });
     if (startResult._tag === "Failure" && !isAtomCommandInterrupted(startResult)) {
       const error = squashAtomCommandFailure(startResult);
       setThreadError(
@@ -6814,6 +6827,7 @@ function ChatViewContent(props: ChatViewProps) {
         model={agentPanelModel}
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
+        {...(activeProject?.workspaceRoot ? { cwd: activeProject.workspaceRoot } : {})}
         focusedAgentId={focusedAgentId}
         onFocusAgent={handleFocusAgent}
       />
@@ -6911,6 +6925,7 @@ function ChatViewContent(props: ChatViewProps) {
           {/* Chat column */}
           <div
             className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+            data-rune-chat-surface
             data-chat-workspace-drop-target="true"
             onDragEnter={workspaceFileDropHandlers.onDragEnter}
             onDragOver={workspaceFileDropHandlers.onDragOver}
@@ -7024,6 +7039,7 @@ function ChatViewContent(props: ChatViewProps) {
                       <ChatWebPreviewCard
                         threadRef={activeThreadRef}
                         environmentId={environmentId}
+                        messages={activeThread?.messages ?? []}
                         configuredUrls={configuredPreviewUrls}
                         openPreview={openPreview}
                       />
@@ -7069,7 +7085,7 @@ function ChatViewContent(props: ChatViewProps) {
                         showComposerContextStrip && "chat-composer-glass-shell-with-context",
                       )}
                     >
-                      <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
+                      <div className="chat-composer-glass-host relative z-10 w-full">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
                             composerRef={composerRef}
@@ -7294,11 +7310,9 @@ function ChatViewContent(props: ChatViewProps) {
           ref={rightPanelHostRef}
           className={cn(
             "rune-right-panel-host min-h-0 min-w-0 overflow-hidden",
-            // Floating glass card: inset from the chat column and the window
-            // edges with modern corner radii; maximizing returns to full bleed.
             rightPanelMaximized
               ? "flex-1"
-              : "my-2 mr-2 shrink-0 rounded-2xl border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))] shadow-[0_18px_48px_-32px_rgb(0_0_0/0.45)] dark:shadow-[0_24px_64px_-40px_rgb(0_0_0/0.9)]",
+              : "shrink-0 border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))]",
             runePanelTransitionClass(rightPanelMotionState),
           )}
           data-rune-right-panel-host

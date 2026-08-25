@@ -19,6 +19,7 @@ import {
   buildTurnStartParams,
   describeMcpElicitation,
   hasConfiguredMcpServer,
+  isCodexChildAgentOwnedByParent,
   isRecoverableThreadResumeError,
   makeMemoryConsolidationNotificationFilter,
   openCodexThread,
@@ -247,6 +248,46 @@ describe("buildTurnStartParams", () => {
         },
       ],
     });
+  });
+});
+
+describe("isCodexChildAgentOwnedByParent", () => {
+  it("accepts a registered child owned by the active parent", () => {
+    NodeAssert.equal(
+      isCodexChildAgentOwnedByParent({
+        agentThreadId: "child-1",
+        parentThreadId: "root-1",
+        child: { agentThreadId: "child-1", parentThreadId: "root-1" },
+      }),
+      true,
+    );
+  });
+
+  it("rejects unknown, root, and cross-parent ids", () => {
+    NodeAssert.equal(
+      isCodexChildAgentOwnedByParent({
+        agentThreadId: "missing",
+        parentThreadId: "root-1",
+        child: undefined,
+      }),
+      false,
+    );
+    NodeAssert.equal(
+      isCodexChildAgentOwnedByParent({
+        agentThreadId: "root-1",
+        parentThreadId: "root-1",
+        child: { agentThreadId: "root-1", parentThreadId: "root-1" },
+      }),
+      false,
+    );
+    NodeAssert.equal(
+      isCodexChildAgentOwnedByParent({
+        agentThreadId: "child-1",
+        parentThreadId: "root-1",
+        child: { agentThreadId: "child-1", parentThreadId: "root-2" },
+      }),
+      false,
+    );
   });
 });
 

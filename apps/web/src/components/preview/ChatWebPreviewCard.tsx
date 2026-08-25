@@ -37,6 +37,10 @@ import {
   chatPreviewServersSignature,
   selectChatPreviewCard,
 } from "./chatWebPreviewLogic";
+import {
+  classifyChatWebPreviewIntent,
+  type ChatWebPreviewIntentMessage,
+} from "./chatWebPreviewIntent";
 import { useChatWebPreviewDismissalStore } from "./chatWebPreviewDismissals";
 import { openDiscoveredPort } from "./openDiscoveredPort";
 import { PreviewFaviconIcon } from "./PreviewFaviconIcon";
@@ -45,6 +49,7 @@ import { useDiscoveredLocalServers, type PreviewableServer } from "./useDiscover
 interface Props {
   threadRef: ScopedThreadRef;
   environmentId: EnvironmentId;
+  messages: ReadonlyArray<ChatWebPreviewIntentMessage>;
   configuredUrls?: ReadonlyArray<string> | undefined;
   openPreview: OpenPreviewMutation<unknown>;
 }
@@ -57,6 +62,7 @@ interface Props {
 export function ChatWebPreviewCard({
   threadRef,
   environmentId,
+  messages,
   configuredUrls,
   openPreview,
 }: Props) {
@@ -65,10 +71,16 @@ export function ChatWebPreviewCard({
   const dismissals = useChatWebPreviewDismissalStore((state) => state.byThread.get(threadKey));
   const dismiss = useChatWebPreviewDismissalStore((state) => state.dismiss);
   const previewSupported = isPreviewSupportedInRuntime();
+  const intent = useMemo(() => classifyChatWebPreviewIntent(messages), [messages]);
 
   const card = useMemo(
-    () => selectChatPreviewCard(servers, { threadId: threadRef.threadId, dismissals }),
-    [servers, threadRef.threadId, dismissals],
+    () =>
+      selectChatPreviewCard(servers, {
+        threadId: threadRef.threadId,
+        dismissals,
+        intent,
+      }),
+    [dismissals, intent, servers, threadRef.threadId],
   );
 
   const openInPreview = useCallback(
@@ -127,18 +139,26 @@ export function ChatWebPreviewCard({
   const openPrimary = () => (previewSupported ? openInPreview(primary) : openInBrowser(primary));
   const openOther = (server: PreviewableServer) =>
     previewSupported ? openInPreview(server) : openInBrowser(server);
+  const cardTitle =
+    intent === "requested-link"
+      ? "Web link ready"
+      : intent === "requested-dev-server"
+        ? "Dev server ready"
+        : "Web preview ready";
+  const primaryActionLabel = previewSupported ? "Open preview" : "Open in browser";
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/95 pe-1.5 ps-2.5 shadow-xs">
+      <div className="flex items-center gap-2 border border-border/70 bg-background/95 pe-1.5 ps-2.5 shadow-xs">
         <button
           type="button"
           onClick={openPrimary}
+          aria-label={primaryActionLabel}
           className="group flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <PreviewFaviconIcon threadRef={threadRef} url={primary.requestedUrl} />
           <span className="flex min-w-0 flex-col">
-            <span className="truncate text-sm font-medium text-foreground">Web preview</span>
+            <span className="truncate text-sm font-medium text-foreground">{cardTitle}</span>
             <span className="truncate text-xs text-muted-foreground">
               {primary.host}:{primary.port}
             </span>

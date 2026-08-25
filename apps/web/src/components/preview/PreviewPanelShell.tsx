@@ -85,7 +85,7 @@ export function PreviewPanelShell(props: {
         isInline
           ? props.maximized
             ? "flex-1 border-l border-border"
-            : // Non-maximized card chrome (inset, radius, border, shadow) is
+            : // Non-maximized host chrome (inset, border) is
               // owned by the rune-right-panel-host wrapper so its width
               // animation and clipping stay in one place.
               "shrink-0"
@@ -94,6 +94,7 @@ export function PreviewPanelShell(props: {
       style={isInline && !props.maximized ? { width: `${width}px` } : undefined}
       data-preview-panel-mode={props.mode}
       data-preview-panel-maximized={props.maximized ? "true" : "false"}
+      data-rune-preview-panel-host
     >
       {isInline && !props.maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
       {useDragRegion ? <div className="electron-drag-region h-0 w-full" aria-hidden /> : null}

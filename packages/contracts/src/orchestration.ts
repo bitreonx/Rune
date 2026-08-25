@@ -17,6 +17,7 @@ import {
   PositiveInt,
   ProjectId,
   ProviderItemId,
+  RuntimeTaskId,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
@@ -30,6 +31,9 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   searchThreads: "orchestration.searchThreads",
+  getAgentChat: "orchestration.getAgentChat",
+  sendAgentMessage: "orchestration.sendAgentMessage",
+  interruptAgentMessage: "orchestration.interruptAgentMessage",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
@@ -1766,6 +1770,44 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationSearchThreadsInput,
     output: OrchestrationSearchThreadsResult,
   },
+  getAgentChat: {
+    input: Schema.Struct({
+      threadId: ThreadId,
+      agentId: RuntimeTaskId,
+    }),
+    output: Schema.Struct({
+      agentId: RuntimeTaskId,
+      messages: Schema.Array(
+        Schema.Struct({
+          id: TrimmedNonEmptyString,
+          role: Schema.Literals(["user", "assistant", "system"]),
+          text: Schema.String,
+          turnId: Schema.NullOr(TurnId),
+          streaming: Schema.Boolean,
+        }),
+      ),
+      activeTurnId: Schema.optional(TurnId),
+    }),
+  },
+  sendAgentMessage: {
+    input: Schema.Struct({
+      threadId: ThreadId,
+      agentId: RuntimeTaskId,
+      input: TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
+    }),
+    output: Schema.Struct({
+      agentId: RuntimeTaskId,
+      turnId: TurnId,
+    }),
+  },
+  interruptAgentMessage: {
+    input: Schema.Struct({
+      threadId: ThreadId,
+      agentId: RuntimeTaskId,
+      turnId: Schema.optional(TurnId),
+    }),
+    output: Schema.Struct({}),
+  },
   getArchivedShellSnapshot: {
     input: Schema.Struct({}),
     output: OrchestrationShellSnapshot,
@@ -1815,6 +1857,14 @@ export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass
 
 export class OrchestrationSearchThreadsError extends Schema.TaggedErrorClass<OrchestrationSearchThreadsError>()(
   "OrchestrationSearchThreadsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export class OrchestrationAgentChatError extends Schema.TaggedErrorClass<OrchestrationAgentChatError>()(
+  "OrchestrationAgentChatError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),

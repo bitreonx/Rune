@@ -24,6 +24,8 @@ import {
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type RuntimeTaskId,
+  type TurnId,
 } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as DateTime from "effect/DateTime";
@@ -48,7 +50,11 @@ import {
   providerTurnMetricAttributes,
   withMetrics,
 } from "../../observability/Metrics.ts";
-import { type ProviderAdapterError, ProviderValidationError } from "../Errors.ts";
+import {
+  type ProviderAdapterError,
+  ProviderUnsupportedError,
+  ProviderValidationError,
+} from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
@@ -864,6 +870,97 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const readAgentThread: NonNullable<ProviderServiceMethod<"readAgentThread">> = Effect.fn(
+    "ProviderService.readAgentThread",
+  )(function* (input: {
+    readonly parentThreadId: ThreadId;
+    readonly agentId: RuntimeTaskId;
+  }) {
+    const routed = yield* resolveRoutableSession({
+      threadId: input.parentThreadId,
+      operation: "ProviderService.readAgentThread",
+      allowRecovery: false,
+    });
+    if (!routed.isActive) {
+      return yield* toValidationError(
+        "ProviderService.readAgentThread",
+        "The parent provider session is not active; child chat is unavailable.",
+      );
+    }
+    const operation = routed.adapter.readAgentThread;
+    if (!operation) {
+      return yield* new ProviderUnsupportedError({
+        provider: String(routed.adapter.provider),
+      });
+    }
+    return yield* operation({
+      parentThreadId: routed.threadId,
+      agentId: input.agentId,
+    });
+  });
+
+  const sendAgentTurn: NonNullable<ProviderServiceMethod<"sendAgentTurn">> = Effect.fn(
+    "ProviderService.sendAgentTurn",
+  )(function* (input: {
+    readonly parentThreadId: ThreadId;
+    readonly agentId: RuntimeTaskId;
+    readonly input: string;
+  }) {
+    const routed = yield* resolveRoutableSession({
+      threadId: input.parentThreadId,
+      operation: "ProviderService.sendAgentTurn",
+      allowRecovery: false,
+    });
+    if (!routed.isActive) {
+      return yield* toValidationError(
+        "ProviderService.sendAgentTurn",
+        "The parent provider session is not active; child chat is unavailable.",
+      );
+    }
+    const operation = routed.adapter.sendAgentTurn;
+    if (!operation) {
+      return yield* new ProviderUnsupportedError({
+        provider: String(routed.adapter.provider),
+      });
+    }
+    return yield* operation({
+      parentThreadId: routed.threadId,
+      agentId: input.agentId,
+      input: input.input,
+    });
+  });
+
+  const interruptAgentTurn: NonNullable<ProviderServiceMethod<"interruptAgentTurn">> = Effect.fn(
+    "ProviderService.interruptAgentTurn",
+  )(function* (input: {
+    readonly parentThreadId: ThreadId;
+    readonly agentId: RuntimeTaskId;
+    readonly turnId?: TurnId;
+  }) {
+    const routed = yield* resolveRoutableSession({
+      threadId: input.parentThreadId,
+      operation: "ProviderService.interruptAgentTurn",
+      allowRecovery: false,
+    });
+    if (!routed.isActive) {
+      return yield* toValidationError(
+        "ProviderService.interruptAgentTurn",
+        "The parent provider session is not active; child chat is unavailable.",
+      );
+    }
+    const operation = routed.adapter.interruptAgentTurn;
+    if (!operation) {
+      return yield* new ProviderUnsupportedError({
+        provider: String(routed.adapter.provider),
+      });
+    }
+    return yield* operation({
+      parentThreadId: routed.threadId,
+      agentId: input.agentId,
+      ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
+    });
+  });
+
   const respondToRequest: ProviderServiceMethod<"respondToRequest"> = Effect.fn("respondToRequest")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -1223,6 +1320,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    readAgentThread,
+    sendAgentTurn,
+    interruptAgentTurn,
     respondToRequest,
     respondToUserInput,
     stopSession,

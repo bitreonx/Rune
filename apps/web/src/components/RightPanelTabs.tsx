@@ -317,7 +317,7 @@ function RightPanelEmptyState(props: {
     },
     {
       label: "Agents",
-      description: "Follow subagents and workflows.",
+      description: "Open agents and continue a child chat.",
       icon: Bot,
       shortcut: "A",
       available: props.agentsAvailable,
@@ -328,6 +328,8 @@ function RightPanelEmptyState(props: {
   ] as const;
 
   type SurfaceAction = (typeof actions)[number];
+  const primaryAction = actions.find((action) => action.label === "Agents") ?? actions[0]!;
+  const secondaryActions = actions.filter((action) => action !== primaryAction);
 
   const availableActions = actions.filter((action) => action.available);
   const highlightIndex =
@@ -410,9 +412,58 @@ function RightPanelEmptyState(props: {
     );
   };
 
-  const cardShellClass =
-    "rounded-lg border border-border/80 bg-card dark:border-transparent dark:shadow-none dark:inset-ring-1 dark:inset-ring-white/5";
-  const highlightedCardClass = "bg-accent/60 dark:inset-ring-white/20";
+  const actionRowClass =
+    "relative flex min-h-12 w-full items-center gap-3 border-border/60 px-3 py-2.5 text-left transition-colors hover:bg-accent/55 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--rune-violet-strong)]";
+  const highlightedCardClass = "bg-accent/60";
+
+  const renderAction = (action: SurfaceAction, primary = false) => {
+    const content = (
+      <>
+        {actionIcon(action, primary ? "size-4.5" : "size-4")}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-sm">{action.label}</span>
+          <span className="mt-0.5 block truncate text-muted-foreground text-xs leading-relaxed">
+            {action.available ? action.description : action.disabledReason}
+          </span>
+        </span>
+        <Kbd className="shrink-0">{action.shortcut}</Kbd>
+      </>
+    );
+
+    if (!action.available) {
+      return (
+        <div
+          key={action.label}
+          className={cn(actionRowClass, "cursor-not-allowed opacity-40", primary && "border")}
+          data-rune-surface-action={action.label.toLowerCase().replaceAll(" ", "-")}
+        >
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <button
+        key={action.label}
+        type="button"
+        onClick={action.onClick}
+        onMouseEnter={() => setHighlight(availableActions.indexOf(action))}
+        onMouseLeave={() =>
+          setHighlight((current) =>
+            current === availableActions.indexOf(action) ? -1 : current,
+          )
+        }
+        className={cn(
+          actionRowClass,
+          primary && "border bg-card/30",
+          isHighlighted(action) && highlightedCardClass,
+        )}
+        data-rune-surface-action={action.label.toLowerCase().replaceAll(" ", "-")}
+      >
+        {content}
+      </button>
+    );
+  };
 
   return (
     <div
@@ -428,60 +479,28 @@ function RightPanelEmptyState(props: {
         "pb-[calc(var(--workspace-topbar-height)+--spacing(6))]",
       )}
     >
-      <div className="relative w-full max-w-lg">
-        <div className="absolute inset-x-0 bottom-full mb-5 text-center">
+      <div className="relative w-full max-w-md">
+        <div className="mb-5">
           <h3 className="font-medium text-foreground text-sm">Open a surface</h3>
           <p className="mt-1 text-muted-foreground text-xs">
-            Choose what to show in the right panel.
+            Continue an agent or add a focused workspace surface.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          {actions.map((action) =>
-            action.available ? (
-              <button
-                key={action.label}
-                type="button"
-                onClick={action.onClick}
-                onMouseEnter={() => setHighlight(availableActions.indexOf(action))}
-                onMouseLeave={() =>
-                  setHighlight((current) =>
-                    current === availableActions.indexOf(action) ? -1 : current,
-                  )
-                }
-                className={cn(
-                  "relative flex w-full cursor-pointer flex-col items-start p-4 text-left transition hover:border-border hover:bg-accent/60",
-                  cardShellClass,
-                  isHighlighted(action) && highlightedCardClass,
-                )}
-              >
-                <Kbd className="absolute top-3 right-3">{action.shortcut}</Kbd>
-                <span className="flex items-center gap-2 pe-8">
-                  {actionIcon(action)}
-                  <span className="font-medium text-sm">{action.label}</span>
-                </span>
-                <span className="mt-1.5 text-muted-foreground text-xs leading-relaxed">
-                  {action.description}
-                </span>
-              </button>
-            ) : (
-              <div
-                key={action.label}
-                className={cn(
-                  "relative flex w-full flex-col items-start p-4 opacity-40",
-                  cardShellClass,
-                )}
-              >
-                <Kbd className="absolute top-3 right-3">{action.shortcut}</Kbd>
-                <span className="flex items-center gap-2 pe-8">
-                  {actionIcon(action)}
-                  <span className="font-medium text-sm">{action.label}</span>
-                </span>
-                <span className="mt-1.5 text-muted-foreground text-xs leading-relaxed">
-                  {action.disabledReason}
-                </span>
-              </div>
-            ),
-          )}
+        <div className="space-y-4">
+          <div>
+            <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Agents
+            </p>
+            {renderAction(primaryAction, true)}
+          </div>
+          <div>
+            <p className="mb-1 px-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Workspace surfaces
+            </p>
+            <div className="divide-y divide-border/45 border-y border-border/45">
+              {secondaryActions.map((action) => renderAction(action))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

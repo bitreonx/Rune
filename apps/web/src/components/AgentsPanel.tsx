@@ -29,6 +29,7 @@ import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
+import { AgentChatPanel } from "./agent-chat/AgentChatPanel";
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -49,11 +50,17 @@ const STATUS_VISUALS: Record<RuntimeSubagent["status"], { dotClass: string; labe
   interrupted: { dotClass: "bg-muted-foreground/60", label: "Stopped" },
 };
 
-function StatusDot({ status }: { status: RuntimeSubagent["status"] }) {
+function StatusDot({
+  status,
+  className,
+}: {
+  status: RuntimeSubagent["status"];
+  className?: string;
+}) {
   return (
     <span
       aria-hidden
-      className={cn("size-1.5 shrink-0 rounded-full", STATUS_VISUALS[status].dotClass)}
+      className={cn("size-1.5 shrink-0 rounded-full", STATUS_VISUALS[status].dotClass, className)}
     />
   );
 }
@@ -137,7 +144,7 @@ function agentActivityText(agent: RuntimeSubagent): string | null {
   );
 }
 
-/** Flat, non-interactive agent status line. No unfold. */
+/** Flat, identity-first agent row. Selecting it opens the live child surface. */
 type AgentSelectionProps = {
   focusedAgentId: string | null;
   onFocusAgent?: ((agentId: string) => void) | undefined;
@@ -156,6 +163,7 @@ function AgentRow({
     agent.role?.trim().toLocaleLowerCase() === agent.title.trim().toLocaleLowerCase()
       ? null
       : agent.role;
+  const identityDetail = agent.agentPath ?? role ?? "Agent";
   const metadata = [
     modelLabel,
     agent.usage ? `${formatSubagentTokenCount(agent.usage.totalTokens)} tok` : "— tok",
@@ -168,24 +176,25 @@ function AgentRow({
       type="button"
       onClick={() => onFocusAgent?.(agent.id)}
       aria-pressed={focused}
+      aria-label={`Open ${agent.title} agent${agent.agentPath ? ` at ${agent.agentPath}` : ""}`}
+      title={agent.agentPath ?? agent.title}
       data-rune-agent-row
       data-rune-agent-focused={focused ? "true" : "false"}
       className={cn(
-        "grid h-[3.875rem] w-full grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1 text-left transition-[background-color,border-color,transform] duration-[var(--rune-motion-fast)] hover:-translate-y-px hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--rune-violet-strong)]",
+        "group grid min-h-[5rem] w-full grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[1.15rem_1rem_1.1rem_1rem] items-center gap-x-2 border-b border-border/45 px-1.5 py-2 text-left transition-colors duration-[var(--rune-motion-fast)] hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--rune-violet-strong)]",
         focused &&
-          "border border-[color-mix(in_srgb,var(--rune-violet-strong)_42%,transparent)] bg-[color-mix(in_srgb,var(--rune-violet-soft)_10%,transparent)]",
+          "bg-[color-mix(in_srgb,var(--rune-violet-soft)_10%,transparent)]",
       )}
     >
-      <span className="col-start-1 row-start-1 flex items-center">
-        <StatusDot status={agent.status} />
+      <span className="relative row-span-4 flex size-7 shrink-0 items-center justify-center border border-border/65 bg-background/55">
+        <Bot aria-hidden className="size-4 text-muted-foreground" />
+        <StatusDot
+          status={agent.status}
+          className="absolute -right-0.5 -bottom-0.5 ring-2 ring-background"
+        />
       </span>
-      <span className="col-start-2 row-start-1 flex min-w-0 items-baseline gap-2">
-        <span className="min-w-0 truncate text-sm font-medium">{agent.title}</span>
-        {role ? (
-          <span className="max-w-28 shrink-0 truncate rounded-sm border border-border/60 px-1 font-mono text-[.65rem] text-muted-foreground">
-            {role}
-          </span>
-        ) : null}
+      <span className="col-start-2 row-start-1 min-w-0 truncate text-sm font-medium" title={agent.title}>
+        {agent.title}
       </span>
       <span className="col-start-3 row-start-1 min-w-14 text-right font-mono text-[.7rem] text-muted-foreground/80">
         <span className="inline-flex items-center gap-1">
@@ -196,14 +205,20 @@ function AgentRow({
         </span>
       </span>
       <span
+        className="col-start-2 col-end-4 row-start-2 block truncate font-mono text-[.65rem] text-muted-foreground/70"
+        title={identityDetail}
+      >
+        {identityDetail}
+      </span>
+      <span
         className={cn(
-          "col-start-2 col-end-4 row-start-2 block truncate text-xs",
+          "col-start-2 col-end-4 row-start-3 block truncate text-[.7rem]",
           agent.status === "failed" ? "text-destructive-foreground" : "text-muted-foreground",
         )}
       >
         {activity ?? visuals.label}
       </span>
-      <span className="col-start-2 col-end-4 row-start-3 truncate font-mono text-[.7rem] tabular-nums text-muted-foreground/70">
+      <span className="col-start-2 col-end-4 row-start-4 truncate font-mono text-[.65rem] tabular-nums text-muted-foreground/65">
         {metadata.join(" · ")}
       </span>
       <span className="sr-only">{visuals.label}</span>
@@ -431,7 +446,7 @@ function ExpandedWorkflowSection({
   const scriptPath = group.workflow.runHandles?.scriptPath;
   const canShowScript = scriptPath !== undefined && environmentId !== null && threadId !== null;
   return (
-    <section className="rounded-lg border border-border/50 bg-card/30 p-1.5">
+    <section className="border-y border-border/50 bg-card/20 py-1" data-rune-agent-surface="workflow">
       <div className="flex items-center gap-2 px-1.5 pt-0.5 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
         <StatusDot status={group.workflow.status} />
         <span className="min-w-0 truncate">
@@ -589,9 +604,11 @@ function findAgentById(model: AgentPanelModel, agentId: string): RuntimeSubagent
 function AgentActivityDetail({
   agent,
   onClearFocus,
+  activityOnly = false,
 }: {
   agent: RuntimeSubagent;
   onClearFocus?: () => void;
+  activityOnly?: boolean;
 }) {
   const activity = agent.recentActivity;
   const latestSummary =
@@ -600,7 +617,7 @@ function AgentActivityDetail({
 
   return (
     <section
-      className="mx-2 mt-2 overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_26%,var(--border))] bg-[color-mix(in_srgb,var(--rune-surface-raised)_82%,transparent)] shadow-[0_18px_45px_-34px_var(--rune-violet-strong)]"
+      className="mx-2 mt-2 overflow-hidden border border-[color-mix(in_srgb,var(--rune-violet-soft)_26%,var(--border))] bg-[color-mix(in_srgb,var(--rune-surface-raised)_82%,transparent)]"
       data-rune-agent-detail
       aria-label={`${agent.title} activity`}
     >
@@ -614,7 +631,7 @@ function AgentActivityDetail({
             </span>
           </div>
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-            {agent.role ?? agent.model ?? "Sub-agent activity"}
+            {agent.agentPath ?? agent.role ?? agent.model ?? "Sub-agent activity"}
           </p>
         </div>
         <Button
@@ -627,6 +644,11 @@ function AgentActivityDetail({
           <X aria-hidden className="size-3" />
         </Button>
       </div>
+      {activityOnly ? (
+        <p className="border-b border-border/45 px-3 py-2 text-[11px] text-muted-foreground">
+          This agent can report activity but cannot be continued here.
+        </p>
+      ) : null}
       <div className="max-h-52 space-y-1.5 overflow-y-auto px-3 py-2" data-rune-agent-activity-stream>
         {activity.length > 0 ? (
           activity.map((entry) => (
@@ -676,12 +698,14 @@ export function AgentsPanel({
   model,
   environmentId = null,
   threadId = null,
+  cwd,
   focusedAgentId = null,
   onFocusAgent,
 }: {
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
+  cwd?: string;
   focusedAgentId?: string | null;
   onFocusAgent?: (agentId: string | null) => void;
 }) {
@@ -699,13 +723,27 @@ export function AgentsPanel({
   }
 
   const focusedAgent = focusedAgentId ? findAgentById(model, focusedAgentId) : null;
+  const canOpenFocusedChat =
+    focusedAgent !== null &&
+    focusedAgent.chat?.canRead === true &&
+    environmentId !== null &&
+    threadId !== null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {focusedAgent ? (
+      {canOpenFocusedChat && focusedAgent && environmentId && threadId ? (
+        <AgentChatPanel
+          environmentId={environmentId}
+          threadId={threadId}
+          agent={focusedAgent}
+          {...(cwd ? { cwd } : {})}
+          onBack={() => onFocusAgent?.(null)}
+        />
+      ) : focusedAgent ? (
         <AgentActivityDetail
           agent={focusedAgent}
           onClearFocus={() => onFocusAgent?.(null)}
+          activityOnly={focusedAgent.chat?.canRead !== true}
         />
       ) : null}
       <ScrollArea className="min-h-0 flex-1">
@@ -721,9 +759,13 @@ export function AgentsPanel({
             />
           ))}
           {model.directAgents.length > 0 ? (
-            <section>
-              <div className="px-1.5 pt-1 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
-                Direct spawns
+            <section data-rune-agent-surface="direct-spawns">
+              <div className="flex items-center gap-1.5 border-b border-border/45 px-1.5 pb-1 pt-2 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
+                <Bot aria-hidden className="size-3 text-[var(--rune-violet-strong)]" />
+                <span>Direct agents</span>
+                <span className="font-mono text-[.6rem] tabular-nums text-muted-foreground/70">
+                  {model.directAgents.length}
+                </span>
               </div>
               {model.directAgents.map((agent) => (
                 <AgentRow

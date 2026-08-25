@@ -6,6 +6,7 @@ import {
   chatPreviewServersSignature,
   selectChatPreviewCard,
 } from "./chatWebPreviewLogic";
+import type { ChatWebPreviewIntent } from "./chatWebPreviewIntent";
 import type { PreviewableServer } from "./useDiscoveredLocalServers";
 
 function server(overrides: Partial<PreviewableServer> & { port: number }): PreviewableServer {
@@ -20,6 +21,8 @@ function server(overrides: Partial<PreviewableServer> & { port: number }): Previ
     ...overrides,
   };
 }
+
+const previewIntent: ChatWebPreviewIntent = "requested-preview";
 
 describe("chatPreviewServerKey", () => {
   it("keys a server by host and port", () => {
@@ -43,13 +46,30 @@ describe("chatPreviewServersSignature", () => {
 
 describe("selectChatPreviewCard", () => {
   it("returns null when no servers are live", () => {
-    expect(selectChatPreviewCard([], { threadId: "thread-1", dismissals: undefined })).toBeNull();
+    expect(
+      selectChatPreviewCard([], {
+        threadId: "thread-1",
+        dismissals: undefined,
+        intent: previewIntent,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when a scanner finds a server without explicit web intent", () => {
+    expect(
+      selectChatPreviewCard([server({ port: 5173 })], {
+        threadId: "thread-1",
+        dismissals: undefined,
+        intent: "none",
+      }),
+    ).toBeNull();
   });
 
   it("selects the only live server", () => {
     const card = selectChatPreviewCard([server({ port: 5173 })], {
       threadId: "thread-1",
       dismissals: undefined,
+      intent: previewIntent,
     });
     expect(card?.primary.port).toBe(5173);
     expect(card?.others).toEqual([]);
@@ -63,6 +83,7 @@ describe("selectChatPreviewCard", () => {
     const card = selectChatPreviewCard([server({ port: 3000 }), attributed], {
       threadId: "thread-1",
       dismissals: undefined,
+      intent: previewIntent,
     });
     expect(card?.primary.port).toBe(8080);
     expect(card?.others.map((entry) => entry.port)).toEqual([3000]);
@@ -72,6 +93,7 @@ describe("selectChatPreviewCard", () => {
     const card = selectChatPreviewCard([server({ port: 3000 }), server({ port: 5173 })], {
       threadId: "thread-1",
       dismissals: undefined,
+      intent: previewIntent,
     });
     expect(card?.primary.port).toBe(3000);
   });
@@ -82,6 +104,7 @@ describe("selectChatPreviewCard", () => {
     const card = selectChatPreviewCard(servers, {
       threadId: "thread-1",
       dismissals: new Map([["localhost:3000", signature]]),
+      intent: previewIntent,
     });
     expect(card?.primary.port).toBe(5173);
     expect(card?.others).toEqual([]);
@@ -93,6 +116,7 @@ describe("selectChatPreviewCard", () => {
     const card = selectChatPreviewCard(servers, {
       threadId: "thread-1",
       dismissals: new Map([["localhost:3000", signature]]),
+      intent: previewIntent,
     });
     expect(card).toBeNull();
   });
@@ -106,7 +130,38 @@ describe("selectChatPreviewCard", () => {
     const card = selectChatPreviewCard(servers, {
       threadId: "thread-1",
       dismissals: new Map([["localhost:3000", staleSignature]]),
+      intent: previewIntent,
     });
     expect(card?.primary.port).toBe(3000);
+  });
+
+  it("requires attribution or a configured URL for a dev-server request", () => {
+    expect(
+      selectChatPreviewCard([server({ port: 5173 })], {
+        threadId: "thread-1",
+        dismissals: undefined,
+        intent: "requested-dev-server",
+      }),
+    ).toBeNull();
+
+    const attributed = server({
+      port: 8080,
+      terminal: { threadId: ThreadId.make("thread-1"), terminalId: "term-1" },
+    });
+    expect(
+      selectChatPreviewCard([server({ port: 3000 }), attributed], {
+        threadId: "thread-1",
+        dismissals: undefined,
+        intent: "requested-dev-server",
+      })?.primary.port,
+    ).toBe(8080);
+
+    expect(
+      selectChatPreviewCard([{ ...server({ port: 5173 }), source: "configured" }], {
+        threadId: "thread-1",
+        dismissals: undefined,
+        intent: "requested-dev-server",
+      })?.primary.port,
+    ).toBe(5173);
   });
 });

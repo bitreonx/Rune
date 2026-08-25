@@ -190,6 +190,17 @@ export interface CodexSessionRuntimeShape {
   readonly sendTurn: (
     input: CodexSessionRuntimeSendTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, CodexSessionRuntimeError>;
+  readonly readChildThread: (
+    agentThreadId: string,
+  ) => Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
+  readonly sendChildTurn: (
+    agentThreadId: string,
+    input: CodexSessionRuntimeSendTurnInput,
+  ) => Effect.Effect<ProviderTurnStartResult, CodexSessionRuntimeError>;
+  readonly interruptChildTurn: (
+    agentThreadId: string,
+    turnId?: TurnId,
+  ) => Effect.Effect<void, CodexSessionRuntimeError>;
   readonly interruptTurn: (turnId?: TurnId) => Effect.Effect<void, CodexSessionRuntimeError>;
   readonly readThread: Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
   readonly rollbackThread: (
@@ -215,7 +226,9 @@ export type CodexSessionRuntimeError =
   | CodexSessionRuntimePendingApprovalNotFoundError
   | CodexSessionRuntimePendingUserInputNotFoundError
   | CodexSessionRuntimeInvalidUserInputAnswersError
-  | CodexSessionRuntimeThreadIdMissingError;
+  | CodexSessionRuntimeThreadIdMissingError
+  | CodexSessionRuntimeChildAgentNotFoundError
+  | CodexSessionRuntimeChildAgentParentMismatchError;
 
 export class CodexSessionRuntimePendingApprovalNotFoundError extends Schema.TaggedErrorClass<CodexSessionRuntimePendingApprovalNotFoundError>()(
   "CodexSessionRuntimePendingApprovalNotFoundError",
@@ -258,6 +271,28 @@ export class CodexSessionRuntimeThreadIdMissingError extends Schema.TaggedErrorC
 ) {
   override get message(): string {
     return `Codex session is missing a provider thread id for ${this.threadId}`;
+  }
+}
+
+export class CodexSessionRuntimeChildAgentNotFoundError extends Schema.TaggedErrorClass<CodexSessionRuntimeChildAgentNotFoundError>()(
+  "CodexSessionRuntimeChildAgentNotFoundError",
+  {
+    agentThreadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Unknown Codex child agent thread: ${this.agentThreadId}`;
+  }
+}
+
+export class CodexSessionRuntimeChildAgentParentMismatchError extends Schema.TaggedErrorClass<CodexSessionRuntimeChildAgentParentMismatchError>()(
+  "CodexSessionRuntimeChildAgentParentMismatchError",
+  {
+    agentThreadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Codex child agent is not owned by the active parent session: ${this.agentThreadId}`;
   }
 }
 
@@ -904,6 +939,23 @@ interface CollabChildAgentState {
   readonly spawnTurnId: TurnId | undefined;
 }
 
+export function isCodexChildAgentOwnedByParent(input: {
+  readonly agentThreadId: string;
+  readonly parentThreadId: string;
+  readonly child:
+    | {
+        readonly agentThreadId: string;
+        readonly parentThreadId: string | undefined;
+      }
+    | undefined;
+}): boolean {
+  return (
+    input.agentThreadId !== input.parentThreadId &&
+    input.child?.agentThreadId === input.agentThreadId &&
+    input.child.parentThreadId === input.parentThreadId
+  );
+}
+
 function readThreadSpawnSource(thread: { readonly source: unknown }):
   | {
       nickname: string | undefined;
@@ -1279,7 +1331,10 @@ export const makeCodexSessionRuntime = (
             agentPath: spawn.agentPath ?? existingChild?.agentPath,
             depth: spawn.depth ?? existingChild?.depth,
             parentThreadId:
-              spawn.parentThreadId ?? thread.parentThreadId ?? existingChild?.parentThreadId,
+              spawn.parentThreadId ??
+              thread.parentThreadId ??
+              existingChild?.parentThreadId ??
+              currentProviderThreadId(yield* Ref.get(sessionRef)),
             spawnTurnId,
           };
           yield* Ref.update(collabChildAgentsRef, (current) => {
@@ -1344,7 +1399,9 @@ export const makeCodexSessionRuntime = (
               role: existing?.role,
               agentPath: existing?.agentPath ?? item.agentPath,
               depth: existing?.depth,
-              parentThreadId: existing?.parentThreadId,
+              parentThreadId:
+                existing?.parentThreadId ??
+                rootProviderThreadId,
               spawnTurnId: existing ? existing.spawnTurnId : activitySpawnTurnId,
             });
             return next;
@@ -2066,6 +2123,88 @@ export const makeCodexSessionRuntime = (
       return providerThreadId;
     });
 
+    const readRegisteredChild = Effect.fn("CodexSessionRuntime.readRegisteredChild")(
+      function* (agentThreadId: string) {
+        const parentThreadId = yield* readProviderThreadId;
+        const child = (yield* Ref.get(collabChildAgentsRef)).get(agentThreadId);
+        if (!child) {
+          return yield* new CodexSessionRuntimeChildAgentNotFoundError({ agentThreadId });
+        }
+        if (
+          !isCodexChildAgentOwnedByParent({
+            agentThreadId,
+            parentThreadId,
+            child,
+          })
+        ) {
+          return yield* new CodexSessionRuntimeChildAgentParentMismatchError({ agentThreadId });
+        }
+        return child;
+      },
+    );
+
+    const readChildThread = (agentThreadId: string) =>
+      Effect.gen(function* () {
+        const child = yield* readRegisteredChild(agentThreadId);
+        const response = yield* client.request("thread/read", {
+          threadId: child.agentThreadId,
+          includeTurns: true,
+        });
+        return parseThreadSnapshot(response);
+      });
+
+    const sendChildTurn = (agentThreadId: string, input: CodexSessionRuntimeSendTurnInput) =>
+      Effect.gen(function* () {
+        const child = yield* readRegisteredChild(agentThreadId);
+        const session = yield* Ref.get(sessionRef);
+        const normalizedModel = normalizeCodexModelSlug(input.model ?? session.model);
+        const params = yield* buildTurnStartParams({
+          threadId: child.agentThreadId,
+          runtimeMode: options.runtimeMode,
+          ...(input.input ? { prompt: input.input } : {}),
+          ...(input.attachments ? { attachments: input.attachments } : {}),
+          ...(normalizedModel ? { model: normalizedModel } : {}),
+          ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
+          ...(input.effort ? { effort: input.effort } : {}),
+          ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+          browserToolsAvailable: hasConfiguredMcpServer(options.appServerArgs),
+        });
+        const rawResponse = yield* client.raw.request("turn/start", params);
+        const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(
+          Effect.mapError((error) =>
+            CodexErrors.CodexAppServerProtocolParseError.fromSchemaError(
+              "decode-response-payload",
+              error,
+              { method: "turn/start" },
+            ),
+          ),
+        );
+        const turnId = TurnId.make(response.turn.id);
+        yield* Ref.update(collabChildLiveTurnsRef, (current) => {
+          const next = new Map(current);
+          next.set(child.agentThreadId, turnId);
+          return next;
+        });
+        return {
+          threadId: options.threadId,
+          turnId,
+        } satisfies ProviderTurnStartResult;
+      });
+
+    const interruptChildTurn = (agentThreadId: string, turnId?: TurnId) =>
+      Effect.gen(function* () {
+        const child = yield* readRegisteredChild(agentThreadId);
+        const liveTurnId = (yield* Ref.get(collabChildLiveTurnsRef)).get(child.agentThreadId);
+        const effectiveTurnId = turnId ?? (liveTurnId ? TurnId.make(liveTurnId) : undefined);
+        if (!effectiveTurnId) {
+          return;
+        }
+        yield* client.request("turn/interrupt", {
+          threadId: child.agentThreadId,
+          turnId: effectiveTurnId,
+        });
+      });
+
     const close = Effect.gen(function* () {
       const alreadyClosed = yield* Ref.getAndSet(closedRef, true);
       if (alreadyClosed) {
@@ -2090,6 +2229,9 @@ export const makeCodexSessionRuntime = (
     return {
       start,
       getSession: Ref.get(sessionRef),
+      readChildThread,
+      sendChildTurn,
+      interruptChildTurn,
       sendTurn: (input) =>
         Effect.gen(function* () {
           const providerThreadId = yield* readProviderThreadId;

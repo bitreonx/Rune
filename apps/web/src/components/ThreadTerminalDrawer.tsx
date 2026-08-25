@@ -1639,12 +1639,13 @@ export default function ThreadTerminalDrawer({
         data-rune-console-session="none"
         data-rune-console-status="empty"
         data-rune-console-state={resolvedMotionState}
+        data-rune-terminal-surface
         aria-label="RUNE Console"
         className={cn(
           "thread-terminal-drawer rune-console-surface relative flex min-w-0 flex-col overflow-hidden",
           isPanel
-            ? "h-full flex-1 rounded-2xl border border-border/70"
-            : "shrink-0 rounded-t-2xl border border-border/75",
+            ? "h-full flex-1 border border-border/70"
+            : "shrink-0 border border-border/75",
         )}
         style={isPanel ? undefined : { height: `${drawerHeight}px` }}
       >
@@ -1688,12 +1689,13 @@ export default function ThreadTerminalDrawer({
       data-rune-console-session={resolvedActiveTerminalId}
       data-rune-console-status={visible ? "active" : "background"}
       data-rune-console-state={resolvedMotionState}
+      data-rune-terminal-surface
       aria-label="RUNE Console"
       className={cn(
         "thread-terminal-drawer rune-console-surface relative flex min-w-0 flex-col overflow-hidden",
         isPanel
-          ? "h-full flex-1 rounded-2xl border border-border/70"
-          : "shrink-0 rounded-t-2xl border border-border/75",
+          ? "h-full flex-1 border border-border/70"
+          : "shrink-0 border border-border/75",
       )}
       style={isPanel ? undefined : { height: `${drawerHeight}px` }}
     >
@@ -1793,11 +1795,11 @@ export default function ThreadTerminalDrawer({
       >
         <div
           className={cn(
-            "flex h-full min-h-0 overflow-hidden rounded-xl border border-border/70 bg-[var(--terminal-background)] shadow-lg shadow-black/5 dark:shadow-[0_18px_48px_-32px_rgb(0_0_0/0.9)] dark:inset-ring-1 dark:inset-ring-white/5",
+            "flex h-full min-h-0 overflow-hidden border border-border/70 bg-[var(--terminal-background)]",
             hasTerminalSidebar && "gap-2 p-1.5",
           )}
         >
-          <div className="min-w-0 flex-1 overflow-hidden rounded-lg">
+          <div className="min-w-0 flex-1 overflow-hidden">
             {isSplitView ? (
               <div
                 className="grid h-full w-full min-w-0 gap-0 overflow-hidden"

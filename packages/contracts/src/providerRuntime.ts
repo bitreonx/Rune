@@ -506,6 +506,19 @@ export const TaskRunHandles = Schema.Struct({
 export type TaskRunHandles = typeof TaskRunHandles.Type;
 
 /**
+ * Optional provider-native conversation capability for a task agent. The
+ * provider child-thread identifier stays server-owned; clients only need to
+ * know which operations are safe to render.
+ */
+export const TaskChatHandle = Schema.Struct({
+  provider: ProviderDriverKind,
+  canRead: Schema.Boolean,
+  canSend: Schema.Boolean,
+  canInterrupt: Schema.Boolean,
+});
+export type TaskChatHandle = typeof TaskChatHandle.Type;
+
+/**
  * Watch-loop task types: Monitor-tool tasks plus background shells (a shell
  * that outlives its turn is in practice a watch loop). Canonical single copy —
  * the server liveness registry, ingestion's agentKind stamp, and the client
@@ -581,6 +594,8 @@ const taskAgentLinkageFields = {
   outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
   /** Codex agent hierarchy path, e.g. "/root/marlow". */
   agentPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Provider-native child conversation operations available to the client. */
+  chat: Schema.optional(TaskChatHandle),
   /**
    * Set on provider-synthesized child-agent events (Codex) whose activity
    * belongs in the Agents surface, never the parent timeline.

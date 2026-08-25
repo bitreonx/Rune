@@ -56,6 +56,14 @@ export interface SubagentRunHandles {
   readonly sessionUrl?: string;
 }
 
+export interface SubagentChatHandle {
+  /** Open provider slug; kept open for future adapters and forks. */
+  readonly provider: string;
+  readonly canRead: boolean;
+  readonly canSend: boolean;
+  readonly canInterrupt: boolean;
+}
+
 export interface RuntimeSubagent {
   readonly id: string;
   readonly kind: "subagent" | "workflow" | "workflow_agent";
@@ -79,6 +87,8 @@ export interface RuntimeSubagent {
   readonly workflowName: string | null;
   readonly phases: ReadonlyArray<SubagentWorkflowPhase>;
   readonly runHandles: SubagentRunHandles | null;
+  readonly agentPath: string | null;
+  readonly chat: SubagentChatHandle | null;
   readonly recentActivity: ReadonlyArray<SubagentActivityEntry>;
   /** First retained observation, used as the roster's stable display order. */
   readonly firstSeenAt: string;
@@ -144,6 +154,28 @@ function asString(value: unknown): string | undefined {
 
 function asCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function asChatHandle(value: unknown): SubagentChatHandle | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const provider = asString(record.provider);
+  if (
+    !provider ||
+    typeof record.canRead !== "boolean" ||
+    typeof record.canSend !== "boolean" ||
+    typeof record.canInterrupt !== "boolean"
+  ) {
+    return undefined;
+  }
+  return {
+    provider,
+    canRead: record.canRead,
+    canSend: record.canSend,
+    canInterrupt: record.canInterrupt,
+  };
 }
 
 function asUsage(value: unknown): SubagentUsage | undefined {
@@ -248,6 +280,8 @@ interface MutableAgent {
   workflowName: string | null;
   phases: ReadonlyArray<SubagentWorkflowPhase>;
   runHandles: SubagentRunHandles | null;
+  agentPath: string | null;
+  chat: SubagentChatHandle | null;
   recentActivity: ReadonlyArray<SubagentActivityEntry>;
   firstSeenAt: string;
   startedAt: string | null;
@@ -302,6 +336,8 @@ function getOrCreate(
     workflowName: asString(payload.workflowName) ?? null,
     phases: [],
     runHandles: null,
+    agentPath: asString(payload.agentPath) ?? null,
+    chat: asChatHandle(payload.chat) ?? null,
     recentActivity: [],
     firstSeenAt: at,
     startedAt: null,
@@ -352,6 +388,10 @@ function fillMetadata(agent: MutableAgent, payload: Record<string, unknown>): vo
   }
   const outputFile = asString(payload.outputFile);
   if (outputFile) agent.outputFile = outputFile;
+  const agentPath = asString(payload.agentPath);
+  if (agentPath) agent.agentPath = agentPath;
+  const chat = asChatHandle(payload.chat);
+  if (chat) agent.chat = chat;
   if (Array.isArray(payload.phases)) {
     const phases: SubagentWorkflowPhase[] = [];
     for (const entry of payload.phases) {

@@ -84,6 +84,26 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
       }),
   );
 
+  public readonly readChildThreadImpl = vi.fn(
+    (_agentThreadId: string): Promise<CodexThreadSnapshot> =>
+      Promise.resolve({
+        threadId: "provider-child-thread-1",
+        turns: [],
+      }),
+  );
+
+  public readonly sendChildTurnImpl = vi.fn(
+    (_agentThreadId: string, _input: CodexSessionRuntimeSendTurnInput): Promise<ProviderTurnStartResult> =>
+      Promise.resolve({
+        threadId: this.options.threadId,
+        turnId: asTurnId("child-turn-1"),
+      }),
+  );
+
+  public readonly interruptChildTurnImpl = vi.fn(
+    (_agentThreadId: string, _turnId?: TurnId): Promise<void> => Promise.resolve(undefined),
+  );
+
   public readonly interruptTurnImpl = vi.fn(
     (_turnId?: TurnId): Promise<void> => Promise.resolve(undefined),
   );
@@ -134,6 +154,18 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
 
   sendTurn(input: CodexSessionRuntimeSendTurnInput) {
     return Effect.promise(() => this.sendTurnImpl(input));
+  }
+
+  readChildThread(agentThreadId: string) {
+    return Effect.promise(() => this.readChildThreadImpl(agentThreadId));
+  }
+
+  sendChildTurn(agentThreadId: string, input: CodexSessionRuntimeSendTurnInput) {
+    return Effect.promise(() => this.sendChildTurnImpl(agentThreadId, input));
+  }
+
+  interruptChildTurn(agentThreadId: string, turnId?: TurnId) {
+    return Effect.promise(() => this.interruptChildTurnImpl(agentThreadId, turnId));
   }
 
   interruptTurn(turnId?: TurnId) {

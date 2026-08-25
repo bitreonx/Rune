@@ -535,6 +535,12 @@ function mapCollabAgentEvent(
   // finding: progress rows renamed math_one to its UUID).
   const knownName = nickname ?? pathLeaf;
   const title = knownName ?? agentThreadId;
+  const chat = {
+    provider: PROVIDER,
+    canRead: true,
+    canSend: true,
+    canInterrupt: true,
+  } as const;
   // Identity repeated on every status patch so rows are self-describing when
   // the start row ages out of activity retention (review finding: a
   // reconstructed agent had a UUID name and no role/path).
@@ -542,6 +548,7 @@ function mapCollabAgentEvent(
     role,
     ...(knownName ? { title: knownName } : {}),
     ...(agentPath ? { agentPath } : {}),
+    chat,
     timelineBypass: true,
   } as const;
 
@@ -560,6 +567,7 @@ function mapCollabAgentEvent(
             ...(typeof payload.parentThreadId === "string"
               ? { parentAgentId: payload.parentThreadId }
               : {}),
+            chat,
             timelineBypass: true,
           },
         },
@@ -590,6 +598,7 @@ function mapCollabAgentEvent(
               title,
               role,
               ...(agentPath ? { agentPath } : {}),
+              chat,
               timelineBypass: true,
             },
           },
@@ -710,6 +719,7 @@ function mapCollabAgentEvent(
             taskId,
             description: title,
             ...(knownName ? { title: knownName } : {}),
+            chat,
             typedUsage,
             timelineBypass: true,
           },
@@ -743,6 +753,7 @@ function mapCollabAgentEvent(
             description: title,
             ...(knownName ? { title: knownName } : {}),
             summary,
+            chat,
             timelineBypass: true,
           },
         },
@@ -1870,6 +1881,46 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       ),
     );
 
+  const readAgentThread: NonNullable<CodexAdapterShape["readAgentThread"]> = (input) =>
+    requireSession(input.parentThreadId).pipe(
+      Effect.flatMap((session) => session.runtime.readChildThread(String(input.agentId))),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(input.parentThreadId, "thread/read", cause),
+      ),
+      Effect.map((snapshot) => ({
+        threadId: ThreadId.make(String(input.agentId)),
+        turns: snapshot.turns,
+      })),
+    );
+
+  const sendAgentTurn: NonNullable<CodexAdapterShape["sendAgentTurn"]> = (input) =>
+    requireSession(input.parentThreadId).pipe(
+      Effect.flatMap((session) =>
+        session.runtime.sendChildTurn(String(input.agentId), {
+          input: input.input,
+        }),
+      ),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(input.parentThreadId, "turn/start", cause),
+      ),
+    );
+
+  const interruptAgentTurn: NonNullable<CodexAdapterShape["interruptAgentTurn"]> = (input) =>
+    requireSession(input.parentThreadId).pipe(
+      Effect.flatMap((session) =>
+        session.runtime.interruptChildTurn(String(input.agentId), input.turnId),
+      ),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(input.parentThreadId, "turn/interrupt", cause),
+      ),
+    );
+
   const readThread: CodexAdapterShape["readThread"] = (threadId) =>
     requireSession(threadId).pipe(
       Effect.flatMap((session) => session.runtime.readThread),
@@ -2005,6 +2056,9 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    readAgentThread,
+    sendAgentTurn,
+    interruptAgentTurn,
     readThread,
     rollbackThread,
     uploadFeedback,

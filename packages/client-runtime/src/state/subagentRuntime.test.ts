@@ -66,6 +66,55 @@ function fold(rows: ReadonlyArray<OrchestrationThreadActivity>) {
 }
 
 describe("foldSubagentActivities", () => {
+  it("keeps native child identity and chat capability across sparse lifecycle rows", () => {
+    const agents = fold([
+      activity("task.started", {
+        taskId: "codex-child-1",
+        title: "Audit auth flow",
+        role: "explorer",
+        agentPath: "/root/audit-auth",
+        chat: {
+          provider: "codex",
+          canRead: true,
+          canSend: true,
+          canInterrupt: true,
+        },
+      }),
+      activity("task.updated", {
+        taskId: "codex-child-1",
+        status: "idle",
+      }),
+    ]);
+
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.agentPath).toBe("/root/audit-auth");
+    expect(agents[0]!.chat).toEqual({
+      provider: "codex",
+      canRead: true,
+      canSend: true,
+      canInterrupt: true,
+    });
+  });
+
+  it("leaves workflow and legacy agents activity-only", () => {
+    const agents = fold([
+      activity("task.started", {
+        taskId: "workflow-1",
+        taskType: "local_workflow",
+        title: "Release workflow",
+      }),
+      legacyActivity("task.started", {
+        taskId: "legacy-agent",
+        title: "Old agent",
+      }),
+    ]);
+
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.kind).toBe("workflow");
+    expect(agents[0]!.agentPath).toBeNull();
+    expect(agents[0]!.chat).toBeNull();
+  });
+
   it("builds an agent from start → progress → completion", () => {
     const agents = fold([
       activity("task.started", {

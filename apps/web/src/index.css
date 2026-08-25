@@ -1575,10 +1575,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --rune-sidebar-ink: var(--sidebar-foreground);
   --rune-sidebar-ink-muted: var(--sidebar-muted-foreground);
   --rune-sidebar-focus: var(--rune-violet-strong);
-  /* The sidebar renders as a floating glass card (see [data-sidebar="sidebar-inner"]
-     below); the container itself stays transparent and insets the card from the
-     window edges so its rounded corners read against the workspace canvas. */
-  padding: 0.5rem;
+  /* The sidebar is a full-bleed workbench rail; separators, not a floating
+     card, define its boundary with the chat surface. */
+  padding: 0;
 
   @variant dark {
     --background: #000;
@@ -1620,14 +1619,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 [data-app-sidebar] [data-sidebar="sidebar-inner"] {
   border: 1px solid color-mix(in srgb, var(--sidebar-border) 78%, var(--rune-violet-soft));
-  border-radius: 1rem;
+  border-radius: 0;
   background: color-mix(in srgb, var(--rune-sidebar-surface) 86%, transparent);
-  box-shadow: 0 12px 36px -20px color-mix(in srgb, black 45%, transparent);
+  box-shadow: none;
   -webkit-backdrop-filter: blur(22px) saturate(118%);
   backdrop-filter: blur(22px) saturate(118%);
 
   @variant dark {
-    box-shadow: 0 12px 36px -18px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(255 255 255 / 4%);
+    box-shadow: none;
   }
 }
 
@@ -1673,7 +1672,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   border-radius: 0.75rem;
 }
 
-[data-app-sidebar] [data-rune-sidebar-row="subagents"] {
+[data-app-sidebar] [data-rune-sidebar-row="agents"] {
   border-radius: 0.75rem;
 }
 
@@ -1760,13 +1759,37 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   translate: none;
   overflow: hidden;
   border-color: color-mix(in srgb, var(--border) 78%, var(--rune-violet-soft));
-  border-radius: 1.25rem 0 0 1.25rem;
+  border-radius: 0;
   background: color-mix(in srgb, var(--rune-surface-raised) 82%, transparent);
-  box-shadow:
-    -24px 0 64px -44px color-mix(in srgb, var(--rune-violet-strong) 68%, transparent),
-    inset 1px 0 0 color-mix(in srgb, white 8%, transparent);
+  box-shadow: none;
   -webkit-backdrop-filter: blur(24px) saturate(125%);
   backdrop-filter: blur(24px) saturate(125%);
+}
+
+.rune-right-panel-sheet-flat {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+[data-rune-chat-surface] .chat-composer-glass-shell::before,
+[data-rune-chat-surface] .chat-composer-glass-host,
+[data-rune-chat-surface] [data-chat-composer-main-surface="true"],
+[data-rune-chat-surface] [data-chat-composer-surface="true"] {
+  border-radius: 0;
+}
+
+[data-rune-chat-surface] .chat-composer-glass-host {
+  box-shadow: none;
+}
+
+[data-rune-preview-panel-host] {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+[data-rune-terminal-surface] {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 [data-rune-right-panel-host][data-rune-right-panel-maximized="true"] {

@@ -72,6 +72,7 @@ function renderCard() {
     <ChatWebPreviewCard
       threadRef={threadRef}
       environmentId={environmentId}
+      messages={[{ role: "user", text: "show me the web preview" }]}
       configuredUrls={[]}
       openPreview={openPreview}
     />,

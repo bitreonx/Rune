@@ -24,14 +24,19 @@ import type {
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
   ThreadId,
+  TurnId,
   ProviderTurnStartResult,
+  RuntimeTaskId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 
 import type { ProviderServiceError } from "../Errors.ts";
-import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
+import type {
+  ProviderAdapterCapabilities,
+  ProviderThreadSnapshot,
+} from "./ProviderAdapter.ts";
 import type { ProviderInstanceRoutingInfo } from "./ProviderAdapterRegistry.ts";
 
 /**
@@ -59,6 +64,23 @@ export interface ProviderServiceShape {
   readonly interruptTurn: (
     input: ProviderInterruptTurnInput,
   ) => Effect.Effect<void, ProviderServiceError>;
+
+  readonly readAgentThread?: (input: {
+    readonly parentThreadId: ThreadId;
+    readonly agentId: RuntimeTaskId;
+  }) => Effect.Effect<ProviderThreadSnapshot, ProviderServiceError>;
+
+  readonly sendAgentTurn?: (input: {
+    readonly parentThreadId: ThreadId;
+    readonly agentId: RuntimeTaskId;
+    readonly input: string;
+  }) => Effect.Effect<ProviderTurnStartResult, ProviderServiceError>;
+
+  readonly interruptAgentTurn?: (input: {
+    readonly parentThreadId: ThreadId;
+    readonly agentId: RuntimeTaskId;
+    readonly turnId?: TurnId;
+  }) => Effect.Effect<void, ProviderServiceError>;
 
   /**
    * Respond to a provider approval request.

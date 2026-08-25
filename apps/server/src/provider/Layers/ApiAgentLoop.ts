@@ -7,6 +7,7 @@ import type {
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderRuntimeEvent,
+  ThreadTokenUsageSnapshot,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -70,11 +71,15 @@ export interface AgentLoopDeps {
   readonly httpPost: (
     url: string,
     body: unknown,
-  ) => Effect.Effect<Stream.Stream<Uint8Array>, ProviderAdapterRequestError>;
+  ) => Effect.Effect<
+    Stream.Stream<Uint8Array, ProviderAdapterRequestError>,
+    ProviderAdapterRequestError
+  >;
   readonly publish: (event: ProviderRuntimeEvent) => Effect.Effect<void>;
   /** Stamps events with identity/time; supplied by the adapter's clock stack. */
   readonly stamp: Effect.Effect<{ eventId: EventId; createdAt: string }, ProviderAdapterError>;
-  readonly toolContext: NativeToolContext;
+  /** Required whenever any offered tool may execute. */
+  readonly toolContext?: NativeToolContext | undefined;
   /**
    * Consulted before gated tools execute. Completing means approved; failing
    * means denied (the observation tells the model). Undefined runs everything.
@@ -86,6 +91,7 @@ export interface AgentLoopDeps {
 
 export interface AgentTurnInput {
   readonly turnId: TurnId;
+  readonly threadId: ThreadId;
   readonly itemIdPrefix: RuntimeItemId;
   readonly messages: Array<AgentLoopMessage>;
   readonly model: string;
@@ -95,11 +101,13 @@ export interface AgentTurnInput {
   readonly workspaceInstructions?: string | undefined;
   /** Read-only sandboxes never see edit_file/bash at all. */
   readonly sandboxReadOnly: boolean;
+  /** Explicit tool set after session policy has been applied by the adapter. */
+  readonly toolsOverride?: ReadonlyArray<NativeToolDef> | undefined;
 }
 
 export interface AgentTurnResult {
   readonly finalText: string;
-  readonly usage?: Record<string, number> | undefined;
+  readonly usage?: ThreadTokenUsageSnapshot | undefined;
   readonly systemPromptHash: string;
 }
 
@@ -109,13 +117,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const classifyTransportError = (
-  cause: unknown,
-): { retryable: boolean; message: string } => {
+export const classifyTransportError = (cause: unknown): { retryable: boolean; message: string } => {
   const status =
     (cause as { status?: number }).status ?? (cause as { statusCode?: number }).statusCode;
   if (status === 401)
-    return { retryable: false, message: "Provider rejected the API key. Check the key in provider settings." };
+    return {
+      retryable: false,
+      message: "Provider rejected the API key. Check the key in provider settings.",
+    };
   if (status === 402) return { retryable: false, message: "Provider account is out of credits." };
   if (status === 429 || (typeof status === "number" && status >= 500) || status === undefined)
     return { retryable: true, message: "Transient provider failure." };
@@ -158,17 +167,14 @@ const parseToolArgs = (raw: string): Record<string, unknown> | undefined => {
 };
 
 const nonNegativeInt = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.round(value)
-    : undefined;
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
 
-const toUsageSnapshot = (raw: Record<string, number>) => {
+const toUsageSnapshot = (raw: Record<string, number>): ThreadTokenUsageSnapshot => {
   const inputTokens = nonNegativeInt(raw.prompt_tokens);
   const outputTokens = nonNegativeInt(raw.completion_tokens);
-  const usedTokens =
-    nonNegativeInt(raw.total_tokens) ?? (inputTokens ?? 0) + (outputTokens ?? 0);
+  const usedTokens = nonNegativeInt(raw.total_tokens) ?? (inputTokens ?? 0) + (outputTokens ?? 0);
   return {
-    ...(usedTokens !== undefined ? { usedTokens } : {}),
+    usedTokens: usedTokens ?? 0,
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
   };
@@ -201,12 +207,13 @@ export const runAgenticTurn = (
     const systemPrompt = compileSystemPrompt({
       identity: defaultIdentity,
       toolGuidance: defaultToolGuidance,
-      workspaceInstructions: input.workspaceInstructions,
+      ...(input.workspaceInstructions === undefined
+        ? {}
+        : { workspaceInstructions: input.workspaceInstructions }),
     });
     const systemPromptHash = hashPrompt(systemPrompt);
-    const offered: ReadonlyArray<NativeToolDef> = input.sandboxReadOnly
-      ? SAFE_TOOLS
-      : NATIVE_TOOLS;
+    const offered: ReadonlyArray<NativeToolDef> =
+      input.toolsOverride ?? (input.sandboxReadOnly ? SAFE_TOOLS : NATIVE_TOOLS);
     const toolsWire = offered.map((def) => ({
       type: "function",
       function: {
@@ -217,16 +224,17 @@ export const runAgenticTurn = (
     }));
     const url = apiProviderEndpoint(input.baseUrl, "chat/completions");
     const messages: Array<AgentLoopMessage> = [...input.messages];
-    let lastUsage: Record<string, number> | undefined;
+    let lastUsage: ThreadTokenUsageSnapshot | undefined;
     let finalText: string | undefined;
 
-    const instanceFields = deps.providerInstanceId !== undefined
-      ? { providerInstanceId: deps.providerInstanceId }
-      : {};
+    const instanceFields =
+      deps.providerInstanceId !== undefined ? { providerInstanceId: deps.providerInstanceId } : {};
 
-    const executeToolCall = (
-      call: { id: string; name: string; arguments: string },
-    ): Effect.Effect<string, ProviderAdapterError> =>
+    const executeToolCall = (call: {
+      id: string;
+      name: string;
+      arguments: string;
+    }): Effect.Effect<string, ProviderAdapterError> =>
       Effect.gen(function* () {
         const def = offered.find((candidate) => candidate.name === call.name);
         if (!def) return `Error: unknown tool ${call.name}`;
@@ -234,11 +242,18 @@ export const runAgenticTurn = (
         if (!args) {
           return `Error: could not parse arguments as JSON: ${call.arguments.slice(0, 200)}`;
         }
+        if (!deps.toolContext) return "Error: tools are unavailable in this context";
         if (def.requiresApproval && deps.approvalGate) {
           let denied = false;
           yield* deps
             .approvalGate({ toolName: def.name, summary: `${def.name} ${summarizeArgs(args)}` })
-            .pipe(Effect.catch(() => Effect.sync(() => { denied = true; })));
+            .pipe(
+              Effect.catch(() =>
+                Effect.sync(() => {
+                  denied = true;
+                }),
+              ),
+            );
           if (denied) return `Error: user denied ${def.name}`;
         }
         return yield* def.execute(args, deps.toolContext);
@@ -261,7 +276,8 @@ export const runAgenticTurn = (
               turnId: input.turnId,
               itemId,
               payload: { streamKind: "assistant_text", delta },
-            })),
+            }),
+          ),
         now: Clock.currentTimeMillis,
       });
 
@@ -270,15 +286,14 @@ export const runAgenticTurn = (
         messages: [{ role: "system", content: systemPrompt }, ...messages],
         stream: true,
         stream_options: { include_usage: true },
-        tools: toolsWire,
-        tool_choice: "auto",
+        ...(offered.length > 0 ? { tools: toolsWire, tool_choice: "auto" } : {}),
       };
 
       // Transport failures get exactly one retry; the second surfaces. Retries
       // only cover acquiring the stream — once bytes flowed, restarting would
       // double-publish deltas.
       const acquireStream: Effect.Effect<
-        Stream.Stream<Uint8Array>,
+        Stream.Stream<Uint8Array, ProviderAdapterRequestError>,
         ProviderAdapterRequestError
       > = deps.httpPost(url, body).pipe(
         Effect.catch((error) => {
@@ -286,9 +301,7 @@ export const runAgenticTurn = (
           if (!classified.retryable) {
             return Effect.fail(requestFailed(deps.provider, classified.message, error));
           }
-          return Effect.sleep("1 seconds").pipe(
-            Effect.flatMap(() => deps.httpPost(url, body)),
-          );
+          return Effect.sleep("1 seconds").pipe(Effect.flatMap(() => deps.httpPost(url, body)));
         }),
       );
 
@@ -324,7 +337,8 @@ export const runAgenticTurn = (
       );
 
       if (roundUsage !== undefined) {
-        lastUsage = toUsageSnapshot(roundUsage);
+        const usage = toUsageSnapshot(roundUsage);
+        lastUsage = usage;
         yield* Effect.flatMap(deps.stamp, (stamp) =>
           deps.publish({
             type: "thread.token-usage.updated",
@@ -333,8 +347,9 @@ export const runAgenticTurn = (
             ...instanceFields,
             threadId: input.threadId,
             turnId: input.turnId,
-            payload: { usage: lastUsage },
-          }));
+            payload: { usage },
+          }),
+        );
       }
 
       const calls = accumulator.finish();

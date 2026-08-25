@@ -44,9 +44,7 @@ export interface NativeToolDef {
 const describeError = (error: unknown): string =>
   error instanceof Error && error.message.length > 0 ? error.message : JSON.stringify(error);
 
-const observe = <E>(
-  effect: Effect.Effect<string, E>,
-): Effect.Effect<string, never> =>
+const observe = <E>(effect: Effect.Effect<string, E>): Effect.Effect<string, never> =>
   effect.pipe(Effect.catch((error) => Effect.succeed(`Error: ${describeError(error)}`)));
 
 const stringArg = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -58,7 +56,9 @@ const optionalIntArg = (value: unknown): number | undefined =>
 const MAX_OBSERVATION_CHARS = 16_384;
 
 const clamp = (text: string): string =>
-  text.length <= MAX_OBSERVATION_CHARS ? text : `${text.slice(0, MAX_OBSERVATION_CHARS)}\n[clamped]`;
+  text.length <= MAX_OBSERVATION_CHARS
+    ? text
+    : `${text.slice(0, MAX_OBSERVATION_CHARS)}\n[clamped]`;
 
 export const readFileTool: NativeToolDef = {
   name: "read_file",
@@ -121,11 +121,13 @@ export const listDirTool: NativeToolDef = {
                 .map((entry) => (entry.kind === "directory" ? `${entry.path}/` : entry.path))
                 .join("\n"),
             ),
+            observe,
           )
         : ctx.workspaceEntries.browse({ partialPath: target, cwd: ctx.cwd }).pipe(
             Effect.map((result) => result.entries.map((entry) => entry.name).join("\n")),
+            observe,
           );
-    return listing.pipe(Effect.map(clamp), observe);
+    return listing.pipe(Effect.map(clamp));
   },
 };
 
@@ -169,11 +171,7 @@ export const searchTool: NativeToolDef = {
       ),
 };
 
-export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [
-  readFileTool,
-  listDirTool,
-  searchTool,
-];
+export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [readFileTool, listDirTool, searchTool];
 
 const BASH_TIMEOUT = Duration.seconds(120);
 const BASH_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -186,7 +184,10 @@ export const editFileTool: NativeToolDef = {
     type: "object",
     properties: {
       path: { type: "string", description: "Workspace-relative path to the file." },
-      oldText: { type: "string", description: "Exact text to replace; must be unique in the file." },
+      oldText: {
+        type: "string",
+        description: "Exact text to replace; must be unique in the file.",
+      },
       newText: { type: "string", description: "Replacement text." },
     },
     required: ["path", "oldText", "newText"],
@@ -248,8 +249,7 @@ export const bashTool: NativeToolDef = {
       const sections: Array<string> = [];
       if (output.stdout.length > 0) sections.push(output.stdout.replace(/\n$/, ""));
       if (output.stderr.length > 0) sections.push(`[stderr]\n${output.stderr}`);
-      const suffix =
-        `${output.timedOut ? " (timed out)" : ""}${output.stdoutTruncated || output.stderrTruncated ? " [output truncated]" : ""}`;
+      const suffix = `${output.timedOut ? " (timed out)" : ""}${output.stdoutTruncated || output.stderrTruncated ? " [output truncated]" : ""}`;
       return clamp(`exit ${String(output.code)}${suffix}\n${sections.join("\n")}`);
     }).pipe(observe);
   },

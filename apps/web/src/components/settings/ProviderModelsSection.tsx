@@ -38,6 +38,35 @@ const CUSTOM_MODEL_PLACEHOLDER_BY_KIND: Partial<Record<ProviderDriverKind, strin
   [ProviderDriverKind.make("antigravity")]: "gemini-3.7-flash-high",
 };
 
+function metadataLabels(model: ServerProviderModel): string[] {
+  const metadata = model.metadata;
+  if (!metadata) return [];
+  const labels: string[] = [];
+  if (metadata.contextWindow !== undefined) {
+    const context =
+      metadata.contextWindow >= 1_000_000
+        ? `${(metadata.contextWindow / 1_000_000).toFixed(1)}M`
+        : `${Math.round(metadata.contextWindow / 1_000)}k`;
+    labels.push(`${context} context`);
+  }
+  if (metadata.inputModalities?.includes("image") || metadata.inputModalities?.includes("audio")) {
+    labels.push(`Input: ${metadata.inputModalities.join("/")}`);
+  }
+  if (metadata.outputModalities?.some((modality) => modality !== "text")) {
+    labels.push(`Output: ${metadata.outputModalities.join("/")}`);
+  }
+  if (
+    metadata.supportedParameters?.some(
+      (parameter) => parameter === "tools" || parameter === "tool_choice",
+    )
+  ) {
+    labels.push("Tools");
+  }
+  if (metadata.reasoning) labels.push("Reasoning");
+  if (metadata.pricing) labels.push("Pricing available");
+  return labels;
+}
+
 interface ProviderModelsSectionProps {
   /** Identifier used to namespace input ids within the DOM. */
   readonly instanceId: ProviderInstanceId;
@@ -208,6 +237,7 @@ export function ProviderModelsSection({
         {orderedModels.map((model, index) => {
           const caps = model.capabilities;
           const capLabels: string[] = [];
+          const modelMetadataLabels = metadataLabels(model);
           const isHidden = hiddenModelSet.has(model.slug);
           const isFavorite = favoriteModelSet.has(model.slug);
           const previousModel = orderedModels[index - 1];
@@ -235,7 +265,8 @@ export function ProviderModelsSection({
           ) {
             capLabels.push("Reasoning");
           }
-          const hasDetails = capLabels.length > 0 || model.name !== model.slug;
+          const detailLabels = [...capLabels, ...modelMetadataLabels];
+          const hasDetails = detailLabels.length > 0 || model.name !== model.slug;
 
           return (
             <div
@@ -271,9 +302,9 @@ export function ProviderModelsSection({
                     <TooltipPopup side="top" className="max-w-56">
                       <div className="space-y-1">
                         <code className="block text-[11px] text-foreground">{model.slug}</code>
-                        {capLabels.length > 0 ? (
+                        {detailLabels.length > 0 ? (
                           <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                            {capLabels.map((label) => (
+                            {detailLabels.map((label) => (
                               <span key={label} className="text-[10px] text-muted-foreground">
                                 {label}
                               </span>

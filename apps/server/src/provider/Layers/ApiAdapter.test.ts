@@ -2,12 +2,23 @@ import { describe, expect, it } from "vite-plus/test";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import type { ProviderRuntimeEvent } from "@t3tools/contracts";
-import { ProviderDriverKind, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  ApprovalRequestId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
+import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
+import * as WorkspaceFileSystem from "../../workspace/WorkspaceFileSystem.ts";
+import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
 
 import { extractOpenAiCompatibleModelIds, extractOpenAiCompatibleText } from "./ApiAdapter.ts";
 import { makeApiAdapter } from "./ApiAdapter.ts";
@@ -56,7 +67,7 @@ function sseResponse(request: Parameters<typeof HttpClientResponse.fromWeb>[0], 
   );
 }
 
-function makeStreamingClient(chunks: string[], failAfter?: number) {
+function makeStreamingClient(chunks: string[], failAfter?: number, scriptedChunks?: string[][]) {
   const requests: CapturedRequest[] = [];
   const client = {
     execute: (request: Parameters<typeof HttpClientResponse.fromWeb>[0]) => {
@@ -71,12 +82,13 @@ function makeStreamingClient(chunks: string[], failAfter?: number) {
       }
       requests.push({ url: request.url, body });
 
+      const responseChunks = scriptedChunks?.[requests.length - 1] ?? chunks;
       if (failAfter !== undefined) {
         const encoder = new TextEncoder();
         const response = new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
-              for (const chunk of chunks.slice(0, failAfter)) {
+              for (const chunk of responseChunks.slice(0, failAfter)) {
                 controller.enqueue(encoder.encode(chunk));
               }
               controller.error(new Error("connection reset mid-stream"));
@@ -86,7 +98,7 @@ function makeStreamingClient(chunks: string[], failAfter?: number) {
         );
         return Effect.succeed(HttpClientResponse.fromWeb(request, response));
       }
-      return Effect.succeed(sseResponse(request, chunks));
+      return Effect.succeed(sseResponse(request, responseChunks));
     },
   };
   return {
@@ -97,6 +109,19 @@ function makeStreamingClient(chunks: string[], failAfter?: number) {
 
 const makeAdapterLayer = (httpClient: HttpClient.HttpClient) =>
   Layer.mergeAll(NodeServices.layer, Layer.succeed(HttpClient.HttpClient, httpClient));
+
+const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
+const workspaceFileSystemLayer = WorkspaceFileSystem.layer.pipe(
+  Layer.provide(WorkspacePaths.layer),
+  Layer.provide(workspaceEntriesLayer),
+  Layer.provideMerge(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+);
+const workspaceToolLayer = Layer.empty.pipe(
+  Layer.provideMerge(workspaceFileSystemLayer),
+  Layer.provideMerge(workspaceEntriesLayer),
+  Layer.provideMerge(WorkspacePaths.layer),
+  Layer.provideMerge(NodeServices.layer),
+);
 
 describe("ApiAdapter streaming turns", () => {
   it("streams chat completions as deltas before completing the item", async () => {
@@ -137,8 +162,9 @@ describe("ApiAdapter streaming turns", () => {
       expect(deltas.join("")).toBe("Hello world");
 
       const completed = events.find((event) => event.type === "item.completed");
-      expect(completed && completed.type === "item.completed" ? completed.payload : undefined)
-        .toMatchObject({ itemType: "assistant_message", status: "completed" });
+      expect(
+        completed && completed.type === "item.completed" ? completed.payload : undefined,
+      ).toMatchObject({ itemType: "assistant_message", status: "completed" });
 
       const thread = yield* adapter.readThread(THREAD_ID);
       expect(thread.turns[0]?.items).toEqual([
@@ -154,6 +180,131 @@ describe("ApiAdapter streaming turns", () => {
     expect(capturedRequests).toHaveLength(1);
     expect(firstRequest?.url).toContain("/chat/completions");
     expect(firstRequest?.body).toMatchObject({ stream: true, model: "test/default-model" });
+  });
+
+  it("offers native workspace tools when a session has a cwd", async () => {
+    const toolRound = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":\\"hello.txt\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const finalRound = [
+      'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const { httpClient, requests } = makeStreamingClient([], undefined, [toolRound, finalRound]);
+
+    const program = Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-api-adapter-tools-" });
+      yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "hello from workspace\n");
+      const adapter = yield* makeApiAdapter({
+        provider: PROVIDER,
+        instanceId: INSTANCE_ID,
+        baseUrl: "https://example.invalid/v1",
+        apiKey: "key",
+        defaultModel: "test/default-model",
+        toolServices: {
+          workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
+          workspaceEntries: yield* WorkspaceEntries.WorkspaceEntries,
+        },
+      });
+      yield* adapter.startSession({ threadId: THREAD_ID, cwd, runtimeMode: "full-access" });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "read hello.txt" });
+      while (true) {
+        const event = yield* Queue.take(queue);
+        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
+      }
+    }).pipe(
+      Effect.provide(Layer.mergeAll(workspaceToolLayer, makeAdapterLayer(httpClient))),
+      Effect.scoped,
+    );
+
+    await Effect.runPromise(program);
+    const firstBody = requests[0]?.body as { tools?: Array<{ function: { name: string } }> };
+    expect(firstBody.tools?.map((tool) => tool.function.name)).toEqual([
+      "read_file",
+      "list_dir",
+      "search",
+      "edit_file",
+    ]);
+    const secondBody = requests[1]?.body as {
+      messages?: Array<{ role: string; content?: string }>;
+    };
+    expect(secondBody.messages?.find((message) => message.role === "tool")?.content).toContain(
+      "hello from workspace",
+    );
+  });
+
+  it("pauses gated edits until the approval response arrives", async () => {
+    const editRound = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"edit_1","function":{"name":"edit_file","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":\\"hello.txt\\",\\"oldText\\":\\"before\\",\\"newText\\":\\"after\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const finalRound = [
+      'data: {"choices":[{"delta":{"content":"saved"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const { httpClient } = makeStreamingClient([], undefined, [editRound, finalRound]);
+
+    const program = Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-api-adapter-approval-" });
+      yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "before\n");
+      const adapter = yield* makeApiAdapter({
+        provider: PROVIDER,
+        instanceId: INSTANCE_ID,
+        baseUrl: "https://example.invalid/v1",
+        apiKey: "key",
+        defaultModel: "test/default-model",
+        toolServices: {
+          workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
+          workspaceEntries: yield* WorkspaceEntries.WorkspaceEntries,
+        },
+      });
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        cwd,
+        approvalPolicy: "on-request",
+        sandboxMode: "workspace-write",
+        runtimeMode: "approval-required",
+      });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "update hello.txt" });
+      const events: Array<ProviderRuntimeEvent> = [];
+      while (true) {
+        const event = yield* Queue.take(queue);
+        events.push(event);
+        if (event.type === "request.opened" && event.requestId !== undefined) {
+          yield* adapter.respondToRequest(
+            THREAD_ID,
+            ApprovalRequestId.make(String(event.requestId)),
+            "accept",
+          );
+        }
+        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
+      }
+      return {
+        events,
+        contents: yield* fileSystem.readFileString(path.join(cwd, "hello.txt")),
+      };
+    }).pipe(
+      Effect.provide(Layer.mergeAll(workspaceToolLayer, makeAdapterLayer(httpClient))),
+      Effect.scoped,
+    );
+
+    const result = await Effect.runPromise(program);
+    expect(result.contents).toBe("after\n");
+    expect(result.events.some((event) => event.type === "request.opened")).toBe(true);
+    expect(result.events.some((event) => event.type === "request.resolved")).toBe(true);
   });
 
   it("marks the turn failed when the stream dies mid-generation", async () => {

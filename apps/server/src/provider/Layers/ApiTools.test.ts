@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as ProcessRunner from "../../processRunner.ts";
@@ -31,7 +32,7 @@ const fakeProcessRunnerLayer = Layer.mock(ProcessRunner.ProcessRunner)({
       return Effect.succeed({
         stdout: "hello from bash\n",
         stderr: "",
-        code: 0,
+        code: ChildProcessSpawner.ExitCode(0),
         timedOut: false,
         stdoutTruncated: false,
         stderrTruncated: false,
@@ -56,13 +57,17 @@ const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-const makeContext: Effect.Effect<NativeToolContext> = Effect.gen(function* () {
+const makeContext = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3code-api-tools-" });
-  yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n").pipe(Effect.orDie);
+  yield* fileSystem
+    .writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n")
+    .pipe(Effect.orDie);
   yield* fileSystem.makeDirectory(path.join(cwd, "sub"), { recursive: true }).pipe(Effect.orDie);
-  yield* fileSystem.writeFileString(path.join(cwd, "sub", "nested.txt"), "nested\n").pipe(Effect.orDie);
+  yield* fileSystem
+    .writeFileString(path.join(cwd, "sub", "nested.txt"), "nested\n")
+    .pipe(Effect.orDie);
   return {
     cwd,
     workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
@@ -86,7 +91,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
 
         expect(yield* read.execute({ path: "hello.txt" }, ctx)).toContain("line2");
         expect(yield* read.execute({ path: "hello.txt", offset: 2, limit: 1 }, ctx)).toBe("line2");
-      }));
+      }),
+    );
 
     it.effect("read_file denies paths escaping the root", () =>
       Effect.gen(function* () {
@@ -96,7 +102,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         const observation = yield* read.execute({ path: "../outside.txt" }, ctx);
 
         expect(observation.startsWith("Error:")).toBe(true);
-      }));
+      }),
+    );
 
     it.effect("list_dir lists without reading file contents", () =>
       Effect.gen(function* () {
@@ -108,7 +115,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         expect(observation).toContain("hello.txt");
         expect(observation).toContain("sub/");
         expect(observation).not.toContain("line1");
-      }));
+      }),
+    );
 
     it.effect("search finds content matches formatted as path:line: snippet", () =>
       Effect.gen(function* () {
@@ -118,7 +126,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         const observation = yield* search.execute({ query: "nested" }, ctx);
 
         expect(observation).toMatch(/sub[\\/]nested\.txt:\d+:/);
-      }));
+      }),
+    );
 
     it.effect("tool failures become Error observations instead of failing the turn", () =>
       Effect.gen(function* () {
@@ -128,7 +137,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         const observation = yield* read.execute({ path: "does-not-exist.txt" }, ctx);
 
         expect(observation.startsWith("Error:")).toBe(true);
-      }));
+      }),
+    );
   });
 
   describe("tool definitions", () => {
@@ -137,7 +147,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
       for (const def of SAFE_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
         expect(
-          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {}).length,
+          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
+            .length,
         ).toBeGreaterThan(0);
         expect(def.requiresApproval).toBe(false);
       }
@@ -148,7 +159,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
       for (const def of GATED_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
         expect(
-          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {}).length,
+          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
+            .length,
         ).toBeGreaterThan(0);
         expect(def.requiresApproval).toBe(true);
       }
@@ -172,7 +184,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         expect(yield* fileSystem.readFileString(path.join(ctx.cwd, "hello.txt"))).toBe(
           "line1\nline two\n",
         );
-      }));
+      }),
+    );
 
     it.effect("edit_file rejects oldText matching more than one location", () =>
       Effect.gen(function* () {
@@ -192,7 +205,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         expect(yield* fileSystem.readFileString(path.join(ctx.cwd, "hello.txt"))).toBe(
           "line1\nline2\n",
         );
-      }));
+      }),
+    );
 
     it.effect("bash runs through the process runner with a platform shell", () =>
       Effect.gen(function* () {
@@ -208,9 +222,10 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         } else {
           expect(capturedRuns[0]).toMatchObject({ command: "bash", args: ["-c", "echo hi"] });
         }
-        expect(capturedRuns[0].cwd).toBe(ctx.cwd);
+        expect(capturedRuns[0]?.cwd).toBe(ctx.cwd);
         expect(observation).toContain("hello from bash");
         expect(observation).toContain("exit 0");
-      }));
+      }),
+    );
   });
 });

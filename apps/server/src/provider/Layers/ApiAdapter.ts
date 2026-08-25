@@ -9,31 +9,31 @@ import {
   ProviderSendTurnInput,
   ProviderTurnStartResult,
   RuntimeItemId,
+  RuntimeRequestId,
   ThreadId,
   TurnId,
   type ProviderApprovalDecision,
+  type ProviderApprovalPolicy,
+  type ProviderSandboxMode,
   type ProviderUserInputAnswers,
 } from "@t3tools/contracts";
-import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
-import {
-  apiProviderEndpoint,
-  normalizeApiProviderBaseUrl,
-} from "@t3tools/contracts";
-import { makeCoalescedDeltaSink, resultFromSseLine } from "./ApiSse.ts";
+import { apiProviderEndpoint, normalizeApiProviderBaseUrl } from "@t3tools/contracts";
+import { ProcessRunner } from "../../processRunner.ts";
+import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
+import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
+import { runAgenticTurn, type AgentLoopDeps, type AgentLoopMessage } from "./ApiAgentLoop.ts";
+import { NATIVE_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
 import {
   type ProviderAdapterError,
   ProviderAdapterRequestError,
@@ -65,6 +65,21 @@ interface ApiSessionContext {
   activeFiber: Fiber.Fiber<void, never> | undefined;
   activeTurnId: TurnId | undefined;
   stopped: boolean;
+  approvalPolicy: ProviderApprovalPolicy | undefined;
+  sandboxMode: ProviderSandboxMode | undefined;
+  workspaceInstructions: string | undefined;
+  pendingApprovals: Map<ApprovalRequestId, ApiPendingApproval>;
+}
+
+interface ApiPendingApproval {
+  readonly deferred: Deferred.Deferred<ProviderApprovalDecision, ProviderAdapterError>;
+  readonly requestType: "command_execution_approval" | "file_change_approval";
+}
+
+export interface ApiAdapterToolServices {
+  readonly workspaceFileSystem: typeof WorkspaceFileSystem.Service;
+  readonly workspaceEntries: typeof WorkspaceEntries.Service;
+  readonly processRunner?: typeof ProcessRunner.Service | undefined;
 }
 
 export interface ApiAdapterOptions {
@@ -74,12 +89,12 @@ export interface ApiAdapterOptions {
   readonly apiKey: string;
   readonly defaultModel: string;
   readonly requestHeaders?: Readonly<Record<string, string>>;
+  /** Workspace services powering the native agent loop's tools. */
+  readonly toolServices?: ApiAdapterToolServices | undefined;
 }
 
 export interface ApiProviderAdapter extends ProviderAdapterShape<ProviderAdapterError> {
-  readonly fetchModels: (
-    operation?: string,
-  ) => Effect.Effect<unknown, ProviderAdapterRequestError>;
+  readonly fetchModels: (operation?: string) => Effect.Effect<unknown, ProviderAdapterRequestError>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -129,9 +144,7 @@ function requestError(
   });
 }
 
-export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
-  options: ApiAdapterOptions,
-) {
+export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: ApiAdapterOptions) {
   const crypto = yield* Crypto.Crypto;
   const httpClient = yield* HttpClient.HttpClient;
   const adapterScope = yield* Effect.scope;
@@ -149,12 +162,10 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
     eventId: nextIdentifier.pipe(Effect.map(EventId.make)),
     createdAt: nowIso,
   });
-  const publish = (event: ProviderRuntimeEvent) => PubSub.publish(events, event).pipe(Effect.asVoid);
+  const publish = (event: ProviderRuntimeEvent) =>
+    PubSub.publish(events, event).pipe(Effect.asVoid);
 
-  const makeRequest = (
-    operation: string,
-    request: ReturnType<typeof HttpClientRequest.get>,
-  ) =>
+  const makeRequest = (operation: string, request: ReturnType<typeof HttpClientRequest.get>) =>
     Effect.succeed(request).pipe(
       Effect.flatMap(httpClient.execute),
       Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -209,7 +220,9 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
     );
   };
 
-  const requireSession = (threadId: ThreadId): Effect.Effect<ApiSessionContext, ProviderAdapterError> => {
+  const requireSession = (
+    threadId: ThreadId,
+  ): Effect.Effect<ApiSessionContext, ProviderAdapterError> => {
     const context = sessions.get(threadId);
     if (!context) {
       return Effect.fail(
@@ -230,12 +243,30 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
     return Effect.succeed(context);
   };
 
+  /** Best-effort project instructions, kept bounded before entering prompts. */
+  const readWorkspaceInstructions = (cwd: string): Effect.Effect<string | undefined, never> =>
+    Effect.gen(function* () {
+      for (const relativePath of ["AGENTS.md", "CLAUDE.md"]) {
+        const contents = yield* options
+          .toolServices!.workspaceFileSystem.readFile({ cwd, relativePath })
+          .pipe(
+            Effect.map((result) => result.contents),
+            Effect.orElseSucceed(() => undefined),
+          );
+        if (contents !== undefined && contents.trim().length > 0) {
+          const trimmed = contents.trim();
+          return trimmed.length > 8_000 ? `${trimmed.slice(0, 8_000)}\n[truncated]` : trimmed;
+        }
+      }
+      return undefined;
+    });
+
   const runTurn = (context: ApiSessionContext, input: ProviderSendTurnInput, turnId: TurnId) =>
     Effect.gen(function* () {
       const selectedModel =
         input.modelSelection?.instanceId === options.instanceId && input.modelSelection.model.trim()
           ? input.modelSelection.model.trim()
-          : context.session.model ?? options.defaultModel;
+          : (context.session.model ?? options.defaultModel);
       const userText = input.input?.trim() ?? "";
       if (userText.length === 0) {
         return yield* new ProviderAdapterValidationError({
@@ -254,48 +285,107 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
         updatedAt: yield* nowIso,
       };
 
-      // Stream the completion over SSE and forward assistant text as it
-      // arrives, coalesced so the orchestration event rate stays bounded.
-      const itemId = RuntimeItemId.make(`${String(turnId)}:assistant`);
-      let assembled = "";
-      const publishDelta = (delta: string) =>
-        Effect.flatMap(makeStamp, (stamp) =>
-          publish({
-            type: "content.delta",
-            ...stamp,
-            provider: options.provider,
-            providerInstanceId: options.instanceId,
-            threadId: context.threadId,
-            turnId,
-            itemId,
-            payload: { streamKind: "assistant_text", delta },
-          }));
-      const sink = makeCoalescedDeltaSink({
-        flush: publishDelta,
-        now: Clock.currentTimeMillis,
-      });
-
-      const streamFailure = (cause: unknown) =>
-        requestError(options.provider, "chat/completions", cause);
-      yield* postStream(
-        "chat/completions",
-        apiProviderEndpoint(baseUrl, "chat/completions"),
-        { model: selectedModel, messages: context.messages, stream: true },
-      ).pipe(
-        HttpClientResponse.stream,
-        Stream.decodeText,
-        Stream.splitLines,
-        Stream.runForEach((line) => {
-          const parsed = resultFromSseLine(line);
-          if (parsed.kind !== "delta" || parsed.text.length === 0) return Effect.void;
-          assembled += parsed.text;
-          return sink.add(parsed.text);
-        }),
-        Effect.flatMap(() => sink.end()),
-        Effect.mapError(streamFailure),
+      const cwd = context.session.cwd;
+      const toolsAvailable = options.toolServices !== undefined && cwd !== undefined;
+      const offeredTools = !toolsAvailable
+        ? []
+        : context.sandboxMode === "read-only"
+          ? SAFE_TOOLS
+          : options.toolServices?.processRunner
+            ? NATIVE_TOOLS
+            : NATIVE_TOOLS.filter((tool) => tool.name !== "bash");
+      const toolContext: NativeToolContext | undefined = toolsAvailable
+        ? {
+            cwd,
+            workspaceFileSystem: options.toolServices!.workspaceFileSystem,
+            workspaceEntries: options.toolServices!.workspaceEntries,
+            processRunner: options.toolServices!.processRunner,
+          }
+        : undefined;
+      const approvalGate: AgentLoopDeps["approvalGate"] =
+        toolContext !== undefined &&
+        (context.approvalPolicy === "untrusted" || context.approvalPolicy === "on-request")
+          ? (gateInput) =>
+              Effect.gen(function* () {
+                const rawRequestId = yield* nextIdentifier;
+                const requestId = ApprovalRequestId.make(rawRequestId);
+                const deferred = yield* Deferred.make<
+                  ProviderApprovalDecision,
+                  ProviderAdapterError
+                >();
+                const requestType =
+                  gateInput.toolName === "bash"
+                    ? ("command_execution_approval" as const)
+                    : ("file_change_approval" as const);
+                context.pendingApprovals.set(requestId, { deferred, requestType });
+                yield* publish({
+                  type: "request.opened",
+                  ...(yield* makeStamp),
+                  provider: options.provider,
+                  providerInstanceId: options.instanceId,
+                  threadId: context.threadId,
+                  turnId,
+                  requestId: RuntimeRequestId.make(rawRequestId),
+                  payload: {
+                    requestType,
+                    detail: gateInput.summary,
+                    args: { toolName: gateInput.toolName },
+                    options: [
+                      { decision: "accept", label: "Allow once" },
+                      { decision: "acceptForSession", label: "Allow for session" },
+                      { decision: "decline", label: "Deny" },
+                    ],
+                  },
+                });
+                const decision = yield* Deferred.await(deferred);
+                context.pendingApprovals.delete(requestId);
+                if (decision === "decline" || decision === "cancel") {
+                  return yield* new ProviderAdapterRequestError({
+                    provider: options.provider,
+                    method: "approval",
+                    detail: `User denied ${gateInput.toolName}.`,
+                  });
+                }
+              })
+          : undefined;
+      const result = yield* runAgenticTurn(
+        {
+          provider: options.provider,
+          providerInstanceId: options.instanceId,
+          threadId: context.threadId,
+          httpPost: (url, body) => {
+            const response = postStream("chat/completions", url, body);
+            return response.pipe(
+              Effect.map((httpResponse) =>
+                httpResponse.stream.pipe(
+                  Stream.mapError((cause) =>
+                    requestError(options.provider, "chat/completions", cause),
+                  ),
+                ),
+              ),
+            );
+          },
+          publish,
+          stamp: makeStamp,
+          toolContext,
+          approvalGate,
+        },
+        {
+          threadId: context.threadId,
+          turnId,
+          itemIdPrefix: RuntimeItemId.make(`${String(turnId)}:assistant`),
+          messages: context.messages as Array<AgentLoopMessage>,
+          model: selectedModel,
+          baseUrl,
+          apiKey: options.apiKey,
+          requestHeaders: options.requestHeaders,
+          workspaceInstructions: context.workspaceInstructions,
+          sandboxReadOnly: context.sandboxMode === "read-only",
+          toolsOverride: offeredTools,
+        },
       );
 
-      const text = assembled.trim();
+      const text = result.finalText.trim();
       if (text.length === 0) {
         return yield* new ProviderAdapterRequestError({
           provider: options.provider,
@@ -312,10 +402,16 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
         providerInstanceId: options.instanceId,
         threadId: context.threadId,
         turnId,
-        itemId,
+        itemId: RuntimeItemId.make(`${String(turnId)}:assistant`),
         payload: { itemType: "assistant_message", status: "completed", data: { text } },
       });
-      context.turns.push({ id: turnId, items: [{ role: "user", content: userText }, { role: "assistant", content: text }] });
+      context.turns.push({
+        id: turnId,
+        items: [
+          { role: "user", content: userText },
+          { role: "assistant", content: text },
+        ],
+      });
       const updatedAt = yield* nowIso;
       const { activeTurnId: _activeTurnId, ...readySession } = context.session;
       context.activeTurnId = undefined;
@@ -335,6 +431,10 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
         Effect.gen(function* () {
           context.activeFiber = undefined;
           context.activeTurnId = undefined;
+          yield* failPendingApprovals(
+            context,
+            cause instanceof Error ? cause.message : String(cause),
+          );
           context.session = { ...context.session, status: "error", updatedAt: yield* nowIso };
           yield* publish({
             type: "turn.completed",
@@ -385,7 +485,14 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
         activeFiber: undefined,
         activeTurnId: undefined,
         stopped: false,
+        approvalPolicy: input.approvalPolicy,
+        sandboxMode: input.sandboxMode,
+        workspaceInstructions: undefined,
+        pendingApprovals: new Map(),
       };
+      if (options.toolServices !== undefined && input.cwd !== undefined) {
+        context.workspaceInstructions = yield* readWorkspaceInstructions(input.cwd);
+      }
       sessions.set(input.threadId, context);
       yield* publish({
         type: "session.started",
@@ -406,7 +513,9 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
       return session;
     });
 
-  const sendTurn = (input: ProviderSendTurnInput): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> =>
+  const sendTurn = (
+    input: ProviderSendTurnInput,
+  ): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> =>
     Effect.gen(function* () {
       const context = yield* requireSession(input.threadId);
       if (context.activeFiber) {
@@ -418,7 +527,12 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
       }
       const turnId = TurnId.make(yield* nextIdentifier);
       context.activeTurnId = turnId;
-      context.session = { ...context.session, status: "running", activeTurnId: turnId, updatedAt: yield* nowIso };
+      context.session = {
+        ...context.session,
+        status: "running",
+        activeTurnId: turnId,
+        updatedAt: yield* nowIso,
+      };
       yield* publish({
         type: "turn.started",
         ...(yield* makeStamp),
@@ -428,7 +542,9 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
         turnId,
         payload: { model: context.session.model ?? options.defaultModel },
       });
-      context.activeFiber = yield* runTurn(context, input, turnId).pipe(Effect.forkIn(adapterScope));
+      context.activeFiber = yield* runTurn(context, input, turnId).pipe(
+        Effect.forkIn(adapterScope),
+      );
       return { threadId: input.threadId, turnId } satisfies ProviderTurnStartResult;
     });
 
@@ -438,9 +554,15 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
       if (turnId !== undefined && context.activeTurnId !== turnId) return;
       const activeTurnId = context.activeTurnId;
       if (context.activeFiber) yield* Fiber.interrupt(context.activeFiber).pipe(Effect.ignore);
+      yield* failPendingApprovals(context, "The turn was interrupted.");
       context.activeFiber = undefined;
       context.activeTurnId = undefined;
-      context.session = { ...context.session, status: "ready", activeTurnId: undefined, updatedAt: yield* nowIso };
+      context.session = {
+        ...context.session,
+        status: "ready",
+        activeTurnId: undefined,
+        updatedAt: yield* nowIso,
+      };
       if (activeTurnId) {
         yield* publish({
           type: "turn.completed",
@@ -458,6 +580,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
     Effect.gen(function* () {
       const context = yield* requireSession(threadId);
       if (context.activeFiber) yield* Fiber.interrupt(context.activeFiber).pipe(Effect.ignore);
+      yield* failPendingApprovals(context, "The session was stopped.");
       context.activeFiber = undefined;
       context.activeTurnId = undefined;
       context.stopped = true;
@@ -472,12 +595,58 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
       });
     });
 
+  const failPendingApprovals = (context: ApiSessionContext, detail: string) =>
+    Effect.gen(function* () {
+      for (const pending of context.pendingApprovals.values()) {
+        yield* Deferred.fail(
+          pending.deferred,
+          new ProviderAdapterRequestError({
+            provider: options.provider,
+            method: "approval",
+            detail,
+          }),
+        ).pipe(Effect.ignore);
+      }
+      context.pendingApprovals.clear();
+    });
+
+  const respondToRequest = (
+    threadId: ThreadId,
+    requestId: ApprovalRequestId,
+    decision: ProviderApprovalDecision,
+  ): Effect.Effect<void, ProviderAdapterError> =>
+    Effect.gen(function* () {
+      const context = yield* requireSession(threadId);
+      const pending = context.pendingApprovals.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterValidationError({
+          provider: options.provider,
+          operation: "respondToRequest",
+          issue: "No pending approval request with that id.",
+        });
+      }
+      context.pendingApprovals.delete(requestId);
+      if (decision === "acceptForSession" || decision === "acceptAlways") {
+        context.approvalPolicy = "never";
+      }
+      yield* Deferred.succeed(pending.deferred, decision);
+      yield* publish({
+        type: "request.resolved",
+        ...(yield* makeStamp),
+        provider: options.provider,
+        providerInstanceId: options.instanceId,
+        threadId,
+        requestId: RuntimeRequestId.make(String(requestId)),
+        payload: { requestType: pending.requestType, decision },
+      });
+    });
+
   const unsupported = (operation: string) =>
     Effect.fail(
       new ProviderAdapterValidationError({
         provider: options.provider,
         operation,
-        issue: "API providers do not support interactive approvals or user-input requests.",
+        issue: "API providers do not support interactive user-input requests.",
       }),
     );
 
@@ -487,22 +656,32 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
     startSession,
     sendTurn,
     interruptTurn,
-    respondToRequest: (_threadId: ThreadId, _requestId: ApprovalRequestId, _decision: ProviderApprovalDecision) => unsupported("respondToRequest"),
-    respondToUserInput: (_threadId: ThreadId, _requestId: ApprovalRequestId, _answers: ProviderUserInputAnswers) => unsupported("respondToUserInput"),
+    respondToRequest,
+    respondToUserInput: (
+      _threadId: ThreadId,
+      _requestId: ApprovalRequestId,
+      _answers: ProviderUserInputAnswers,
+    ) => unsupported("respondToUserInput"),
     stopSession,
     listSessions: () => Effect.succeed([...sessions.values()].map((context) => context.session)),
     hasSession: (threadId: ThreadId) => Effect.succeed(sessions.has(threadId)),
     readThread: (threadId: ThreadId): Effect.Effect<ProviderThreadSnapshot, ProviderAdapterError> =>
-      requireSession(threadId).pipe(
-        Effect.map((context) => ({ threadId, turns: context.turns })),
-      ),
-    rollbackThread: (threadId: ThreadId, numTurns: number): Effect.Effect<ProviderThreadSnapshot, ProviderAdapterError> =>
+      requireSession(threadId).pipe(Effect.map((context) => ({ threadId, turns: context.turns }))),
+    rollbackThread: (
+      threadId: ThreadId,
+      numTurns: number,
+    ): Effect.Effect<ProviderThreadSnapshot, ProviderAdapterError> =>
       requireSession(threadId).pipe(
         Effect.map((context) => {
           context.turns.splice(Math.max(0, context.turns.length - numTurns));
           context.messages = context.turns.flatMap((turn) =>
             turn.items.flatMap((item) => {
-              if (!isRecord(item) || typeof item.role !== "string" || typeof item.content !== "string") return [];
+              if (
+                !isRecord(item) ||
+                typeof item.role !== "string" ||
+                typeof item.content !== "string"
+              )
+                return [];
               return item.role === "user" || item.role === "assistant"
                 ? [{ role: item.role, content: item.content } satisfies ApiChatMessage]
                 : [];
@@ -513,6 +692,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (
       ),
     stopAll: () => Effect.forEach([...sessions.keys()], stopSession, { discard: true }),
     streamEvents: Stream.fromPubSub(events),
-    fetchModels: (operation = "models") => fetchJson(operation, HttpClientRequest.get(apiProviderEndpoint(baseUrl, "models"))),
+    fetchModels: (operation = "models") =>
+      fetchJson(operation, HttpClientRequest.get(apiProviderEndpoint(baseUrl, "models"))),
   } satisfies ApiProviderAdapter;
 });

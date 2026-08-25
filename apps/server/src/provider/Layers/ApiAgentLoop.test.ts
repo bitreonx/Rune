@@ -50,11 +50,13 @@ const THREAD_ID = ThreadId.make("thread-agent-loop");
 const TURN_ID = TurnId.make("turn-agent-loop");
 const ITEM_PREFIX = RuntimeItemId.make("turn-agent-loop:assistant");
 
-const makeToolContext: Effect.Effect<NativeToolContext> = Effect.gen(function* () {
+const makeToolContext = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3code-agent-loop-" });
-  yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n").pipe(Effect.orDie);
+  yield* fileSystem
+    .writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n")
+    .pipe(Effect.orDie);
   return {
     cwd,
     workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
@@ -63,7 +65,12 @@ const makeToolContext: Effect.Effect<NativeToolContext> = Effect.gen(function* (
 });
 
 const requestError = (detail: string, cause?: unknown) =>
-  new ProviderAdapterRequestError({ provider: PROVIDER, method: "chat/completions", detail, cause });
+  new ProviderAdapterRequestError({
+    provider: PROVIDER,
+    method: "chat/completions",
+    detail,
+    cause,
+  });
 
 /** Encode an SSE payload as the Uint8Array stream a provider would send. */
 const sseStream = (payload: string): Stream.Stream<Uint8Array> =>
@@ -93,7 +100,7 @@ const makeHarness = (
     threadId: THREAD_ID,
     httpPost: (_url, body) =>
       Effect.suspend(() => {
-        const script = scripts[Math.min(requests.length, scripts.length - 1)];
+        const script = scripts[Math.min(requests.length, scripts.length - 1)] ?? "";
         requests.push({ url: _url, body: body as Record<string, unknown> });
         return Effect.succeed(sseStream(script));
       }),
@@ -208,7 +215,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
           ? usageEvents[0].payload.usage
           : undefined;
       expect(usagePayload).toMatchObject({ usedTokens: 160, inputTokens: 120, outputTokens: 40 });
-    }));
+    }),
+  );
 
   it.effect("strips sandboxed tools from the offered set", () =>
     Effect.gen(function* () {
@@ -222,7 +230,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
         harness.requests[0]?.body.tools as Array<{ function: { name: string } }>
       ).map((tool) => tool.function.name);
       expect(offeredNames).toEqual(["read_file", "list_dir", "search"]);
-    }));
+    }),
+  );
 
   it.effect("repairs fenced JSON arguments without another model round-trip", () =>
     Effect.gen(function* () {
@@ -241,7 +250,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const secondMessages = harness.requests[1]?.body.messages as Array<Record<string, unknown>>;
       const toolResult = secondMessages.find((message) => message.role === "tool");
       expect(String(toolResult?.content)).toContain("line2");
-    }));
+    }),
+  );
 
   it.effect("unparseable tool arguments become an Error observation", () =>
     Effect.gen(function* () {
@@ -257,22 +267,24 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const secondMessages = harness.requests[1]?.body.messages as Array<Record<string, unknown>>;
       const toolResult = secondMessages.find((message) => message.role === "tool");
       expect(String(toolResult?.content).startsWith("Error:")).toBe(true);
-    }));
+    }),
+  );
 
   it.effect("denied gated tools observe the denial instead of executing", () =>
     Effect.gen(function* () {
       const toolContext = yield* makeToolContext;
       const gates: Array<string> = [];
-      const harness = makeHarness(toolContext, [
-        toolCallScript("bash", '{"command": "echo hi"}'),
-        textScript("skipped"),
-      ], {
-        approvalGate: (input) =>
-          Effect.suspend(() => {
-            gates.push(input.toolName);
-            return Effect.fail(requestError("User denied bash"));
-          }),
-      });
+      const harness = makeHarness(
+        toolContext,
+        [toolCallScript("bash", '{"command": "echo hi"}'), textScript("skipped")],
+        {
+          approvalGate: (input) =>
+            Effect.suspend(() => {
+              gates.push(input.toolName);
+              return Effect.fail(requestError("User denied bash"));
+            }),
+        },
+      );
 
       const result = yield* runTurn(harness.deps);
 
@@ -281,17 +293,19 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const secondMessages = harness.requests[1]?.body.messages as Array<Record<string, unknown>>;
       const toolResult = secondMessages.find((message) => message.role === "tool");
       expect(String(toolResult?.content)).toBe("Error: user denied bash");
-    }));
+    }),
+  );
 
   it.effect("approved gated tools execute through the gate", () =>
     Effect.gen(function* () {
       const toolContext = yield* makeToolContext;
-      const harness = makeHarness(toolContext, [
-        toolCallScript("list_dir", '{"path": "."}'),
-        textScript("listed"),
-      ], {
-        approvalGate: (_input) => Effect.void,
-      });
+      const harness = makeHarness(
+        toolContext,
+        [toolCallScript("list_dir", '{"path": "."}'), textScript("listed")],
+        {
+          approvalGate: (_input) => Effect.void,
+        },
+      );
 
       const result = yield* runTurn(harness.deps);
 
@@ -299,7 +313,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const secondMessages = harness.requests[1]?.body.messages as Array<Record<string, unknown>>;
       const toolResult = secondMessages.find((message) => message.role === "tool");
       expect(String(toolResult?.content)).not.toContain("Error:");
-    }));
+    }),
+  );
 
   it.effect("fails the turn after 32 tool-requesting round-trips", () =>
     Effect.gen(function* () {
@@ -311,7 +326,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
 
       expect(failure.message).toContain("32");
       expect(harness.requests).toHaveLength(32);
-    }));
+    }),
+  );
 
   it.effect("retries a transient transport failure once before succeeding", () =>
     Effect.gen(function* () {
@@ -332,7 +348,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
 
       expect(attempts).toBe(2);
       expect(result.finalText).toBe("after retry");
-    }));
+    }),
+  );
 
   it.effect("surfaces fatal transport failures immediately without retrying", () =>
     Effect.gen(function* () {
@@ -350,5 +367,6 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
 
       expect(attempts).toBe(1);
       expect(failure.message).toContain("API key");
-    }));
+    }),
+  );
 });

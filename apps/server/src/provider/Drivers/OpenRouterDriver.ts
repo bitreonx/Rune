@@ -10,7 +10,10 @@ import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
+import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { makeApiProviderInstance } from "../Layers/ApiProvider.ts";
+import { parseOpenRouterModelCatalog } from "../Layers/OpenRouterModelCatalog.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import type { ProviderDriver } from "../ProviderDriver.ts";
 
@@ -23,7 +26,9 @@ export type OpenRouterDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
   | Crypto.Crypto
   | HttpClient.HttpClient
-  | ServerSettingsService;
+  | ServerSettingsService
+  | WorkspaceEntries
+  | WorkspaceFileSystem;
 
 export const OpenRouterDriver: ProviderDriver<OpenRouterSettings, OpenRouterDriverEnv> = {
   driverKind: DRIVER_KIND,
@@ -32,29 +37,30 @@ export const OpenRouterDriver: ProviderDriver<OpenRouterSettings, OpenRouterDriv
   defaultConfig: () => decodeSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     makeApiProviderInstance({
-        driver: DRIVER_KIND,
-        settings: { ...config, enabled },
-        instanceId,
-        displayName,
-        accentColor,
-        environment,
-        enabled,
-        defaultBaseUrl: OPENROUTER_DEFAULT_BASE_URL,
-        defaultModel: "openai/gpt-4.1-mini",
-        apiKeyLabel: "OpenRouter API Key",
-        requestHeaders: {
-          ...(config.siteUrl ? { "HTTP-Referer": config.siteUrl } : {}),
-          ...(config.appName ? { "X-Title": config.appName } : {}),
-        },
-      }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderDriverError({
-              driver: DRIVER_KIND,
-              instanceId,
-              detail: `Failed to build OpenRouter provider: ${cause instanceof Error ? cause.message : String(cause)}`,
-              cause,
-            }),
-        ),
+      driver: DRIVER_KIND,
+      settings: { ...config, enabled },
+      instanceId,
+      displayName,
+      accentColor,
+      environment,
+      enabled,
+      defaultBaseUrl: OPENROUTER_DEFAULT_BASE_URL,
+      defaultModel: "openai/gpt-4.1-mini",
+      apiKeyLabel: "OpenRouter API Key",
+      parseModelCatalog: parseOpenRouterModelCatalog,
+      requestHeaders: {
+        ...(config.siteUrl ? { "HTTP-Referer": config.siteUrl } : {}),
+        ...(config.appName ? { "X-Title": config.appName } : {}),
+      },
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderDriverError({
+            driver: DRIVER_KIND,
+            instanceId,
+            detail: `Failed to build OpenRouter provider: ${cause instanceof Error ? cause.message : String(cause)}`,
+            cause,
+          }),
       ),
+    ),
 };

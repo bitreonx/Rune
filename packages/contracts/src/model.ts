@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
 
 export const ProviderOptionDescriptorType = Schema.Literals(["select", "boolean"]);
@@ -126,6 +126,38 @@ export const ModelCapabilities = Schema.Struct({
   optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
 });
 export type ModelCapabilities = typeof ModelCapabilities.Type;
+
+/**
+ * Provider-neutral metadata discovered from a model catalog. Providers may
+ * omit fields they cannot prove; consumers must treat missing values as
+ * unknown rather than guessing.
+ */
+export const ModelPricing = Schema.Struct({
+  prompt: Schema.optional(TrimmedNonEmptyString),
+  completion: Schema.optional(TrimmedNonEmptyString),
+  inputCacheRead: Schema.optional(TrimmedNonEmptyString),
+  inputCacheWrite: Schema.optional(TrimmedNonEmptyString),
+});
+export type ModelPricing = typeof ModelPricing.Type;
+
+export const ModelReasoningMetadata = Schema.Struct({
+  mandatory: Schema.optional(Schema.Boolean),
+  defaultEffort: Schema.optional(TrimmedNonEmptyString),
+  supportedEfforts: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+export type ModelReasoningMetadata = typeof ModelReasoningMetadata.Type;
+
+export const ModelMetadata = Schema.Struct({
+  canonicalSlug: Schema.optional(TrimmedNonEmptyString),
+  contextWindow: Schema.optional(PositiveInt),
+  maxOutputTokens: Schema.optional(PositiveInt),
+  inputModalities: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  outputModalities: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  supportedParameters: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  pricing: Schema.optional(ModelPricing),
+  reasoning: Schema.optional(ModelReasoningMetadata),
+});
+export type ModelMetadata = typeof ModelMetadata.Type;
 
 const CODEX_DRIVER_KIND = ProviderDriverKind.make("codex");
 const CLAUDE_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");

@@ -12,6 +12,15 @@ import * as Effect from "effect/Effect";
 
 export type SseLineResult =
   | { readonly kind: "delta"; readonly text: string }
+  | {
+      readonly kind: "toolCallDelta";
+      readonly index: number;
+      readonly id?: string;
+      readonly name?: string;
+      readonly argsDelta: string;
+    }
+  | { readonly kind: "finish"; readonly reason: string }
+  | { readonly kind: "usage"; readonly usage: Record<string, number> }
   | { readonly kind: "done" }
   | { readonly kind: "ignore" };
 
@@ -34,11 +43,68 @@ export const resultFromSseLine = (line: string): SseLineResult => {
   } catch {
     return { kind: "ignore" };
   }
-  if (!isRecord(parsed) || !Array.isArray(parsed.choices)) return { kind: "ignore" };
+  if (!isRecord(parsed)) return { kind: "ignore" };
+  if (isRecord(parsed.usage)) {
+    const usage: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed.usage)) {
+      if (typeof value === "number") usage[key] = value;
+    }
+    return { kind: "usage", usage };
+  }
+  if (!Array.isArray(parsed.choices)) return { kind: "ignore" };
   const choice = parsed.choices.find(isRecord);
-  if (!choice || !isRecord(choice.delta)) return { kind: "ignore" };
+  if (!choice) return { kind: "ignore" };
+  if (typeof choice.finish_reason === "string" && choice.finish_reason.length > 0) {
+    return { kind: "finish", reason: choice.finish_reason };
+  }
+  if (!isRecord(choice.delta)) return { kind: "ignore" };
+  if (Array.isArray(choice.delta.tool_calls)) {
+    const call = choice.delta.tool_calls.find(isRecord);
+    if (!call || typeof call.index !== "number") return { kind: "ignore" };
+    const fn = isRecord(call.function) ? call.function : {};
+    return {
+      kind: "toolCallDelta",
+      index: call.index,
+      ...(typeof call.id === "string" && call.id.length > 0 ? { id: call.id } : {}),
+      ...(typeof fn.name === "string" && fn.name.length > 0 ? { name: fn.name } : {}),
+      argsDelta: typeof fn.arguments === "string" ? fn.arguments : "",
+    };
+  }
   if (typeof choice.delta.content !== "string") return { kind: "ignore" };
   return { kind: "delta", text: choice.delta.content };
+};
+
+export interface CompletedToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: string;
+}
+
+/**
+ * Merge streamed `tool_calls` fragments back into whole calls. Fragments for
+ * one call arrive across many chunks — first carries id/name, later ones
+ * append argument text — so accumulation is keyed by the provider's index.
+ */
+export const makeToolCallAccumulator = (): {
+  add: (result: Extract<SseLineResult, { kind: "toolCallDelta" }>) => void;
+  finish: () => Array<CompletedToolCall>;
+} => {
+  const byIndex = new Map<number, { id: string; name: string; arguments: string }>();
+  return {
+    add: (result) => {
+      const current = byIndex.get(result.index) ?? { id: "", name: "", arguments: "" };
+      byIndex.set(result.index, {
+        id: current.id || result.id || "",
+        name: current.name || result.name || "",
+        arguments: current.arguments + result.argsDelta,
+      });
+    },
+    finish: () =>
+      [...byIndex.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([index, call]) => ({ ...call, id: call.id || `call_${index}` }))
+        .filter((call) => call.name.length > 0),
+  };
 };
 
 export interface CoalescedDeltaSink<E> {

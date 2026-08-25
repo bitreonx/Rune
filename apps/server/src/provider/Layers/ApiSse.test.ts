@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import * as Effect from "effect/Effect";
-import { makeCoalescedDeltaSink, resultFromSseLine, type SseLineResult } from "./ApiSse.ts";
+import {
+  makeCoalescedDeltaSink,
+  makeToolCallAccumulator,
+  resultFromSseLine,
+  type SseLineResult,
+} from "./ApiSse.ts";
 
 const delta = (text: string): SseLineResult => ({ kind: "delta", text });
 
@@ -31,6 +36,42 @@ describe("SSE line parsing", () => {
     expect(
       resultFromSseLine('data: {"choices":[{"delta":{"reasoning":"hidden"}}]}'),
     ).toEqual({ kind: "ignore" });
+  });
+});
+
+describe("ApiSse tool-call parsing", () => {
+  it("parses streamed tool_call fragments", () => {
+    expect(
+      resultFromSseLine(
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":""}}]}}]}',
+      ),
+    ).toEqual({ kind: "toolCallDelta", index: 0, id: "call_1", name: "read_file", argsDelta: "" });
+    expect(
+      resultFromSseLine(
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":"}}]}}]}',
+      ),
+    ).toEqual({ kind: "toolCallDelta", index: 0, argsDelta: '{"path":' });
+  });
+
+  it("parses finish_reason and usage chunks", () => {
+    expect(resultFromSseLine('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}')).toEqual({
+      kind: "finish",
+      reason: "tool_calls",
+    });
+    expect(
+      resultFromSseLine('data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":40}}'),
+    ).toEqual({ kind: "usage", usage: { prompt_tokens: 120, completion_tokens: 40 } });
+  });
+
+  it("accumulates fragments into complete tool calls", () => {
+    const acc = makeToolCallAccumulator();
+    acc.add({ kind: "toolCallDelta", index: 0, id: "call_1", name: "edit_file", argsDelta: '{"path"' });
+    acc.add({ kind: "toolCallDelta", index: 0, argsDelta: ':"a"}' });
+    acc.add({ kind: "toolCallDelta", index: 1, id: "call_2", name: "bash", argsDelta: "{}" });
+    expect(acc.finish()).toEqual([
+      { id: "call_1", name: "edit_file", arguments: '{"path":"a"}' },
+      { id: "call_2", name: "bash", arguments: "{}" },
+    ]);
   });
 });
 

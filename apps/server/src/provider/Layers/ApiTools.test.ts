@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -7,12 +8,38 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
+import * as ProcessRunner from "../../processRunner.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "../../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
-import { SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
+import { GATED_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
 
 const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
+
+interface CapturedProcessRun {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string | undefined;
+}
+
+const capturedRuns: Array<CapturedProcessRun> = [];
+
+const fakeProcessRunnerLayer = Layer.mock(ProcessRunner.ProcessRunner)({
+  run: (input) =>
+    Effect.suspend(() => {
+      capturedRuns.push({ command: input.command, args: input.args, cwd: input.cwd });
+      return Effect.succeed({
+        stdout: "hello from bash\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        stdoutInvalidUtf8: false,
+        stderrInvalidUtf8: false,
+      });
+    }),
+});
 
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(
@@ -25,6 +52,7 @@ const TestLayer = Layer.empty.pipe(
   ),
   Layer.provideMerge(workspaceEntriesLayer),
   Layer.provideMerge(WorkspacePaths.layer),
+  Layer.provideMerge(fakeProcessRunnerLayer),
   Layer.provideMerge(NodeServices.layer),
 );
 
@@ -39,6 +67,7 @@ const makeContext: Effect.Effect<NativeToolContext> = Effect.gen(function* () {
     cwd,
     workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
     workspaceEntries: yield* WorkspaceEntries.WorkspaceEntries,
+    processRunner: yield* ProcessRunner.ProcessRunner,
   };
 });
 
@@ -113,5 +142,75 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         expect(def.requiresApproval).toBe(false);
       }
     });
+
+    it("every gated tool def is fully described and requires approval", () => {
+      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual(["edit_file", "bash"]);
+      for (const def of GATED_TOOLS) {
+        expect(def.description.length).toBeGreaterThan(0);
+        expect(
+          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {}).length,
+        ).toBeGreaterThan(0);
+        expect(def.requiresApproval).toBe(true);
+      }
+    });
+  });
+
+  describe("gated tool executions", () => {
+    it.effect("edit_file replaces a unique occurrence and persists it", () =>
+      Effect.gen(function* () {
+        const edit = GATED_TOOLS.find((tool) => tool.name === "edit_file")!;
+        const ctx = yield* makeContext;
+
+        const observation = yield* edit.execute(
+          { path: "hello.txt", oldText: "line2", newText: "line two" },
+          ctx,
+        );
+
+        expect(observation.startsWith("Error:")).toBe(false);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        expect(yield* fileSystem.readFileString(path.join(ctx.cwd, "hello.txt"))).toBe(
+          "line1\nline two\n",
+        );
+      }));
+
+    it.effect("edit_file rejects oldText matching more than one location", () =>
+      Effect.gen(function* () {
+        const edit = GATED_TOOLS.find((tool) => tool.name === "edit_file")!;
+        const ctx = yield* makeContext;
+
+        // "line" appears twice in hello.txt.
+        const observation = yield* edit.execute(
+          { path: "hello.txt", oldText: "line", newText: "x" },
+          ctx,
+        );
+
+        expect(observation.startsWith("Error:")).toBe(true);
+        expect(observation).toContain("2");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        expect(yield* fileSystem.readFileString(path.join(ctx.cwd, "hello.txt"))).toBe(
+          "line1\nline2\n",
+        );
+      }));
+
+    it.effect("bash runs through the process runner with a platform shell", () =>
+      Effect.gen(function* () {
+        const bash = GATED_TOOLS.find((tool) => tool.name === "bash")!;
+        capturedRuns.length = 0;
+        const ctx = yield* makeContext;
+
+        const observation = yield* bash.execute({ command: "echo hi" }, ctx);
+
+        expect(capturedRuns.length).toBe(1);
+        if ((yield* HostProcessPlatform) === "win32") {
+          expect(capturedRuns[0]).toMatchObject({ command: "cmd.exe", args: ["/c", "echo hi"] });
+        } else {
+          expect(capturedRuns[0]).toMatchObject({ command: "bash", args: ["-c", "echo hi"] });
+        }
+        expect(capturedRuns[0].cwd).toBe(ctx.cwd);
+        expect(observation).toContain("hello from bash");
+        expect(observation).toContain("exit 0");
+      }));
   });
 });

@@ -1,5 +1,8 @@
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
+import { ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 
@@ -17,6 +20,8 @@ export interface NativeToolContext {
   readonly cwd: string;
   readonly workspaceFileSystem: typeof WorkspaceFileSystem.Service;
   readonly workspaceEntries: typeof WorkspaceEntries.Service;
+  /** Required by `bash`; absent contexts fail that tool with an observation. */
+  readonly processRunner?: typeof ProcessRunner.Service | undefined;
 }
 
 export interface NativeToolDef {
@@ -169,3 +174,87 @@ export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [
   listDirTool,
   searchTool,
 ];
+
+const BASH_TIMEOUT = Duration.seconds(120);
+const BASH_MAX_OUTPUT_BYTES = 64 * 1024;
+
+export const editFileTool: NativeToolDef = {
+  name: "edit_file",
+  description:
+    "Replace text inside a workspace file. oldText must match exactly one location in the file.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Workspace-relative path to the file." },
+      oldText: { type: "string", description: "Exact text to replace; must be unique in the file." },
+      newText: { type: "string", description: "Replacement text." },
+    },
+    required: ["path", "oldText", "newText"],
+  },
+  requiresApproval: true,
+  execute: (args, ctx) => {
+    const relativePath = stringArg(args.path);
+    const oldText = stringArg(args.oldText);
+    return Effect.gen(function* () {
+      if (oldText.length === 0) {
+        return `Error: edit_file oldText must not be empty`;
+      }
+      const result = yield* ctx.workspaceFileSystem.readFile({ cwd: ctx.cwd, relativePath });
+      const occurrences = result.contents.split(oldText).length - 1;
+      if (occurrences !== 1) {
+        return `Error: oldText matched ${occurrences} locations in ${relativePath}; it must match exactly one. Include more surrounding text.`;
+      }
+      const newText = stringArg(args.newText);
+      yield* ctx.workspaceFileSystem.writeFile({
+        cwd: ctx.cwd,
+        relativePath,
+        contents: result.contents.replace(oldText, newText),
+      });
+      return `Edited ${relativePath}`;
+    }).pipe(observe);
+  },
+};
+
+export const bashTool: NativeToolDef = {
+  name: "bash",
+  description:
+    "Run a shell command in the workspace root and see its output. Output is truncated to fit; the command times out after two minutes.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      command: { type: "string", description: "The shell command to run.", minLength: 1 },
+    },
+    required: ["command"],
+  },
+  requiresApproval: true,
+  execute: (args, ctx) => {
+    const runner = ctx.processRunner;
+    if (!runner) {
+      return Effect.succeed("Error: bash is unavailable in this context");
+    }
+    const command = stringArg(args.command);
+    return Effect.gen(function* () {
+      // Windows has no bundled POSIX shell; cmd.exe is the lowest common shell there.
+      const isWindows = (yield* HostProcessPlatform) === "win32";
+      const output = yield* runner.run({
+        command: isWindows ? "cmd.exe" : "bash",
+        args: isWindows ? ["/c", command] : ["-c", command],
+        cwd: ctx.cwd,
+        timeout: BASH_TIMEOUT,
+        maxOutputBytes: BASH_MAX_OUTPUT_BYTES,
+        outputMode: "truncate",
+        timeoutBehavior: "timedOutResult",
+      });
+      const sections: Array<string> = [];
+      if (output.stdout.length > 0) sections.push(output.stdout.replace(/\n$/, ""));
+      if (output.stderr.length > 0) sections.push(`[stderr]\n${output.stderr}`);
+      const suffix =
+        `${output.timedOut ? " (timed out)" : ""}${output.stdoutTruncated || output.stderrTruncated ? " [output truncated]" : ""}`;
+      return clamp(`exit ${String(output.code)}${suffix}\n${sections.join("\n")}`);
+    }).pipe(observe);
+  },
+};
+
+export const GATED_TOOLS: ReadonlyArray<NativeToolDef> = [editFileTool, bashTool];
+
+export const NATIVE_TOOLS: ReadonlyArray<NativeToolDef> = [...SAFE_TOOLS, ...GATED_TOOLS];

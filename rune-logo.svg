@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-labelledby="title desc">
+  <title id="title">RUNE logo</title>
+  <desc id="desc">Geometric R monogram inside an angular hexagonal rune form.</desc>
+
+  <!--
+    RUNE — master vector mark
+    Flat, monochrome, SVG-native construction.
+    Built from a small number of polygons for easy editing and perfect scaling.
+  -->
+
+  <g fill="#171717">
+    <!-- top crown -->
+    <polygon points="500,105 205,285 590,285 705,395 795,285"/>
+
+    <!-- left pillar / outer wall -->
+    <polygon points="205,285 350,375 350,750 205,660"/>
+
+    <!-- upper-right outer wall -->
+    <polygon points="795,285 705,395 795,485 795,660 655,575 720,500 650,430 705,395"/>
+
+    <!-- center inner wedge -->
+    <polygon points="430,395 605,395 430,565"/>
+
+    <!-- lower-right R leg -->
+    <polygon points="430,565 650,780 500,875 430,830"/>
+
+    <!-- bottom support facet -->
+    <polygon points="500,875 650,780 705,835 500,930 405,875 430,830"/>
+  </g>
+
+  <!-- negative-space R spine/counter -->
+  <path fill="#FFFFFF" d="
+    M205 285
+    H590
+    L705 395
+    L625 470
+    L555 395
+    H430
+    V565
+    L650 780
+    L575 825
+    L350 610
+    V375
+    Z
+  "/>
+
+  <!-- restore central dark triangular counter for the R -->
+  <polygon fill="#171717" points="430,395 605,395 430,565"/>
+</svg>

@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  resolveRunePanelMotionState,
+  runePanelTransitionClass,
+} from "./runePanelMotion";
+
+describe("RUNE panel motion", () => {
+  it("distinguishes opening, open, closing, and closed states", () => {
+    expect(
+      resolveRunePanelMotionState({ open: true, previousOpen: false, reducedMotion: false }),
+    ).toBe("opening");
+    expect(
+      resolveRunePanelMotionState({ open: true, previousOpen: true, reducedMotion: false }),
+    ).toBe("open");
+    expect(
+      resolveRunePanelMotionState({ open: false, previousOpen: true, reducedMotion: false }),
+    ).toBe("closing");
+    expect(
+      resolveRunePanelMotionState({ open: false, previousOpen: false, reducedMotion: false }),
+    ).toBe("closed");
+  });
+
+  it("makes reduced motion immediate", () => {
+    expect(
+      resolveRunePanelMotionState({ open: true, previousOpen: false, reducedMotion: true }),
+    ).toBe("open");
+    expect(
+      resolveRunePanelMotionState({ open: false, previousOpen: true, reducedMotion: true }),
+    ).toBe("closed");
+  });
+
+  it("maps each state to a stable CSS hook", () => {
+    expect(runePanelTransitionClass("opening")).toBe("rune-panel-motion-opening");
+    expect(runePanelTransitionClass("open")).toBe("rune-panel-motion-open");
+    expect(runePanelTransitionClass("closing")).toBe("rune-panel-motion-closing");
+    expect(runePanelTransitionClass("closed")).toBe("rune-panel-motion-closed");
+  });
+});
+

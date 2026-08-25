@@ -490,8 +490,54 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("leaves Claude model aliases alone for built-in models", () => {
+  it.effect("routes built-in primary selections through the configured gateway model", () => {
     const harness = makeHarness({ claudeConfig: { customModels: ["stealth/ox-alpha"] } });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-4-6",
+        ),
+        runtimeMode: "full-access",
+      });
+
+      const env = harness.getLastCreateQueryInput()?.options.env;
+      assert.equal(env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, "stealth/ox-alpha");
+      assert.equal(env?.ANTHROPIC_DEFAULT_SONNET_MODEL, "stealth/ox-alpha");
+      assert.equal(env?.ANTHROPIC_DEFAULT_OPUS_MODEL, "stealth/ox-alpha");
+      assert.equal(env?.ANTHROPIC_SMALL_FAST_MODEL, "stealth/ox-alpha");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("pins gateway aliases even when the session starts before model selection arrives", () => {
+    const harness = makeHarness({ claudeConfig: { customModels: ["stealth/ox-alpha"] } });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const env = harness.getLastCreateQueryInput()?.options.env;
+      assert.equal(env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, "stealth/ox-alpha");
+      assert.equal(env?.ANTHROPIC_DEFAULT_SONNET_MODEL, "stealth/ox-alpha");
+      assert.equal(env?.ANTHROPIC_DEFAULT_OPUS_MODEL, "stealth/ox-alpha");
+      assert.equal(env?.ANTHROPIC_SMALL_FAST_MODEL, "stealth/ox-alpha");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("leaves aliases alone for a built-in Claude instance without custom models", () => {
+    const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       yield* adapter.startSession({

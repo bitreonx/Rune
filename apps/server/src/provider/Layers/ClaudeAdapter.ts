@@ -106,6 +106,33 @@ type ClaudeToolResultStreamKind = Extract<
 >;
 type ClaudeSdkEffort = NonNullable<ClaudeQueryOptions["effort"]>;
 
+/**
+ * Resolve the model Claude Code should use for its internal role aliases.
+ *
+ * Claude Code starts Explore/general-purpose/background agents inside the
+ * already-running subprocess. Their model is selected through environment
+ * aliases, so a later `query.setModel()` cannot repair a role that was
+ * launched during session startup. A custom-model Claude instance is a
+ * gateway boundary: when the primary selection is absent or still points at
+ * a built-in Claude slug, keep those internal roles on the first configured
+ * gateway model. Explicit role variables are merged after this fallback and
+ * therefore remain authoritative.
+ */
+function resolveClaudeSubagentModel(
+  customModels: ReadonlyArray<string>,
+  selectedModel: string | undefined,
+): string | undefined {
+  const configuredModels = customModels
+    .map((model) => model.trim())
+    .filter((model) => model.length > 0);
+  if (configuredModels.length === 0) return undefined;
+
+  const normalizedSelectedModel = selectedModel?.trim();
+  return normalizedSelectedModel && configuredModels.includes(normalizedSelectedModel)
+    ? normalizedSelectedModel
+    : configuredModels[0];
+}
+
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
@@ -4210,17 +4237,20 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       // built-in "haiku"/"sonnet"/"opus" aliases resolve to paid first-party
       // Anthropic models the gateway account may not serve — subagent spawns
       // and background tasks then die with a 402 on their first request. Pin
-      // every alias to the selected custom model, the one model the account is
-      // actually configured for.
-      const customModelAliasEnv =
-        modelSelection && claudeSettings.customModels.includes(modelSelection.model)
-          ? {
-              ANTHROPIC_DEFAULT_HAIKU_MODEL: modelSelection.model,
-              ANTHROPIC_DEFAULT_SONNET_MODEL: modelSelection.model,
-              ANTHROPIC_DEFAULT_OPUS_MODEL: modelSelection.model,
-              ANTHROPIC_SMALL_FAST_MODEL: modelSelection.model,
-            }
-          : {};
+      // every alias to the selected custom model, or to the instance's first
+      // configured custom model when startup has no usable custom selection.
+      const subagentModel = resolveClaudeSubagentModel(
+        claudeSettings.customModels,
+        modelSelection?.model,
+      );
+      const customModelAliasEnv = subagentModel
+        ? {
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: subagentModel,
+            ANTHROPIC_DEFAULT_SONNET_MODEL: subagentModel,
+            ANTHROPIC_DEFAULT_OPUS_MODEL: subagentModel,
+            ANTHROPIC_SMALL_FAST_MODEL: subagentModel,
+          }
+        : {};
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),

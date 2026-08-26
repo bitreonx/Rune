@@ -30,6 +30,7 @@ const defaultModelSelection = {
 function makeShell(input: {
   readonly id: string;
   readonly temporaryAt: string | null;
+  readonly temporaryDeletionSnoozedUntil?: string | null;
   readonly updatedAt: string;
 }): OrchestrationThreadShell {
   return {
@@ -51,6 +52,9 @@ function makeShell(input: {
     snoozedAt: null,
     pinnedAt: null,
     temporaryAt: input.temporaryAt,
+    ...(input.temporaryDeletionSnoozedUntil !== undefined
+      ? { temporaryDeletionSnoozedUntil: input.temporaryDeletionSnoozedUntil }
+      : {}),
     pinOrderKey: null,
     titleRegeneration: null,
     session: null,
@@ -145,9 +149,7 @@ it.effect("deletes expired temporary threads and nothing else", () =>
   Effect.gen(function* () {
     // Fixtures are relative to the test clock so the TTL comparison holds
     // under both live and frozen test time.
-    const staleUpdatedAt = DateTime.formatIso(
-      DateTime.add(yield* DateTime.now, { hours: -2 }),
-    );
+    const staleUpdatedAt = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: -2 }));
     const freshUpdatedAt = DateTime.formatIso(yield* DateTime.now);
 
     const { layer, calls, settled } = yield* makeHarnessLayer({
@@ -167,6 +169,12 @@ it.effect("deletes expired temporary threads and nothing else", () =>
         makeShell({
           id: "thread-permanent-stale",
           temporaryAt: null,
+          updatedAt: staleUpdatedAt,
+        }),
+        makeShell({
+          id: "thread-temporary-snoozed",
+          temporaryAt: staleUpdatedAt,
+          temporaryDeletionSnoozedUntil: "2999-01-01T00:00:00.000Z",
           updatedAt: staleUpdatedAt,
         }),
       ],
@@ -192,9 +200,7 @@ it.effect("keeps sweeping when one delete dispatch fails", () =>
   Effect.gen(function* () {
     const failedThreadId = ThreadId.make("thread-temporary-failed");
     const sweptThreadId = ThreadId.make("thread-temporary-swept");
-    const staleUpdatedAt = DateTime.formatIso(
-      DateTime.add(yield* DateTime.now, { hours: -2 }),
-    );
+    const staleUpdatedAt = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: -2 }));
 
     const { layer, calls, settled } = yield* makeHarnessLayer({
       expectedCalls: 2,

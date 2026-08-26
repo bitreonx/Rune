@@ -67,7 +67,7 @@ import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
-import * as RuneProjectFileLoader from "./project/RuneProjectFileLoader.ts";
+import * as RUNEProjectFileLoader from "./project/RUNEProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -352,7 +352,7 @@ const WorkspaceLayerLive = Layer.mergeAll(
 
 const ProjectFaviconResolverLayerLive = ProjectFaviconResolver.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
-  Layer.provide(RuneProjectFileLoader.layer),
+  Layer.provide(RUNEProjectFileLoader.layer),
 );
 
 const AuthLayerLive = EnvironmentAuth.layer.pipe(
@@ -371,23 +371,7 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
   TemporaryThreadSweeperLive,
-).pipe(
-  Layer.provideMerge(ProviderLayerLive),
-  Layer.provideMerge(OrchestrationLayerLive),
-);
-
-const ServerCloudServicesLayerLive = Layer.mergeAll(
-  ProjectFaviconResolverLayerLive,
-  RepositoryIdentityResolver.layer,
-  ServerEnvironment.layer,
-  AuthLayerLive,
-  ServerSecretStore.layer,
-  CloudCliTokenManager.layer.pipe(
-    Layer.provide(ServerSecretStore.layer),
-    Layer.provide(ExternalLauncher.layer),
-  ),
-  CloudManagedEndpointRuntimeLive,
-);
+).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
@@ -397,6 +381,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
+  Layer.provideMerge(ProcessRunner.layer),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(Keybindings.layer),
@@ -420,10 +405,20 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // keeps a single Live for all opencode consumers.
   Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
   Layer.provideMerge(WorkspaceLayerLive),
-  // API-provider adapters run the native agent loop's `bash` tool through the
-  // shared process runner; workspace file services come from WorkspaceLayerLive.
-  Layer.provideMerge(ProcessRunner.layer),
-  Layer.provideMerge(ServerCloudServicesLayerLive),
+  Layer.provideMerge(ProjectFaviconResolverLayerLive),
+  Layer.provideMerge(RepositoryIdentityResolver.layer),
+  Layer.provideMerge(ServerEnvironment.layer),
+  Layer.provideMerge(AuthLayerLive),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      ServerSecretStore.layer,
+      CloudCliTokenManager.layer.pipe(
+        Layer.provide(ServerSecretStore.layer),
+        Layer.provide(ExternalLauncher.layer),
+      ),
+      CloudManagedEndpointRuntimeLive,
+    ),
+  ),
 );
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(

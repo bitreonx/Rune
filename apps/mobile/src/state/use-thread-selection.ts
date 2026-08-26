@@ -63,6 +63,9 @@ function threadDetailToShell(
     snoozedUntil: thread.snoozedUntil ?? null,
     snoozedAt: thread.snoozedAt ?? null,
     temporaryAt: thread.temporaryAt,
+    ...(thread.temporaryDeletionSnoozedUntil !== undefined
+      ? { temporaryDeletionSnoozedUntil: thread.temporaryDeletionSnoozedUntil }
+      : {}),
     session: thread.session,
     latestUserMessageAt: latestUserMessageAt(thread),
     hasPendingApprovals: false,

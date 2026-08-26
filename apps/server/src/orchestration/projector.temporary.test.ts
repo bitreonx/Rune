@@ -1,10 +1,4 @@
-import {
-  CommandId,
-  EventId,
-  ProjectId,
-  ThreadId,
-  type OrchestrationEvent,
-} from "@rune/contracts";
+import { CommandId, EventId, ProjectId, ThreadId, type OrchestrationEvent } from "@rune/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -103,5 +97,46 @@ it.effect("projects the temporary-set lifecycle in both directions", () =>
       }),
     );
     expect(kept.threads[0]?.temporaryAt).toBeNull();
+  }),
+);
+
+it.effect("projects temporary deletion snooze updates and clears", () =>
+  Effect.gen(function* () {
+    const now = "2026-01-01T00:00:00.000Z";
+    const created = yield* projectEvent(
+      createEmptyReadModel(now),
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        payload: makeThreadCreatedPayload({ temporary: true }),
+      }),
+    );
+    const snoozed = yield* projectEvent(
+      created,
+      makeEvent({
+        sequence: 2,
+        type: "thread.temporary-deletion-snoozed",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          temporaryDeletionSnoozedUntil: "2026-01-01T00:05:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+        },
+      }),
+    );
+    expect(snoozed.threads[0]?.temporaryDeletionSnoozedUntil).toBe("2026-01-01T00:05:00.000Z");
+
+    const cleared = yield* projectEvent(
+      snoozed,
+      makeEvent({
+        sequence: 3,
+        type: "thread.temporary-deletion-snoozed",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          temporaryDeletionSnoozedUntil: null,
+          updatedAt: "2026-01-01T00:06:00.000Z",
+        },
+      }),
+    );
+    expect(cleared.threads[0]?.temporaryDeletionSnoozedUntil).toBeNull();
   }),
 );

@@ -269,6 +269,31 @@ describe("resolveInitialServerAuthGateState", () => {
     expect(attempts).toBe(4);
   });
 
+  it("surfaces a persistent internal auth failure without retrying it", async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const request = HttpClientRequest.get("http://localhost/api/auth/session");
+    const response = HttpClientResponse.fromWeb(
+      request,
+      new Response("Internal Server Error", { status: 500 }),
+    );
+    const runner: PrimaryHttpEffectRunner = async <A>() => {
+      attempts += 1;
+      throw new HttpClientError.HttpClientError({
+        reason: new HttpClientError.StatusCodeError({ request, response }),
+      });
+    };
+    __setPrimaryHttpRunnerForTests(runner);
+
+    const { resolveInitialServerAuthGateState } = await import("./environments/primary");
+    await expect(resolveInitialServerAuthGateState()).rejects.toMatchObject({
+      _tag: "PrimaryEnvironmentRequestError",
+      operation: "fetch-session-state",
+      status: 500,
+    });
+    expect(attempts).toBe(1);
+  });
+
   it("takes a pairing token from the location hash and strips it immediately", async () => {
     const testWindow = installTestBrowser("http://localhost/#token=pairing-token");
     const { takePairingTokenFromUrl } = await import("./environments/primary");

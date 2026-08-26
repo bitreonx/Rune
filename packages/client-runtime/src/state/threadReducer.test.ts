@@ -43,6 +43,8 @@ const baseThread: OrchestrationThread = {
   activities: [],
   checkpoints: [],
   session: null,
+  temporaryAt: null,
+  temporaryDeletionSnoozedUntil: null,
 };
 
 describe("applyThreadDetailEvent", () => {
@@ -307,6 +309,47 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  describe("temporary chat lifecycle", () => {
+    it("applies temporary flags and deletion snooze events", () => {
+      const temporaryAt = "2026-04-01T05:00:00.000Z";
+      const flagged = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 30,
+        occurredAt: temporaryAt,
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.temporary-set",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          temporaryAt,
+          updatedAt: temporaryAt,
+        },
+      });
+
+      expect(flagged.kind).toBe("updated");
+      if (flagged.kind !== "updated") return;
+      expect(flagged.thread.temporaryAt).toBe(temporaryAt);
+
+      const snoozed = applyThreadDetailEvent(flagged.thread, {
+        ...baseEventFields,
+        sequence: 31,
+        occurredAt: "2026-04-01T05:01:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.temporary-deletion-snoozed",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          temporaryDeletionSnoozedUntil: "2026-04-01T05:10:00.000Z",
+          updatedAt: "2026-04-01T05:01:00.000Z",
+        },
+      });
+      expect(snoozed.kind).toBe("updated");
+      if (snoozed.kind === "updated") {
+        expect(snoozed.thread.temporaryDeletionSnoozedUntil).toBe("2026-04-01T05:10:00.000Z");
+      }
+    });
+  });
+
   describe("thread.message-sent", () => {
     it("appends a new message", () => {
       const result = applyThreadDetailEvent(baseThread, {
@@ -459,6 +502,8 @@ describe("applyThreadDetailEvent", () => {
         expect(result.thread.latestTurn).toBeNull();
       }
     });
+
+    it("completes an assistant message and settles an idle turn", () => {
       const result = applyThreadDetailEvent(baseThread, {
         ...baseEventFields,
         sequence: 8,

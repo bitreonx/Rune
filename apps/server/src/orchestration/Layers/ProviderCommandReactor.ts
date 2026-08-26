@@ -13,7 +13,7 @@ import {
   type RuntimeMode,
   type TurnId,
 } from "@rune/contracts";
-import { isTemporaryWorktreeBranch, stripWorktreeBranchPrefix } from "@rune/shared/git";
+import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@rune/shared/git";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -288,7 +288,9 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
     .replace(/^refs\/heads\//, "")
     .replace(/['"`]/g, "");
 
-  const withoutPrefix = stripWorktreeBranchPrefix(normalized);
+  const withoutPrefix = normalized.startsWith(`${WORKTREE_BRANCH_PREFIX}/`)
+    ? normalized.slice(`${WORKTREE_BRANCH_PREFIX}/`.length)
+    : normalized;
 
   const branchFragment = withoutPrefix
     .replace(/[^a-z0-9/_-]+/g, "-")
@@ -909,11 +911,20 @@ const make = Effect.gen(function* () {
       return { _tag: "Superseded" } as const;
     }
 
-    // Reasoning text is the model's private scratchpad — it must never leak
-    // into title-generation prompts.
-    const { message, attachments } = formatThreadTitleContext(
-      thread.messages.filter((entry) => entry.role !== "reasoning"),
-    );
+    const titleMessages: Array<ThreadTitleMessage> = [];
+    for (const threadMessage of thread.messages) {
+      if (threadMessage.role === "reasoning") {
+        continue;
+      }
+      titleMessages.push({
+        role: threadMessage.role,
+        text: threadMessage.text,
+        ...(threadMessage.attachments !== undefined
+          ? { attachments: threadMessage.attachments }
+          : {}),
+      });
+    }
+    const { message, attachments } = formatThreadTitleContext(titleMessages);
     if (message.length === 0) {
       return { _tag: "Completed", title: undefined } as const;
     }
@@ -1097,7 +1108,9 @@ const make = Effect.gen(function* () {
             id: hiddenMessage.messageId,
             role: "user" as const,
             text: hiddenMessage.text,
-            ...(hiddenMessage.attachments !== undefined ? { attachments: hiddenMessage.attachments } : {}),
+            ...(hiddenMessage.attachments !== undefined
+              ? { attachments: hiddenMessage.attachments }
+              : {}),
             turnId: null,
             streaming: false,
             hidden: true,

@@ -6,12 +6,10 @@
  *
  * @module provider/harnesses/ModelCatalogService
  */
-import {
-  type ProviderModelCatalogEntry,
-  type ProviderModelCatalogResponse,
-} from "@rune/contracts";
+import { type ProviderModelCatalogEntry, type ProviderModelCatalogResponse } from "@rune/contracts";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,9 +19,12 @@ const CATALOG_CACHE_TTL = Duration.minutes(5);
 const MAX_CATALOG_MODELS = 500;
 const CATALOG_REQUEST_TIMEOUT = Duration.seconds(10);
 
-export function parseModelCatalogResponse(
-  body: unknown,
-): ReadonlyArray<ProviderModelCatalogEntry> {
+export class ModelCatalogError extends Data.TaggedError("ModelCatalogError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+export function parseModelCatalogResponse(body: unknown): ReadonlyArray<ProviderModelCatalogEntry> {
   if (!body || typeof body !== "object") {
     return [];
   }
@@ -33,10 +34,7 @@ export function parseModelCatalogResponse(
     rawList = body;
   } else if ("data" in body && Array.isArray((body as { data: unknown }).data)) {
     rawList = (body as { data: unknown[] }).data;
-  } else if (
-    "models" in body &&
-    Array.isArray((body as { models: unknown }).models)
-  ) {
+  } else if ("models" in body && Array.isArray((body as { models: unknown }).models)) {
     rawList = (body as { models: unknown[] }).models;
   }
 
@@ -53,17 +51,14 @@ export function parseModelCatalogResponse(
     const name =
       typeof record.name === "string" && record.name.trim().length > 0
         ? record.name.trim()
-        : typeof record.display_name === "string" &&
-            record.display_name.trim().length > 0
+        : typeof record.display_name === "string" && record.display_name.trim().length > 0
           ? record.display_name.trim()
           : undefined;
 
     const contextLength =
-      typeof record.context_length === "number" &&
-      Number.isFinite(record.context_length)
+      typeof record.context_length === "number" && Number.isFinite(record.context_length)
         ? record.context_length
-        : typeof record.context_window === "number" &&
-            Number.isFinite(record.context_window)
+        : typeof record.context_window === "number" && Number.isFinite(record.context_window)
           ? record.context_window
           : undefined;
 
@@ -100,9 +95,9 @@ export class ModelCatalogService extends Context.Service<
       readonly serviceId: string;
       readonly baseUrl?: string;
       readonly credential?: string;
-    }): Effect.Effect<ProviderModelCatalogResponse, Error>;
+    }): Effect.Effect<ProviderModelCatalogResponse, ModelCatalogError>;
   }
->()("@rune/server/provider/harnesses/ModelCatalogService") {}
+>()("rune/provider/harnesses/ModelCatalogService") {}
 
 const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -110,7 +105,7 @@ const make = Effect.gen(function* () {
   const catalogCache = yield* Cache.make<
     string,
     ReadonlyArray<ProviderModelCatalogEntry>,
-    Error
+    ModelCatalogError
   >({
     capacity: 100,
     timeToLive: CATALOG_CACHE_TTL,
@@ -139,9 +134,10 @@ const make = Effect.gen(function* () {
             Effect.timeout(CATALOG_REQUEST_TIMEOUT),
             Effect.mapError(
               (cause) =>
-                new Error(
-                  `Failed to fetch model catalog from ${targetUrl}: ${String(cause)}`,
-                ),
+                new ModelCatalogError({
+                  message: `Failed to fetch model catalog from ${targetUrl}: ${String(cause)}`,
+                  cause,
+                }),
             ),
           );
 

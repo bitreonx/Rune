@@ -498,6 +498,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             temporaryAt: payload.temporaryAt,
+            ...(payload.temporaryAt === null ? { temporaryDeletionSnoozedUntil: null } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

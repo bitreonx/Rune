@@ -49,11 +49,23 @@ const makeTemporaryThreadSweeper = (options?: TemporaryThreadSweeperLiveOptions)
           continue;
         }
 
-        // Skip threads with active deletion snooze — the user explicitly
-        // postponed automatic deletion until a future time.
+        // A temporary-deletion snooze is an explicit user grace period. Keep
+        // the thread in the shell and defer the TTL purge until the timestamp
+        // has elapsed; a null value (or an expired value) resumes normal TTL
+        // handling.
         if (thread.temporaryDeletionSnoozedUntil != null) {
           const snoozedUntilMs = Date.parse(thread.temporaryDeletionSnoozedUntil);
-          if (!Number.isNaN(snoozedUntilMs) && now < snoozedUntilMs) {
+          if (Number.isNaN(snoozedUntilMs)) {
+            yield* Effect.logWarning(
+              "orchestration.temporary-thread-sweeper.invalid-deletion-snooze",
+              {
+                threadId: thread.id,
+                temporaryDeletionSnoozedUntil: thread.temporaryDeletionSnoozedUntil,
+              },
+            );
+            continue;
+          }
+          if (snoozedUntilMs > now) {
             continue;
           }
         }

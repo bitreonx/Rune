@@ -16,8 +16,8 @@ import * as Electron from "electron";
 
 import * as NetService from "@rune/shared/Net";
 import { HostProcessArchitecture, HostProcessPlatform } from "@rune/shared/hostProcess";
-import { resolveRemoteT3CliPackageSpec } from "@rune/ssh/command";
-import type { RemoteT3RunnerOptions } from "@rune/ssh/tunnel";
+import { resolveRemoteRuneCliPackageSpec } from "@rune/ssh/command";
+import type { RemoteRuneRunnerOptions } from "@rune/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
 
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";
@@ -84,7 +84,7 @@ const desktopEnvironmentLayer = Layer.unwrap(
 const resolveDesktopSshCliRunner = (
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
   settings: DesktopAppSettings.DesktopSettings,
-): RemoteT3RunnerOptions => {
+): RemoteRuneRunnerOptions => {
   const devRemoteEntryPath = Option.getOrUndefined(environment.devRemoteServerEntryPath);
   if (environment.isDevelopment && devRemoteEntryPath !== undefined) {
     return {
@@ -93,7 +93,7 @@ const resolveDesktopSshCliRunner = (
     };
   }
   return {
-    packageSpec: resolveRemoteT3CliPackageSpec({
+    packageSpec: resolveRemoteRuneCliPackageSpec({
       appVersion: environment.appVersion,
       updateChannel: settings.updateChannel,
       isDevelopment: environment.isDevelopment,

@@ -5,9 +5,14 @@ import type {
   DesktopPreviewTabState,
 } from "@rune/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
-import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
+import { installDesktopUiPolish } from "./desktopUiPolish.ts";
+
+// Install before the shared renderer paints so desktop sidebar motion and
+// color-scheme handoff do not flash through an unstyled first frame.
+installDesktopUiPolish(document);
 
 exposeClerkBridge({ passkeys: true });
 
@@ -101,13 +106,6 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   setWslDistro: (distro) => ipcRenderer.invoke(IpcChannels.SET_WSL_DISTRO_CHANNEL, distro),
   setWslOnly: (enabled) => ipcRenderer.invoke(IpcChannels.SET_WSL_ONLY_CHANNEL, enabled),
   pickFolder: (options) => ipcRenderer.invoke(IpcChannels.PICK_FOLDER_CHANNEL, options),
-  getPathForFile: (file) => {
-    try {
-      return webUtils.getPathForFile(file);
-    } catch {
-      return null;
-    }
-  },
   pickProjectFavicon: (initialPath) =>
     ipcRenderer.invoke(IpcChannels.PICK_PROJECT_FAVICON_CHANNEL, initialPath),
   pickThemeFiles: () => ipcRenderer.invoke(IpcChannels.PICK_THEME_FILES_CHANNEL, undefined),

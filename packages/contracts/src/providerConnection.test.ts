@@ -22,6 +22,18 @@ describe("provider connection presentation", () => {
     ).toBe("subscription");
   });
 
+  it("recognizes the Rune remote environment variable", () => {
+    for (const name of ["RUNE_REMOTE_URL"]) {
+      expect(
+        classifyProviderConnection({
+          driver: ProviderDriverKind.make("codex"),
+          config: {},
+          environment: [{ name, value: "https://remote.example.test", sensitive: false }],
+        }),
+      ).toBe("remote");
+    }
+  });
+
   it("derives a safe summary from settings and a provider snapshot", () => {
     const summary = buildProviderWorkspaceSummary({
       config: {

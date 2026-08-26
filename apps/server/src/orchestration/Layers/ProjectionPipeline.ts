@@ -845,6 +845,22 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             temporaryAt: event.payload.temporaryAt,
+            ...(event.payload.temporaryAt === null ? { temporaryDeletionSnoozedUntil: null } : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.temporary-deletion-snoozed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            temporaryDeletionSnoozedUntil: event.payload.temporaryDeletionSnoozedUntil,
             updatedAt: event.payload.updatedAt,
           });
           return;

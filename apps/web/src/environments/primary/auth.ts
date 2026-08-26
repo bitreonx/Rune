@@ -276,6 +276,9 @@ async function waitForAuthenticatedSessionAfterBootstrap(): Promise<AuthSessionS
   }
 }
 
+// The server parks HTTP ingress until its startup dependencies are ready. A 500
+// from the session endpoint is therefore a real server/auth failure and must
+// remain visible instead of being hidden behind a generic retry loop.
 const TRANSIENT_BOOTSTRAP_STATUS_CODES = new Set([502, 503, 504]);
 const BOOTSTRAP_RETRY_TIMEOUT_MS = 15_000;
 const BOOTSTRAP_RETRY_STEP_MS = 500;

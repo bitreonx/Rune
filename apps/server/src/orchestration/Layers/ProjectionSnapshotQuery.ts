@@ -1711,6 +1711,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 snoozedUntil: row.snoozedUntil,
                 snoozedAt: row.snoozedAt,
                 temporaryAt: row.temporaryAt,
+                ...(row.temporaryDeletionSnoozedUntil !== undefined
+                  ? { temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil }
+                  : {}),
                 pinnedAt: row.pinnedAt,
                 pinOrderKey: row.pinOrderKey ?? null,
                 titleRegeneration: mapTitleRegeneration(row),
@@ -1919,6 +1922,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   snoozedUntil: row.snoozedUntil,
                   snoozedAt: row.snoozedAt,
                   temporaryAt: row.temporaryAt,
+                  ...(row.temporaryDeletionSnoozedUntil !== undefined
+                    ? { temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil }
+                    : {}),
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
@@ -2056,7 +2062,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       snoozedUntil: row.snoozedUntil,
                       snoozedAt: row.snoozedAt,
                       temporaryAt: row.temporaryAt,
-                      temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil ?? null,
+                      ...(row.temporaryDeletionSnoozedUntil !== undefined
+                        ? { temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil }
+                        : {}),
                       pinnedAt: row.pinnedAt,
                       pinOrderKey: row.pinOrderKey ?? null,
                       titleRegeneration: mapTitleRegeneration(row),
@@ -2203,6 +2211,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   snoozedUntil: row.snoozedUntil,
                   snoozedAt: row.snoozedAt,
                   temporaryAt: row.temporaryAt,
+                  ...(row.temporaryDeletionSnoozedUntil !== undefined
+                    ? { temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil }
+                    : {}),
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
@@ -2483,6 +2494,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         snoozedUntil: threadRow.value.snoozedUntil,
         snoozedAt: threadRow.value.snoozedAt,
         temporaryAt: threadRow.value.temporaryAt,
+        ...(threadRow.value.temporaryDeletionSnoozedUntil !== undefined
+          ? { temporaryDeletionSnoozedUntil: threadRow.value.temporaryDeletionSnoozedUntil }
+          : {}),
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
@@ -2625,6 +2639,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         snoozedUntil: threadRow.value.snoozedUntil,
         snoozedAt: threadRow.value.snoozedAt,
         temporaryAt: threadRow.value.temporaryAt,
+        ...(threadRow.value.temporaryDeletionSnoozedUntil !== undefined
+          ? { temporaryDeletionSnoozedUntil: threadRow.value.temporaryDeletionSnoozedUntil }
+          : {}),
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),

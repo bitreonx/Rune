@@ -938,7 +938,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const clearing = command.temporary === false;
       const changed = clearing ? alreadyTemporary : !alreadyTemporary;
       const occurredAt = yield* nowIso;
-      return {
+      const temporarySetEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -952,24 +952,60 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: changed ? occurredAt : thread.updatedAt,
         },
       };
+      // A permanent thread has no deletion deadline. Clear an existing grace
+      // period in the same command so re-flagging it later cannot inherit an
+      // old snooze from before the user chose "Keep permanently".
+      if (clearing && thread.temporaryDeletionSnoozedUntil != null) {
+        return [
+          temporarySetEvent,
+          {
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.threadId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.temporary-deletion-snoozed",
+            payload: {
+              threadId: command.threadId,
+              temporaryDeletionSnoozedUntil: null,
+              updatedAt: occurredAt,
+            },
+          },
+        ];
+      }
+      return temporarySetEvent;
     }
 
     case "thread.temporary.deletion-snooze": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
-      // Only temporary threads can have deletion snooze.
       if (thread.temporaryAt == null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Cannot snooze deletion of non-temporary thread",
-        });
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} is not temporary and cannot snooze deletion`,
+          }),
+        );
       }
-      // Idempotent: re-applying the same snoozedUntil doesn't churn updatedAt.
-      const changed = command.snoozedUntil !== thread.temporaryDeletionSnoozedUntil;
+
       const occurredAt = yield* nowIso;
+      if (
+        command.snoozedUntil !== null &&
+        !(Date.parse(command.snoozedUntil) > Date.parse(occurredAt))
+      ) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} deletion-snooze wake time ${command.snoozedUntil} is not in the future`,
+          }),
+        );
+      }
+
+      const unchanged = (thread.temporaryDeletionSnoozedUntil ?? null) === command.snoozedUntil;
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -981,7 +1017,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           temporaryDeletionSnoozedUntil: command.snoozedUntil,
-          updatedAt: changed ? occurredAt : thread.updatedAt,
+          updatedAt: unchanged ? thread.updatedAt : occurredAt,
         },
       };
     }
@@ -1343,9 +1379,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    // Reasoning deltas ride the same message-sent event with role "reasoning".
-    // They must never settle a turn — downstream logic keys on role
-    // "assistant", so no extra guards are needed here.
     case "thread.message.reasoning.delta": {
       yield* requireThread({
         readModel,

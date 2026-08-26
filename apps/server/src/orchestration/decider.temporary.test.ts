@@ -16,6 +16,7 @@ const TEMPORARY_AT = "1969-12-30T00:00:00.000Z";
 
 function makeReadModel(input: {
   readonly temporaryAt?: string | null;
+  readonly temporaryDeletionSnoozedUntil?: string | null;
 }): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
@@ -52,6 +53,9 @@ function makeReadModel(input: {
         pinnedAt: null,
         pinOrderKey: null,
         temporaryAt: input.temporaryAt ?? null,
+        ...(input.temporaryDeletionSnoozedUntil !== undefined
+          ? { temporaryDeletionSnoozedUntil: input.temporaryDeletionSnoozedUntil }
+          : {}),
         deletedAt: null,
         messages: [],
         proposedPlans: [],
@@ -142,6 +146,98 @@ it.layer(NodeServices.layer)("temporary thread decider", (it) => {
         expect(events[0].payload.temporaryAt).toBeNull();
         expect(events[0].payload.updatedAt).toBe(NOW);
       }
+    }),
+  );
+
+  it.effect("clearing temporary status also clears a pending deletion snooze", () =>
+    Effect.gen(function* () {
+      const event = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.temporary.set",
+          commandId: CommandId.make("cmd-temporary-keep-clears-snooze"),
+          threadId: ThreadId.make("thread-1"),
+          temporary: false,
+        },
+        readModel: makeReadModel({
+          temporaryAt: TEMPORARY_AT,
+          temporaryDeletionSnoozedUntil: "2999-01-01T00:05:00.000Z",
+        }),
+      });
+      const events = Array.isArray(event) ? event : [event];
+      expect(events.map((entry) => entry.type)).toEqual([
+        "thread.temporary-set",
+        "thread.temporary-deletion-snoozed",
+      ]);
+      if (events[1]?.type === "thread.temporary-deletion-snoozed") {
+        expect(events[1].payload.temporaryDeletionSnoozedUntil).toBeNull();
+      }
+    }),
+  );
+
+  it.effect("snoozes temporary deletion and preserves duplicate timestamps", () =>
+    Effect.gen(function* () {
+      const event = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.temporary.deletion-snooze",
+          commandId: CommandId.make("cmd-temporary-deletion-snooze"),
+          threadId: ThreadId.make("thread-1"),
+          snoozedUntil: "2999-01-01T00:05:00.000Z",
+        },
+        readModel: makeReadModel({ temporaryAt: TEMPORARY_AT }),
+      });
+      const events = Array.isArray(event) ? event : [event];
+      expect(events[0]?.type).toBe("thread.temporary-deletion-snoozed");
+      if (events[0]?.type === "thread.temporary-deletion-snoozed") {
+        expect(events[0].payload.temporaryDeletionSnoozedUntil).toBe("2999-01-01T00:05:00.000Z");
+        expect(events[0].payload.updatedAt).not.toBe(NOW);
+      }
+
+      const duplicate = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.temporary.deletion-snooze",
+          commandId: CommandId.make("cmd-temporary-deletion-snooze-duplicate"),
+          threadId: ThreadId.make("thread-1"),
+          snoozedUntil: "2999-01-01T00:05:00.000Z",
+        },
+        readModel: makeReadModel({
+          temporaryAt: TEMPORARY_AT,
+          temporaryDeletionSnoozedUntil: "2999-01-01T00:05:00.000Z",
+        }),
+      });
+      const duplicateEvents = Array.isArray(duplicate) ? duplicate : [duplicate];
+      if (duplicateEvents[0]?.type === "thread.temporary-deletion-snoozed") {
+        expect(duplicateEvents[0].payload.updatedAt).toBe(NOW);
+      }
+    }),
+  );
+
+  it.effect("rejects deletion snooze for permanent threads and past wake times", () =>
+    Effect.gen(function* () {
+      const permanent = yield* Effect.exit(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.temporary.deletion-snooze",
+            commandId: CommandId.make("cmd-permanent-deletion-snooze"),
+            threadId: ThreadId.make("thread-1"),
+            snoozedUntil: "2999-01-01T00:05:00.000Z",
+          },
+          readModel: makeReadModel({}),
+        }),
+      );
+      expect(permanent._tag).toBe("Failure");
+
+      const past = yield* Effect.exit(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.temporary.deletion-snooze",
+            commandId: CommandId.make("cmd-past-deletion-snooze"),
+            threadId: ThreadId.make("thread-1"),
+            snoozedUntil: "1970-01-01T00:00:00.000Z",
+          },
+          readModel: makeReadModel({ temporaryAt: TEMPORARY_AT }),
+        }),
+      );
+      expect(past._tag).toBe("Failure");
     }),
   );
 

@@ -14,7 +14,7 @@ import {
   baseSshArgs,
   getLastNonEmptyOutputLine,
   parseSshResolveOutput,
-  resolveRemoteT3CliPackageSpec,
+  resolveRemoteRuneCliPackageSpec,
   runSshCommand,
 } from "./command.ts";
 import { SshCommandError } from "./errors.ts";
@@ -102,21 +102,21 @@ describe("ssh command", () => {
   it.effect("resolves the remote rune package spec from the desktop release channel", () =>
     Effect.sync(() => {
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteRuneCliPackageSpec({
           appVersion: "0.0.17",
           updateChannel: "latest",
         }),
         "rune@0.0.17",
       );
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteRuneCliPackageSpec({
           appVersion: "0.0.17-nightly.20260415.44",
           updateChannel: "nightly",
         }),
         "rune@0.0.17-nightly.20260415.44",
       );
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteRuneCliPackageSpec({
           appVersion: "0.0.0-dev",
           updateChannel: "nightly",
           isDevelopment: true,
@@ -124,7 +124,7 @@ describe("ssh command", () => {
         "rune@nightly",
       );
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteRuneCliPackageSpec({
           appVersion: "0.0.0-dev",
           updateChannel: "latest",
           isDevelopment: true,

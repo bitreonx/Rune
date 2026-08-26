@@ -894,20 +894,35 @@ export function deriveSimplifiedWorkLogEntries(
   return deriveAgentActivityJob(activities).activities.map((activity) => {
     const files = [...new Set(activity.operations.map((entry) => entry.filePath).filter(Boolean))];
     const count = activity.operations.length;
-    const detail = activity.reasoningSummary ??
+    const detail =
+      activity.reasoningSummary ??
       (files.length > 0
         ? `${files.slice(0, 3).join(", ")}${files.length > 3 ? ` +${files.length - 3} files` : ""}`
-        : count > 1 ? `${count} operations` : undefined);
+        : count > 1
+          ? `${count} operations`
+          : undefined);
     return {
       id: activity.id,
       createdAt: activity.createdAt,
       turnId: activity.operations[0]?.rawTrace.turnId ?? null,
       label: activity.label,
       ...(detail ? { detail } : {}),
-      tone: activity.status === "failed" ? "error" : activity.status === "working" ? "thinking" : "info",
-      sourceActivityKind: activity.operations.at(-1)?.rawTrace.kind,
-      toolLifecycleStatus:
-        activity.status === "working" ? "inProgress" : activity.status === "failed" ? "failed" : activity.status === "done" ? "completed" : undefined,
+      tone:
+        activity.status === "failed"
+          ? "error"
+          : activity.status === "working"
+            ? "thinking"
+            : "info",
+      ...(activity.operations.at(-1)?.rawTrace.kind
+        ? { sourceActivityKind: activity.operations.at(-1)!.rawTrace.kind }
+        : {}),
+      ...(activity.status === "working"
+        ? { toolLifecycleStatus: "inProgress" as const }
+        : activity.status === "failed"
+          ? { toolLifecycleStatus: "failed" as const }
+          : activity.status === "done"
+            ? { toolLifecycleStatus: "completed" as const }
+            : {}),
       toolTitle: `${activity.label} · ${count} ${count === 1 ? "operation" : "operations"}`,
     } satisfies WorkLogEntry;
   });

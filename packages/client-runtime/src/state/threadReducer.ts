@@ -94,7 +94,8 @@ export function applyThreadDetailEvent(
           settledAt: null,
           snoozedUntil: null,
           snoozedAt: null,
-          temporaryAt: null,
+          temporaryAt: event.payload.temporary === true ? event.payload.createdAt : null,
+          temporaryDeletionSnoozedUntil: null,
           deletedAt: null,
           messages: [],
           proposedPlans: [],
@@ -239,6 +240,29 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           interactionMode: event.payload.interactionMode,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.temporary-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          temporaryAt: event.payload.temporaryAt,
+          // Keeping a chat permanently also clears any pending deletion
+          // snooze; a permanent thread has no deletion deadline to defer.
+          ...(event.payload.temporaryAt === null ? { temporaryDeletionSnoozedUntil: null } : {}),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.temporary-deletion-snoozed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          temporaryDeletionSnoozedUntil: event.payload.temporaryDeletionSnoozedUntil,
           updatedAt: event.payload.updatedAt,
         },
       };

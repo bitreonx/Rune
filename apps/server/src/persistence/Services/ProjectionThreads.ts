@@ -42,6 +42,9 @@ export const ProjectionThread = Schema.Struct({
   snoozedUntil: Schema.NullOr(IsoDateTime),
   snoozedAt: Schema.NullOr(IsoDateTime),
   temporaryAt: Schema.NullOr(IsoDateTime),
+  // Added by migration 043; optional keeps repository consumers compatible
+  // with snapshots produced before the column existed.
+  temporaryDeletionSnoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinnedAt: Schema.NullOr(IsoDateTime),
   pinOrderKey: Schema.optional(Schema.NullOr(Schema.String)),
   titleRegenerationRequestId: Schema.optional(Schema.NullOr(CommandId)),
@@ -110,4 +113,4 @@ export interface ProjectionThreadRepositoryShape {
 export class ProjectionThreadRepository extends Context.Service<
   ProjectionThreadRepository,
   ProjectionThreadRepositoryShape
->()("@rune/server/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}
+>()("rune/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

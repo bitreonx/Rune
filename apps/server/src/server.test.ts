@@ -126,7 +126,7 @@ import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
-import * as RuneProjectFileLoader from "./project/RuneProjectFileLoader.ts";
+import * as RUNEProjectFileLoader from "./project/RUNEProjectFileLoader.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -143,6 +143,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as SessionStore from "./auth/SessionStore.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
@@ -418,6 +419,8 @@ const buildAppUnderTest = (options?: {
     repositoryIdentityResolver?: Partial<
       RepositoryIdentityResolver.RepositoryIdentityResolver["Service"]
     >;
+    environmentAuth?: EnvironmentAuth.EnvironmentAuth["Service"];
+    sessionStore?: SessionStore.SessionStore["Service"];
     cloudManagedEndpointRuntime?: Partial<
       CloudManagedEndpointRuntime.CloudManagedEndpointRuntime["Service"]
     >;
@@ -580,7 +583,7 @@ const buildAppUnderTest = (options?: {
       ),
       ProjectFaviconResolver.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
-        Layer.provide(RuneProjectFileLoader.layer),
+        Layer.provide(RUNEProjectFileLoader.layer),
       ),
     );
     const gitWorkflowLayer = GitWorkflowService.layer.pipe(
@@ -972,6 +975,18 @@ const buildAppUnderTest = (options?: {
           clear: Effect.void,
           ...options?.layers?.cloudCliTokenManager,
         }),
+      ),
+      Layer.provideMerge(
+        options?.layers?.environmentAuth
+          ? Layer.mergeAll(
+              Layer.succeed(EnvironmentAuth.EnvironmentAuth, options.layers.environmentAuth),
+              Layer.succeed(
+                SessionStore.SessionStore,
+                options.layers.sessionStore ??
+                  ({ cookieName: "rune_session_test" } as SessionStore.SessionStore["Service"]),
+              ),
+            )
+          : Layer.empty,
       ),
       Layer.provideMerge(makeAuthTestLayer()),
       Layer.provideMerge(ServerSecretStore.layer),
@@ -1465,7 +1480,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "rune-router-static-" });
+      const staticDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "rune-router-static-",
+      });
       const indexPath = path.join(staticDir, "index.html");
       yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
 
@@ -1579,6 +1596,37 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       // Desktop, so port-scoped: instances scan for a free port and share
       // 127.0.0.1, and cookies are not scoped by port.
       assert.isTrue(body.auth.sessionCookieName.startsWith("rune_session_"));
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("maps an internal session-store failure to a diagnosable HTTP 500", () =>
+    Effect.gen(function* () {
+      const failingAuth = {
+        getDescriptor: () => Effect.succeed(testEnvironmentDescriptor),
+        getSessionState: () =>
+          Effect.fail(
+            new EnvironmentAuth.ServerAuthSessionCredentialValidationError({
+              cause: new Error("auth_sessions unavailable"),
+            }),
+          ),
+      } as unknown as EnvironmentAuth.EnvironmentAuth["Service"];
+
+      yield* buildAppUnderTest({
+        layers: {
+          environmentAuth: failingAuth,
+        },
+      });
+
+      const url = yield* getHttpServerUrl("/api/auth/session");
+      const response = yield* fetchEffect(url);
+      const body = yield* responseJsonEffect<{
+        readonly _tag?: string;
+        readonly reason?: string;
+      }>(response);
+
+      assert.equal(response.status, 500);
+      assert.equal(body._tag, "EnvironmentInternalError");
+      assert.equal(body.reason, "internal_error");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -2298,7 +2346,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: "not-a-public-key",
           endpointRuntime: null,
         }),
@@ -2346,18 +2394,18 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const insecureRelayUrl = yield* postRelayConfig({
         relayUrl: "http://relay.example.test",
         cloudUserId: "user_123",
-        environmentCredential: "t3env_test_credential",
+        environmentCredential: "runeenv_test_credential",
       });
       const insecureRelayIssuer = yield* postRelayConfig({
         relayUrl: "https://relay.example.test",
         cloudUserId: "user_123",
         relayIssuer: "http://relay.example.test",
-        environmentCredential: "t3env_test_credential",
+        environmentCredential: "runeenv_test_credential",
       });
       const nonOriginRelayUrl = yield* postRelayConfig({
         relayUrl: "https://relay.example.test/path",
         cloudUserId: "user_123",
-        environmentCredential: "t3env_test_credential",
+        environmentCredential: "runeenv_test_credential",
       });
       const emptyCredential = yield* postRelayConfig({
         relayUrl: "https://relay.example.test",
@@ -2417,8 +2465,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         });
 
-      const firstResponse = yield* postRelayConfig("user_123", "t3env_first_credential");
-      const replacementResponse = yield* postRelayConfig("user_456", "t3env_second_credential");
+      const firstResponse = yield* postRelayConfig("user_123", "runeenv_first_credential");
+      const replacementResponse = yield* postRelayConfig("user_456", "runeenv_second_credential");
       const replacementBody = yield* responseJsonEffect<{
         readonly _tag?: string;
         readonly message?: string;
@@ -2469,7 +2517,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           relayUrl: "https://transport.example.test",
           relayIssuer: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -2551,7 +2599,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           relayUrl: "https://transport.example.test",
           relayIssuer: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: {
             providerKind: "cloudflare_tunnel",
@@ -2624,7 +2672,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -2683,7 +2731,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -2742,7 +2790,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -2802,7 +2850,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -2864,7 +2912,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             relayUrl: "https://transport.example.test",
             cloudUserId: "user_123",
             relayIssuer: "https://relay.example.test",
-            environmentCredential: "t3env_test_credential",
+            environmentCredential: "runeenv_test_credential",
             cloudMintPublicKey: cloudKeyPair.publicKey,
             endpointRuntime: null,
           }),
@@ -2943,7 +2991,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: {
             providerKind: "cloudflare_tunnel",
@@ -3012,7 +3060,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test/",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -3079,7 +3127,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test/",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -3130,7 +3178,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test/",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -3181,7 +3229,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test/",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -3246,7 +3294,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test/",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -3296,7 +3344,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body: jsonRequestBody({
           relayUrl: "https://relay.example.test/",
           cloudUserId: "user_123",
-          environmentCredential: "t3env_test_credential",
+          environmentCredential: "runeenv_test_credential",
           cloudMintPublicKey: cloudKeyPair.publicKey,
           endpointRuntime: null,
         }),
@@ -3552,7 +3600,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  for (const desktopOrigin of ["rune://app"]) {
+  for (const desktopOrigin of ["rune://app", "rune-dev://app"]) {
     it.effect(`allows credentialed preflights from ${desktopOrigin} in development`, () =>
       Effect.gen(function* () {
         yield* buildAppUnderTest({
@@ -4702,7 +4750,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(first.config.keybindings, []);
         assert.deepEqual(first.config.issues, []);
         assert.deepEqual(first.config.providers, providers);
-        assert.equal(first.config.observability.logsDirectoryPath.endsWith("/logs"), true);
+        assert.equal(/[\\/]logs$/.test(first.config.observability.logsDirectoryPath), true);
         assert.equal(first.config.observability.localTracingEnabled, true);
         assert.equal(first.config.observability.otlpTracesUrl, "http://localhost:4318/v1/traces");
         assert.equal(first.config.observability.otlpTracesEnabled, true);

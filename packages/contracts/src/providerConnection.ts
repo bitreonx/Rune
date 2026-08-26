@@ -66,7 +66,7 @@ export function classifyProviderConnection(input: {
   if (
     readConfigString(input.config, "remoteUrl") !== null ||
     readConfigString(input.config, "environmentId") !== null ||
-    hasEnvironmentVariable(input.environment, ["RUNE_REMOTE_URL", "T3_REMOTE_URL"])
+    hasEnvironmentVariable(input.environment, ["RUNE_REMOTE_URL"])
   ) {
     return "remote";
   }
@@ -99,7 +99,8 @@ export function buildProviderWorkspaceSummary(input: {
   return {
     instanceId: input.config.instanceId ?? ("unknown" as ProviderInstanceId),
     driver: input.config.driver,
-    displayName: input.config.displayName?.trim() || snapshot?.displayName || String(input.config.driver),
+    displayName:
+      input.config.displayName?.trim() || snapshot?.displayName || String(input.config.driver),
     category,
     authStatus: snapshot?.auth.status ?? "unknown",
     enabled: input.config.enabled !== false && (snapshot?.enabled ?? true),

@@ -262,10 +262,7 @@ import {
 } from "../state/server";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
-import {
-  requestOlderThreadTurns,
-  threadHasOlderTurns,
-} from "@rune/client-runtime/state/threads";
+import { requestOlderThreadTurns, threadHasOlderTurns } from "@rune/client-runtime/state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
@@ -286,10 +283,7 @@ import { RunePageTransition } from "./RunePageTransition";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
-import {
-  runePanelTransitionClass,
-  useRunePanelMotionState,
-} from "../runePanelMotion";
+import { runePanelTransitionClass, useRunePanelMotionState } from "../runePanelMotion";
 import { RUNE_MOTION_MS } from "../runeMotion";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -344,6 +338,8 @@ import {
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
   shouldDockDraftHeroForSubmission,
+  shouldInterruptRunningTurnBeforeSend,
+  shouldRewindBeforeEditedUserMessageSend,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
@@ -1331,7 +1327,10 @@ function ChatViewContent(props: ChatViewProps) {
   // continuations pass silent: their message is hidden end to end, so an
   // audible "sent" for something the user never wrote would be a lie.
   const startThreadTurn = useCallback(
-    async (value: Parameters<typeof startThreadTurnCommand>[0], opts: { silent?: boolean } = {}) => {
+    async (
+      value: Parameters<typeof startThreadTurnCommand>[0],
+      opts: { silent?: boolean } = {},
+    ) => {
       if (!opts.silent) playSoundEffect("sent");
       return startThreadTurnCommand(value);
     },
@@ -1464,6 +1463,12 @@ function ChatViewContent(props: ChatViewProps) {
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
+  const [pendingUserMessageEdit, setPendingUserMessageEdit] = useState<{
+    messageId: MessageId;
+    turnCount: number;
+  } | null>(null);
+  const pendingUserMessageEditRef = useRef(pendingUserMessageEdit);
+  pendingUserMessageEditRef.current = pendingUserMessageEdit;
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const [feedbackSubmissionsByThreadKey, setFeedbackSubmissionsByThreadKey] = useState<
     Record<string, ReadonlyArray<CodexFeedbackSubmission>>
@@ -1837,9 +1842,7 @@ function ChatViewContent(props: ChatViewProps) {
   // the hook then advances it to `opening` in the effect phase. Closing keeps
   // the host mounted until the motion state reaches `closed`.
   const rightPanelMotionState =
-    rightPanelOpen && rawRightPanelMotionState === "closed"
-      ? "opening"
-      : rawRightPanelMotionState;
+    rightPanelOpen && rawRightPanelMotionState === "closed" ? "opening" : rawRightPanelMotionState;
   const terminalMotionState = useRunePanelMotionState({
     open: activeThreadRef !== null && terminalUiState.terminalOpen,
     reducedMotion: prefersReducedMotion,
@@ -1941,8 +1944,7 @@ function ChatViewContent(props: ChatViewProps) {
         openThreadIds: existingOpenTerminalThreadKeys,
         activeThreadId: activeThreadKey,
         activeThreadTerminalOpen: Boolean(
-          activeThreadKey &&
-            (terminalUiState.terminalOpen || terminalMotionState !== "closed"),
+          activeThreadKey && (terminalUiState.terminalOpen || terminalMotionState !== "closed"),
         ),
         maxHiddenThreadCount: MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
       });
@@ -2568,7 +2570,6 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const promptQueue = usePromptQueue(activeThreadId);
-  const enqueuePrompt = usePromptQueueStore((store) => store.enqueue);
   const editQueuedPrompt = usePromptQueueStore((store) => store.edit);
   const removeQueuedPrompt = usePromptQueueStore((store) => store.remove);
   const reorderQueuedPrompt = usePromptQueueStore((store) => store.reorder);
@@ -3101,22 +3102,25 @@ function ChatViewContent(props: ChatViewProps) {
     setThreadError(threadIdForSend, null);
     dismissThreadErrorBannerForSession(threadErrorBannerKey);
     setThreadErrorBannerDismissTick((tick) => tick + 1);
-    const startResult = await startThreadTurn({
-      environmentId,
-      input: {
-        threadId: threadIdForSend,
-        message: {
-          messageId: newMessageId(),
-          role: "user",
-          text: CONTINUE_AFTER_RESTART_NUDGE,
-          attachments: [],
-          hidden: true,
+    const startResult = await startThreadTurn(
+      {
+        environmentId,
+        input: {
+          threadId: threadIdForSend,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: CONTINUE_AFTER_RESTART_NUDGE,
+            attachments: [],
+            hidden: true,
+          },
+          runtimeMode,
+          interactionMode,
+          createdAt: new Date().toISOString(),
         },
-        runtimeMode,
-        interactionMode,
-        createdAt: new Date().toISOString(),
       },
-    }, { silent: true });
+      { silent: true },
+    );
     if (startResult._tag === "Failure" && !isAtomCommandInterrupted(startResult)) {
       const error = squashAtomCommandFailure(startResult);
       setThreadError(
@@ -3133,6 +3137,25 @@ function ChatViewContent(props: ChatViewProps) {
     setThreadError,
     startThreadTurn,
     threadErrorBannerKey,
+  ]);
+
+  const autoContinueAttemptedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !settings.autoContinueAfterRestart ||
+      !threadErrorOffersContinue(visibleThreadError) ||
+      threadErrorBannerKey === null ||
+      autoContinueAttemptedRef.current === threadErrorBannerKey
+    ) {
+      return;
+    }
+    autoContinueAttemptedRef.current = threadErrorBannerKey;
+    void continueAfterRestart();
+  }, [
+    continueAfterRestart,
+    settings.autoContinueAfterRestart,
+    threadErrorBannerKey,
+    visibleThreadError,
   ]);
 
   const focusComposer = useCallback(() => {
@@ -4422,6 +4445,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
+    setPendingUserMessageEdit(null);
   }, [activeThread?.id]);
 
   useEffect(() => {
@@ -4974,7 +4998,9 @@ function ChatViewContent(props: ChatViewProps) {
         title: (
           <span className="flex items-center gap-1.5 font-normal">
             <span className="font-medium text-foreground">Temporary chat</span>
-            <span className="text-muted-foreground">— auto-deletes 24 hours after your last message</span>
+            <span className="text-muted-foreground">
+              — auto-deletes 24 hours after your last message
+            </span>
           </span>
         ),
         actions: (
@@ -5105,8 +5131,7 @@ function ChatViewContent(props: ChatViewProps) {
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
-    const temporaryChatItems =
-      temporaryChatBannerItem === null ? [] : [temporaryChatBannerItem];
+    const temporaryChatItems = temporaryChatBannerItem === null ? [] : [temporaryChatBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...urgentSystemItems,
@@ -5444,10 +5469,7 @@ function ChatViewContent(props: ChatViewProps) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
       }
-      const confirmation = buildUserMessageRewindConfirmation(
-        rewind?.mode ?? "delete",
-        turnCount,
-      );
+      const confirmation = buildUserMessageRewindConfirmation(rewind?.mode ?? "delete", turnCount);
       const confirmed = await localApi.dialogs.confirm(confirmation.message, confirmation.options);
       if (!confirmed) {
         return;
@@ -5806,24 +5828,71 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
-    // A running thread has one authoritative execution lane. Keep the
-    // composer live, but turn a second submission into a durable per-thread
-    // queue item instead of racing another provider turn against the active
-    // one. The queued text goes through this same send path when drained.
-    if (phase === "running") {
-      enqueuePrompt(threadIdForSend, outgoingMessageText);
-      promptRef.current = "";
-      clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
-      toastManager.add({
-        type: "info",
-        title: "Added to queue",
-        description: "It will start when the current turn finishes.",
+    const shouldInterruptPreviousTurn = shouldInterruptRunningTurnBeforeSend({
+      phase,
+      isSendBusy,
+      sendInFlight: sendInFlightRef.current,
+    });
+    // Reserve the send before awaiting confirmation or interruption so a
+    // second click cannot race the same lifecycle.
+    sendInFlightRef.current = true;
+    const pendingEdit = pendingUserMessageEditRef.current;
+    if (pendingEdit) {
+      const localApi = readLocalApi();
+      if (!localApi) {
+        sendInFlightRef.current = false;
+        return;
+      }
+      const confirmation = buildUserMessageRewindConfirmation("edit", pendingEdit.turnCount);
+      const confirmed = await localApi.dialogs.confirm(confirmation.message, confirmation.options);
+      if (!shouldRewindBeforeEditedUserMessageSend({ hasPendingEdit: true, confirmed })) {
+        // Keep the edited prompt in the composer when the user declines.
+        sendInFlightRef.current = false;
+        return;
+      }
+
+      setIsRevertingCheckpoint(true);
+      const revertResult = await revertThreadCheckpoint({
+        environmentId,
+        input: {
+          threadId: threadIdForSend,
+          turnCount: pendingEdit.turnCount,
+        },
       });
-      return;
+      setIsRevertingCheckpoint(false);
+      if (revertResult._tag === "Failure") {
+        if (!isAtomCommandInterrupted(revertResult)) {
+          const error = squashAtomCommandFailure(revertResult);
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to prepare the edited message.",
+          );
+        }
+        sendInFlightRef.current = false;
+        return;
+      }
+      pendingUserMessageEditRef.current = null;
+      setPendingUserMessageEdit(null);
     }
 
-    sendInFlightRef.current = true;
+    if (shouldInterruptPreviousTurn) {
+      const interruptResult = await interruptThreadTurn({
+        environmentId,
+        input: buildThreadTurnInterruptInput(activeThread),
+      });
+      if (interruptResult._tag === "Failure") {
+        if (!isAtomCommandInterrupted(interruptResult)) {
+          const error = squashAtomCommandFailure(interruptResult);
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to stop the current turn.",
+          );
+        }
+        sendInFlightRef.current = false;
+        return;
+      }
+    }
+
     if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
       for (const image of composerImagesSnapshot) {
         startAttachmentUpload({ environmentId, image });
@@ -6206,7 +6275,9 @@ function ChatViewContent(props: ChatViewProps) {
   // idempotent; a failed start remains visible as a recoverable queue item.
   useEffect(() => {
     if (!activeThread || activeThreadId === null || phase !== "ready" || isSendBusy) return;
-    const next = promptQueue.queue.find((item) => item.status === "queued" || item.status === "steering");
+    const next = promptQueue.queue.find(
+      (item) => item.status === "queued" || item.status === "steering",
+    );
     if (!next) return;
     const claimTurnId = next.id as TurnId;
     const now = new Date().toISOString();
@@ -6217,7 +6288,11 @@ function ChatViewContent(props: ChatViewProps) {
     });
     setComposerDraftPrompt(composerDraftTarget, next.text);
     promptRef.current = next.text;
-    composerRef.current?.resetCursorState({ prompt: next.text, cursor: next.text.length, detectTrigger: true });
+    composerRef.current?.resetCursorState({
+      prompt: next.text,
+      cursor: next.text.length,
+      detectTrigger: true,
+    });
     void onSend(undefined, "foreground");
   }, [
     activeThread,
@@ -6890,12 +6965,17 @@ function ChatViewContent(props: ChatViewProps) {
       if (targetTurnCount === null) {
         return;
       }
-      void onRevertToTurnCountRef.current(targetTurnCount, {
-        mode: "edit",
-        restoredPromptText: messageText,
+      pendingUserMessageEditRef.current = { messageId, turnCount: targetTurnCount };
+      setPendingUserMessageEdit({ messageId, turnCount: targetTurnCount });
+      setComposerDraftPrompt(composerDraftTarget, messageText);
+      composerRef.current?.resetCursorState({
+        cursor: messageText.length,
+        prompt: messageText,
+        detectTrigger: false,
       });
+      scheduleComposerFocus();
     },
-    [resolveRewindTurnCount],
+    [composerDraftTarget, resolveRewindTurnCount, scheduleComposerFocus, setComposerDraftPrompt],
   );
   const onDeleteUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -7126,15 +7206,16 @@ function ChatViewContent(props: ChatViewProps) {
           />
         </WorkspacePageHeader>
 
-        <ThreadErrorBanner
-          error={visibleThreadError}
-          onDismiss={() => {
-            setThreadError(activeThread.id, null);
-            dismissThreadErrorBannerForSession(threadErrorBannerKey);
-            setThreadErrorBannerDismissTick((tick) => tick + 1);
-          }}
-          {...(threadErrorOffersContinue(visibleThreadError) ? { onContinue: continueAfterRestart } : {})}
-        />
+        {!threadErrorOffersContinue(visibleThreadError) ? (
+          <ThreadErrorBanner
+            error={visibleThreadError}
+            onDismiss={() => {
+              setThreadError(activeThread.id, null);
+              dismissThreadErrorBannerForSession(threadErrorBannerKey);
+              setThreadErrorBannerDismissTick((tick) => tick + 1);
+            }}
+          />
+        ) : null}
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
           {/* Chat column */}
@@ -7255,7 +7336,11 @@ function ChatViewContent(props: ChatViewProps) {
                       <ChatWebPreviewCard
                         threadRef={activeThreadRef}
                         environmentId={environmentId}
-                        messages={activeThread?.messages ?? []}
+                        messages={
+                          activeThread?.messages.flatMap(({ role, text }) =>
+                            role === "reasoning" ? [] : [{ role, text }],
+                          ) ?? []
+                        }
                         configuredUrls={configuredPreviewUrls}
                         openPreview={openPreview}
                       />
@@ -7386,6 +7471,12 @@ function ChatViewContent(props: ChatViewProps) {
                             scheduleComposerFocus={scheduleComposerFocus}
                             setThreadError={setThreadError}
                             onExpandImage={onExpandTimelineImage}
+                            recovery={
+                              threadErrorOffersContinue(visibleThreadError) &&
+                              !settings.autoContinueAfterRestart
+                                ? { onContinue: continueAfterRestart }
+                                : null
+                            }
                           />
                         </div>
                       </div>
@@ -7502,9 +7593,7 @@ function ChatViewContent(props: ChatViewProps) {
             threadRef={mountedThreadRef}
             threadId={mountedThreadRef.threadId}
             visible={mountedThreadKey === activeThreadKey && terminalUiState.terminalOpen}
-            motionState={
-              mountedThreadKey === activeThreadKey ? terminalMotionState : "closed"
-            }
+            motionState={mountedThreadKey === activeThreadKey ? terminalMotionState : "closed"}
             launchContext={
               mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
             }

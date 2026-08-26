@@ -299,6 +299,39 @@ describe("resolveInitialServerAuthGateState", () => {
     expect(attempts).toBe(4);
   });
 
+  it("retries when desktop bearer bootstrap wraps a transport failure", async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const request = HttpClientRequest.get("http://localhost/api/auth/bootstrap/bearer");
+    const runner: PrimaryHttpEffectRunner = async <A>() => {
+      attempts += 1;
+      if (attempts < 2) {
+        throw {
+          _tag: "DesktopLocalEnvironmentAuthSessionBootstrapError",
+          cause: new HttpClientError.HttpClientError({
+            reason: new HttpClientError.TransportError({
+              request,
+              cause: new Error("connect ECONNREFUSED"),
+            }),
+          }),
+        };
+      }
+      return unauthenticatedSession(LOOPBACK_AUTH) as A;
+    };
+    __setPrimaryHttpRunnerForTests(runner);
+
+    const { resolveInitialServerAuthGateState } = await import("./environments/primary");
+
+    const gateStatePromise = resolveInitialServerAuthGateState();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(gateStatePromise).resolves.toEqual({
+      status: "requires-auth",
+      auth: LOOPBACK_AUTH,
+    });
+    expect(attempts).toBe(2);
+  });
+
   it("surfaces a persistent internal auth failure without retrying it", async () => {
     vi.useFakeTimers();
     let attempts = 0;

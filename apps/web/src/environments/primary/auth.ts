@@ -315,9 +315,7 @@ function isTransientBootstrapError(error: unknown): boolean {
     // failures through that wrapper: the desktop server can briefly refuse
     // connections while its child process is starting. A wrapped HTTP 500 is
     // still a real server response and must remain non-retryable.
-    return (
-      TRANSIENT_BOOTSTRAP_STATUS_CODES.has(error.status) || isHttpClientTransportError(error.cause)
-    );
+    return isTransientBootstrapCause(error.cause, new Set());
   }
 
   if (error instanceof TypeError) {
@@ -327,8 +325,39 @@ function isTransientBootstrapError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function isHttpClientTransportError(error: unknown): boolean {
-  return HttpClientError.isHttpClientError(error) && error.reason._tag === "TransportError";
+function isTransientBootstrapCause(error: unknown, seen: Set<object>, depth = 0): boolean {
+  if (depth > 4 || (typeof error !== "object" && typeof error !== "function") || error === null) {
+    return false;
+  }
+  if (seen.has(error)) {
+    return false;
+  }
+  seen.add(error);
+
+  if (HttpClientError.isHttpClientError(error)) {
+    if (error.response !== undefined) {
+      return TRANSIENT_BOOTSTRAP_STATUS_CODES.has(error.response.status);
+    }
+    return error.reason._tag === "TransportError";
+  }
+  if (isEnvironmentHttpCommonError(error)) {
+    return TRANSIENT_BOOTSTRAP_STATUS_CODES.has(readEnvironmentHttpErrorStatus(error));
+  }
+  if (error instanceof TypeError) {
+    return true;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+
+  if ("cause" in error) {
+    return isTransientBootstrapCause(
+      (error as { readonly cause?: unknown }).cause,
+      seen,
+      depth + 1,
+    );
+  }
+  return false;
 }
 
 async function bootstrapServerAuth(): Promise<ServerAuthGateState> {

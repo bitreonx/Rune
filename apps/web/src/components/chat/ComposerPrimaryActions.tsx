@@ -29,6 +29,7 @@ interface ComposerPrimaryActionsProps {
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   isPaused?: boolean;
+  isContinueBusy?: boolean;
   showSendWhileRunning?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
@@ -72,6 +73,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
   isPaused = false,
+  isContinueBusy = false,
   showSendWhileRunning = false,
   onPreviousPendingQuestion,
   onInterrupt,
@@ -114,9 +116,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       className="group flex size-9 animate-[composer-action-state-enter_180ms_cubic-bezier(0.32,0.72,0,1)_both] cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs shadow-message-action/24 transition-[transform,background-color,box-shadow] duration-150 ease-out hover:scale-105 hover:bg-message-action-hover active:scale-95 active:shadow-none motion-reduce:animate-none motion-reduce:transition-none sm:size-8"
       {...pointerFocusProps}
       onClick={onContinue}
-      aria-label="Continue task"
+      disabled={isContinueBusy}
+      aria-label={isContinueBusy ? "Continuing task" : "Continue task"}
     >
-      <PlayIcon className="size-3.5 fill-current transition-transform duration-150 ease-out group-hover:translate-x-px motion-reduce:transition-none" />
+      {isContinueBusy ? (
+        <Spinner className="size-3.5" aria-hidden="true" />
+      ) : (
+        <PlayIcon className="size-3.5 fill-current transition-transform duration-150 ease-out group-hover:translate-x-px motion-reduce:transition-none" />
+      )}
     </button>
   );
 

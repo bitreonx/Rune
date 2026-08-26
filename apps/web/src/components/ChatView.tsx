@@ -3124,12 +3124,14 @@ function ChatViewContent(props: ChatViewProps) {
       },
       { silent: true },
     );
-    if (startResult._tag === "Failure" && !isAtomCommandInterrupted(startResult)) {
-      const error = squashAtomCommandFailure(startResult);
-      setThreadError(
-        threadIdForSend,
-        error instanceof Error ? error.message : "Failed to continue after restart.",
-      );
+    if (startResult._tag === "Failure") {
+      if (!isAtomCommandInterrupted(startResult)) {
+        const error = squashAtomCommandFailure(startResult);
+        setThreadError(
+          threadIdForSend,
+          error instanceof Error ? error.message : "Failed to continue after restart.",
+        );
+      }
       return false;
     }
     return true;
@@ -7575,6 +7577,7 @@ function ChatViewContent(props: ChatViewProps) {
                             onSend={onSend}
                             onInterrupt={onInterrupt}
                             isPaused={isTurnPaused}
+                            isContinueBusy={isContinuingTurn}
                             onContinue={() => void continuePausedTurn()}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}

@@ -87,6 +87,30 @@ function renderRunningActions(showSendWhileRunning: boolean, hasSendableContent:
   );
 }
 
+function renderPausedAction(isContinueBusy = false) {
+  return renderToStaticMarkup(
+    createElement(ComposerPrimaryActions, {
+      compact: true,
+      pendingAction: null,
+      isRunning: false,
+      isPaused: true,
+      isContinueBusy,
+      showPlanFollowUpPrompt: false,
+      promptHasText: false,
+      isSendBusy: false,
+      sendDisabledReason: null,
+      isConnecting: false,
+      isEnvironmentUnavailable: false,
+      isPreparingWorktree: false,
+      hasSendableContent: false,
+      onPreviousPendingQuestion: () => {},
+      onInterrupt: () => {},
+      onContinue: () => {},
+      onImplementPlanInNewThread: () => {},
+    }),
+  );
+}
+
 function renderSendButton(sendDisabledReason: string | null = null) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
@@ -266,5 +290,20 @@ describe("ComposerPrimaryActions", () => {
 
     expect(markup).toContain('aria-label="Stop generation"');
     expect(markup).not.toContain('aria-label="Send message"');
+  });
+
+  it("changes the primary action to Continue after a manual stop", () => {
+    const markup = renderPausedAction();
+
+    expect(markup).toContain('aria-label="Continue task"');
+    expect(markup).not.toContain('aria-label="Send message"');
+    expect(markup).toContain("composer-action-state-enter");
+  });
+
+  it("locks Continue and shows progress while the resume request is pending", () => {
+    const markup = renderPausedAction(true);
+
+    expect(markup).toContain('aria-label="Continuing task"');
+    expect(markup).toContain("disabled");
   });
 });

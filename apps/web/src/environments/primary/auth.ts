@@ -310,7 +310,14 @@ function waitForBootstrapRetry(delayMs: number): Promise<void> {
 
 function isTransientBootstrapError(error: unknown): boolean {
   if (isPrimaryEnvironmentRequestError(error)) {
-    return TRANSIENT_BOOTSTRAP_STATUS_CODES.has(error.status);
+    // fetchSessionState wraps the HTTP client error so callers get a stable,
+    // operation-specific error. Preserve retry semantics for transport
+    // failures through that wrapper: the desktop server can briefly refuse
+    // connections while its child process is starting. A wrapped HTTP 500 is
+    // still a real server response and must remain non-retryable.
+    return (
+      TRANSIENT_BOOTSTRAP_STATUS_CODES.has(error.status) || isHttpClientTransportError(error.cause)
+    );
   }
 
   if (error instanceof TypeError) {
@@ -318,6 +325,10 @@ function isTransientBootstrapError(error: unknown): boolean {
   }
 
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isHttpClientTransportError(error: unknown): boolean {
+  return HttpClientError.isHttpClientError(error) && error.reason._tag === "TransportError";
 }
 
 async function bootstrapServerAuth(): Promise<ServerAuthGateState> {

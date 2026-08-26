@@ -50,3 +50,5 @@ node_modules/
 docs/superpowers/
 system-prompts-and-models-of-ai-tools-main/
 *-MAXXING-*
+.t3-sandbox/
+oxlint-plugin-t3code/

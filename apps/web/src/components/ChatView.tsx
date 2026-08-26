@@ -1491,6 +1491,7 @@ function ChatViewContent(props: ChatViewProps) {
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
   const [isTurnPaused, setIsTurnPaused] = useState(false);
+  const [isContinuingTurn, setIsContinuingTurn] = useState(false);
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
   );
@@ -3144,14 +3145,34 @@ function ChatViewContent(props: ChatViewProps) {
   ]);
 
   const continuePausedTurn = useCallback(async () => {
-    if (!activeThread || !isServerThread || phase === "running" || isSendBusy || isConnecting) {
+    if (
+      !activeThread ||
+      !isServerThread ||
+      phase === "running" ||
+      isSendBusy ||
+      isConnecting ||
+      isContinuingTurn
+    ) {
       return;
     }
-    const continued = await continueAfterRestart();
-    if (continued) {
-      setIsTurnPaused(false);
+    setIsContinuingTurn(true);
+    try {
+      const continued = await continueAfterRestart();
+      if (continued) {
+        setIsTurnPaused(false);
+      }
+    } finally {
+      setIsContinuingTurn(false);
     }
-  }, [activeThread, continueAfterRestart, isConnecting, isSendBusy, isServerThread, phase]);
+  }, [
+    activeThread,
+    continueAfterRestart,
+    isConnecting,
+    isContinuingTurn,
+    isSendBusy,
+    isServerThread,
+    phase,
+  ]);
 
   const autoContinueAttemptedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -4461,6 +4482,7 @@ function ChatViewContent(props: ChatViewProps) {
     setIsRevertingCheckpoint(false);
     setPendingUserMessageEdit(null);
     setIsTurnPaused(false);
+    setIsContinuingTurn(false);
   }, [activeThread?.id]);
 
   useEffect(() => {

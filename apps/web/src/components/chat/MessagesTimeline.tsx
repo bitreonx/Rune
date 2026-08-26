@@ -1711,6 +1711,11 @@ function WorkGroupToggleTimelineRow({
     : row.hiddenCount === 1
       ? "log entry"
       : "log entries";
+  const activityLabel = row.simplifiedActivity
+    ? row.hiddenCount === 1
+      ? "completed activity"
+      : "completed activities"
+    : labelNoun;
   const showHiddenFailure = row.hasFailure && !row.expanded;
 
   return (
@@ -1741,11 +1746,18 @@ function WorkGroupToggleTimelineRow({
       </span>
       {row.expanded ? (
         <span className="font-medium text-foreground">
-          Show fewer {row.onlyToolEntries ? "tool calls" : "log entries"}
+          Show fewer{" "}
+          {row.simplifiedActivity
+            ? "activities"
+            : row.onlyToolEntries
+              ? "tool calls"
+              : "log entries"}
         </span>
       ) : (
         <span className="font-medium text-foreground">
-          +{row.hiddenCount} previous {labelNoun}
+          {row.simplifiedActivity
+            ? `${row.hiddenCount} ${activityLabel}`
+            : `+${row.hiddenCount} previous ${labelNoun}`}
         </span>
       )}
     </button>
@@ -2556,6 +2568,9 @@ function liveWorkEntryLabel(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
 ): string {
+  if (workEntry.isSimplifiedActivity) {
+    return `${workEntry.label}${workEntry.toolTitle?.includes("(") ? ` ${workEntry.toolTitle.slice(workEntry.toolTitle.indexOf("("))}` : ""}`;
+  }
   const command = workEntry.command?.trim();
   if (command) {
     // This row describes the active parent turn, not the command lifecycle.
@@ -2849,8 +2864,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const filePaths = [
     ...new Set([...(workEntry.filePaths ?? []), ...(workEntry.changedFiles ?? [])]),
   ];
-  const displayText =
-    filePaths.length > 0
+  const displayText = workEntry.isSimplifiedActivity
+    ? `${workEntry.label}${workEntry.toolTitle?.includes("(") ? ` ${workEntry.toolTitle.slice(workEntry.toolTitle.indexOf("("))}` : ""}`
+    : filePaths.length > 0
       ? toolWorkEntryHeading(workEntry)
       : (workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry));
   // Edit rows expand into the real file diff instead of the raw tool payload.

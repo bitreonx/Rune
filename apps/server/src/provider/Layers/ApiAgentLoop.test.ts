@@ -89,7 +89,7 @@ interface ScriptedHarness {
 const makeHarness = (
   toolContext: NativeToolContext,
   scripts: ReadonlyArray<string>,
-  overrides?: Partial<Pick<AgentLoopDeps, "approvalGate" | "httpPost">>,
+  overrides?: Partial<Pick<AgentLoopDeps, "approvalGate" | "httpPost" | "userInputRequest">>,
 ): ScriptedHarness => {
   const requests: ScriptedHarness["requests"] = [];
   const published: Array<ProviderRuntimeEvent> = [];
@@ -206,6 +206,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
         (tool) => tool.function.name,
       );
       expect(offeredNames).toEqual([
+        "ask_user",
         "workspace_snapshot",
         "search_many",
         "read_many",
@@ -274,6 +275,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
         harness.requests[0]?.body.tools as Array<{ function: { name: string } }>
       ).map((tool) => tool.function.name);
       expect(offeredNames).toEqual([
+        "ask_user",
         "workspace_snapshot",
         "search_many",
         "read_many",

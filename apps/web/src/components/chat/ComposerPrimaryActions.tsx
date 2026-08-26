@@ -1,5 +1,5 @@
 import { memo, type PointerEventHandler } from "react";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, PlayIcon } from "lucide-react";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
@@ -28,11 +28,11 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
-  /** Enter-to-send is disabled on mobile viewports, where stop would otherwise
-   * be the only primary action and a running turn could not be steered. */
+  isPaused?: boolean;
   showSendWhileRunning?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
+  onContinue?: () => void;
   onImplementPlanInNewThread: () => void;
 }
 
@@ -71,9 +71,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
+  isPaused = false,
   showSendWhileRunning = false,
   onPreviousPendingQuestion,
   onInterrupt,
+  onContinue = () => {},
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
   const pointerFocusProps = preserveComposerFocusOnPointerDown
@@ -103,6 +105,18 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
         <rect x="2" y="2" width="8" height="8" rx="1.5" />
       </svg>
+    </button>
+  );
+
+  const renderContinueButton = () => (
+    <button
+      type="button"
+      className="group flex size-9 animate-[composer-action-state-enter_180ms_cubic-bezier(0.32,0.72,0,1)_both] cursor-pointer items-center justify-center rounded-full bg-message-action text-message-action-foreground shadow-xs shadow-message-action/24 transition-[transform,background-color,box-shadow] duration-150 ease-out hover:scale-105 hover:bg-message-action-hover active:scale-95 active:shadow-none motion-reduce:animate-none motion-reduce:transition-none sm:size-8"
+      {...pointerFocusProps}
+      onClick={onContinue}
+      aria-label="Continue task"
+    >
+      <PlayIcon className="size-3.5 fill-current transition-transform duration-150 ease-out group-hover:translate-x-px motion-reduce:transition-none" />
     </button>
   );
 
@@ -216,6 +230,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         </Menu>
       </div>
     );
+  }
+
+  if (isPaused) {
+    return renderContinueButton();
   }
 
   const sendButton = (

@@ -504,6 +504,8 @@ describe("buildCodexDeveloperInstructions", () => {
     NodeAssert.match(instructions, /RUNE/);
     NodeAssert.match(instructions, /Codex harness/);
     NodeAssert.match(instructions, /as gpt-5\.3-codex with high reasoning effort/);
+    NodeAssert.match(instructions, /structured asker/);
+    NodeAssert.match(instructions, /ask_user/);
   });
 
   it("includes runtime info alongside plan mode instructions", () => {

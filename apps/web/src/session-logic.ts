@@ -93,6 +93,8 @@ export interface WorkLogEntry {
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
   /** Originating orchestration activity kind (e.g. `user-input.requested`) for row chrome. */
   sourceActivityKind?: OrchestrationThreadActivity["kind"];
+  /** Marks rows produced by the semantic activity projection. */
+  isSimplifiedActivity?: boolean;
   /** Grouping key for subagent lifecycle rows (one row per agent). */
   taskId?: string;
   /** Agent role (subagent_type) for labeled timeline rows. */
@@ -906,6 +908,9 @@ export function deriveSimplifiedWorkLogEntries(
       createdAt: activity.createdAt,
       turnId: activity.operations[0]?.rawTrace.turnId ?? null,
       label: activity.label,
+      isSimplifiedActivity: true,
+      ...(files.length > 0 ? { filePaths: files } : {}),
+      ...(activity.phase === "implement" && files.length > 0 ? { changedFiles: files } : {}),
       ...(detail ? { detail } : {}),
       tone:
         activity.status === "failed"
@@ -923,7 +928,7 @@ export function deriveSimplifiedWorkLogEntries(
           : activity.status === "done"
             ? { toolLifecycleStatus: "completed" as const }
             : {}),
-      toolTitle: `${activity.label} · ${count} ${count === 1 ? "operation" : "operations"}`,
+      ...(count > 1 ? { toolTitle: `${activity.label} (${count} operations)` } : {}),
     } satisfies WorkLogEntry;
   });
 }

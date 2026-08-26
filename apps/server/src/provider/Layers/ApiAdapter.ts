@@ -17,6 +17,7 @@ import {
   type ProviderApprovalPolicy,
   type ProviderSandboxMode,
   type ProviderUserInputAnswers,
+  type UserInputQuestion,
 } from "@rune/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -34,7 +35,7 @@ import { ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { runAgenticTurn, type AgentLoopDeps, type AgentLoopMessage } from "./ApiAgentLoop.ts";
-import { NATIVE_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
+import { askUserTool, NATIVE_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
 import { ApiHarnessLedger, compileOutcomeContract } from "./ApiHarness.ts";
 import { decodeApiResumeCursor, encodeApiResumeCursor } from "./ApiSessionState.ts";
 import {
@@ -73,11 +74,16 @@ interface ApiSessionContext {
   workspaceInstructions: string | undefined;
   harnessLedger: ApiHarnessLedger | undefined;
   pendingApprovals: Map<ApprovalRequestId, ApiPendingApproval>;
+  pendingUserInputs: Map<ApprovalRequestId, ApiPendingUserInput>;
 }
 
 interface ApiPendingApproval {
   readonly deferred: Deferred.Deferred<ProviderApprovalDecision, ProviderAdapterError>;
   readonly requestType: "command_execution_approval" | "file_change_approval";
+}
+
+interface ApiPendingUserInput {
+  readonly deferred: Deferred.Deferred<ProviderUserInputAnswers, ProviderAdapterError>;
 }
 
 export interface ApiAdapterToolServices {
@@ -295,7 +301,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
       const cwd = context.session.cwd;
       const toolsAvailable = options.toolServices !== undefined && cwd !== undefined;
       const offeredTools = !toolsAvailable
-        ? []
+        ? [askUserTool]
         : context.sandboxMode === "read-only"
           ? SAFE_TOOLS
           : options.toolServices?.processRunner
@@ -355,6 +361,25 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
                 }
               })
           : undefined;
+      const userInputRequest: NonNullable<AgentLoopDeps["userInputRequest"]> = ({ questions }) =>
+        Effect.gen(function* () {
+          const requestId = ApprovalRequestId.make(yield* nextIdentifier);
+          const deferred = yield* Deferred.make<ProviderUserInputAnswers, ProviderAdapterError>();
+          context.pendingUserInputs.set(requestId, { deferred });
+          yield* publish({
+            type: "user-input.requested",
+            ...(yield* makeStamp),
+            provider: options.provider,
+            providerInstanceId: options.instanceId,
+            threadId: context.threadId,
+            turnId,
+            requestId: RuntimeRequestId.make(String(requestId)),
+            payload: { questions: questions satisfies ReadonlyArray<UserInputQuestion> },
+          });
+          const answers = yield* Deferred.await(deferred);
+          context.pendingUserInputs.delete(requestId);
+          return answers;
+        });
       const result = yield* runAgenticTurn(
         {
           provider: options.provider,
@@ -376,6 +401,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
           stamp: makeStamp,
           toolContext,
           approvalGate,
+          userInputRequest,
           harnessLedger: context.harnessLedger,
         },
         {
@@ -531,6 +557,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
         workspaceInstructions: undefined,
         harnessLedger: undefined,
         pendingApprovals: new Map(),
+        pendingUserInputs: new Map(),
       };
       if (options.toolServices !== undefined && input.cwd !== undefined) {
         context.workspaceInstructions = yield* readWorkspaceInstructions(input.cwd);
@@ -650,6 +677,17 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
         ).pipe(Effect.ignore);
       }
       context.pendingApprovals.clear();
+      for (const pending of context.pendingUserInputs.values()) {
+        yield* Deferred.fail(
+          pending.deferred,
+          new ProviderAdapterRequestError({
+            provider: options.provider,
+            method: "user-input",
+            detail,
+          }),
+        ).pipe(Effect.ignore);
+      }
+      context.pendingUserInputs.clear();
     });
 
   const respondToRequest = (
@@ -683,14 +721,33 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
       });
     });
 
-  const unsupported = (operation: string) =>
-    Effect.fail(
-      new ProviderAdapterValidationError({
+  const respondToUserInput = (
+    threadId: ThreadId,
+    requestId: ApprovalRequestId,
+    answers: ProviderUserInputAnswers,
+  ): Effect.Effect<void, ProviderAdapterError> =>
+    Effect.gen(function* () {
+      const context = yield* requireSession(threadId);
+      const pending = context.pendingUserInputs.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterValidationError({
+          provider: options.provider,
+          operation: "respondToUserInput",
+          issue: "No pending user-input request with that id.",
+        });
+      }
+      context.pendingUserInputs.delete(requestId);
+      yield* Deferred.succeed(pending.deferred, answers);
+      yield* publish({
+        type: "user-input.resolved",
+        ...(yield* makeStamp),
         provider: options.provider,
-        operation,
-        issue: "API providers do not support interactive user-input requests.",
-      }),
-    );
+        providerInstanceId: options.instanceId,
+        threadId,
+        requestId: RuntimeRequestId.make(String(requestId)),
+        payload: { answers },
+      });
+    });
 
   return {
     provider: options.provider,
@@ -699,11 +756,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
     sendTurn,
     interruptTurn,
     respondToRequest,
-    respondToUserInput: (
-      _threadId: ThreadId,
-      _requestId: ApprovalRequestId,
-      _answers: ProviderUserInputAnswers,
-    ) => unsupported("respondToUserInput"),
+    respondToUserInput,
     stopSession,
     listSessions: () => Effect.succeed([...sessions.values()].map((context) => context.session)),
     hasSession: (threadId: ThreadId) => Effect.succeed(sessions.has(threadId)),

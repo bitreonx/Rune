@@ -41,7 +41,10 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
-import { resolveInitialServerAuthGateState } from "../environments/primary";
+import {
+  isPrimaryEnvironmentRequestError,
+  resolveInitialServerAuthGateState,
+} from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { shellEnvironment } from "../state/shell";
 import { useAtomValue } from "@effect/atom-react";
@@ -307,6 +310,21 @@ function errorMessage(error: unknown): string {
 }
 
 function errorDetails(error: unknown): string {
+  if (isPrimaryEnvironmentRequestError(error)) {
+    return JSON.stringify(
+      {
+        tag: error._tag,
+        operation: error.operation,
+        failureKind: error.failureKind,
+        ...(error.status === undefined ? {} : { status: error.status }),
+        ...(error.requestUrl === undefined ? {} : { requestUrl: error.requestUrl }),
+        cause: describeSafeCause(error.cause),
+      },
+      null,
+      2,
+    );
+  }
+
   if (error instanceof Error) {
     return error.stack ?? error.message;
   }
@@ -320,6 +338,42 @@ function errorDetails(error: unknown): string {
   } catch {
     return "No additional error details are available.";
   }
+}
+
+function describeSafeCause(cause: unknown, seen = new Set<object>(), depth = 0): unknown {
+  if (depth > 6) {
+    return { truncated: true };
+  }
+  if (cause instanceof Error) {
+    const objectCause = cause as Error & { readonly _tag?: unknown; readonly cause?: unknown };
+    return {
+      tag: typeof objectCause._tag === "string" ? objectCause._tag : cause.name,
+      message: cause.message,
+      ...(objectCause.cause === undefined
+        ? {}
+        : { cause: describeSafeCause(objectCause.cause, seen, depth + 1) }),
+    };
+  }
+  if (typeof cause !== "object" || cause === null) {
+    return typeof cause === "string" || typeof cause === "number" || typeof cause === "boolean"
+      ? cause
+      : String(cause);
+  }
+  if (seen.has(cause)) {
+    return { circular: true };
+  }
+  seen.add(cause);
+
+  const record = cause as Readonly<Record<string, unknown>>;
+  return {
+    ...(typeof record._tag === "string" ? { tag: record._tag } : {}),
+    ...(typeof record.name === "string" ? { name: record.name } : {}),
+    ...(typeof record.message === "string" ? { message: record.message } : {}),
+    ...(typeof record.reason === "string" ? { reason: record.reason } : {}),
+    ...(record.cause === undefined
+      ? {}
+      : { cause: describeSafeCause(record.cause, seen, depth + 1) }),
+  };
 }
 
 function AuthenticatedTracingBootstrap() {

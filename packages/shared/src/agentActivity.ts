@@ -42,6 +42,39 @@ const text = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 const payloadText = (a: OrchestrationThreadActivity, key: string) => text(record(a.payload)?.[key]);
 
+function collectPayloadText(value: unknown, key = "", depth = 0): string[] {
+  if (depth > 3 || value === null || value === undefined) return [];
+  if (typeof value === "string") {
+    return /(?:name|tool|command|title|path|file|description|summary|type|status|detail|query)/iu.test(
+      key,
+    ) && value.trim()
+      ? [value]
+      : [];
+  }
+  if (Array.isArray(value))
+    return value.flatMap((item) => collectPayloadText(item, key, depth + 1));
+  if (typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([childKey, item]) =>
+    collectPayloadText(item, childKey, depth + 1),
+  );
+}
+
+function collectPayloadPaths(value: unknown, key = "", depth = 0): string[] {
+  if (depth > 4 || value === null || value === undefined) return [];
+  if (typeof value === "string") {
+    return /^(path|file|filePath|file_name|filename|relativePath|relative_path)$/iu.test(key) &&
+      value.trim()
+      ? [value.trim()]
+      : [];
+  }
+  if (Array.isArray(value))
+    return value.flatMap((item) => collectPayloadPaths(item, key, depth + 1));
+  if (typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([childKey, childValue]) =>
+    collectPayloadPaths(childValue, childKey, depth + 1),
+  );
+}
+
 function classify(a: OrchestrationThreadActivity): { phase: AgentActivityPhase; label: string } {
   const payload = record(a.payload);
   const haystack = [
@@ -50,6 +83,7 @@ function classify(a: OrchestrationThreadActivity): { phase: AgentActivityPhase; 
     payloadText(a, "title"),
     payloadText(a, "toolName"),
     payloadText(a, "command"),
+    ...collectPayloadText(a.payload),
   ]
     .filter(Boolean)
     .join(" ")
@@ -69,7 +103,13 @@ function classify(a: OrchestrationThreadActivity): { phase: AgentActivityPhase; 
     return { phase: "research", label: "Researching the repository" };
   if (/\b(search|grep|find|read|file|repository|project|explore)\b/u.test(haystack))
     return { phase: "explore", label: "Exploring the project" };
-  return { phase: "other", label: "Working on the task" };
+  if (/\b(approval|permission|authorize|consent)\b/u.test(haystack))
+    return { phase: "other", label: "Waiting for your approval" };
+  if (/\b(user[- ]?input|question|clarification)\b/u.test(haystack))
+    return { phase: "other", label: "Waiting for your input" };
+  if (/\b(task|agent|subagent|session|turn)\b/u.test(haystack))
+    return { phase: "other", label: "Coordinating the work" };
+  return { phase: "other", label: "Working through the task" };
 }
 function status(a: OrchestrationThreadActivity): AgentActivityStatus {
   const value = payloadText(a, "status")?.toLowerCase();
@@ -84,12 +124,13 @@ function status(a: OrchestrationThreadActivity): AgentActivityStatus {
 function toOperation(a: OrchestrationThreadActivity): AgentActivityOperation {
   const payload = record(a.payload);
   const data = record(payload?.data) ?? payload;
+  const filePath = collectPayloadPaths(a.payload)[0] ?? text(data?.path);
   return {
     id: a.id,
     kind: a.kind,
     createdAt: a.createdAt,
     turnId: a.turnId,
-    ...(text(data?.path) ? { filePath: text(data?.path) } : {}),
+    ...(filePath ? { filePath } : {}),
     rawTrace: a,
   };
 }
@@ -115,15 +156,22 @@ export function deriveAgentActivityJob(
     )
       continue;
     const nextStatus = status(source);
-    const nextClass = classify(source);
+    const classified = classify(source);
+    const nextClass =
+      nextStatus === "waiting"
+        ? {
+            phase: classified.phase,
+            label: source.kind.includes("approval")
+              ? "Waiting for your approval"
+              : "Waiting for your input",
+          }
+        : nextStatus === "paused"
+          ? { phase: classified.phase, label: "Paused" }
+          : nextStatus === "failed" && classified.phase === "other"
+            ? { phase: "fix" as const, label: "Fixing remaining errors" }
+            : classified;
     const current = result.at(-1);
-    if (
-      current &&
-      current.phase === nextClass.phase &&
-      current.status !== "failed" &&
-      nextStatus !== "waiting" &&
-      current.operations[0]?.turnId === source.turnId
-    ) {
+    if (current && current.phase === nextClass.phase && nextStatus !== "waiting") {
       result[result.length - 1] = {
         ...current,
         status: nextStatus === "working" ? current.status : nextStatus,

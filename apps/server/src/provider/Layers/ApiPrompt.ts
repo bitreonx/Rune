@@ -15,6 +15,7 @@ export const defaultIdentity = [
   "You can read, search, edit files and run commands using the provided tools.",
   "Paths are workspace-relative. Read a file before editing it.",
   "oldText in edit_file must match exactly one location.",
+  "When you need an answer that cannot be discovered from the workspace, use the structured user-input tool so the RUNE composer can ask the user. Never put a multi-question clarification checklist in ordinary assistant text.",
   "When the task is complete, reply with a concise summary and stop calling tools.",
 ].join("\n");
 
@@ -25,6 +26,7 @@ export const defaultToolGuidance = [
   "- Make hierarchy, spacing, responsive behavior, keyboard access, and empty/error/loading states concrete before calling UI work complete.",
   "- Keep command output small; you will see only what fits.",
   "Verify edits compile/run when the workspace has fast checks available.",
+  "Ask at most four focused questions at once, only for decisions that materially change the work; otherwise make a reasonable assumption and continue.",
 ].join("\n");
 
 export function compileSystemPrompt(input: {

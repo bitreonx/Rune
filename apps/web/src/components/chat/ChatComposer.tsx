@@ -147,6 +147,7 @@ import {
   submitComposerDraft,
 } from "./composerSubmission";
 import { ComposerPromptLengthValidation } from "./ComposerPromptLengthValidation";
+import { ComposerAttachmentCapability } from "./ComposerAttachmentCapability";
 import { ComposerContextTray } from "./ComposerContextTray";
 import { ComposerPromptQueue } from "./ComposerPromptQueue";
 import type { PromptQueueThreadState } from "@rune/client-runtime/state/promptQueue";
@@ -518,9 +519,11 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
+  isPaused?: boolean;
   showSendWhileRunning?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
+  onContinue?: () => void;
   onImplementPlanInNewThread: () => void;
 }) {
   return (
@@ -547,9 +550,11 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isPreparingWorktree={props.isPreparingWorktree}
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
+        isPaused={props.isPaused ?? false}
         showSendWhileRunning={props.showSendWhileRunning ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
+        onContinue={props.onContinue}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
       />
     </>
@@ -676,6 +681,7 @@ export interface ChatComposerProps {
   onRemoveQueuedPrompt?: (itemId: string) => void;
   onMoveQueuedPrompt?: (itemId: string, direction: -1 | 1) => void;
   onSteerQueuedPrompt?: (itemId: string) => void;
+  onRetryQueuedPrompt?: (itemId: string) => void;
 
   // Misc
   resolvedTheme: "light" | "dark";
@@ -694,6 +700,8 @@ export interface ChatComposerProps {
   // Callbacks
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
   onInterrupt: () => void;
+  isPaused?: boolean;
+  onContinue?: () => void;
   onImplementPlanInNewThread: () => void;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
@@ -776,6 +784,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onRemoveQueuedPrompt,
     onMoveQueuedPrompt,
     onSteerQueuedPrompt,
+    onRetryQueuedPrompt,
     resolvedTheme,
     settings,
     keybindings,
@@ -788,6 +797,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerElementContextsRef,
     onSend,
     onInterrupt,
+    isPaused = false,
+    onContinue,
     onImplementPlanInNewThread,
     onRespondToApproval,
     onSelectActivePendingUserInputOption,
@@ -1035,9 +1046,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedProviderModels.find((candidate) => candidate.slug === slug)?.name ?? slug;
     return {
       modelName,
-      line: selectedModelMediaSupport.image
-        ? "Images up to 10 MB upload; audio, video & folders share as paths"
-        : "This model has no image input; images share as paths too",
+      supportsNativeImageUpload: selectedModelMediaSupport.image,
     };
   }, [selectedModelMediaSupport.image, selectedModel, selectedProvider, selectedProviderModels]);
 
@@ -1547,21 +1556,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         scope: context.text.split("\n")[0]?.trim() || undefined,
       })),
     [composerTerminalContexts],
-  );
-
-  const openComposerSkill = useCallback(
-    (skill: NonNullable<typeof selectedProviderStatus>["skills"][number]) => {
-      const skillPrompt = `$${skill.name}`;
-      const currentPrompt = promptRef.current.trimEnd();
-      const nextPrompt =
-        currentPrompt.length > 0 ? `${currentPrompt} ${skillPrompt} ` : `${skillPrompt} `;
-      promptRef.current = nextPrompt;
-      setPrompt(nextPrompt);
-      setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
-      setComposerTrigger(null);
-      scheduleComposerFocus();
-    },
-    [promptRef, scheduleComposerFocus, setPrompt],
   );
 
   // ------------------------------------------------------------------
@@ -3653,6 +3647,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onRemove={onRemoveQueuedPrompt}
                     onMove={onMoveQueuedPrompt}
                     onSteer={onSteerQueuedPrompt}
+                    onRetry={onRetryQueuedPrompt}
                   />
                 ) : null}
                 <ComposerPromptEditor
@@ -3734,9 +3729,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {!isComposerCollapsedMobile && !isComposerApprovalState ? (
               <ComposerContextTray
                 contexts={composerContextTrayContexts}
-                skills={selectedProviderStatus?.skills ?? []}
                 onRemoveContext={removeComposerTerminalContextFromDraft}
-                onOpenSkill={openComposerSkill}
               />
             ) : null}
 
@@ -3781,15 +3774,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <FolderOpenIcon className="size-4" />
                         {isElectron ? "Attach folder…" : "Browse workspace folders…"}
                       </MenuItem>
-                      <div className="border-border border-t px-2 pb-1 pt-1.5 text-muted-foreground text-xs leading-4">
-                        <span className="font-medium text-foreground">
-                          {attachCapabilitySummary.modelName}
-                        </span>
-                        {" — "}
-                        {attachCapabilitySummary.line}
-                      </div>
                     </MenuPopup>
                   </Menu>
+                  <ComposerAttachmentCapability
+                    modelName={attachCapabilitySummary.modelName}
+                    supportsNativeImageUpload={attachCapabilitySummary.supportsNativeImageUpload}
+                  />
                   {noProviderAvailable ? (
                     <Button
                       type="button"
@@ -3908,9 +3898,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={composerSendState.hasSendableContent}
                     preserveComposerFocusOnPointerDown={isMobileViewport}
+                    isPaused={isPaused}
                     showSendWhileRunning
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
+                    onContinue={onContinue}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
                   />
                 </div>

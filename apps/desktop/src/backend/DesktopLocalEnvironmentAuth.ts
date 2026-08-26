@@ -39,33 +39,47 @@ export class DesktopLocalEnvironmentAuth extends Context.Service<
   DesktopLocalEnvironmentAuth,
   {
     readonly getBearerToken: Effect.Effect<string, DesktopLocalEnvironmentAuthError>;
+    readonly invalidateBearerToken: Effect.Effect<void>;
   }
 >()("@rune/desktop/backend/DesktopLocalEnvironmentAuth") {}
 
 export const make = Effect.gen(function* () {
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const httpClient = yield* HttpClient.HttpClient;
-  const tokenRef = yield* Ref.make(Option.none<string>());
+  const tokenRef = yield* Ref.make(
+    Option.none<{ readonly token: string; readonly backendIdentity: string }>(),
+  );
   const mutex = yield* Semaphore.make(1);
 
   const getBearerToken = mutex
     .withPermits(1)(
       Effect.gen(function* () {
-        const cached = yield* Ref.get(tokenRef);
-        if (Option.isSome(cached)) {
-          return cached.value;
-        }
-
         const instances = yield* pool.list;
         const primary = instances.find((instance) => instance.id === PRIMARY_LOCAL_ENVIRONMENT_ID);
         const configOption = primary === undefined ? Option.none() : yield* primary.currentConfig;
         if (Option.isNone(configOption)) {
+          yield* Ref.set(tokenRef, Option.none());
           return yield* new DesktopLocalEnvironmentAuthBackendNotConfiguredError();
         }
         const config = configOption.value;
         const credential = config.bootstrap.desktopBootstrapToken;
         if (!credential) {
+          yield* Ref.set(tokenRef, Option.none());
           return yield* new DesktopLocalEnvironmentAuthBackendNotConfiguredError();
+        }
+        const snapshot = primary === undefined ? null : yield* primary.snapshot;
+        const activePid =
+          snapshot !== null && Option.isSome(snapshot.activePid) ? snapshot.activePid.value : null;
+        const backendIdentity = [
+          config.bootstrap.mode,
+          config.runningDistro ?? "",
+          config.httpBaseUrl.href,
+          config.entryPath,
+          activePid === null ? "stopped" : String(activePid),
+        ].join("\u001f");
+        const cached = yield* Ref.get(tokenRef);
+        if (Option.isSome(cached) && cached.value.backendIdentity === backendIdentity) {
+          return cached.value.token;
         }
         const session = yield* bootstrapRemoteBearerSession({
           httpBaseUrl: config.httpBaseUrl.href,
@@ -83,13 +97,16 @@ export const make = Effect.gen(function* () {
               }),
           ),
         );
-        yield* Ref.set(tokenRef, Option.some(session.access_token));
+        yield* Ref.set(tokenRef, Option.some({ token: session.access_token, backendIdentity }));
         return session.access_token;
       }),
     )
     .pipe(Effect.withSpan("desktop.localEnvironmentAuth.getBearerToken"));
 
-  return DesktopLocalEnvironmentAuth.of({ getBearerToken });
+  return DesktopLocalEnvironmentAuth.of({
+    getBearerToken,
+    invalidateBearerToken: Ref.set(tokenRef, Option.none()),
+  });
 });
 
 export const layer = Layer.effect(DesktopLocalEnvironmentAuth, make);

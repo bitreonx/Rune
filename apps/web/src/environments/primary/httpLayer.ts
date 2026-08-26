@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import { readDesktopPrimaryBearerToken } from "./desktopAuth";
+import { invalidateDesktopPrimaryBearerToken, readDesktopPrimaryBearerToken } from "./desktopAuth";
 import { resolvePrimaryEnvironmentHttpUrl } from "./target";
 
 function isSameOriginBrowserPrimary(): boolean {
@@ -19,12 +19,22 @@ function isSameOriginBrowserPrimary(): boolean {
 }
 
 function withPrimaryBearerToken(client: HttpClient.HttpClient): HttpClient.HttpClient {
-  return client.pipe(
+  const authenticatedClient = client.pipe(
     HttpClient.mapRequestEffect((request) =>
       Effect.promise(readDesktopPrimaryBearerToken).pipe(
         Effect.map((bearerToken) =>
           bearerToken ? HttpClientRequest.bearerToken(request, bearerToken) : request,
         ),
+      ),
+    ),
+  );
+
+  return HttpClient.transformResponse(authenticatedClient, (response) =>
+    response.pipe(
+      Effect.flatMap((currentResponse) =>
+        currentResponse.status === 401
+          ? Effect.promise(invalidateDesktopPrimaryBearerToken).pipe(Effect.andThen(response))
+          : Effect.succeed(currentResponse),
       ),
     ),
   );

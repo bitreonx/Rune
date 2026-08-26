@@ -27,6 +27,8 @@ import { makeCoalescedDeltaSink, makeToolCallAccumulator, resultFromSseLine } fr
 import {
   NATIVE_TOOLS,
   SAFE_TOOLS,
+  askUserTool,
+  parseAskUserQuestions,
   type NativeToolContext,
   type NativeToolDef,
 } from "./ApiTools.ts";
@@ -96,6 +98,11 @@ export interface AgentLoopDeps {
     | ((input: { toolName: string; summary: string }) => Effect.Effect<void, ProviderAdapterError>)
     | undefined;
   readonly harnessLedger?: ApiHarnessLedger | undefined;
+  /** Pauses the current turn and presents structured questions in the composer. */
+  readonly userInputRequest?: (input: {
+    readonly questions: ReadonlyArray<import("@rune/contracts").UserInputQuestion>;
+    readonly toolCallId: string;
+  }) => Effect.Effect<import("@rune/contracts").ProviderUserInputAnswers, ProviderAdapterError>;
 }
 
 export interface AgentTurnInput {
@@ -302,6 +309,14 @@ export const runAgenticTurn = (
         if (seenToolCalls.has(fingerprint))
           return "Error: repeated tool call with unchanged inputs";
         seenToolCalls.add(fingerprint);
+        if (def.name === askUserTool.name) {
+          const questions = parseAskUserQuestions(args);
+          if (questions.length === 0) return "Error: ask_user needs at least one valid question";
+          if (!deps.userInputRequest)
+            return "Error: native user input is unavailable in this context";
+          const answers = yield* deps.userInputRequest({ questions, toolCallId: call.id });
+          return `User answers: ${JSON.stringify(answers)}`;
+        }
         if (!deps.toolContext) return "Error: tools are unavailable in this context";
         if (def.requiresApproval && deps.approvalGate) {
           let denied = false;

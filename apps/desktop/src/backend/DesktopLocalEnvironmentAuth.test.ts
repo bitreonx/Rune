@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@rune/contracts";
 
@@ -61,6 +62,13 @@ describe("DesktopLocalEnvironmentAuth", () => {
             id: PRIMARY_LOCAL_ENVIRONMENT_ID,
             label: Effect.succeed("Windows"),
             currentConfig: Effect.succeed(Option.some(config)),
+            snapshot: Effect.succeed({
+              desiredRunning: true,
+              ready: true,
+              activePid: Option.some(123),
+              restartAttempt: 0,
+              restartScheduled: false,
+            }),
           },
         ]),
       } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
@@ -76,6 +84,129 @@ describe("DesktopLocalEnvironmentAuth", () => {
       assert.strictEqual(first, "desktop-bearer-token");
       assert.strictEqual(second, "desktop-bearer-token");
       assert.strictEqual(yield* Ref.get(requestCount), 1);
+    }),
+  );
+
+  it.effect("re-exchanges after the backend process identity changes", () =>
+    Effect.gen(function* () {
+      const requestCount = yield* Ref.make(0);
+      const snapshot = yield* Ref.make({
+        desiredRunning: true,
+        ready: true,
+        activePid: Option.some(123),
+        restartAttempt: 0,
+        restartScheduled: false,
+      });
+      const httpClientLayer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Ref.update(requestCount, (count) => count + 1).pipe(
+            Effect.as(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(
+                  JSON.stringify({
+                    access_token: "desktop-bearer-token",
+                    issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+                    token_type: "Bearer",
+                    expires_in: 3600,
+                    scope: "orchestration:read",
+                  }),
+                  { status: 200, headers: { "content-type": "application/json" } },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      const poolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
+        list: Effect.succeed([
+          {
+            id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+            label: Effect.succeed("Windows"),
+            currentConfig: Effect.succeed(Option.some(config)),
+            snapshot: Ref.get(snapshot),
+          },
+        ]),
+      } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
+      const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
+        Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
+      );
+
+      const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth.pipe(
+        Effect.provide(testLayer),
+      );
+      yield* auth.getBearerToken;
+      yield* Ref.update(snapshot, (current) => ({ ...current, activePid: Option.some(124) }));
+      yield* auth.getBearerToken;
+
+      assert.strictEqual(yield* Ref.get(requestCount), 2);
+    }),
+  );
+
+  it.effect("can recover after a failed bearer exchange", () =>
+    Effect.gen(function* () {
+      const requestCount = yield* Ref.make(0);
+      const httpClientLayer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Ref.modify(requestCount, (count) => [count + 1, count + 1] as const).pipe(
+            Effect.flatMap((count) =>
+              count === 1
+                ? Effect.fail(
+                    new HttpClientError.HttpClientError({
+                      reason: new HttpClientError.TransportError({
+                        request,
+                        cause: new Error("backend still starting"),
+                      }),
+                    }),
+                  )
+                : Effect.succeed(
+                    HttpClientResponse.fromWeb(
+                      request,
+                      new Response(
+                        JSON.stringify({
+                          access_token: "desktop-bearer-token",
+                          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+                          token_type: "Bearer",
+                          expires_in: 3600,
+                          scope: "orchestration:read",
+                        }),
+                        { status: 200, headers: { "content-type": "application/json" } },
+                      ),
+                    ),
+                  ),
+            ),
+          ),
+        ),
+      );
+      const poolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
+        list: Effect.succeed([
+          {
+            id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+            label: Effect.succeed("Windows"),
+            currentConfig: Effect.succeed(Option.some(config)),
+            snapshot: Effect.succeed({
+              desiredRunning: true,
+              ready: true,
+              activePid: Option.some(123),
+              restartAttempt: 0,
+              restartScheduled: false,
+            }),
+          },
+        ]),
+      } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
+      const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
+        Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
+      );
+      const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth.pipe(
+        Effect.provide(testLayer),
+      );
+
+      const first = yield* Effect.exit(auth.getBearerToken);
+      assert.strictEqual(first._tag, "Failure");
+      assert.strictEqual(yield* auth.getBearerToken, "desktop-bearer-token");
+      assert.strictEqual(yield* Ref.get(requestCount), 2);
     }),
   );
 });

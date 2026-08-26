@@ -207,6 +207,7 @@ export type MessagesTimelineRow =
       summary: string | null;
       summaryKind: ToolGroupSummaryKind | null;
       hasFailure: boolean;
+      simplifiedActivity?: boolean;
       /** Aggregate +/− over the group's changed files, when the turn has a checkpoint. */
       diffStat: WorkEntryDiffStat | null;
     }
@@ -1066,6 +1067,9 @@ export function deriveMessagesTimelineRows(input: {
           // chronological order in both collapsed and expanded states
           // (review finding: concatenating two filtered lists moved a
           // mid-group spawn row above earlier tool rows).
+          const simplifiedActivity = visibleGroupedEntries.every(
+            (entry) => entry.isSimplifiedActivity === true,
+          );
           const overflowCandidates = visibleGroupedEntries.filter(
             (entry) => entry.agentSpawn === undefined,
           );
@@ -1109,6 +1113,7 @@ export function deriveMessagesTimelineRows(input: {
                 latestToolEntry !== undefined &&
                 workEntryDisplayIndicatesToolFailure(latestToolEntry) &&
                 hiddenEntries.some(workEntryDisplayIndicatesToolFailure),
+              simplifiedActivity,
               diffStat: summarizeWorkGroupDiffStat(hiddenEntries, toggleFiles),
             });
           }

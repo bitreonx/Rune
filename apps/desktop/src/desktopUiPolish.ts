@@ -63,9 +63,21 @@ export const DESKTOP_UI_POLISH_STYLE = `
 `;
 
 export function installDesktopUiPolish(document: Document): void {
-  document.documentElement.dataset.desktopShell = "true";
-  const style = document.createElement("style");
-  style.dataset.desktopUiPolish = "true";
-  style.textContent = DESKTOP_UI_POLISH_STYLE;
-  (document.head ?? document.documentElement).append(style);
+  const install = () => {
+    const root = document.documentElement;
+    if (!root) {
+      return false;
+    }
+
+    root.dataset.desktopShell = "true";
+    const style = document.createElement("style");
+    style.dataset.desktopUiPolish = "true";
+    style.textContent = DESKTOP_UI_POLISH_STYLE;
+    (document.head ?? root).append(style);
+    return true;
+  };
+
+  if (!install()) {
+    document.addEventListener("DOMContentLoaded", install, { once: true });
+  }
 }

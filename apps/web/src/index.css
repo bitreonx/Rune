@@ -3189,6 +3189,20 @@ code {
   }
 }
 
+/* Primary composer action changes are acknowledged with one short entrance,
+   not a looping effect. This keeps Continue easy to spot without competing
+   with the task output. */
+@keyframes composer-action-state-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.76) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @keyframes provider-update-pill-countdown {
   from {
     transform: scaleX(1);

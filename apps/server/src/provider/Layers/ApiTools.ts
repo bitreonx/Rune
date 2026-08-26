@@ -1,6 +1,7 @@
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import { HostProcessPlatform } from "@rune/shared/hostProcess";
+import type { UserInputQuestion } from "@rune/contracts";
 
 import { ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
@@ -64,6 +65,85 @@ const clamp = (text: string): string =>
   text.length <= MAX_OBSERVATION_CHARS
     ? text
     : `${text.slice(0, MAX_OBSERVATION_CHARS)}\n[clamped]`;
+
+/**
+ * Native API models use this tool to pause the same turn while the composer
+ * collects a structured answer. Keeping the wire shape compatible with the
+ * provider-runtime contract means the existing composer asker can render it
+ * without a provider-specific UI.
+ */
+export const askUserTool: NativeToolDef = {
+  name: "ask_user",
+  description:
+    "Ask the user one or more important questions in the RUNE composer. Use this only when the answer cannot be determined from the workspace or the request. Provide concise options; the user can also type a custom answer.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      questions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 4,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "Stable short identifier for the question." },
+            header: { type: "string", description: "Short label shown above the question." },
+            question: { type: "string", description: "The complete question for the user." },
+            options: {
+              type: "array",
+              maxItems: 8,
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string" },
+                  description: { type: "string" },
+                },
+                required: ["label", "description"],
+                additionalProperties: false,
+              },
+            },
+            multiSelect: { type: "boolean" },
+          },
+          required: ["id", "header", "question", "options"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["questions"],
+    additionalProperties: false,
+  },
+  requiresApproval: false,
+  execute: () => Effect.succeed("Error: ask_user must be handled by the native composer asker"),
+};
+
+export function parseAskUserQuestions(
+  args: Record<string, unknown>,
+): ReadonlyArray<UserInputQuestion> {
+  if (!Array.isArray(args.questions)) return [];
+  return args.questions
+    .flatMap((raw, index): ReadonlyArray<UserInputQuestion> => {
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return [];
+      const question = raw as Record<string, unknown>;
+      const text = stringArg(question.question).trim();
+      if (text.length === 0) return [];
+      const id = stringArg(question.id).trim() || text.slice(0, 64);
+      const header = stringArg(question.header).trim() || `Question ${index + 1}`;
+      const options = Array.isArray(question.options)
+        ? question.options
+            .flatMap((rawOption): ReadonlyArray<{ label: string; description: string }> => {
+              if (rawOption === null || typeof rawOption !== "object" || Array.isArray(rawOption))
+                return [];
+              const option = rawOption as Record<string, unknown>;
+              const label = stringArg(option.label).trim();
+              if (label.length === 0) return [];
+              return [{ label, description: stringArg(option.description).trim() || label }];
+            })
+            .slice(0, 8)
+        : [];
+      return [{ id, header, question: text, options, multiSelect: question.multiSelect === true }];
+    })
+    .slice(0, 4);
+}
 
 export const readFileTool: NativeToolDef = {
   name: "read_file",
@@ -177,6 +257,7 @@ export const searchTool: NativeToolDef = {
 };
 
 export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [
+  askUserTool,
   ...COMPOUND_READ_TOOLS,
   readFileTool,
   listDirTool,

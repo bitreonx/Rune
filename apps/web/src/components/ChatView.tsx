@@ -1490,6 +1490,7 @@ function ChatViewContent(props: ChatViewProps) {
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
+  const [isTurnPaused, setIsTurnPaused] = useState(false);
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
   );
@@ -2574,6 +2575,7 @@ function ChatViewContent(props: ChatViewProps) {
   const removeQueuedPrompt = usePromptQueueStore((store) => store.remove);
   const reorderQueuedPrompt = usePromptQueueStore((store) => store.reorder);
   const promoteQueuedPrompt = usePromptQueueStore((store) => store.promoteSteer);
+  const updatePromptQueue = usePromptQueueStore((store) => store.update);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -3094,9 +3096,9 @@ function ChatViewContent(props: ChatViewProps) {
   // an invisible nudge message so the adapter resumes the dead CLI session.
   // The message is hidden end to end — no bubble, no optimistic echo — and
   // the thread keeps its existing model selection and runtime settings.
-  const continueAfterRestart = useCallback(async () => {
+  const continueAfterRestart = useCallback(async (): Promise<boolean> => {
     if (!activeThread || !isServerThread) {
-      return;
+      return false;
     }
     const threadIdForSend = activeThread.id;
     setThreadError(threadIdForSend, null);
@@ -3127,7 +3129,9 @@ function ChatViewContent(props: ChatViewProps) {
         threadIdForSend,
         error instanceof Error ? error.message : "Failed to continue after restart.",
       );
+      return false;
     }
+    return true;
   }, [
     activeThread,
     environmentId,
@@ -3138,6 +3142,16 @@ function ChatViewContent(props: ChatViewProps) {
     startThreadTurn,
     threadErrorBannerKey,
   ]);
+
+  const continuePausedTurn = useCallback(async () => {
+    if (!activeThread || !isServerThread || phase === "running" || isSendBusy || isConnecting) {
+      return;
+    }
+    const continued = await continueAfterRestart();
+    if (continued) {
+      setIsTurnPaused(false);
+    }
+  }, [activeThread, continueAfterRestart, isConnecting, isSendBusy, isServerThread, phase]);
 
   const autoContinueAttemptedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -4446,6 +4460,7 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     setIsRevertingCheckpoint(false);
     setPendingUserMessageEdit(null);
+    setIsTurnPaused(false);
   }, [activeThread?.id]);
 
   useEffect(() => {
@@ -5893,6 +5908,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
 
+    setIsTurnPaused(false);
     if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
       for (const image of composerImagesSnapshot) {
         startAttachmentUpload({ environmentId, image });
@@ -6306,6 +6322,82 @@ function ChatViewContent(props: ChatViewProps) {
     setComposerDraftPrompt,
   ]);
 
+  const onEditQueuedPrompt = useCallback(
+    (itemId: string, text: string) => {
+      if (activeThreadId === null || text.trim().length === 0) return;
+      editQueuedPrompt(activeThreadId, itemId, text);
+    },
+    [activeThreadId, editQueuedPrompt],
+  );
+  const onRemoveQueuedPrompt = useCallback(
+    (itemId: string) => {
+      if (activeThreadId !== null) removeQueuedPrompt(activeThreadId, itemId);
+    },
+    [activeThreadId, removeQueuedPrompt],
+  );
+  const onMoveQueuedPrompt = useCallback(
+    (itemId: string, direction: -1 | 1) => {
+      if (activeThreadId === null) return;
+      const queued = promptQueue.queue.filter((item) => item.status === "queued");
+      const index = queued.findIndex((item) => item.id === itemId);
+      const target = queued[index + direction];
+      if (index < 0 || target === undefined) return;
+      reorderQueuedPrompt(
+        activeThreadId,
+        itemId,
+        direction < 0 ? target.id : (queued[index + 2]?.id ?? null),
+      );
+    },
+    [activeThreadId, promptQueue.queue, reorderQueuedPrompt],
+  );
+  const onRetryQueuedPrompt = useCallback(
+    (itemId: string) => {
+      if (activeThreadId !== null) {
+        updatePromptQueue(activeThreadId, {
+          type: "restore-queued",
+          itemId,
+          now: new Date().toISOString(),
+        });
+      }
+    },
+    [activeThreadId, updatePromptQueue],
+  );
+  const onSteerQueuedPrompt = useCallback(
+    (itemId: string) => {
+      if (activeThreadId === null || activeThread === null) return;
+      promoteQueuedPrompt(activeThreadId, itemId);
+      void interruptThreadTurn({
+        environmentId,
+        input: buildThreadTurnInterruptInput(activeThread),
+      }).then((result) => {
+        if (result._tag === "Failure" && activeThreadId !== null) {
+          updatePromptQueue(activeThreadId, {
+            type: "restore-queued",
+            itemId,
+            now: new Date().toISOString(),
+          });
+          if (!isAtomCommandInterrupted(result)) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Steer could not interrupt safely",
+                description: "The instruction was returned to the queue for retry.",
+              }),
+            );
+          }
+        }
+      });
+    },
+    [
+      activeThread,
+      activeThreadId,
+      environmentId,
+      interruptThreadTurn,
+      promoteQueuedPrompt,
+      updatePromptQueue,
+    ],
+  );
+
   const onInterrupt = async () => {
     if (!activeThread) return;
     const result = await interruptThreadTurn({
@@ -6318,6 +6410,10 @@ function ChatViewContent(props: ChatViewProps) {
         activeThread.id,
         error instanceof Error ? error.message : "Failed to interrupt the current turn.",
       );
+      return;
+    }
+    if (result._tag === "Success") {
+      setIsTurnPaused(true);
     }
   };
 
@@ -7439,6 +7535,12 @@ function ChatViewContent(props: ChatViewProps) {
                             }
                             activeThreadModelSelection={activeThread?.modelSelection}
                             activeThreadActivities={activeThread?.activities}
+                            queueState={promptQueue}
+                            onEditQueuedPrompt={onEditQueuedPrompt}
+                            onRemoveQueuedPrompt={onRemoveQueuedPrompt}
+                            onMoveQueuedPrompt={onMoveQueuedPrompt}
+                            onSteerQueuedPrompt={onSteerQueuedPrompt}
+                            onRetryQueuedPrompt={onRetryQueuedPrompt}
                             resolvedTheme={resolvedTheme}
                             settings={settings}
                             keybindings={keybindings}
@@ -7450,6 +7552,8 @@ function ChatViewContent(props: ChatViewProps) {
                             composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
                             onInterrupt={onInterrupt}
+                            isPaused={isTurnPaused}
+                            onContinue={() => void continuePausedTurn()}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}
                             onSelectActivePendingUserInputOption={

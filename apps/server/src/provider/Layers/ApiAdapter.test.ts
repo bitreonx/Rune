@@ -45,6 +45,7 @@ describe("ApiAdapter response parsing", () => {
 const PROVIDER = ProviderDriverKind.make("openrouter");
 const INSTANCE_ID = ProviderInstanceId.make("openrouter-test");
 const THREAD_ID = ThreadId.make("thread-streaming");
+const USER_INPUT_THREAD_ID = ThreadId.make("thread-native-user-input");
 
 interface CapturedRequest {
   readonly url: string;
@@ -124,6 +125,80 @@ const workspaceToolLayer = Layer.empty.pipe(
 );
 
 describe("ApiAdapter streaming turns", () => {
+  it("routes native ask_user calls through the composer user-input lifecycle", async () => {
+    const askArguments = JSON.stringify({
+      questions: [
+        {
+          id: "scope",
+          header: "Scope",
+          question: "Which scope should RUNE use?",
+          options: [
+            { label: "Focused", description: "Change only the requested surface." },
+            { label: "Broad", description: "Include related surfaces and tests." },
+          ],
+        },
+      ],
+    });
+    const firstRound = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_ask","function":{"name":"ask_user","arguments":""}}]}}]}\n\n',
+      `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":${JSON.stringify(askArguments)}}}]}}]}\n\n`,
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const finalRound = [
+      'data: {"choices":[{"delta":{"content":"Thanks, continuing."}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const { httpClient, requests } = makeStreamingClient([], undefined, [firstRound, finalRound]);
+
+    const program = Effect.gen(function* () {
+      const adapter = yield* makeApiAdapter({
+        provider: PROVIDER,
+        instanceId: INSTANCE_ID,
+        baseUrl: "https://example.invalid/v1",
+        apiKey: "key",
+        defaultModel: "test/default-model",
+      });
+      yield* adapter.startSession({ threadId: USER_INPUT_THREAD_ID, runtimeMode: "full-access" });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({
+        threadId: USER_INPUT_THREAD_ID,
+        input: "Help me choose.",
+      });
+
+      let requested: ProviderRuntimeEvent | undefined;
+      while (requested?.type !== "user-input.requested") {
+        const event = yield* Queue.take(queue);
+        if (event.type === "turn.completed" && event.payload.state === "failed") {
+          throw new Error(event.payload.errorMessage ?? "native ask_user turn failed");
+        }
+        if (event.type === "user-input.requested") requested = event;
+      }
+      expect(requested?.payload.questions[0]?.question).toBe("Which scope should RUNE use?");
+      expect(requested?.requestId).toBeDefined();
+      if (!requested?.requestId) throw new Error("native user input request id missing");
+
+      yield* adapter.respondToUserInput(
+        USER_INPUT_THREAD_ID,
+        ApprovalRequestId.make(String(requested.requestId)),
+        {
+          scope: "Focused",
+        },
+      );
+
+      while (true) {
+        const event = yield* Queue.take(queue);
+        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
+      }
+      return requests;
+    }).pipe(Effect.provide(makeAdapterLayer(httpClient)), Effect.scoped);
+
+    const capturedRequests = await Effect.runPromise(program);
+    expect(capturedRequests).toHaveLength(2);
+    expect((capturedRequests[0]?.body as { model?: string }).model).toBe("test/default-model");
+  });
+
   it("streams chat completions as deltas before completing the item", async () => {
     const { httpClient, requests } = makeStreamingClient([
       'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
@@ -227,6 +302,7 @@ describe("ApiAdapter streaming turns", () => {
     await Effect.runPromise(program);
     const firstBody = requests[0]?.body as { tools?: Array<{ function: { name: string } }> };
     expect(firstBody.tools?.map((tool) => tool.function.name)).toEqual([
+      "ask_user",
       "workspace_snapshot",
       "search_many",
       "read_many",

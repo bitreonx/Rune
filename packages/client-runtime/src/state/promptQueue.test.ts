@@ -30,7 +30,8 @@ describe("prompt queue state machine", () => {
       turnId: "turn-2" as never,
       now: "2026-08-26T00:02:00.000Z",
     });
-    expect(state.queue.filter((entry) => entry.status === "claimed")).toHaveLength(2);
+    expect(state.queue.filter((entry) => entry.status === "claimed")).toHaveLength(1);
+    expect(nextPromptQueueItem(state)?.text).toBe("C");
   });
 
   it("supports edit, reorder, delete, and steer without losing identity", () => {

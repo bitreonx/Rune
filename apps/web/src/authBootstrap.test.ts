@@ -458,12 +458,30 @@ describe("resolveInitialServerAuthGateState", () => {
       cause,
     });
 
-    expect(error.status).toBe(500);
+    expect(error.failureKind).toBe("unknown");
+    expect(error.status).toBeUndefined();
     expect(error.cause).toBe(cause);
     expect(error.message).toBe(
-      "Primary environment request failed during list-pairing-links (HTTP 500).",
+      "RUNE could not complete the local environment request during list-pairing-links.",
     );
     expect(error.message).not.toContain(cause.message);
+  });
+
+  it("does not classify a non-HTTP IPC failure as HTTP 500", async () => {
+    const cause = {
+      _tag: "DesktopIpcInvokeError",
+      message: "Desktop bridge invocation failed.",
+      cause: new Error("ipc channel unavailable"),
+    };
+    const { PrimaryEnvironmentRequestError } = await import("./environments/primary");
+    const error = PrimaryEnvironmentRequestError.fromCause({
+      operation: "fetch-session-state",
+      cause,
+    });
+
+    expect(error.failureKind).toBe("unknown");
+    expect(error.status).toBeUndefined();
+    expect(error.message).not.toContain("HTTP 500");
   });
 
   it("waits for the authenticated session to become observable after silent desktop bootstrap", async () => {

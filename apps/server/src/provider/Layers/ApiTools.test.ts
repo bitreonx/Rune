@@ -143,19 +143,30 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
 
   describe("tool definitions", () => {
     it("every safe tool def is fully described", () => {
-      expect(SAFE_TOOLS.map((tool) => tool.name)).toEqual(["read_file", "list_dir", "search"]);
+      expect(SAFE_TOOLS.map((tool) => tool.name)).toEqual([
+        "ask_user",
+        "workspace_snapshot",
+        "search_many",
+        "read_many",
+        "read_file",
+        "list_dir",
+        "search",
+      ]);
       for (const def of SAFE_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
-        expect(
-          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
-            .length,
-        ).toBeGreaterThan(0);
+        expect(Object.keys(def.parametersJsonSchema).length).toBeGreaterThan(0);
         expect(def.requiresApproval).toBe(false);
       }
     });
 
     it("every gated tool def is fully described and requires approval", () => {
-      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual(["edit_file", "bash"]);
+      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual([
+        "apply_patch",
+        "generate_files",
+        "run_checks",
+        "edit_file",
+        "bash",
+      ]);
       for (const def of GATED_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
         expect(

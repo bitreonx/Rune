@@ -34,11 +34,28 @@ describe("deriveAgentActivityJob", () => {
     expect(result.activities[0]?.operations).toHaveLength(3);
   });
 
+  it("extracts nested edit paths for Cursor-style file presentation", () => {
+    const result = deriveAgentActivityJob([
+      activity("a1", "tool.completed", "Edit", {
+        itemType: "file_change",
+        data: { path: "src/auth/provider.ts" },
+      }),
+    ]);
+
+    expect(result.activities[0]).toMatchObject({
+      label: "Implementing the change",
+      operations: [{ filePath: "src/auth/provider.ts" }],
+    });
+  });
+
   it("keeps approvals visible as waiting activities", () => {
     const result = deriveAgentActivityJob([
       activity("a1", "approval.requested", "Permission required", {}, "info"),
     ]);
-    expect(result.activities[0]).toMatchObject({ label: "Working on the task", status: "waiting" });
+    expect(result.activities[0]).toMatchObject({
+      label: "Waiting for your approval",
+      status: "waiting",
+    });
   });
 
   it("preserves failures instead of collapsing them into successful work", () => {
@@ -47,5 +64,20 @@ describe("deriveAgentActivityJob", () => {
     ]);
     expect(result.activities[0]?.status).toBe("failed");
     expect(result.activities[0]?.operations[0]?.rawTrace.summary).toBe("ReadFile");
+  });
+
+  it("groups repeated failures into one visible fix activity while retaining each trace", () => {
+    const result = deriveAgentActivityJob([
+      activity("a1", "tool.completed", "ReadFile failed", {}, "error"),
+      activity("a2", "tool.completed", "Grep failed", {}, "error"),
+      activity("a3", "tool.completed", "Patch failed", {}, "error"),
+    ]);
+
+    expect(result.activities).toHaveLength(1);
+    expect(result.activities[0]).toMatchObject({
+      label: "Fixing remaining errors",
+      status: "failed",
+    });
+    expect(result.activities[0]?.operations).toHaveLength(3);
   });
 });

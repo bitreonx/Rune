@@ -35,11 +35,22 @@ const PrimaryEnvironmentRequestOperation = Schema.Literals([
 ]);
 type PrimaryEnvironmentRequestOperation = typeof PrimaryEnvironmentRequestOperation.Type;
 
+const PrimaryEnvironmentRequestFailureKind = Schema.Literals(["http", "transport", "unknown"]);
+export type PrimaryEnvironmentRequestFailureKind = typeof PrimaryEnvironmentRequestFailureKind.Type;
+
+type PrimaryEnvironmentRequestFailure = {
+  readonly kind: PrimaryEnvironmentRequestFailureKind;
+  readonly status?: number;
+  readonly requestUrl?: string;
+};
+
 export class PrimaryEnvironmentRequestError extends Schema.TaggedErrorClass<PrimaryEnvironmentRequestError>()(
   "PrimaryEnvironmentRequestError",
   {
     operation: PrimaryEnvironmentRequestOperation,
-    status: Schema.Number,
+    failureKind: PrimaryEnvironmentRequestFailureKind,
+    status: Schema.optional(Schema.Number),
+    requestUrl: Schema.optional(Schema.String),
     pairingLinkId: Schema.optional(Schema.String),
     sessionId: Schema.optional(Schema.String),
     cause: Schema.Defect(),
@@ -51,10 +62,12 @@ export class PrimaryEnvironmentRequestError extends Schema.TaggedErrorClass<Prim
     readonly pairingLinkId?: string;
     readonly sessionId?: string;
   }): PrimaryEnvironmentRequestError {
-    const status = readHttpApiStatus(input.cause) ?? 500;
+    const failure = readPrimaryEnvironmentRequestFailure(input.cause);
     return new PrimaryEnvironmentRequestError({
       operation: input.operation,
-      status,
+      failureKind: failure.kind,
+      ...(failure.status === undefined ? {} : { status: failure.status }),
+      ...(failure.requestUrl === undefined ? {} : { requestUrl: failure.requestUrl }),
       ...(input.pairingLinkId !== undefined ? { pairingLinkId: input.pairingLinkId } : {}),
       ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
       cause: input.cause,
@@ -62,7 +75,16 @@ export class PrimaryEnvironmentRequestError extends Schema.TaggedErrorClass<Prim
   }
 
   override get message(): string {
-    return `Primary environment request failed during ${this.operation} (HTTP ${this.status}).`;
+    if (this.failureKind === "transport") {
+      return `RUNE could not connect to the local environment during ${this.operation}.`;
+    }
+    if (this.failureKind === "http" && this.status === 500) {
+      return "RUNE local environment returned an internal authentication error.";
+    }
+    if (this.failureKind === "http" && this.status !== undefined) {
+      return `Primary environment request failed during ${this.operation} (HTTP ${this.status}).`;
+    }
+    return `RUNE could not complete the local environment request during ${this.operation}.`;
   }
 }
 
@@ -203,13 +225,53 @@ export async function fetchSessionState(): Promise<AuthSessionState> {
   });
 }
 
-function readHttpApiStatus(error: unknown): number | null {
-  if (isEnvironmentHttpCommonError(error)) {
-    return readEnvironmentHttpErrorStatus(error);
+function safeRequestUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
   }
-  return HttpClientError.isHttpClientError(error) && error.response !== undefined
-    ? error.response.status
-    : null;
+  try {
+    const url = new URL(value);
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function readPrimaryEnvironmentRequestFailure(
+  error: unknown,
+  seen = new Set<object>(),
+  depth = 0,
+): PrimaryEnvironmentRequestFailure {
+  if (depth > 6 || (typeof error !== "object" && typeof error !== "function") || error === null) {
+    return { kind: "unknown" };
+  }
+  if (seen.has(error)) {
+    return { kind: "unknown" };
+  }
+  seen.add(error);
+
+  if (isEnvironmentHttpCommonError(error)) {
+    return { kind: "http", status: readEnvironmentHttpErrorStatus(error) };
+  }
+  if (HttpClientError.isHttpClientError(error)) {
+    const requestUrl = safeRequestUrl(error.request.url);
+    if (error.response !== undefined) {
+      return { kind: "http", status: error.response.status, ...(requestUrl ? { requestUrl } : {}) };
+    }
+    return { kind: "transport", ...(requestUrl ? { requestUrl } : {}) };
+  }
+
+  if ("cause" in error) {
+    return readPrimaryEnvironmentRequestFailure(
+      (error as { readonly cause?: unknown }).cause,
+      seen,
+      depth + 1,
+    );
+  }
+
+  return { kind: "unknown" };
 }
 
 function readEnvironmentHttpErrorStatus(error: EnvironmentHttpCommonErrorType): number {

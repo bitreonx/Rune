@@ -1,17 +1,4 @@
-import {
-  Code2,
-  FileCode2,
-  MousePointer2,
-  Sparkles,
-  TerminalSquare,
-  X,
-} from "lucide-react";
-import type { ServerProviderSkill } from "@rune/contracts";
-
-import {
-  formatProviderSkillDisplayName,
-  resolveProviderSkillSourceKind,
-} from "@rune/client-runtime/providerSkills";
+import { Code2, FileCode2, MousePointer2, TerminalSquare, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 export type ComposerContextTrayContextKind = "terminal" | "file" | "element" | "review";
@@ -25,9 +12,7 @@ export interface ComposerContextTrayContext {
 
 export interface ComposerContextTrayProps {
   readonly contexts: ReadonlyArray<ComposerContextTrayContext>;
-  readonly skills: ReadonlyArray<ServerProviderSkill>;
   readonly onRemoveContext: (contextId: string) => void;
-  readonly onOpenSkill: (skill: ServerProviderSkill) => void;
   readonly className?: string;
 }
 
@@ -46,12 +31,10 @@ function ContextIcon({ kind }: { kind: ComposerContextTrayContextKind }) {
 
 export function ComposerContextTray({
   contexts,
-  skills,
   onRemoveContext,
-  onOpenSkill,
   className,
 }: ComposerContextTrayProps) {
-  if (contexts.length === 0 && skills.length === 0) return null;
+  if (contexts.length === 0) return null;
 
   return (
     <div
@@ -70,7 +53,9 @@ export function ComposerContextTray({
           <ContextIcon kind={context.kind} />
           <span className="truncate font-medium text-foreground/85">{context.label}</span>
           {context.scope ? (
-            <span className="max-w-40 truncate text-[10px] text-muted-foreground">{context.scope}</span>
+            <span className="max-w-40 truncate text-[10px] text-muted-foreground">
+              {context.scope}
+            </span>
           ) : null}
           <button
             type="button"
@@ -82,36 +67,6 @@ export function ComposerContextTray({
           </button>
         </span>
       ))}
-      {skills.length > 0 ? (
-        <div className="flex min-w-0 items-center gap-1.5" data-composer-skill-tray>
-          <span className="inline-flex items-center gap-1 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            <Sparkles className="size-3" aria-hidden />
-            Skills
-          </span>
-          <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {skills.slice(0, 6).map((skill) => {
-              const label = formatProviderSkillDisplayName(skill);
-              const source = resolveProviderSkillSourceKind(skill);
-              return (
-                <button
-                  key={`${skill.path}:${skill.name}`}
-                  type="button"
-                  className="inline-flex max-w-36 shrink-0 items-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--rune-violet-soft)_35%,transparent)] bg-[color-mix(in_srgb,var(--rune-violet-soft)_10%,transparent)] px-2 py-1 text-[11px] text-[var(--rune-violet-strong)] transition-colors hover:bg-[color-mix(in_srgb,var(--rune-violet-soft)_18%,transparent)]"
-                  title={`${label} · ${source}`}
-                  onClick={() => onOpenSkill(skill)}
-                >
-                  <span className="truncate">${label}</span>
-                </button>
-              );
-            })}
-            {skills.length > 6 ? (
-              <span className="shrink-0 px-1 text-[10px] text-muted-foreground">
-                +{skills.length - 6} more
-              </span>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

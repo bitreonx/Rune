@@ -16,6 +16,11 @@ export function readDesktopPrimaryBearerToken(): Promise<string | null> {
   return desktopBearerTokenPromise;
 }
 
+export async function invalidateDesktopPrimaryBearerToken(): Promise<void> {
+  desktopBearerTokenPromise = null;
+  await window.desktopBridge?.invalidateLocalEnvironmentBearerToken?.();
+}
+
 export function __resetDesktopPrimaryAuthForTests(): void {
   desktopBearerTokenPromise = null;
 }

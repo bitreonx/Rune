@@ -75,6 +75,7 @@ export type PromptQueueAction =
       readonly error?: string | null;
       readonly now: string;
     }
+  | { readonly type: "restore-queued"; readonly itemId: string; readonly now: string }
   | {
       readonly type: "set-execution";
       readonly status: PromptQueueExecutionStatus;
@@ -155,6 +156,7 @@ export function reducePromptQueue(
       });
     }
     case "claim-next": {
+      if (state.queue.some((item) => item.status === "claimed")) return state;
       const index = state.queue.findIndex(
         (item) => item.status === "queued" || item.status === "steering",
       );
@@ -182,6 +184,23 @@ export function reducePromptQueue(
         queue: state.queue.map((item) =>
           item.id === action.itemId && item.status === "claimed"
             ? { ...item, status: action.status, error: action.error ?? null, updatedAt: action.now }
+            : item,
+        ),
+      });
+    case "restore-queued":
+      return bump(state, {
+        ...state,
+        executionStatus: state.executionStatus === "failed" ? "running" : state.executionStatus,
+        queue: state.queue.map((item) =>
+          item.id === action.itemId && (item.status === "failed" || item.status === "steering")
+            ? {
+                ...item,
+                status: "queued",
+                mode: "queue",
+                claimedTurnId: null,
+                error: null,
+                updatedAt: action.now,
+              }
             : item,
         ),
       });

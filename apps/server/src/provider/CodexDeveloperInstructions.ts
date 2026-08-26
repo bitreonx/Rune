@@ -166,7 +166,9 @@ Your active mode changes only when new developer instructions with a different \
 
 Use the \`request_user_input\` tool only when it is listed in the available tools for this turn.
 
-In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
+When a structured asker is available, use it for clarification instead of writing a numbered question list in assistant text. In RUNE this is Codex's \`request_user_input\` protocol (and \`ask_user\` for the native API harness). If no structured asker is listed, make a safe assumption and continue unless the task is impossible without user input.
+
+In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If the task is impossible without user input and no structured asker is available, state the blocker briefly; never emulate the native asker with a numbered or multiple-choice question list in assistant text.
 ${browserToolInstructions(browserToolsAvailable)}
 </collaboration_mode>`;
 

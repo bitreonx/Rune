@@ -1,6 +1,6 @@
-import { type ProviderInstanceId } from "@t3tools/contracts";
+import { type ProviderInstanceId } from "@rune/contracts";
 import { memo, useLayoutEffect, useRef, useState } from "react";
-import { SparklesIcon, StarIcon } from "lucide-react";
+import { PlusIcon, SparklesIcon, StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -61,6 +61,8 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
    * instances are never flagged — the user just made them).
    */
   newBadgeInstanceIds?: ReadonlySet<ProviderInstanceId>;
+  /** Renders a trailing "+" rail button that opens guided service setup. */
+  onAddService?: () => void;
 }) {
   const handleSelect = (instanceId: ProviderInstanceId | "favorites") => {
     props.onSelectInstance(instanceId);
@@ -229,6 +231,34 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
               </div>
             );
           })}
+
+          {/* Guided service setup entry point */}
+          {props.onAddService ? (
+            <div className="relative mt-1 w-full border-t border-border/70 pt-1" aria-hidden="false">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      className="flex aspect-square w-full cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--popover)_90%,var(--contrast-foreground))] hover:text-foreground focus-visible:bg-[color-mix(in_srgb,var(--popover)_90%,var(--contrast-foreground))] focus-visible:outline-none"
+                      onClick={props.onAddService}
+                      type="button"
+                      aria-label="Add provider"
+                    >
+                      <PlusIcon className="size-5" aria-hidden />
+                    </button>
+                  }
+                />
+                <TooltipPopup
+                  side={PICKER_TOOLTIP_SIDE}
+                  sideOffset={PICKER_TOOLTIP_SIDE_OFFSET}
+                  align="center"
+                  className={PICKER_TOOLTIP_CLASS}
+                >
+                  Add provider
+                </TooltipPopup>
+              </Tooltip>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

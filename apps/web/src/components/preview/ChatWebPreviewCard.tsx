@@ -1,11 +1,11 @@
 "use client";
 
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
+import { scopedThreadKey } from "@rune/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import {
   ChevronDownIcon,
   ExternalLinkIcon,

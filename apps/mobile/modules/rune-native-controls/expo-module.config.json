@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["RuneNativeControlsModule", "RuneKeyboardCommandsModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.runenativecontrols.RuneNativeControlsModule"]
+  }
+}

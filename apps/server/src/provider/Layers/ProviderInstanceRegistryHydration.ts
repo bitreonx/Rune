@@ -46,13 +46,14 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceConfigMap,
   ServerSettings,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "../builtInDrivers.ts";
+import { compileHarnessProfiles } from "../harnesses/HarnessProfileCompiler.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderInstanceRegistryMutator } from "../Services/ProviderInstanceRegistryMutator.ts";
 import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistryLive.ts";
@@ -61,10 +62,10 @@ import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistry
  * Synthesize a `ProviderInstanceConfigMap` from a `ServerSettings` snapshot.
  *
  * Strategy:
- *   1. Copy all explicit `settings.providerInstances` entries verbatim.
- *   2. For each built-in driver whose `defaultInstanceIdForDriver(id)` key
- *      is *not* already in the explicit map, synthesize an entry from the
- *      matching legacy `settings.providers.<kind>` blob.
+ *   1. Synthesize fallback entries from legacy `settings.providers.<kind>` blobs.
+ *   2. Copy explicit `settings.providerInstances` entries.
+ *   3. If `settings.harnesses.profiles` is configured, compile profiles into
+ *      provider instances (where compiled profiles and their advanced overrides win).
  *
  * The returned map is the input the registry consumes; pure & exported
  * separately so the hydration logic can be exercised by unit tests
@@ -83,11 +84,6 @@ export const deriveProviderInstanceConfigMap = (
       continue;
     }
 
-    // Only built-in drivers have a legacy mirror; the registry's
-    // `providers` struct is keyed on the same literal slug as
-    // `driverKind`. Access is dynamic (the driver kind is a branded string),
-    // but it's constrained to `keyof settings.providers` by the union of
-    // built-in driver kinds.
     const legacyKey = driver.driverKind as keyof ServerSettings["providers"];
     const legacyConfig = settings.providers[legacyKey];
     if (legacyConfig === undefined) {
@@ -98,6 +94,14 @@ export const deriveProviderInstanceConfigMap = (
       driver: driver.driverKind,
       config: legacyConfig,
     };
+  }
+
+  if (settings.harnesses?.profiles && Object.keys(settings.harnesses.profiles).length > 0) {
+    return compileHarnessProfiles(
+      settings.harnesses.profiles,
+      settings.harnesses.services ?? {},
+      merged,
+    ) as ProviderInstanceConfigMap;
   }
 
   return merged as ProviderInstanceConfigMap;

@@ -6,7 +6,7 @@ import {
   type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadStreamItem,
   type ThreadId as ThreadIdType,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -102,7 +102,7 @@ const defaultOlderTurnRequestRegistry = makeThreadOlderTurnRequestRegistry();
  * the apps get working wiring without providing anything.
  */
 export class ThreadOlderTurnRequests extends Context.Reference<ThreadOlderTurnRequestRegistry>(
-  "@t3tools/client-runtime/state/threads/ThreadOlderTurnRequests",
+  "@rune/client-runtime/state/threads/ThreadOlderTurnRequests",
   { defaultValue: () => defaultOlderTurnRequestRegistry },
 ) {}
 
@@ -634,6 +634,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           // the gap is too large) should be windowed the same as the HTTP
           // path; without this a resume failure re-downloads the full thread.
           ...(supportsPagination ? { turnLimit: INITIAL_THREAD_USER_TURN_LIMIT } : {}),
+          // This client decodes role-"reasoning" messages; omitting the flag
+          // makes pre-reasoning servers behave identically (unknown optional
+          // fields are ignored).
+          supportsReasoningMessages: true as const,
         };
       }),
       {

@@ -15,7 +15,7 @@ import { RightPanelResizeHandle } from "./RightPanelResizeHandle";
 
 export type PreviewPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 
-const PREVIEW_PANEL_WIDTH_STORAGE_KEY = "t3code:preview-panel-width";
+const PREVIEW_PANEL_WIDTH_STORAGE_KEY = "rune:preview-panel-width";
 const PREVIEW_PANEL_MIN_WIDTH = 360;
 /**
  * Upper bound as a fraction of the viewport; only binds on wide screens.
@@ -32,6 +32,11 @@ const PREVIEW_PANEL_DEFAULT_WIDTH = 540;
  * sibling below its usable width and the composer overflowed.
  */
 const SIBLING_COLUMN_MIN_WIDTH = 360;
+
+export function getPanelMeasureTarget(host: HTMLElement): HTMLElement | null {
+  const rightPanelHost = host.closest<HTMLElement>("[data-rune-right-panel-host]");
+  return rightPanelHost?.parentElement ?? host.parentElement;
+}
 
 export function getPreviewPanelMaxWidth(viewportWidth: number, containerWidth?: number): number {
   const fractionCap = Math.floor(viewportWidth * PREVIEW_PANEL_MAX_WIDTH_FRACTION);
@@ -134,19 +139,19 @@ function useClampedMaxWidth(hostRef: RefObject<HTMLDivElement | null>, enabled: 
   }, []);
   useLayoutEffect(() => {
     if (!enabled) return;
-    const parent = hostRef.current?.parentElement;
-    if (!parent) return;
+    const row = hostRef.current ? getPanelMeasureTarget(hostRef.current) : null;
+    if (!row) return;
     // Measure before first paint: the persisted width must be clamped
     // against the row on the initial render, not one observer tick later
     // (the panel would flash over-wide on every mount). clientWidth is
     // integral, so sub-pixel resize deltas bail out of re-rendering.
     const measure = () => {
-      setContainerWidth(parent.clientWidth);
+      setContainerWidth(row.clientWidth);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
-    observer.observe(parent);
+    observer.observe(row);
     return () => {
       observer.disconnect();
     };

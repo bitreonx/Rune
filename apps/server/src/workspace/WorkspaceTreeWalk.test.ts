@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import type { ProjectEntry } from "@t3tools/contracts";
+import type { ProjectEntry } from "@rune/contracts";
 
 import { WorkspaceTreeWalkError, workspaceTreeWalk } from "./WorkspaceTreeWalk.ts";
 import type { WorkspaceTreeWalkOptions } from "./WorkspaceTreeWalk.ts";
@@ -17,7 +17,7 @@ function entry(path: string, kind: ProjectEntry["kind"]): ProjectEntry {
 }
 
 function makeWorkspace(): string {
-  return NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3code-tree-walk-"));
+  return NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "rune-tree-walk-"));
 }
 
 function writeTree(root: string, files: ReadonlyArray<string>): void {

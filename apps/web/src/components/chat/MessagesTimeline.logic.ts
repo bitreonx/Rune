@@ -9,7 +9,7 @@ import {
   type WorkLogEntry,
 } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
-import { type MessageId, type OrchestrationLatestTurn, type TurnId } from "@t3tools/contracts";
+import { type MessageId, type OrchestrationLatestTurn, type TurnId } from "@rune/contracts";
 import { summarizeWorkGroupDiffStat, type WorkEntryDiffStat } from "./changedFilesPresentation";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
@@ -167,7 +167,7 @@ function maxIsoTimestamp(a: string | null, b: string | null): string | null {
 
 export interface TimelineDurationMessage {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "reasoning";
   createdAt: string;
   updatedAt: string;
   streaming: boolean;
@@ -247,6 +247,13 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string | null;
       showThinking: boolean;
+    }
+  | {
+      /** Provider thinking/reasoning text: a live tail while streaming, a collapsed expander once settled. */
+      kind: "reasoning";
+      id: string;
+      createdAt: string;
+      message: ChatMessage;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -380,7 +387,10 @@ export function toolGroupAction(entry: WorkLogEntry): ToolGroupAction {
   if (
     entry.requestKind === "file-read" ||
     entry.itemType === "image_view" ||
-    (entry.itemType === "dynamic_tool_call" && entry.toolTitle === "Read File")
+    (entry.itemType === "dynamic_tool_call" && entry.toolTitle === "Read File") ||
+    ((entry.filePaths?.length ?? 0) > 0 &&
+      entry.requestKind !== "file-change" &&
+      entry.itemType !== "file_change")
   ) {
     return "read";
   }
@@ -403,6 +413,18 @@ function toolGroupActionCount(
   action: ToolGroupAction,
   entries: ReadonlyArray<WorkLogEntry>,
 ): number {
+  if (action === "read") {
+    const referencedFiles = new Set<string>();
+    let readsWithoutFileDetails = 0;
+    for (const entry of entries) {
+      if (!entry.filePaths || entry.filePaths.length === 0) {
+        readsWithoutFileDetails += 1;
+        continue;
+      }
+      for (const file of entry.filePaths) referencedFiles.add(file);
+    }
+    return referencedFiles.size + readsWithoutFileDetails;
+  }
   if (action !== "edit") return entries.length;
 
   const changedFiles = new Set<string>();
@@ -954,6 +976,9 @@ export function deriveMessagesTimelineRows(input: {
             entry.tone !== "error",
         );
         const activeInProgressToolEntries = visibleGroupedEntries.filter(workEntryIsInActiveRun);
+        const hasSingleInlineFileEntry =
+          visibleGroupedEntries.length === 1 &&
+          (visibleGroupedEntries[0]?.filePaths?.length ?? 0) > 0;
         if (onlyToolEntries && activeInProgressToolEntries.length > 0) {
           const groupId = workGroupId(timelineEntry.id, timelineEntry.entry);
           const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
@@ -979,7 +1004,7 @@ export function deriveMessagesTimelineRows(input: {
               });
             }
           }
-        } else if (onlyToolEntries) {
+        } else if (onlyToolEntries && !hasSingleInlineFileEntry) {
           const groupId = workGroupId(timelineEntry.id, timelineEntry.entry);
           const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
           const summaryKind = toolGroupSummaryKind(visibleGroupedEntries);
@@ -1097,6 +1122,26 @@ export function deriveMessagesTimelineRows(input: {
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         turnPlan: timelineEntry.turnPlan,
+      });
+      continue;
+    }
+
+    if (timelineEntry.message.role === "reasoning") {
+      // Reasoning never renders as a plain message row: while streaming it is
+      // a live muted tail, once settled a collapsed "Thought for Ns" expander.
+      // A settled segment with no renderable text (server whitespace-drop
+      // guarantees this should not happen) is skipped outright.
+      if (
+        !timelineEntry.message.streaming &&
+        (timelineEntry.message.text?.trim().length ?? 0) === 0
+      ) {
+        continue;
+      }
+      nextRows.push({
+        kind: "reasoning",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        message: timelineEntry.message,
       });
       continue;
     }
@@ -1221,6 +1266,13 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.summaryKind === bw.summaryKind &&
         a.hasFailure === bw.hasFailure
       );
+    }
+
+    case "reasoning": {
+      // The reducer replaces the message object on every delta, so reference
+      // equality is an exact change signal.
+      const br = b as typeof a;
+      return a.message === br.message;
     }
 
     case "message": {

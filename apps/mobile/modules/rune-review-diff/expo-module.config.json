@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["RuneReviewDiffModule"],
+    "podspecPath": "RuneReviewDiffNative.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.runereviewdiff.RuneReviewDiffModule"]
+  }
+}

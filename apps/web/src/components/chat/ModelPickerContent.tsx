@@ -2,8 +2,8 @@ import {
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
-} from "@t3tools/contracts";
-import { resolveSelectableModel } from "@t3tools/shared/model";
+} from "@rune/contracts";
+import { resolveSelectableModel } from "@rune/shared/model";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { ChevronRightIcon, SearchIcon } from "lucide-react";
@@ -92,6 +92,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onRequestClose?: () => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  /** Renders the sidebar's "+" rail entry that opens guided service setup. */
+  onAddService?: () => void;
 }) {
   const {
     keybindings: providedKeybindings,
@@ -602,7 +604,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         className="relative flex h-screen max-h-86.5 w-screen max-w-90 flex-row overflow-hidden"
         data-model-picker-content="true"
       >
-        {/* Sidebar */}
+        {/* Sidebar — locked pickers are editing history, so no add-service rail */}
         {showSidebar && (
           <ModelPickerSidebar
             selectedInstanceId={selectedInstanceId}
@@ -615,6 +617,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   getDisabledInstanceTooltip: (entry: ProviderInstanceEntry) =>
                     `${entry.displayName} is unavailable in this thread. Start a new thread to switch providers.`,
                 }
+              : {})}
+            {...(props.lockedProvider === null && props.onAddService
+              ? { onAddService: props.onAddService }
               : {})}
           />
         )}

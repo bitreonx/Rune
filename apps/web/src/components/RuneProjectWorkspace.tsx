@@ -1,5 +1,5 @@
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { scopeProjectRef } from "@rune/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@rune/client-runtime/state/models";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,

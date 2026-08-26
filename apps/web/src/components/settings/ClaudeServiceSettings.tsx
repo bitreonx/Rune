@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import type {
   ProviderInstanceEnvironmentVariable,
   ProviderInstanceEnvironment,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import { OPENROUTER_BASE_URL } from "../../claudeServices";
 import { cn } from "../../lib/utils";

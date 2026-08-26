@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254">
+<defs>
+  <linearGradient id="runePurple" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#A78BFA"/>
+    <stop offset="100%" stop-color="#7C3AED"/>
+  </linearGradient>
+</defs>
+
+<rect x="92" y="92" width="1070" height="1070" rx="230" fill="#111113"/>
+<g transform="translate(110 110) scale(.825)">
+<polygon points="628,156 997,370 997,858 927,905 858,952 627,1108 541,1050 438,983 258,858 259,373" fill="url(#runePurple)"/>
+<g fill="#2A2A2E">
+<polygon points="629,156 259,373 749,373 913,537 749,709 927,905 997,858 997,370"/>
+<polygon points="259,373 439,491 438,983 258,858"/>
+<polygon points="758,511 541,511 541,1050 627,1108 858,952 544,736"/>
+</g>
+</g>
+</svg>

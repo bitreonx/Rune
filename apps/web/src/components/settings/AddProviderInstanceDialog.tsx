@@ -1,7 +1,7 @@
 "use client";
 
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { CheckIcon } from "lucide-react";
+import { BookOpenIcon, CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   ProviderInstanceId,
@@ -10,11 +10,15 @@ import {
   type EnvironmentId,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { normalizeProviderAccentColor } from "../../providerInstances";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import {
+  normalizeProviderAccentColor,
+  withIsolatedProviderInstanceConfig,
+} from "../../providerInstances";
 import { Button } from "../ui/button";
 import { ACPRegistryIcon, Gemini, GithubCopilotIcon, PiAgentIcon, type Icon } from "../Icons";
 import {
@@ -29,7 +33,11 @@ import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { RadioGroup } from "../ui/radio-group";
 import { toastManager } from "../ui/toast";
-import { DRIVER_OPTION_BY_VALUE, DRIVER_OPTIONS } from "./providerDriverMeta";
+import {
+  DRIVER_OPTION_BY_VALUE,
+  DRIVER_OPTIONS,
+  getProviderSetupGuide,
+} from "./providerDriverMeta";
 import { ProviderSettingsForm, deriveProviderSettingsFields } from "./ProviderSettingsForm";
 import { AnimatedHeight } from "../AnimatedHeight";
 import {
@@ -39,7 +47,7 @@ import {
 } from "./AddProviderInstanceDialog.logic";
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
 
-const PROVIDER_ACCENT_SWATCHES = [
+export const PROVIDER_ACCENT_SWATCHES = [
   "#2563eb",
   "#16a34a",
   "#ea580c",
@@ -53,7 +61,7 @@ const PROVIDER_ACCENT_SWATCHES = [
  * The full id is formed by prefixing the driver slug — e.g. label "Work" on
  * driver "codex" becomes `codex_work`. Output is trimmed to 48 chars so the
  * final composed id stays under the 64-char slug cap enforced by
- * `ProviderInstanceId` in `@t3tools/contracts`.
+ * `ProviderInstanceId` in `@rune/contracts`.
  */
 function slugifyLabel(value: string): string {
   return value
@@ -107,7 +115,7 @@ const COMING_SOON_DRIVER_OPTIONS: readonly ComingSoonDriverOption[] = [
  * `ProviderInstanceId` (see `packages/contracts/src/providerInstance.ts`).
  * Returns a user-facing error string, or `null` if valid.
  */
-function validateInstanceId(id: string, existing: ReadonlySet<string>): string | null {
+export function validateInstanceId(id: string, existing: ReadonlySet<string>): string | null {
   if (id.length === 0) return "Instance ID is required.";
   if (id.length > 64) return "Instance ID must be 64 characters or fewer.";
   if (!INSTANCE_ID_PATTERN.test(id)) {
@@ -122,6 +130,8 @@ interface AddProviderInstanceDialogProps {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly onOpenChange: (open: boolean) => void;
+  /** Preselect the provider family when adding from an instance workspace. */
+  readonly initialDriver?: ProviderDriverKind | undefined;
 }
 
 export function AddProviderInstanceDialog({
@@ -129,12 +139,15 @@ export function AddProviderInstanceDialog({
   environmentId,
   environmentLabel,
   onOpenChange,
+  initialDriver,
 }: AddProviderInstanceDialogProps) {
   const settings = useEnvironmentSettings(environmentId);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
 
   const [wizardStep, setWizardStep] = useState(0);
-  const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
+  const [driver, setDriver] = useState<ProviderDriverKind>(
+    () => initialDriver ?? DEFAULT_DRIVER_KIND,
+  );
   const [label, setLabel] = useState("");
   const [accentColor, setAccentColor] = useState<string>("");
   const [instanceIdOverride, setInstanceIdOverride] = useState<string | null>(null);
@@ -157,6 +170,24 @@ export function AddProviderInstanceDialog({
     () => deriveProviderSettingsFields(driverOption),
     [driverOption],
   );
+  const setupGuide = getProviderSetupGuide(driver);
+  const { copyToClipboard, isCopied } = useCopyToClipboard<{ command: string }>({
+    target: "provider setup command",
+    onCopy: ({ command }) => {
+      toastManager.add({
+        type: "success",
+        title: "Command copied",
+        description: `Paste it on the machine running RUNE: ${command}`,
+      });
+    },
+    onError: (error) => {
+      toastManager.add({
+        type: "error",
+        title: "Could not copy command",
+        description: error.message,
+      });
+    },
+  });
   const instanceIdError = validateInstanceId(instanceId, existingIds);
   const showInstanceIdError = hasAttemptedSubmit && instanceIdError !== null;
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
@@ -194,14 +225,18 @@ export function AddProviderInstanceDialog({
     setHasAttemptedSubmit(true);
     if (instanceIdError !== null) return;
 
-    const config = configByDriver[driver] ?? {};
+    const rawConfig = configByDriver[driver] ?? {};
+    const config = withIsolatedProviderInstanceConfig(
+      driver,
+      ProviderInstanceId.make(instanceId),
+      rawConfig,
+    );
     const hasConfig = Object.keys(config).length > 0;
     const apiKeyName = apiKeyEnvironmentVariableForDriver(driver);
-    const apiKey = apiKeyName ? apiKeyByDriver[driver]?.trim() ?? "" : "";
+    const apiKey = apiKeyName ? (apiKeyByDriver[driver]?.trim() ?? "") : "";
     const normalizedAccentColor = normalizeProviderAccentColor(accentColor);
-    const environment: ProviderInstanceEnvironmentVariable[] = apiKeyName && apiKey.length > 0
-      ? [{ name: apiKeyName, value: apiKey, sensitive: true }]
-      : [];
+    const environment: ProviderInstanceEnvironmentVariable[] =
+      apiKeyName && apiKey.length > 0 ? [{ name: apiKeyName, value: apiKey, sensitive: true }] : [];
 
     const nextInstance: ProviderInstanceConfig = {
       driver,
@@ -403,6 +438,104 @@ export function AddProviderInstanceDialog({
                 </span>
               </div>
 
+              {wizardStep === 2 && setupGuide ? (
+                <div className="grid gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 dark:bg-primary/10">
+                  <div className="grid gap-1">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <BookOpenIcon className="size-4 text-primary" />
+                      Finish setup on the host device
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      RUNE runs{" "}
+                      <code className="rounded bg-background px-1 py-0.5">
+                        {setupGuide.binary || "this connection"}
+                      </code>{" "}
+                      on the machine running the server. Complete the one-time setup below, then add
+                      the instance and refresh its status.
+                    </p>
+                  </div>
+
+                  {setupGuide.installCommand ? (
+                    <div className="grid gap-1.5">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Install once
+                      </span>
+                      <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-2.5 py-2">
+                        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-xs text-foreground">
+                          {setupGuide.installCommand}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 shrink-0 px-2 text-xs"
+                          onClick={() =>
+                            copyToClipboard(setupGuide.installCommand!, {
+                              command: setupGuide.installCommand!,
+                            })
+                          }
+                          aria-label={`Copy install command for ${driverOption.label}`}
+                        >
+                          {isCopied ? (
+                            <CheckIcon className="size-3.5" />
+                          ) : (
+                            <CopyIcon className="size-3.5" />
+                          )}
+                          {isCopied ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {setupGuide.signInCommand ? (
+                    <div className="grid gap-1.5">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Sign in once
+                      </span>
+                      <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-2.5 py-2">
+                        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-xs text-foreground">
+                          {setupGuide.signInCommand}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 shrink-0 px-2 text-xs"
+                          onClick={() =>
+                            copyToClipboard(setupGuide.signInCommand!, {
+                              command: setupGuide.signInCommand!,
+                            })
+                          }
+                          aria-label={`Copy sign-in command for ${driverOption.label}`}
+                        >
+                          {isCopied ? (
+                            <CheckIcon className="size-3.5" />
+                          ) : (
+                            <CopyIcon className="size-3.5" />
+                          )}
+                          {isCopied ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary/15 pt-2 text-[11px] text-muted-foreground">
+                    <span>{setupGuide.signInDescription}</span>
+                    {setupGuide.docsUrl ? (
+                      <a
+                        href={setupGuide.docsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+                      >
+                        Provider docs
+                        <ExternalLinkIcon className="size-3" />
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {driverSettingsFields.length > 0 ? (
                 <div className={cn("grid gap-4", wizardStep !== 2 && "hidden")}>
                   {apiKeyEnvironmentVariableForDriver(driver) ? (
@@ -422,7 +555,8 @@ export function AddProviderInstanceDialog({
                         placeholder="Paste a key or leave blank to use the server environment"
                       />
                       <span className="text-[11px] text-muted-foreground">
-                        Stored as a sensitive instance environment value and never shown in provider snapshots.
+                        Stored as a sensitive instance environment value and never shown in provider
+                        snapshots.
                       </span>
                     </label>
                   ) : null}

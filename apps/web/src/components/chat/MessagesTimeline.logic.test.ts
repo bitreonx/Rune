@@ -1827,3 +1827,113 @@ describe("deriveTurnPlanDisplay", () => {
     expect(display.label).toBe("Step 1");
   });
 });
+
+describe("reasoning message rows", () => {
+  function reasoningTimelineEntry(input: {
+    id: string;
+    text: string;
+    streaming: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }) {
+    return {
+      id: `${input.id}-entry`,
+      kind: "message" as const,
+      createdAt: input.createdAt,
+      message: {
+        id: input.id as never,
+        role: "reasoning" as never,
+        text: input.text,
+        turnId: "turn-1" as never,
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
+        streaming: input.streaming,
+      },
+    };
+  }
+
+  function deriveRowsWithReasoning(
+    entries: ReadonlyArray<ReturnType<typeof reasoningTimelineEntry>>,
+  ) {
+    return deriveMessagesTimelineRows({
+      timelineEntries: entries,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+  }
+
+  it("renders a reasoning row instead of a plain message row", () => {
+    const rows = deriveRowsWithReasoning([
+      reasoningTimelineEntry({
+        id: "reasoning-1",
+        text: "Weighing both options…",
+        streaming: true,
+        createdAt: "2026-01-01T00:00:10Z",
+        updatedAt: "2026-01-01T00:00:12Z",
+      }),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("reasoning");
+    if (rows[0]?.kind === "reasoning") {
+      expect(rows[0].message.text).toBe("Weighing both options…");
+      expect(rows[0].message.streaming).toBe(true);
+    }
+  });
+
+  it("drops a settled reasoning segment with no renderable text", () => {
+    const rows = deriveRowsWithReasoning([
+      reasoningTimelineEntry({
+        id: "reasoning-1",
+        text: "   ",
+        streaming: false,
+        createdAt: "2026-01-01T00:00:10Z",
+        updatedAt: "2026-01-01T00:00:12Z",
+      }),
+    ]);
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it("keeps settled reasoning visible as its own row rather than folding it", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        reasoningTimelineEntry({
+          id: "reasoning-1",
+          text: "Plan first.",
+          streaming: false,
+          createdAt: "2026-01-01T00:00:05Z",
+          updatedAt: "2026-01-01T00:00:09Z",
+        }),
+        {
+          id: "assistant-final-entry",
+          kind: "message" as const,
+          createdAt: "2026-01-01T00:00:20Z",
+          message: {
+            id: "assistant-final" as never,
+            role: "assistant" as never,
+            text: "Done.",
+            turnId: "turn-1" as never,
+            createdAt: "2026-01-01T00:00:20Z",
+            updatedAt: "2026-01-01T00:00:30Z",
+            streaming: false,
+          },
+        },
+      ],
+      latestTurn: {
+        turnId: "turn-1" as never,
+        state: "completed",
+        startedAt: "2026-01-01T00:00:04Z",
+        completedAt: "2026-01-01T00:00:30Z",
+      },
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows.some((row) => row.kind === "reasoning")).toBe(true);
+  });
+});

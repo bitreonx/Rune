@@ -254,7 +254,7 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   // Per-project override for where new threads start. Null/absent means
-  // "no override": clients fall back to t3.json, then the global setting.
+  // "no override": clients fall back to rune.json, then the global setting.
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
@@ -265,7 +265,15 @@ export const OrchestrationProject = Schema.Struct({
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
 
-export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
+// "reasoning" carries provider thinking/reasoning text. It renders as a
+// collapsible block in clients but must never settle turns, trigger
+// checkpoints, or feed prompt reconstruction — those all key on "assistant".
+export const OrchestrationMessageRole = Schema.Literals([
+  "user",
+  "assistant",
+  "system",
+  "reasoning",
+]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
 // Set as session.lastError when startup reconciliation finds a provider CLI
@@ -438,6 +446,10 @@ export const OrchestrationThread = Schema.Struct({
   // permanent). Expiry is computed against updatedAt by clients and the purge
   // sweep. Optional so payloads from pre-temporary servers still decode.
   temporaryAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Temporary deletion snooze: timestamp until which automatic deletion is
+  // postponed. When set, the sweeper skips this thread until the snooze expires.
+  // Optional so payloads from servers without deletion snooze still decode.
+  temporaryDeletionSnoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   // Fractional index for user-arranged pinned order. Keyed threads sort by
   // string comparison ahead of keyless ones (which keep creation order), so
   // servers never need each other's threads to agree on the merged list.
@@ -504,6 +516,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   // Temporary chats: timestamp when the thread was flagged temporary (null =
   // permanent). Optional so payloads from pre-temporary servers still decode.
   temporaryAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Temporary deletion snooze: timestamp until which automatic deletion is
+  // postponed. When set, the sweeper skips this thread until the snooze expires.
+  // Optional so payloads from servers without deletion snooze still decode.
+  temporaryDeletionSnoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   session: Schema.NullOr(OrchestrationSession),
@@ -619,6 +635,13 @@ export const OrchestrationSubscribeThreadInput = Schema.Struct({
    * behavior. Live events are unaffected either way.
    */
   turnLimit: Schema.optionalKey(PositiveInt),
+  /**
+   * Declares the client can decode role-"reasoning" messages. Servers strip
+   * reasoning messages from events and snapshots for clients that omit it:
+   * a stale decoder would fail its whole subscription on the unknown role
+   * value instead of just skipping the content.
+   */
+  supportsReasoningMessages: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
 
@@ -845,6 +868,14 @@ const ThreadTemporarySetCommand = Schema.Struct({
   temporary: Schema.Boolean,
 });
 
+const ThreadTemporaryDeletionSnoozeCommand = Schema.Struct({
+  type: Schema.Literal("thread.temporary.deletion-snooze"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // Timestamp until which automatic deletion is postponed. Null clears the snooze.
+  snoozedUntil: Schema.NullOr(IsoDateTime),
+});
+
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
@@ -982,6 +1013,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTemporarySetCommand,
+  ThreadTemporaryDeletionSnoozeCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -1011,6 +1043,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTemporarySetCommand,
+  ThreadTemporaryDeletionSnoozeCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -1034,6 +1067,27 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   delta: Schema.String,
+  turnId: Schema.optional(TurnId),
+  createdAt: IsoDateTime,
+});
+
+// Streaming append for role "reasoning" messages. Mirrors the assistant delta
+// command; the decider emits it as a streaming thread.message-sent event.
+const ThreadMessageReasoningDeltaCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.reasoning.delta"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  delta: Schema.String,
+  turnId: Schema.optional(TurnId),
+  createdAt: IsoDateTime,
+});
+
+const ThreadMessageReasoningCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.reasoning.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -1097,6 +1151,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
+  ThreadMessageReasoningDeltaCommand,
+  ThreadMessageReasoningCompleteCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
@@ -1130,6 +1186,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
   "thread.temporary-set",
+  "thread.temporary-deletion-snoozed",
   "thread.message-sent",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
@@ -1296,6 +1353,13 @@ export const ThreadTemporarySetPayload = Schema.Struct({
   // Null clears the flag ("Keep this chat"); non-null stamps when the thread
   // became temporary. One event covers both directions.
   temporaryAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadTemporaryDeletionSnoozedPayload = Schema.Struct({
+  threadId: ThreadId,
+  // Timestamp until which deletion is postponed. Null clears the snooze.
+  temporaryDeletionSnoozedUntil: Schema.NullOr(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
@@ -1511,6 +1575,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.temporary-set"),
     payload: ThreadTemporarySetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.temporary-deletion-snoozed"),
+    payload: ThreadTemporaryDeletionSnoozedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

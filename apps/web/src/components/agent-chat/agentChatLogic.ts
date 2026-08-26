@@ -1,5 +1,5 @@
-import type { OrchestrationRpcSchemas } from "@t3tools/contracts";
-import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { OrchestrationRpcSchemas } from "@rune/contracts";
+import type { RuntimeSubagent } from "@rune/client-runtime/state/subagentRuntime";
 
 export type AgentChatSnapshot = typeof OrchestrationRpcSchemas.getAgentChat.output.Type;
 export type AgentChatMessage = AgentChatSnapshot["messages"][number];

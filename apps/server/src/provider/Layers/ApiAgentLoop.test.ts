@@ -14,7 +14,7 @@ import {
   ThreadId,
   TurnId,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import { ProviderAdapterRequestError } from "../Errors.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
@@ -53,7 +53,7 @@ const ITEM_PREFIX = RuntimeItemId.make("turn-agent-loop:assistant");
 const makeToolContext = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3code-agent-loop-" });
+  const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "rune-agent-loop-" });
   yield* fileSystem
     .writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n")
     .pipe(Effect.orDie);
@@ -123,11 +123,29 @@ const toolCallScript = (name: string, rawArguments: string) =>
     "data: [DONE]",
   ].join("\n\n") + "\n\n";
 
+const toolCallScriptWithUsage = (
+  name: string,
+  rawArguments: string,
+  usage: { input: number; output: number },
+) =>
+  toolCallScript(name, rawArguments).replace(
+    "data: [DONE]",
+    `data: {"choices":[],"usage":{"prompt_tokens":${usage.input},"completion_tokens":${usage.output},"total_tokens":${usage.input + usage.output}}}\n\ndata: [DONE]`,
+  );
+
 const textScript = (text: string) =>
   [
     `data: {"choices":[{"delta":{"content":"${text}"}}]}`,
     `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
     `data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":40,"total_tokens":160}}`,
+    "data: [DONE]",
+  ].join("\n\n") + "\n\n";
+
+const usageTextScript = (text: string, usage: { input: number; output: number }) =>
+  [
+    `data: {"choices":[{"delta":{"content":"${text}"}}]}`,
+    `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+    `data: {"choices":[],"usage":{"prompt_tokens":${usage.input},"completion_tokens":${usage.output},"total_tokens":${usage.input + usage.output}}}`,
     "data: [DONE]",
   ].join("\n\n") + "\n\n";
 
@@ -152,7 +170,8 @@ describe("classifyTransportError", () => {
     expect(classifyTransportError({ status: 401 })).toMatchObject({ retryable: false });
     expect(classifyTransportError({ status: 402 }).message).toContain("credits");
     expect(classifyTransportError({ status: 402 }).retryable).toBe(false);
-    expect(classifyTransportError({ status: 429 }).retryable).toBe(true);
+    expect(classifyTransportError({ status: 429 }).retryable).toBe(false);
+    expect(classifyTransportError({ status: 429 }).message).toContain("Rate limit exceeded");
     expect(classifyTransportError({ status: 503 }).retryable).toBe(true);
     expect(classifyTransportError(new Error("socket hang up")).retryable).toBe(true);
     expect(classifyTransportError({ status: 400 }).retryable).toBe(false);
@@ -186,7 +205,19 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const offeredNames = (firstBody?.tools as Array<{ function: { name: string } }>).map(
         (tool) => tool.function.name,
       );
-      expect(offeredNames).toEqual(["read_file", "list_dir", "search", "edit_file", "bash"]);
+      expect(offeredNames).toEqual([
+        "workspace_snapshot",
+        "search_many",
+        "read_many",
+        "read_file",
+        "list_dir",
+        "search",
+        "apply_patch",
+        "generate_files",
+        "run_checks",
+        "edit_file",
+        "bash",
+      ]);
       expect((firstBody?.messages as Array<{ role: string }>)[0]).toMatchObject({
         role: "system",
       });
@@ -215,6 +246,19 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
           ? usageEvents[0].payload.usage
           : undefined;
       expect(usagePayload).toMatchObject({ usedTokens: 160, inputTokens: 120, outputTokens: 40 });
+
+      const requestUsageEvents = harness.published.filter(
+        (event) => event.type === "api.request.usage",
+      );
+      expect(requestUsageEvents).toHaveLength(2);
+      expect(requestUsageEvents[0]?.type === "api.request.usage").toBe(true);
+      const progressEvents = harness.published.filter(
+        (event) => event.type === "agent.execution.progress",
+      );
+      expect(progressEvents.at(-1)).toMatchObject({
+        type: "agent.execution.progress",
+        payload: { stage: "finalize", requestNumber: 2, outcome: "completed" },
+      });
     }),
   );
 
@@ -229,7 +273,40 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const offeredNames = (
         harness.requests[0]?.body.tools as Array<{ function: { name: string } }>
       ).map((tool) => tool.function.name);
-      expect(offeredNames).toEqual(["read_file", "list_dir", "search"]);
+      expect(offeredNames).toEqual([
+        "workspace_snapshot",
+        "search_many",
+        "read_many",
+        "read_file",
+        "list_dir",
+        "search",
+      ]);
+    }),
+  );
+
+  it.effect("adds optional provider fields only when advertised", () =>
+    Effect.gen(function* () {
+      const toolContext = yield* makeToolContext;
+      const harness = makeHarness(toolContext, [textScript("done")]);
+
+      yield* runTurn(harness.deps, {
+        apiCapabilities: {
+          parallelToolCalls: true,
+          strictToolSchemas: true,
+          reasoningMode: "optional",
+          reportsCachedTokens: true,
+          supportsFim: false,
+        },
+      });
+
+      expect(harness.requests[0]?.body).toMatchObject({
+        parallel_tool_calls: true,
+        thinking: { type: "enabled" },
+      });
+      expect(
+        (harness.requests[0]?.body.tools as Array<{ function: { strict?: boolean } }>)[0]?.function
+          .strict,
+      ).toBe(true);
     }),
   );
 
@@ -250,6 +327,56 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
       const secondMessages = harness.requests[1]?.body.messages as Array<Record<string, unknown>>;
       const toolResult = secondMessages.find((message) => message.role === "tool");
       expect(String(toolResult?.content)).toContain("line2");
+    }),
+  );
+
+  it.effect("accumulates usage across provider rounds", () =>
+    Effect.gen(function* () {
+      const toolContext = yield* makeToolContext;
+      const harness = makeHarness(toolContext, [
+        toolCallScriptWithUsage("read_file", '{"path": "hello.txt"}', { input: 120, output: 40 }),
+        usageTextScript("done", { input: 200, output: 30 }),
+      ]);
+
+      const result = yield* runTurn(harness.deps);
+
+      expect(result.usage).toMatchObject({
+        usedTokens: 390,
+        inputTokens: 320,
+        outputTokens: 70,
+      });
+      const usageEvents = harness.published.filter(
+        (event) => event.type === "thread.token-usage.updated",
+      );
+      expect(usageEvents).toHaveLength(2);
+      expect(
+        usageEvents[0]?.type === "thread.token-usage.updated"
+          ? usageEvents[0].payload.usage.usedTokens
+          : undefined,
+      ).toBe(160);
+      expect(
+        usageEvents[1]?.type === "thread.token-usage.updated"
+          ? usageEvents[1].payload.usage.usedTokens
+          : undefined,
+      ).toBe(390);
+    }),
+  );
+
+  it.effect("rejects an identical repeated tool call locally", () =>
+    Effect.gen(function* () {
+      const toolContext = yield* makeToolContext;
+      const harness = makeHarness(toolContext, [
+        toolCallScript("read_file", '{"path": "hello.txt"}'),
+        toolCallScript("read_file", '{"path": "hello.txt"}'),
+        textScript("stopped repeating"),
+      ]);
+
+      const result = yield* runTurn(harness.deps);
+
+      expect(result.finalText).toBe("stopped repeating");
+      const thirdMessages = harness.requests[2]?.body.messages as Array<Record<string, unknown>>;
+      const observations = thirdMessages.filter((message) => message.role === "tool");
+      expect(String(observations.at(-1)?.content)).toContain("repeated tool call");
     }),
   );
 
@@ -316,7 +443,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
     }),
   );
 
-  it.effect("fails the turn after 32 tool-requesting round-trips", () =>
+  it.effect("fails the turn after four tool-requesting round-trips", () =>
     Effect.gen(function* () {
       const toolContext = yield* makeToolContext;
       const endless = toolCallScript("read_file", '{"path": "hello.txt"}');
@@ -324,8 +451,8 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
 
       const failure = yield* runTurn(harness.deps).pipe(Effect.flip);
 
-      expect(failure.message).toContain("32");
-      expect(harness.requests).toHaveLength(32);
+      expect(failure.message).toContain("4");
+      expect(harness.requests).toHaveLength(4);
     }),
   );
 
@@ -338,7 +465,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
           Effect.suspend(() => {
             attempts += 1;
             if (attempts === 1) {
-              return Effect.fail(requestError("Transient provider failure.", { status: 429 }));
+              return Effect.fail(requestError("Transient provider failure.", { status: 503 }));
             }
             return Effect.succeed(sseStream(textScript("after retry")));
           }),

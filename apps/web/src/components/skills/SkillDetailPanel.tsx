@@ -1,7 +1,7 @@
 import { CheckCircle2Icon, ClipboardIcon, FolderTreeIcon, Layers3Icon, SparklesIcon } from "lucide-react";
 import { useState } from "react";
 
-import { formatProviderSkillDisplayName } from "@t3tools/client-runtime/providerSkills";
+import { formatProviderSkillDisplayName } from "@rune/client-runtime/providerSkills";
 
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";

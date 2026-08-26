@@ -1,13 +1,16 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind } from "@rune/contracts";
 import {
   AntigravityIcon,
   ClaudeAI,
   CursorIcon,
+  DeepSeekIcon,
+  Gemini,
   GrokIcon,
   Icon,
   OpenAI,
   OpenCodeIcon,
   OpenRouterIcon,
+  xAIIcon,
 } from "../Icons";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
@@ -21,6 +24,32 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("openaiApi")]: OpenAI,
   [ProviderDriverKind.make("openrouter")]: OpenRouterIcon,
 };
+
+export const SERVICE_ICON_BY_KIND: Record<string, Icon> = {
+  openrouter: OpenRouterIcon,
+  openai: OpenAI,
+  anthropic: ClaudeAI,
+  google: Gemini,
+  gemini: Gemini,
+  deepseek: DeepSeekIcon,
+  xai: xAIIcon,
+  grok: GrokIcon,
+  "custom-openai-compatible": OpenAI,
+  "custom-anthropic-compatible": ClaudeAI,
+};
+
+export function getProviderOrServiceIcon(kind: string): Icon | null {
+  const driverKind = ProviderDriverKind.make(kind);
+  if (PROVIDER_ICON_BY_PROVIDER[driverKind]) {
+    return PROVIDER_ICON_BY_PROVIDER[driverKind]!;
+  }
+  const lower = kind.toLowerCase();
+  if (SERVICE_ICON_BY_KIND[lower]) {
+    return SERVICE_ICON_BY_KIND[lower]!;
+  }
+  return null;
+}
+
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderDriverKind;

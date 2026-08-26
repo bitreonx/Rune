@@ -3,7 +3,7 @@ import {
   type ConfirmDialogOptions,
   type ContextMenuItem,
   type DesktopBridge,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const showContextMenuFallbackMock =
@@ -78,8 +78,16 @@ describe("LocalApi", () => {
     expect(api.shell).not.toHaveProperty("openInEditor");
   });
 
-  it("uses the browser context-menu fallback without a desktop bridge", async () => {
+  it("renders the styled context menu even when hosted by the desktop shell", async () => {
     showContextMenuFallbackMock.mockResolvedValue("rename");
+    const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
+    const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
+    const setClientSettings = vi.fn().mockResolvedValue(undefined);
+    testWindow().desktopBridge = {
+      pickFolder,
+      getClientSettings,
+      setClientSettings,
+    } as unknown as DesktopBridge;
     const { createLocalApi } = await import("./localApi");
     const items = [{ id: "rename", label: "Rename" }] as const;
 
@@ -87,7 +95,8 @@ describe("LocalApi", () => {
     expect(showContextMenuFallbackMock).toHaveBeenCalledWith(items, { x: 4, y: 5 });
   });
 
-  it("dismisses an open browser context menu without a desktop bridge", async () => {
+  it("dismisses an open context menu even when hosted by the desktop shell", async () => {
+    testWindow().desktopBridge = {} as unknown as DesktopBridge;
     const { createLocalApi } = await import("./localApi");
 
     await createLocalApi().contextMenu.close();
@@ -114,12 +123,10 @@ describe("LocalApi", () => {
   });
 
   it("delegates host capabilities and persistence to the desktop bridge", async () => {
-    const showContextMenu = vi.fn().mockResolvedValue("delete");
     const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
     const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
     const setClientSettings = vi.fn().mockResolvedValue(undefined);
     testWindow().desktopBridge = {
-      showContextMenu,
       pickFolder,
       getClientSettings,
       setClientSettings,
@@ -127,16 +134,13 @@ describe("LocalApi", () => {
 
     const { createLocalApi } = await import("./localApi");
     const api = createLocalApi();
-    const items = [{ id: "delete", label: "Delete" }] as const;
 
-    await expect(api.contextMenu.show(items)).resolves.toBe("delete");
     requestConfirmDialogMock.mockReturnValue(undefined);
     await expect(api.dialogs.confirm("Install update?")).resolves.toBe(false);
     await expect(api.dialogs.pickFolder({ initialPath: "/tmp" })).resolves.toBe("/tmp/project");
     await expect(api.persistence.getClientSettings()).resolves.toEqual(DEFAULT_CLIENT_SETTINGS);
     await api.persistence.setClientSettings(DEFAULT_CLIENT_SETTINGS);
 
-    expect(showContextMenu).toHaveBeenCalledWith(items, undefined);
     expect(pickFolder).toHaveBeenCalledWith({ initialPath: "/tmp" });
     expect(getClientSettings).toHaveBeenCalledTimes(1);
     expect(setClientSettings).toHaveBeenCalledWith(DEFAULT_CLIENT_SETTINGS);

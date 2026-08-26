@@ -16,20 +16,22 @@ import type {
   AgentPanelModel,
   AgentPanelWorkflowGroup,
   RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@rune/client-runtime/state/subagentRuntime";
 import {
   formatSubagentModelLabel,
   formatSubagentTokenCount,
-} from "@t3tools/client-runtime/state/subagentRuntime";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+} from "@rune/client-runtime/state/subagentRuntime";
+import type { EnvironmentId, ThreadId } from "@rune/contracts";
 import { Bot, Braces, Check, ChevronDown, ChevronRight, ExternalLink, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
 import { AgentChatPanel } from "./agent-chat/AgentChatPanel";
+import { SubagentAvatar } from "./agent-chat/SubagentAvatar";
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -148,12 +150,16 @@ function agentActivityText(agent: RuntimeSubagent): string | null {
 type AgentSelectionProps = {
   focusedAgentId: string | null;
   onFocusAgent?: ((agentId: string) => void) | undefined;
+  environmentId?: string | null;
+  navigate?: ReturnType<typeof useNavigate>;
 };
 
 function AgentRow({
   agent,
   focusedAgentId,
   onFocusAgent,
+  environmentId,
+  navigate,
 }: { agent: RuntimeSubagent } & AgentSelectionProps) {
   const visuals = STATUS_VISUALS[agent.status];
   const activity = agentActivityText(agent);
@@ -171,30 +177,57 @@ function AgentRow({
     agent.activationCount > 1 ? `run ${agent.activationCount}` : null,
   ].filter((value): value is string => value !== null);
 
+  // Use generated name as primary display, with original title as fallback
+  const displayName = agent.generatedName || agent.title;
+
+  // Check if this agent has a thread ID (Codex v2 sub-agent)
+  const agentThreadId = agent.agentThreadId || agent.chat?.agentThreadId;
+  const canNavigateToThread = agentThreadId && environmentId && navigate;
+
+  const handleClick = () => {
+    if (canNavigateToThread) {
+      // Navigate to the sub-agent's thread
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId: agentThreadId },
+      });
+    } else {
+      // Fall back to opening agent in right panel
+      onFocusAgent?.(agent.id);
+    }
+  };
+
   return (
     <button
       type="button"
-      onClick={() => onFocusAgent?.(agent.id)}
+      onClick={handleClick}
       aria-pressed={focused}
-      aria-label={`Open ${agent.title} agent${agent.agentPath ? ` at ${agent.agentPath}` : ""}`}
-      title={agent.agentPath ?? agent.title}
+      aria-label={`Open ${displayName} agent${agent.agentPath ? ` at ${agent.agentPath}` : ""}${canNavigateToThread ? " thread" : ""}`}
+      title={agent.agentPath ?? displayName}
       data-rune-agent-row
       data-rune-agent-focused={focused ? "true" : "false"}
       className={cn(
         "group grid min-h-[5rem] w-full grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[1.15rem_1rem_1.1rem_1rem] items-center gap-x-2 border-b border-border/45 px-1.5 py-2 text-left transition-colors duration-[var(--rune-motion-fast)] hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--rune-violet-strong)]",
-        focused &&
-          "bg-[color-mix(in_srgb,var(--rune-violet-soft)_10%,transparent)]",
+        focused && "bg-[color-mix(in_srgb,var(--rune-violet-soft)_10%,transparent)]",
       )}
     >
-      <span className="relative row-span-4 flex size-7 shrink-0 items-center justify-center border border-border/65 bg-background/55">
-        <Bot aria-hidden className="size-4 text-muted-foreground" />
+      <div className="relative row-span-4 flex size-7 shrink-0 items-center justify-center">
+        <SubagentAvatar
+          iconName={agent.iconName}
+          iconColor={agent.iconColor}
+          className="size-7"
+          iconClassName="size-3.5"
+        />
         <StatusDot
           status={agent.status}
           className="absolute -right-0.5 -bottom-0.5 ring-2 ring-background"
         />
-      </span>
-      <span className="col-start-2 row-start-1 min-w-0 truncate text-sm font-medium" title={agent.title}>
-        {agent.title}
+      </div>
+      <span
+        className="col-start-2 row-start-1 min-w-0 truncate text-sm font-medium"
+        title={displayName}
+      >
+        {displayName}
       </span>
       <span className="col-start-3 row-start-1 min-w-14 text-right font-mono text-[.7rem] text-muted-foreground/80">
         <span className="inline-flex items-center gap-1">
@@ -355,9 +388,13 @@ function PhaseSection({
   defaultOpen = false,
   focusedAgentId,
   onFocusAgent,
+  environmentId,
+  navigate,
 }: {
   phase: AgentPanelWorkflowGroup["phases"][number];
   defaultOpen?: boolean;
+  environmentId?: EnvironmentId | null;
+  navigate?: ReturnType<typeof useNavigate>;
 } & AgentSelectionProps) {
   const [open, setOpen] = useState(defaultOpen || phase.state === "running");
   const previousState = useRef(phase.state);
@@ -434,6 +471,7 @@ function ExpandedWorkflowSection({
   threadId: ThreadId | null;
   onCollapse: () => void;
 } & AgentSelectionProps) {
+  const navigate = useNavigate();
   const [scriptOpen, setScriptOpen] = useState(false);
   const members = workflowMembers(group);
   const settled = members.filter(
@@ -446,7 +484,10 @@ function ExpandedWorkflowSection({
   const scriptPath = group.workflow.runHandles?.scriptPath;
   const canShowScript = scriptPath !== undefined && environmentId !== null && threadId !== null;
   return (
-    <section className="border-y border-border/50 bg-card/20 py-1" data-rune-agent-surface="workflow">
+    <section
+      className="border-y border-border/50 bg-card/20 py-1"
+      data-rune-agent-surface="workflow"
+    >
       <div className="flex items-center gap-2 px-1.5 pt-0.5 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
         <StatusDot status={group.workflow.status} />
         <span className="min-w-0 truncate">
@@ -493,6 +534,8 @@ function ExpandedWorkflowSection({
           defaultOpen={!workflowIsLive(group)}
           focusedAgentId={focusedAgentId}
           onFocusAgent={onFocusAgent}
+          environmentId={environmentId}
+          navigate={navigate}
         />
       ))}
       {group.unphasedMembers.map((member) => (
@@ -501,6 +544,8 @@ function ExpandedWorkflowSection({
           agent={member}
           focusedAgentId={focusedAgentId}
           onFocusAgent={onFocusAgent}
+          environmentId={environmentId}
+          navigate={navigate}
         />
       ))}
       {group.phases.length === 0 && group.unphasedMembers.length === 0 ? (
@@ -508,6 +553,8 @@ function ExpandedWorkflowSection({
           agent={group.workflow}
           focusedAgentId={focusedAgentId}
           onFocusAgent={onFocusAgent}
+          environmentId={environmentId}
+          navigate={navigate}
         />
       ) : null}
     </section>
@@ -612,7 +659,10 @@ function AgentActivityDetail({
 }) {
   const activity = agent.recentActivity;
   const latestSummary =
-    agent.progress ?? agent.result ?? agent.error ?? (agent.lastToolName ? `▸ ${agent.lastToolName}` : null);
+    agent.progress ??
+    agent.result ??
+    agent.error ??
+    (agent.lastToolName ? `▸ ${agent.lastToolName}` : null);
   const statusLabel = STATUS_VISUALS[agent.status].label;
 
   return (
@@ -649,10 +699,16 @@ function AgentActivityDetail({
           This agent can report activity but cannot be continued here.
         </p>
       ) : null}
-      <div className="max-h-52 space-y-1.5 overflow-y-auto px-3 py-2" data-rune-agent-activity-stream>
+      <div
+        className="max-h-52 space-y-1.5 overflow-y-auto px-3 py-2"
+        data-rune-agent-activity-stream
+      >
         {activity.length > 0 ? (
           activity.map((entry) => (
-            <div key={`${entry.at}:${entry.summary}`} className="flex gap-2 text-[11px] leading-relaxed">
+            <div
+              key={`${entry.at}:${entry.summary}`}
+              className="flex gap-2 text-[11px] leading-relaxed"
+            >
               <span className="shrink-0 pt-px font-mono text-[9px] tabular-nums text-muted-foreground/55">
                 {formatActivityTime(entry.at)}
               </span>
@@ -691,7 +747,9 @@ function AgentActivityDetail({
 function formatActivityTime(iso: string): string {
   const timestamp = Date.parse(iso);
   if (Number.isNaN(timestamp)) return "";
-  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(timestamp);
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
+    timestamp,
+  );
 }
 
 export function AgentsPanel({
@@ -709,6 +767,8 @@ export function AgentsPanel({
   focusedAgentId?: string | null;
   onFocusAgent?: (agentId: string | null) => void;
 }) {
+  const navigate = useNavigate();
+
   if (!model.hasAgents) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -773,6 +833,8 @@ export function AgentsPanel({
                   agent={agent}
                   focusedAgentId={focusedAgentId}
                   onFocusAgent={onFocusAgent}
+                  environmentId={environmentId}
+                  navigate={navigate}
                 />
               ))}
             </section>

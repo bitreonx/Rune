@@ -6,7 +6,7 @@
 
 ## Goal
 
-Evolve the existing T3 Code-derived runtime into RUNE without replacing working execution, provider, project, Git, and surface infrastructure merely for branding. RUNE is project-first: a Project owns durable Threads, Provider Sessions, Agent Runtime state, Git state, Processes, Surfaces, and Project Memory. The web client and Electron desktop client consume the same typed server/runtime contracts.
+Evolve the existing RUNE-derived runtime into RUNE without replacing working execution, provider, project, Git, and surface infrastructure merely for branding. RUNE is project-first: a Project owns durable Threads, Provider Sessions, Agent Runtime state, Git state, Processes, Surfaces, and Project Memory. The web client and Electron desktop client consume the same typed server/runtime contracts.
 
 ## Non-negotiable boundaries
 

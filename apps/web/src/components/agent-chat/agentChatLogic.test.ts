@@ -1,7 +1,7 @@
-import { RuntimeTaskId } from "@t3tools/contracts";
+import { RuntimeTaskId } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { RuntimeSubagent } from "@rune/client-runtime/state/subagentRuntime";
 import {
   agentChatErrorMessage,
   canInterruptAgentChat,
@@ -42,6 +42,10 @@ function agent(overrides: Partial<RuntimeSubagent> = {}): RuntimeSubagent {
     startedAt: null,
     completedAt: null,
     updatedAt: "2026-08-25T00:00:00.000Z",
+    generatedName: "Lobarna",
+    iconColor: "hsl(210, 75%, 55%)",
+    iconName: "sparkles",
+    agentThreadId: null,
     ...overrides,
   };
 }

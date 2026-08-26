@@ -10,9 +10,9 @@ import {
   type ProviderUserInputAnswers,
   type ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+} from "@rune/contracts";
+import { getModelSelectionStringOptionValue } from "@rune/shared/model";
+import { resolveSpawnCommand } from "@rune/shared/shell";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -37,7 +37,7 @@ import type {
   ProviderThreadSnapshot,
   ProviderThreadTurnSnapshot,
 } from "../Services/ProviderAdapter.ts";
-import type { AntigravitySettings } from "@t3tools/contracts";
+import type { AntigravitySettings } from "@rune/contracts";
 import {
   buildAntigravityCliArgs,
   makeAntigravityResumeCursor,
@@ -673,7 +673,7 @@ export function makeAntigravityAdapter(
           threadId: input.threadId,
           payload: {
             message:
-              "Antigravity headless mode does not expose T3 Code's approval control channel; agy's own permission policy remains authoritative. Provider conversations resume by their persisted conversation id.",
+              "Antigravity headless mode does not expose RUNE's approval control channel; agy's own permission policy remains authoritative. Provider conversations resume by their persisted conversation id.",
           },
         });
 
@@ -702,7 +702,7 @@ export function makeAntigravityAdapter(
 
         // The CLI documents that the first stream prompt can be lost while it
         // is still initializing. Waiting on the init event also guarantees
-        // that the durable conversation id is available before T3 persists
+        // that the durable conversation id is available before RUNE persists
         // the turn start.
         yield* Deferred.await(ctx.ready);
 

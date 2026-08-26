@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/shared",
+  "name": "@rune/shared",
   "private": true,
   "type": "module",
   "exports": {
@@ -79,6 +79,10 @@
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"
     },
+    "./agentActivity": {
+      "types": "./src/agentActivity.ts",
+      "import": "./src/agentActivity.ts"
+    },
     "./Struct": {
       "types": "./src/Struct.ts",
       "import": "./src/Struct.ts"
@@ -103,9 +107,13 @@
       "types": "./src/threadEnvMode.ts",
       "import": "./src/threadEnvMode.ts"
     },
-    "./t3ProjectFile": {
-      "types": "./src/t3ProjectFile.ts",
-      "import": "./src/t3ProjectFile.ts"
+    "./runeProjectFile": {
+      "types": "./src/runeProjectFile.ts",
+      "import": "./src/runeProjectFile.ts"
+    },
+    "./runeProjectFile": {
+      "types": "./src/runeProjectFile.ts",
+      "import": "./src/runeProjectFile.ts"
     },
     "./orchestrationTiming": {
       "types": "./src/orchestrationTiming.ts",
@@ -235,7 +243,7 @@
   "dependencies": {
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
-    "@t3tools/contracts": "workspace:*",
+    "@rune/contracts": "workspace:*",
     "effect": "catalog:",
     "jose": "catalog:",
     "yaml": "catalog:"

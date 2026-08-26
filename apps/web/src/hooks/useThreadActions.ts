@@ -3,10 +3,10 @@ import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
-import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { canSettle, canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
-import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+} from "@rune/client-runtime/environment";
+import { settlePromise, squashAtomCommandFailure } from "@rune/client-runtime/state/runtime";
+import { canSettle, canSnooze, threadWokeAt } from "@rune/client-runtime/state/thread-settled";
+import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@rune/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -171,6 +171,10 @@ export function useThreadActions() {
   const setTemporaryThreadMutation = useAtomCommand(threadEnvironment.setTemporary, {
     reportFailure: false,
   });
+  const snoozeTemporaryDeletionMutation = useAtomCommand(
+    threadEnvironment.snoozeTemporaryDeletion,
+    { reportFailure: false },
+  );
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession);
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
     reportFailure: false,
@@ -713,6 +717,20 @@ export function useThreadActions() {
     [setTemporaryThreadMutation],
   );
 
+  const snoozeTemporaryDeletion = useCallback(
+    async (target: ScopedThreadRef, minutes: number | null) => {
+      const snoozedUntil =
+        minutes === null
+          ? null
+          : (new Date(Date.now() + minutes * 60 * 1000).toISOString() as any);
+      return snoozeTemporaryDeletionMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, snoozedUntil },
+      });
+    },
+    [snoozeTemporaryDeletionMutation],
+  );
+
   return useMemo(
     () => ({
       archiveThread,
@@ -727,6 +745,7 @@ export function useThreadActions() {
       unpinThread,
       reorderPinnedThread,
       keepThread,
+      snoozeTemporaryDeletion,
     }),
     [
       archiveThread,
@@ -736,6 +755,7 @@ export function useThreadActions() {
       pinThread,
       reorderPinnedThread,
       settleThread,
+      snoozeTemporaryDeletion,
       snoozeThread,
       unarchiveThread,
       unpinThread,

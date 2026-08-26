@@ -12,6 +12,12 @@ const SETTINGS_BREADCRUMB_LABELS: Readonly<Record<string, string>> = {
 
 function settingsBreadcrumbLabel(pathname: string): string | null {
   const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
+  // Instance pages (/settings/providers/$instanceId) keep the list section as
+  // their breadcrumb tail; the page header carries the instance name itself.
+  const providerInstanceMatch = /^\/settings\/providers\/.+/.exec(normalizedPathname);
+  if (providerInstanceMatch !== null) {
+    return SETTINGS_BREADCRUMB_LABELS["/settings/providers"] ?? null;
+  }
   return SETTINGS_BREADCRUMB_LABELS[normalizedPathname] ?? null;
 }
 

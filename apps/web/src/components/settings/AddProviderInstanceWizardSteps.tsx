@@ -8,24 +8,41 @@ import {
 } from "./AddProviderInstanceDialog.logic";
 
 interface AddProviderInstanceWizardStepsProps {
+  /** Step labels; defaults to the add-provider wizard's three steps. */
+  readonly steps?: ReadonlyArray<string>;
   readonly currentStep: number;
   readonly summaries: readonly (string | null)[];
   readonly instanceIdError: string | null;
+  /**
+   * Gate applied to header clicks. Defaults to the add-provider wizard's
+   * instance-id validation; wizards with different rules pass their own
+   * resolver (e.g. the Claude service setup).
+   */
+  readonly resolveNavigation?: (requestedStep: number) => WizardNavigation;
   readonly onNavigation: (navigation: WizardNavigation) => void;
 }
 
 export function AddProviderInstanceWizardSteps({
+  steps = ADD_PROVIDER_WIZARD_STEPS,
   currentStep,
   summaries,
   instanceIdError,
+  resolveNavigation,
   onNavigation,
 }: AddProviderInstanceWizardStepsProps) {
+  const navigateFrom = (requestedStep: number): WizardNavigation =>
+    resolveNavigation?.(requestedStep) ??
+    resolveWizardNavigation(currentStep, requestedStep, steps.length, {
+      instanceIdError,
+    });
+
   return (
     <ol
-      className="grid grid-cols-3 gap-1 rounded-xl bg-zinc-25 p-1 ring-1 ring-black/5 dark:bg-white/4 dark:ring-white/5"
+      className="grid gap-1 rounded-xl bg-zinc-25 p-1 ring-1 ring-black/5 dark:bg-white/4 dark:ring-white/5"
       role="list"
+      style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
     >
-      {ADD_PROVIDER_WIZARD_STEPS.map((step, index) => (
+      {steps.map((step, index) => (
         <li key={step} className="min-w-0">
           <button
             type="button"
@@ -36,13 +53,7 @@ export function AddProviderInstanceWizardSteps({
             )}
             aria-current={index === currentStep ? "step" : undefined}
             aria-label={`${step}, step ${index + 1}${index < currentStep && summaries[index] ? `, ${summaries[index]}` : ""}`}
-            onClick={() =>
-              onNavigation(
-                resolveWizardNavigation(currentStep, index, ADD_PROVIDER_WIZARD_STEPS.length, {
-                  instanceIdError,
-                }),
-              )
-            }
+            onClick={() => onNavigation(navigateFrom(index))}
           >
             <span
               className={cn(

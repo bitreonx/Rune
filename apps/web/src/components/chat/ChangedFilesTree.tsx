@@ -1,4 +1,4 @@
-import { type EnvironmentId, type ThreadId, type TurnId } from "@t3tools/contracts";
+import { type EnvironmentId, type ThreadId, type TurnId } from "@rune/contracts";
 import { memo, useCallback, useMemo, useState } from "react";
 import { type TurnDiffFileChange } from "../../types";
 import {
@@ -39,6 +39,8 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   onExpandedChange: (expanded: boolean) => void;
   onToggleAllDirectories: () => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  /** Opens a workspace-relative file in the file explorer when provided. */
+  onOpenFile?: (relativePath: string) => void;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   checkpointTurnCount: number;
@@ -56,6 +58,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
     onExpandedChange,
     onToggleAllDirectories,
     onOpenTurnDiff,
+    onOpenFile,
     environmentId,
     threadId,
     checkpointTurnCount,
@@ -195,6 +198,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
           allDirectoriesExpanded={allDirectoriesExpanded}
           resolvedTheme={resolvedTheme}
           onOpenTurnDiff={onOpenTurnDiff}
+          {...(onOpenFile ? { onOpenFile } : {})}
           environmentId={environmentId}
           threadId={threadId}
           checkpointTurnCount={checkpointTurnCount}
@@ -221,8 +225,14 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
                   render={
                     <button
                       type="button"
+                      data-file-path={file.path}
+                      aria-label={
+                        onOpenFile ? `Open file ${changedFileName(file.path)}` : "Open diff"
+                      }
                       className="inline-flex max-w-48 items-center gap-1 rounded-md border border-border/70 bg-background/45 px-1.5 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => onOpenTurnDiff(turnId, file.path)}
+                      onClick={() =>
+                        onOpenFile ? onOpenFile(file.path) : onOpenTurnDiff(turnId, file.path)
+                      }
                     />
                   }
                 >
@@ -257,6 +267,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   allDirectoriesExpanded: boolean;
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenFile?: (relativePath: string) => void;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   checkpointTurnCount: number;
@@ -267,6 +278,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
     files,
     allDirectoriesExpanded,
     onOpenTurnDiff,
+    onOpenFile,
     resolvedTheme,
     turnId,
     environmentId,
@@ -358,10 +370,16 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
       <div key={`file:${node.path}`}>
         <button
           type="button"
-          aria-expanded={isFileExpanded}
+          data-file-path={onOpenFile ? node.path : undefined}
+          aria-label={onOpenFile ? `Open file ${node.name}` : undefined}
+          aria-expanded={onOpenFile ? undefined : isFileExpanded}
           className="group flex w-full items-center gap-1.5 rounded-xl py-1 pr-3 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           style={{ paddingLeft: `${leftPadding}px` }}
-          onClick={() => onExpandedFilePathChange(isFileExpanded ? null : node.path)}
+          onClick={() =>
+            onOpenFile
+              ? onOpenFile(node.path)
+              : onExpandedFilePathChange(isFileExpanded ? null : node.path)
+          }
         >
           {hasDirectoryNodes || depth > 0 ? (
             <span aria-hidden="true" className="size-3.5 shrink-0" />

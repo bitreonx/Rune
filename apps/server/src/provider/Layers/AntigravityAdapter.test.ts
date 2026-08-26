@@ -16,7 +16,7 @@ import {
   ProviderInstanceId,
   type ProviderRuntimeEvent,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Schema from "effect/Schema";
 
 import { makeAntigravityAdapter } from "./AntigravityAdapter.ts";

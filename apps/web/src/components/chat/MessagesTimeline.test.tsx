@@ -1,5 +1,5 @@
-import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@t3tools/contracts";
-import { codexFeedbackMessage } from "@t3tools/client-runtime/state/threads";
+import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@rune/contracts";
+import { codexFeedbackMessage } from "@rune/client-runtime/state/threads";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
@@ -191,6 +191,7 @@ function buildProps() {
     turnDiffSummaryByTurnId: new Map(),
     routeThreadKey: "environment-local:thread-1",
     onOpenTurnDiff: () => {},
+    onOpenFile: () => {},
     revertTurnCountByUserMessageId: new Map(),
     onEditUserMessage: () => {},
     onDeleteUserMessage: () => {},
@@ -956,16 +957,47 @@ describe("MessagesTimeline", () => {
               createdAt: "2026-03-17T19:12:28.000Z",
               label: "Updated files",
               tone: "tool",
-              changedFiles: ["C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts"],
+              changedFiles: ["C:/Users/mike/dev-stuff/rune/apps/web/src/session-logic.ts"],
             },
           },
         ]}
-        workspaceRoot="C:/Users/mike/dev-stuff/t3code"
+        workspaceRoot="C:/Users/mike/dev-stuff/rune"
       />,
     );
 
     expect(markup).toContain("Changed 1 file");
-    expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
+    expect(markup).not.toContain("C:/Users/mike/dev-stuff/rune/apps/web/src/session-logic.ts");
+  });
+
+  it("renders referenced files as compact explorer links", () => {
+    const filePath =
+      "C:/Users/mike/dev-stuff/rune/apps/web/src/components/settings/ProviderSettingsPanel.tsx";
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        workspaceRoot="C:/Users/mike/dev-stuff/rune"
+        timelineEntries={[
+          {
+            id: "entry-1",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-1",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Read",
+              toolTitle: "Read",
+              tone: "tool",
+              filePaths: [filePath],
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Read");
+    expect(markup).toContain("ProviderSettingsPanel.tsx");
+    expect(markup).toContain(`data-file-path="${filePath}"`);
+    expect(markup).toContain('aria-label="Open file ProviderSettingsPanel.tsx"');
   });
 
   it("keeps mixed-success tool groups neutral", () => {

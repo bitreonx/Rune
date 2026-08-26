@@ -2,7 +2,7 @@ import {
   OrchestrationRpcSchemas,
   RuntimeTaskId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import type { ProviderThreadSnapshot } from "./Services/ProviderAdapter.ts";
 

@@ -5,12 +5,20 @@ import {
   requestOsNotificationPermission,
   resolveOsNotificationPermission,
   type OsNotificationPermission,
-} from "@t3tools/client-runtime/sound/notification-gate";
-import { DEFAULT_SOUND_PREFERENCES, type SoundEventId } from "@t3tools/client-runtime/sound/preferences";
+} from "@rune/client-runtime/sound/notification-gate";
+import { DEFAULT_SOUND_PREFERENCES, type SoundEventId } from "@rune/client-runtime/sound/preferences";
+import { SOUND_VARIANTS } from "@rune/client-runtime/sound/engine";
 
 import { playSoundEffect } from "~/sound/playback";
 import { useSoundPreferencesStore } from "~/sound/soundPreferencesStore";
 import { Button } from "../ui/button";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Switch } from "../ui/switch";
 import {
   SettingResetButton,
@@ -22,35 +30,55 @@ import { searchableSetting, type SettingsSearchItemId } from "./settingsSearch";
 
 const DEFAULT_VOLUME_PERCENT = Math.round(DEFAULT_SOUND_PREFERENCES.volume * 100);
 
+// One row may drive several event ids: the switch pair shares a preference,
+// so "Switches" reads and writes both directions at once.
 const SOUND_EVENT_ROWS: ReadonlyArray<{
-  readonly event: SoundEventId;
+  readonly events: readonly SoundEventId[];
   readonly searchId: SettingsSearchItemId;
   readonly title: string;
   readonly description: string;
 }> = [
   {
-    event: "done",
+    events: ["done"],
     searchId: "sound-done",
     title: "Agent finished",
-    description: "Plays when a turn completes.",
+    description: "A rising chime when a turn completes.",
   },
   {
-    event: "needs-input",
+    events: ["needs-input"],
     searchId: "sound-needs-input",
     title: "Agent needs input",
-    description: "Plays when an agent blocks on your answer or approval.",
+    description: "Two pops when an agent blocks on your answer or approval.",
   },
   {
-    event: "error",
+    events: ["error"],
     searchId: "sound-error",
     title: "Agent error",
-    description: "Plays when a session fails.",
+    description: "A low fall when a session fails.",
   },
   {
-    event: "click",
+    events: ["click"],
     searchId: "sound-button-clicks",
     title: "Button clicks",
     description: "A quiet tick on every button press.",
+  },
+  {
+    events: ["switch-on", "switch-off"],
+    searchId: "sound-switches",
+    title: "Switches",
+    description: "Ticks up when a toggle turns on, down when it turns off.",
+  },
+  {
+    events: ["copy"],
+    searchId: "sound-copy",
+    title: "Copy to clipboard",
+    description: "A short blip on a confirmed copy.",
+  },
+  {
+    events: ["sent"],
+    searchId: "sound-sent",
+    title: "Message sent",
+    description: "A soft whoosh when your message goes out.",
   },
 ];
 
@@ -64,6 +92,59 @@ function EventPreviewButton({ event, label }: { readonly event: SoundEventId; re
     >
       <PlayIcon />
     </Button>
+  );
+}
+
+/**
+ * Flavor picker for an event row. Reads and writes the row's primary event;
+ * the caller passes every event the row drives so shared rows (the switch
+ * pair) change together. Picking a flavor plays it — hearing the choice is
+ * the point of making one.
+ */
+function EventVariantSelect({
+  eventIds,
+  disabled,
+  label,
+}: {
+  readonly eventIds: readonly SoundEventId[];
+  readonly disabled: boolean;
+  readonly label: string;
+}) {
+  const primaryEvent = eventIds[0];
+  if (!primaryEvent) return null;
+  const storedId = useSoundPreferencesStore((state) => state.variants[primaryEvent]);
+  const setEventVariant = useSoundPreferencesStore((state) => state.setEventVariant);
+  const variants = SOUND_VARIANTS[primaryEvent] ?? [];
+  const defaultVariantId = variants[0]?.id ?? "";
+  const selectedVariantId =
+    variants.find((variant: { id: string }) => variant.id === storedId)?.id ??
+    defaultVariantId;
+
+  return (
+    <Select
+      value={selectedVariantId}
+      onValueChange={(value) => {
+        const id = String(value);
+        for (const eventId of eventIds) setEventVariant(eventId, id);
+        playSoundEffect(primaryEvent, { audition: true });
+      }}
+    >
+      <SelectTrigger
+        aria-label={`${label} sound style`}
+        className="w-28"
+        disabled={disabled}
+        size="compact"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectPopup>
+        {variants.map((variant: { id: string; label: string }) => (
+          <SelectItem key={variant.id} value={variant.id}>
+            {variant.label}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
   );
 }
 
@@ -157,24 +238,32 @@ export function SoundSettingsPanel() {
           }
         />
 
-        {SOUND_EVENT_ROWS.map(({ description, event, searchId, title }) => (
-          <SettingsRow
-            key={event}
-            {...searchableSetting(searchId)}
-            description={description}
-            control={
-              <div className="flex items-center gap-2">
-                <EventPreviewButton event={event} label={title} />
-                <Switch
-                  checked={events[event]}
-                  disabled={!enabled}
-                  onCheckedChange={(checked) => setEventEnabled(event, Boolean(checked))}
-                  aria-label={title}
-                />
-              </div>
-            }
-          />
-        ))}
+        {SOUND_EVENT_ROWS.map(({ description, events: eventIds, searchId, title }) => {
+          const primaryEvent = eventIds[0];
+          // Row configs always name at least one event; the guard is for the type.
+          if (primaryEvent === undefined) return null;
+          return (
+            <SettingsRow
+              key={searchId}
+              {...searchableSetting(searchId)}
+              description={description}
+              control={
+                <div className="flex items-center gap-2">
+                  <EventPreviewButton event={primaryEvent} label={title} />
+                  <EventVariantSelect eventIds={eventIds} disabled={!enabled} label={title} />
+                  <Switch
+                    checked={events[primaryEvent]}
+                    disabled={!enabled}
+                    onCheckedChange={(checked) => {
+                      for (const eventId of eventIds) setEventEnabled(eventId, Boolean(checked));
+                    }}
+                    aria-label={title}
+                  />
+                </div>
+              }
+            />
+          );
+        })}
       </SettingsSection>
 
       <SettingsSection title="Notifications">

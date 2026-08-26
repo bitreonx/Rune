@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { ORPHANED_PROVIDER_SESSION_ERROR } from "@t3tools/contracts";
+import { ORPHANED_PROVIDER_SESSION_ERROR } from "@rune/contracts";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, XIcon } from "lucide-react";

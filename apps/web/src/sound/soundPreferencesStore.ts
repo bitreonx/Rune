@@ -4,16 +4,18 @@ import {
   sanitizeSoundPreferences,
   type SoundEventId,
   type SoundPreferences,
-} from "@t3tools/client-runtime/sound/preferences";
+} from "@rune/client-runtime/sound/preferences";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-const SOUND_PREFERENCES_STORAGE_KEY = "t3code:sound-preferences:v1";
+const SOUND_PREFERENCES_STORAGE_KEY = "rune:sound-preferences:v1";
 
 export interface SoundPreferencesStoreState extends SoundPreferences {
   setEnabled: (enabled: boolean) => void;
   setVolume: (volume: number) => void;
   setEventEnabled: (event: SoundEventId, enabled: boolean) => void;
+  /** Picks a flavor for an event; an undefined id restores the default. */
+  setEventVariant: (event: SoundEventId, variantId: string | undefined) => void;
   setNotifications: (notifications: boolean) => void;
 }
 
@@ -30,6 +32,13 @@ export const useSoundPreferencesStore = create<SoundPreferencesStoreState>()(
       setVolume: (volume) => set({ volume: clampVolume(volume) }),
       setEventEnabled: (event, enabled) =>
         set((state) => ({ events: { ...state.events, [event]: enabled } })),
+      setEventVariant: (event, variantId) =>
+        set((state) => {
+          const variants = { ...state.variants };
+          if (variantId === undefined) delete variants[event];
+          else variants[event] = variantId;
+          return { variants };
+        }),
       setNotifications: (notifications) => set({ notifications }),
     }),
     {

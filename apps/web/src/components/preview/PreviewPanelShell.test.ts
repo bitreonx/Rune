@@ -2,7 +2,36 @@ import { jsx } from "react/jsx-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { getPreviewPanelMaxWidth, PreviewPanelShell } from "./PreviewPanelShell";
+import {
+  getPanelMeasureTarget,
+  getPreviewPanelMaxWidth,
+  PreviewPanelShell,
+} from "./PreviewPanelShell";
+
+function fakeElement(parentElement: object | null, closestResult: object | null = null) {
+  return {
+    parentElement,
+    closest: () => closestResult,
+  } as unknown as HTMLElement;
+}
+
+describe("getPanelMeasureTarget", () => {
+  it("measures the flex row around the right-panel host", () => {
+    const row = fakeElement(null);
+    const rightPanelHost = fakeElement(row);
+    const shellParent = fakeElement(rightPanelHost, rightPanelHost);
+    const shell = fakeElement(shellParent, rightPanelHost);
+
+    expect(getPanelMeasureTarget(shell)).toBe(row);
+  });
+
+  it("falls back to the direct parent for standalone inline panels", () => {
+    const row = fakeElement(null);
+    const shell = fakeElement(row);
+
+    expect(getPanelMeasureTarget(shell)).toBe(row);
+  });
+});
 
 describe("getPreviewPanelMaxWidth", () => {
   it("allows the panel to use 70% of an ultra-wide viewport without a pixel ceiling", () => {

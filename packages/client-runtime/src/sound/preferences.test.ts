@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { DEFAULT_SOUND_PREFERENCES, sanitizeSoundPreferences } from "./preferences.ts";
+import {
+  DEFAULT_SOUND_PREFERENCES,
+  sanitizeSoundPreferences,
+  volumeCurve,
+} from "./preferences.ts";
 
 describe("sanitizeSoundPreferences", () => {
   it("falls back to defaults for missing or non-object storage", () => {
@@ -10,19 +14,31 @@ describe("sanitizeSoundPreferences", () => {
   });
 
   it("keeps valid values and clamps stray ones", () => {
+    // Expressed against the defaults so adding an event id later is a
+    // one-file change, not an update to every fixture here.
+    const events = { ...DEFAULT_SOUND_PREFERENCES.events, "needs-input": false };
     expect(
       sanitizeSoundPreferences({
         enabled: false,
         volume: 1.4,
-        events: { done: true, "needs-input": false, error: true, click: true },
+        events,
+        variants: { done: "bells", sent: "pluck" },
         notifications: false,
       }),
     ).toEqual({
       enabled: false,
       volume: 1,
-      events: { done: true, "needs-input": false, error: true, click: true },
+      events,
+      variants: { done: "bells", sent: "pluck" },
       notifications: false,
     });
+  });
+
+  it("drops mistyped variant choices instead of trusting stored JSON", () => {
+    expect(
+      sanitizeSoundPreferences({ variants: { done: 7, error: "thud", click: null } }).variants,
+    ).toEqual({ error: "thud" });
+    expect(sanitizeSoundPreferences({ variants: "loud" }).variants).toEqual({});
   });
 
   it("fills gaps so newly-added events default on", () => {
@@ -42,5 +58,22 @@ describe("sanitizeSoundPreferences", () => {
         notifications: 1,
       }),
     ).toEqual(DEFAULT_SOUND_PREFERENCES);
+  });
+});
+
+describe("volumeCurve", () => {
+  it("keeps the endpoints exact and clamps strays", () => {
+    expect(volumeCurve(0)).toBe(0);
+    expect(volumeCurve(1)).toBe(1);
+    expect(volumeCurve(-0.5)).toBe(0);
+    expect(volumeCurve(1.5)).toBe(1);
+    expect(volumeCurve(Number.NaN)).toBe(DEFAULT_SOUND_PREFERENCES.volume ** 2);
+  });
+
+  it("spreads loudness so mid slider positions feel like half", () => {
+    // Squaring: half the slider is a quarter of the amplitude, which the ear
+    // reads as roughly half as loud.
+    expect(volumeCurve(0.5)).toBeCloseTo(0.25);
+    expect(volumeCurve(0.75)).toBeGreaterThan(volumeCurve(0.5));
   });
 });

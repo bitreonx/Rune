@@ -9,9 +9,9 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@rune/contracts";
 
-import { formatProviderSkillDisplayName } from "@t3tools/client-runtime/providerSkills";
+import { formatProviderSkillDisplayName } from "@rune/client-runtime/providerSkills";
 
 import { cn } from "../../lib/utils";
 import { setPendingRuneSkill } from "../../runeSkillHandoff";

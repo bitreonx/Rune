@@ -6,7 +6,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import { canonicalizeClientCommandTimestamps } from "./Normalizer.ts";
 

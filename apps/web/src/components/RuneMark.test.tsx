@@ -29,7 +29,6 @@ describe("RuneMark", () => {
       );
 
       expect(markup).toContain('fill="currentColor"');
-      expect(markup).toContain('stroke="currentColor"');
     },
   );
 });

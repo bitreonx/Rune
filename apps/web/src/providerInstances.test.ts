@@ -1,4 +1,4 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   applyProviderInstanceSettings,
@@ -10,6 +10,7 @@ import {
   resolveDefaultProviderModelSelection,
   resolveSelectableProviderInstance,
   resolveProviderDriverKindForInstanceSelection,
+  withIsolatedProviderInstanceConfig,
 } from "./providerInstances";
 
 function provider(input: {
@@ -46,6 +47,41 @@ const model = (slug: string, isCustom = false, isDefault = false) => ({
   isCustom,
   ...(isDefault ? { isDefault: true } : {}),
   capabilities: {},
+});
+
+describe("withIsolatedProviderInstanceConfig", () => {
+  it("gives each custom Codex instance a separate auth home", () => {
+    const config = withIsolatedProviderInstanceConfig(
+      ProviderDriverKind.make("codex"),
+      ProviderInstanceId.make("codex_work"),
+      { launchArgs: "--enable foo" },
+    );
+
+    expect(config).toEqual({
+      launchArgs: "--enable foo",
+      shadowHomePath: "~/.codex-rune/instances/codex_work",
+    });
+  });
+
+  it("does not add Codex-only settings to other provider instances", () => {
+    const config = withIsolatedProviderInstanceConfig(
+      ProviderDriverKind.make("claudeAgent"),
+      ProviderInstanceId.make("claude_work"),
+      { binaryPath: "claude" },
+    );
+
+    expect(config).toEqual({ binaryPath: "claude" });
+  });
+
+  it("preserves an explicitly configured Codex auth home", () => {
+    const config = withIsolatedProviderInstanceConfig(
+      ProviderDriverKind.make("codex"),
+      ProviderInstanceId.make("codex_work"),
+      { shadowHomePath: "D:/accounts/work" },
+    );
+
+    expect(config.shadowHomePath).toBe("D:/accounts/work");
+  });
 });
 
 describe("isProviderInstancePickerReady", () => {

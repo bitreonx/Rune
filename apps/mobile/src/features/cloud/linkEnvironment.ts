@@ -9,8 +9,8 @@ import {
   EnvironmentHttpForbiddenError,
   EnvironmentHttpInternalServerError,
   EnvironmentHttpUnauthorizedError,
-} from "@t3tools/contracts";
-import { stripPairingTokenFromUrl } from "@t3tools/shared/remote";
+} from "@rune/contracts";
+import { stripPairingTokenFromUrl } from "@rune/shared/remote";
 import {
   type RelayEnvironmentConnectResponse as RelayEnvironmentConnectResponseType,
   type RelayEnvironmentLinkResponse as RelayEnvironmentLinkResponseType,
@@ -21,12 +21,12 @@ import {
   type RelayClientEnvironmentRecord,
   type RelayEnvironmentStatusResponse as RelayEnvironmentStatusResponseType,
   type RelayManagedEndpointProviderKind,
-} from "@t3tools/contracts/relay";
-import { exchangeRemoteDpopAccessToken } from "@t3tools/client-runtime/authorization";
-import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
-import { findErrorTraceId } from "@t3tools/client-runtime/errors";
-import { ManagedRelay } from "@t3tools/client-runtime/relay";
-import { makeEnvironmentHttpApiClient } from "@t3tools/client-runtime/rpc";
+} from "@rune/contracts/relay";
+import { exchangeRemoteDpopAccessToken } from "@rune/client-runtime/authorization";
+import { fetchRemoteEnvironmentDescriptor } from "@rune/client-runtime/environment";
+import { findErrorTraceId } from "@rune/client-runtime/errors";
+import { ManagedRelay } from "@rune/client-runtime/relay";
+import { makeEnvironmentHttpApiClient } from "@rune/client-runtime/rpc";
 
 import { authClientMetadata } from "../../lib/authClientMetadata";
 import type { SavedRemoteConnection } from "../../lib/connection";

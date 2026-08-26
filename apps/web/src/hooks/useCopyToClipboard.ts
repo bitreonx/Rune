@@ -1,6 +1,8 @@
 import * as React from "react";
 import * as Schema from "effect/Schema";
 
+import { playSoundEffect } from "~/sound/playback";
+
 export class ClipboardApiUnavailableError extends Schema.TaggedErrorClass<ClipboardApiUnavailableError>()(
   "ClipboardApiUnavailableError",
   {
@@ -62,6 +64,8 @@ export async function writeTextToClipboard(value: string, target = "text") {
 
   try {
     await navigator.clipboard.writeText(value);
+    // Confirmed copy, not attempted: a failed write must not celebrate.
+    playSoundEffect("copy");
     return true;
   } catch (cause) {
     throw new ClipboardWriteError({

@@ -8,7 +8,7 @@ import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
 
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS } from "@rune/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -108,7 +108,7 @@ export class DesktopWindow extends Context.Service<
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
   }
->()("@t3tools/desktop/window/DesktopWindow") {}
+>()("@rune/desktop/window/DesktopWindow") {}
 
 const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
   makeComponentLogger("desktop-window");
@@ -172,11 +172,32 @@ export function resolveInitialMainWindowBounds(
 // mode while the WSL backend (which serves the renderer) cold-boots. Inlined as
 // a data URL so it needs no bundled asset and no backend — pure CSS, no JS.
 function buildStartupSplashDataUrl(shouldUseDarkColors: boolean): string {
-  const background = getInitialWindowBackgroundColor(shouldUseDarkColors);
-  const label = shouldUseDarkColors ? "#9ca3af" : "#6b7280";
-  const accent = shouldUseDarkColors ? "#f8fafc" : "#1f2937";
-  const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.mark{font-size:22px;letter-spacing:.22em;font-weight:700;color:${accent}}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="mark">RUNE</div><div class="spinner"></div><div class="label">Starting RUNE…</div></body></html>`;
+  const theme = shouldUseDarkColors ? "dark" : "light";
+  const markPath =
+    "M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373Z" +
+    "M629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370Z" +
+    "M259 373L439 491L438 983L258 858Z" +
+    "M758 511L541 511L541 1050L627 1108L858 952L544 736Z";
+  const facets = [
+    ["628,156 997,370", "41.3", "-79.9", "4", "750.9px 382.2px", "0"],
+    ["997,370 997,858", "90", "-1.6", "-4", "873.9px 616.2px", "60"],
+    ["997,858 627,1108", "40.8", "80.2", "4", "750.6px 862.2px", "120"],
+    ["627,1108 258,858", "-40.9", "80.1", "-4", "504.2px 862.2px", "180"],
+    ["258,858 259,373", "-90", "-1.2", "4", "381.6px 617.2px", "240"],
+    ["259,373 628,156", "-41.4", "-79.9", "-4", "504.9px 383.2px", "300"],
+  ] as const;
+  const facetMarkup = facets
+    .map(
+      ([clip, dx, dy, tilt, origin, stagger], index) =>
+        `<g class="facet" clip-path="url(#facet-${index})" style="--dx:${dx}px;--dy:${dy}px;--tilt:${tilt}deg;--stagger:${stagger}ms;transform-origin:${origin}"><path d="${markPath}" fill="url(#mark-gradient)" fill-rule="evenodd"/></g>`,
+    )
+    .join("");
+  const clipMarkup = facets
+    .map(([clip], index) => `<clipPath id="facet-${index}"><polygon points="627.67,620.5 ${clip}"/></clipPath>`)
+    .join("");
+  const html = `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
+    :root{color-scheme:dark}html.light{color-scheme:light}html,body{width:100%;height:100%;margin:0;overflow:hidden}body{box-sizing:border-box;padding:1px;background:radial-gradient(circle at 20% 12%,rgba(139,92,246,.18),transparent 48%),#020204;color:rgba(255,255,255,.86);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:grid;place-items:center;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.panel{position:relative;box-sizing:border-box;width:100%;height:100%;overflow:hidden;border:1px solid rgba(255,255,255,.08);border-radius:20px;background:rgba(20,20,24,.55);backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);display:flex;flex-direction:column;align-items:center}.panel:before{content:"";position:absolute;inset:0 20px auto;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);pointer-events:none}.close{position:absolute;z-index:2;top:9px;right:9px;width:32px;height:32px;border:0;border-radius:50%;padding:0;background:transparent;color:rgba(255,255,255,.5);font:400 14px/32px system-ui,sans-serif;text-align:center;cursor:pointer;-webkit-app-region:no-drag;transition:color 120ms ease,background 120ms ease}.close:hover{color:rgba(255,255,255,.9);background:rgba(255,255,255,.1);backdrop-filter:blur(8px)}.close:active{color:rgba(255,255,255,.7)}.close:focus-visible{outline:1px solid rgba(255,255,255,.7);outline-offset:2px}.mark-wrap{width:72px;height:72px;margin-top:70px;position:relative}.mark-wrap:after{content:"";position:absolute;inset:10px;border:1px solid rgba(216,197,255,.6);border-radius:50%;opacity:0;transform:scale(.8);animation:link-flash .5s ease-out 1.15s forwards}.mark{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 10px rgba(139,92,246,.18));animation:breathe 3s ease-in-out 1.65s infinite}.facet{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.6) rotate(var(--tilt));transform-box:fill-box;animation:facet-in 1.25s cubic-bezier(.34,1.56,.64,1) var(--stagger) forwards}.wordmark{margin-top:16px;font-size:11px;line-height:1;font-weight:600;letter-spacing:.24em;color:rgba(255,255,255,.78);opacity:0;animation:fade-up .45s ease-out 1.45s forwards}.status{margin-top:10px;font-size:13px;line-height:1;color:rgba(255,255,255,.62);opacity:0;animation:status-in 1.4s ease-in-out 1.45s infinite alternate}.light body{background:radial-gradient(circle at 20% 12%,rgba(139,92,246,.18),transparent 48%),#e7e7eb;color:rgba(0,0,0,.78)}.light .panel{border-color:rgba(0,0,0,.08);background:rgba(255,255,255,.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}.light .panel:before{background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent)}.light .close{color:rgba(0,0,0,.5)}.light .close:hover{color:rgba(0,0,0,.85);background:rgba(0,0,0,.07)}.light .wordmark{color:rgba(0,0,0,.55)}.light .status{color:rgba(0,0,0,.5)}@keyframes facet-in{0%,20%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.6) rotate(var(--tilt))}42%{opacity:1}76%{transform:translate(0,0) scale(1.02) rotate(0)}100%{opacity:1;transform:translate(0,0) scale(1) rotate(0)}}@keyframes link-flash{0%{opacity:.6;transform:scale(.8)}100%{opacity:0;transform:scale(1.4)}}@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}@keyframes fade-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@keyframes status-in{from{opacity:.4}to{opacity:.85}}@media(prefers-reduced-motion:reduce){.facet,.mark-wrap:after,.wordmark,.status,.mark{animation:none}.facet{opacity:1;transform:none}.wordmark,.status{opacity:1}}
+  </style></head><body><main class="panel"><button class="close" type="button" aria-label="Close splash" onclick="window.runeSplash.dismiss()">&#x2715;</button><div class="mark-wrap"><svg class="mark" aria-hidden="true" viewBox="0 0 1254 1254"><defs><linearGradient id="mark-gradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#A78BFA"/><stop offset="100%" stop-color="#7C3AED"/></linearGradient>${clipMarkup}</defs>${facetMarkup}</svg></div><div class="wordmark">RUNE</div><div class="status">Starting RUNE…</div></main></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -797,7 +818,7 @@ export const make = Effect.gen(function* () {
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     const splash = yield* electronWindow.create({
       width: 360,
-      height: 220,
+      height: 280,
       resizable: false,
       minimizable: false,
       maximizable: false,
@@ -806,9 +827,11 @@ export const make = Effect.gen(function* () {
       center: true,
       show: false,
       skipTaskbar: false,
-      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      transparent: true,
+      backgroundColor: "#00000000",
       title: environment.displayName,
       webPreferences: {
+        preload: environment.path.join(environment.dirname, "startupSplash.preload.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,

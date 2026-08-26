@@ -11,17 +11,17 @@ import type {
   ServerProvider,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import {
   isProviderSendTurnSupportedImageMimeType,
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-} from "@t3tools/contracts";
-import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+} from "@rune/contracts";
+import type { EnvironmentConnectionPresentation } from "@rune/client-runtime/connection";
+import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
+import { createModelSelection, normalizeModelSlug } from "@rune/shared/model";
 import {
   memo,
   type ReactNode,
@@ -48,6 +48,12 @@ import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
 import { consumePendingRuneSkill } from "../../runeSkillHandoff";
 import { runePanelTransitionClass, useRunePanelMotionState } from "../../runePanelMotion";
 import { deriveComposerSendState, readFileAsDataUrl } from "../ChatView.logic";
+import {
+  TASKS_DRAWER_MOTION_MS,
+  TASKS_TAB_MOTION_MS,
+  resolveTasksDismissalCommit,
+  resolveTasksTabOpen,
+} from "./chatTasksMotion";
 import {
   dataTransferHasComposerMention,
   makeComposerMentionDragHandlers,
@@ -76,6 +82,11 @@ import {
   type ComposerTasksProgress,
 } from "./ComposerTasksBadge";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
+import {
+  classifyPickedAttachment,
+  deriveFolderPathFromPickedFiles,
+  resolvePickedFileAbsolutePath,
+} from "../../lib/attachmentPick";
 import {
   releaseAttachmentUpload,
   retryAttachmentUpload,
@@ -137,6 +148,8 @@ import {
 } from "./composerSubmission";
 import { ComposerPromptLengthValidation } from "./ComposerPromptLengthValidation";
 import { ComposerContextTray } from "./ComposerContextTray";
+import { ComposerPromptQueue } from "./ComposerPromptQueue";
+import type { PromptQueueThreadState } from "@rune/client-runtime/state/promptQueue";
 
 type ComposerCommandMenuPosition = {
   bottom: number;
@@ -235,24 +248,31 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
   );
 }
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
+  FolderOpenIcon,
   GhostIcon,
   PencilRulerIcon,
   type LucideIcon,
   LockIcon,
   LockOpenIcon,
+  PaperclipIcon,
   PenLineIcon,
   RotateCcwIcon,
   SparklesIcon,
   XIcon,
 } from "lucide-react";
+import { isElectron } from "../../env";
 import { proposedPlanTitle } from "../../proposedPlan";
-import { getProviderInteractionModeToggle } from "../../providerModels";
+import {
+  getProviderInteractionModeToggle,
+  getProviderModelMediaSupport,
+} from "../../providerModels";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -263,7 +283,8 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { type AppModelOption, getAppModelOptionsForInstance } from "../../modelSelection";
-import type { UnifiedSettings } from "@t3tools/contracts/settings";
+import { openClaudeServiceSetup } from "../../claudeServiceSetupBus";
+import type { UnifiedSettings } from "@rune/contracts/settings";
 import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
@@ -272,7 +293,7 @@ import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
-} from "@t3tools/client-runtime/providerSkills";
+} from "@rune/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
@@ -648,6 +669,11 @@ export interface ChatComposerProps {
 
   // Context window
   activeThreadActivities: Thread["activities"] | undefined;
+  queueState?: PromptQueueThreadState;
+  onEditQueuedPrompt?: (itemId: string, text: string) => void;
+  onRemoveQueuedPrompt?: (itemId: string) => void;
+  onMoveQueuedPrompt?: (itemId: string, direction: -1 | 1) => void;
+  onSteerQueuedPrompt?: (itemId: string) => void;
 
   // Misc
   resolvedTheme: "light" | "dark";
@@ -740,6 +766,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
     activeThreadActivities,
+    queueState,
+    onEditQueuedPrompt,
+    onRemoveQueuedPrompt,
+    onMoveQueuedPrompt,
+    onSteerQueuedPrompt,
     resolvedTheme,
     settings,
     keybindings,
@@ -985,6 +1016,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedProviderEntry],
   );
 
+  // Which input media the selected model accepts natively. Gates the attach
+  // menu: ingestible images upload, everything else falls back to path
+  // references so the agent reads it from disk.
+  const selectedModelMediaSupport = useMemo(
+    () => getProviderModelMediaSupport(selectedProviderModels, selectedModel, selectedProvider),
+    [selectedProviderModels, selectedModel, selectedProvider],
+  );
+  const attachCapabilitySummary = useMemo(() => {
+    const slug = normalizeModelSlug(selectedModel, selectedProvider) ?? selectedModel;
+    const modelName =
+      selectedProviderModels.find((candidate) => candidate.slug === slug)?.name ?? slug;
+    return {
+      modelName,
+      line: selectedModelMediaSupport.image
+        ? "Images up to 10 MB upload; audio, video & folders share as paths"
+        : "This model has no image input; images share as paths too",
+    };
+  }, [selectedModelMediaSupport.image, selectedModel, selectedProvider, selectedProviderModels]);
+
   const composerPromptInjectionState = useMemo(
     () => getComposerPromptInjectionState(prompt),
     [prompt],
@@ -1089,9 +1139,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const tasksDrawerMotionState = useRunePanelMotionState({
     open: isTasksDrawerOpen,
     reducedMotion: prefersReducedMotion,
+    motionMs: TASKS_DRAWER_MOTION_MS,
   });
   const tasksDrawerMounted = tasksDrawerMotionState !== "closed";
   const [dismissedTasksTurnId, setDismissedTasksTurnId] = useState<TurnId | null>(null);
+  const [pendingTasksDismissalTurnId, setPendingTasksDismissalTurnId] =
+    useState<TurnId | null>(null);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
     active: false,
@@ -1109,6 +1162,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const providerInputRejectedRef = useRef(false);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
+  const attachFilesInputRef = useRef<HTMLInputElement>(null);
+  const attachFolderInputRef = useRef<HTMLInputElement>(null);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
   const composerBlurFrameRef = useRef<number | null>(null);
@@ -2490,10 +2545,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const visibleTaskSteps = tasksDismissedForActiveTurn ? null : activeTaskSteps;
   const hasBlockingComposerTopDrawer =
     activePendingApproval !== null || pendingUserInputs.length > 0;
+  const tasksTabOpen = resolveTasksTabOpen({
+    blockingDrawer: hasBlockingComposerTopDrawer,
+    dismissalPending: pendingTasksDismissalTurnId !== null,
+    drawerOpen: isTasksDrawerOpen,
+    hasTasks:
+      visibleTasksProgress !== null &&
+      visibleTaskSteps !== null &&
+      visibleTasksProgress.totalSteps > 0,
+  });
+  const tasksTabMotionState = useRunePanelMotionState({
+    open: tasksTabOpen,
+    reducedMotion: prefersReducedMotion,
+    motionMs: TASKS_TAB_MOTION_MS,
+  });
+  const tasksTabMounted = tasksTabMotionState !== "closed";
+  // Dismissal defers until the exit motion settles so the drawer and tab
+  // animate out instead of popping; the commit then hides the turn's tasks.
   const dismissTasks = useCallback(() => {
-    if (activeTasksTurnId !== null) {
-      setDismissedTasksTurnId(activeTasksTurnId);
-    }
+    setPendingTasksDismissalTurnId(activeTasksTurnId);
     setIsTasksDrawerOpen(false);
   }, [activeTasksTurnId]);
   const showInlineStashBadge =
@@ -2513,15 +2583,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onToggleMenu={toggleInlineStashMenu}
     />
   ) : null;
+  // The tab rides its motion state out (`tasksTabMounted`) so expanding the
+  // drawer shrinks the tab into the seam instead of popping it away.
   const showInlineTasksBadge =
     visibleTasksProgress !== null &&
     visibleTaskSteps !== null &&
-    !isTasksDrawerOpen &&
+    tasksTabMounted &&
     !hasBlockingComposerTopDrawer &&
     (props.externalDrawerAttached || showComposerTopDrawer || isComposerCollapsedMobile);
   const inlineTasksBadge = showInlineTasksBadge ? (
     <ComposerTasksBadge
       expanded={false}
+      motionState={tasksTabMotionState}
       onDismiss={dismissTasks}
       onToggle={toggleTasksDrawer}
       placement="inline"
@@ -2533,6 +2606,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     !props.externalDrawerAttached &&
     !showComposerTopDrawer &&
     !isTasksDrawerOpen &&
+    !isComposerCollapsedMobile;
+  // Placement conditions for the tasks shoulder tab specifically: unlike the
+  // shared shoulder flags above, it stays mounted while its exit motion plays.
+  const showTasksShoulderTab =
+    tasksTabMounted &&
+    !props.externalDrawerAttached &&
+    !showComposerTopDrawer &&
     !isComposerCollapsedMobile;
   const hasShoulderTab =
     showShoulderTabs &&
@@ -2555,6 +2635,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     setIsTasksDrawerOpen(false);
   }, [activeThreadId]);
+
+  useEffect(() => {
+    if (pendingTasksDismissalTurnId === null) return;
+    const verdict = resolveTasksDismissalCommit({
+      activeTurnId: activeTasksTurnId,
+      drawerMotionState: tasksDrawerMotionState,
+      drawerOpen: isTasksDrawerOpen,
+      pendingTurnId: pendingTasksDismissalTurnId,
+      tabMotionState: tasksTabMotionState,
+    });
+    if (verdict === "wait") return;
+    setPendingTasksDismissalTurnId(null);
+    if (verdict === "commit") {
+      setDismissedTasksTurnId(pendingTasksDismissalTurnId);
+    }
+  }, [
+    activeTasksTurnId,
+    isTasksDrawerOpen,
+    pendingTasksDismissalTurnId,
+    tasksDrawerMotionState,
+    tasksTabMotionState,
+  ]);
 
   // Close the stash menu whenever the trigger-driven command menu opens so
   // the two popovers never stack in the same layer, and when the user
@@ -2702,6 +2804,107 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const removeComposerImage = (imageId: string) => {
     removeComposerImageFromDraft(imageId);
+  };
+
+  // ------------------------------------------------------------------
+  // Callbacks: attach menu (files / folders)
+  // ------------------------------------------------------------------
+  const insertPathReferenceToken = (path: string) => {
+    insertComposerTextAtEnd(serializeComposerFileLink(path), { ensureLeadingBoundary: true });
+  };
+
+  const handlePickedAttachmentFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    const uploadableImages: File[] = [];
+    const sharedAsPathNames: string[] = [];
+    const blockedNames: string[] = [];
+
+    for (const file of files) {
+      if (
+        supportsAttachmentUploads &&
+        selectedModelMediaSupport.image &&
+        isProviderSendTurnSupportedImageMimeType(file.type)
+      ) {
+        uploadableImages.push(file);
+        continue;
+      }
+      const absolutePath = resolvePickedFileAbsolutePath(file);
+      const route = classifyPickedAttachment({
+        mimeType: file.type,
+        sizeBytes: file.size,
+        absolutePath,
+        modelSupport: selectedModelMediaSupport,
+        supportsUploads: supportsAttachmentUploads,
+      });
+      if (route.kind === "blocked") {
+        blockedNames.push(file.name);
+        continue;
+      }
+      // The classifier only emits path-reference when a path was resolvable.
+      if (route.kind !== "path-reference" || !absolutePath) continue;
+      insertPathReferenceToken(absolutePath);
+      if (!file.type.startsWith("image/")) {
+        sharedAsPathNames.push(file.name);
+      }
+    }
+
+    if (uploadableImages.length > 0) {
+      addComposerImages(uploadableImages);
+    }
+    if (sharedAsPathNames.length > 0) {
+      toastManager.add({
+        type: "info",
+        title: `${attachCapabilitySummary.modelName} can't receive these as uploads.`,
+        description:
+          "The agent will read them from disk via their paths instead of native attachments.",
+      });
+    }
+    if (blockedNames.length > 0) {
+      toastManager.add({
+        type: "error",
+        title: `Could not attach ${blockedNames.join(", ")}.`,
+        description: isElectron
+          ? "The desktop build could not resolve this file's path."
+          : "Web builds can't reach files outside the project. Use the desktop app or @-mention workspace paths.",
+      });
+    }
+  };
+
+  const handlePickedAttachmentFolder = (files: File[]) => {
+    const firstFile = files[0];
+    if (!firstFile) return;
+    const absolutePath = resolvePickedFileAbsolutePath(firstFile) ?? "";
+    const folderPath = deriveFolderPathFromPickedFiles([absolutePath]);
+    if (folderPath) {
+      insertPathReferenceToken(folderPath);
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Could not determine the folder path.",
+      description: isElectron
+        ? "The desktop build could not resolve this folder's location."
+        : "Web builds can't reach local folders. Use @-mention workspace paths instead.",
+    });
+  };
+
+  const onAttachFilesInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    handlePickedAttachmentFiles(files);
+  };
+
+  const onAttachFolderInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    handlePickedAttachmentFolder(files);
+  };
+
+  // Browsers hide absolute paths from web pages, so web picks can't produce a
+  // filesystem path. Opening the "@" trigger re-runs trigger detection, which
+  // surfaces the existing workspace path browser as the web fallback.
+  const openWorkspaceFolderBrowser = () => {
+    insertComposerTextAtEnd("@", { ensureLeadingBoundary: true });
   };
 
   // ------------------------------------------------------------------
@@ -2991,7 +3194,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onDragOverCapture={composerMentionDragHandlers.onDragOver}
       onDragLeaveCapture={onComposerMentionDragLeaveCapture}
       onDropCapture={composerMentionDragHandlers.onDrop}
-      className={cn("mx-auto w-full min-w-0 max-w-3xl", hasShoulderTab && "pt-7")}
+      className={cn(
+        "mx-auto w-full min-w-0 max-w-3xl transition-[padding-top] duration-[280ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+        hasShoulderTab && "pt-7",
+      )}
       data-chat-composer-form="true"
     >
       {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
@@ -3125,10 +3331,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         </div>
       ) : null}
       <div className="relative">
-        {showShoulderTabs && visibleTasksProgress && visibleTaskSteps ? (
+        {showTasksShoulderTab && visibleTasksProgress && visibleTaskSteps ? (
           <ComposerTasksBadge
             expanded={false}
             hasTrailingShoulder={stashQueue.length > 0}
+            motionState={tasksTabMotionState}
             onDismiss={dismissTasks}
             onToggle={toggleTasksDrawer}
             progress={visibleTasksProgress}
@@ -3412,6 +3619,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
 
               <div className="relative">
+                {queueState && onEditQueuedPrompt && onRemoveQueuedPrompt && onMoveQueuedPrompt && onSteerQueuedPrompt ? (
+                  <ComposerPromptQueue
+                    items={queueState.queue}
+                    onEdit={onEditQueuedPrompt}
+                    onRemove={onRemoveQueuedPrompt}
+                    onMove={onMoveQueuedPrompt}
+                    onSteer={onSteerQueuedPrompt}
+                  />
+                ) : null}
                 <ComposerPromptEditor
                   editorRef={composerEditorRef}
                   value={
@@ -3510,6 +3726,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
               >
                 <div className="-m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <ComposerControl
+                          aria-label="Attach media or folders"
+                          className="-ms-2 shrink-0"
+                          type="button"
+                        />
+                      }
+                    >
+                      <ComposerControlIcon icon={PaperclipIcon} />
+                    </MenuTrigger>
+                    <MenuPopup align="start" className="min-w-72" side="top">
+                      <MenuItem onClick={() => attachFilesInputRef.current?.click()}>
+                        <PaperclipIcon className="size-4" /> Attach files…
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          if (isElectron) {
+                            attachFolderInputRef.current?.click();
+                          } else {
+                            openWorkspaceFolderBrowser();
+                          }
+                        }}
+                      >
+                        <FolderOpenIcon className="size-4" />
+                        {isElectron ? "Attach folder…" : "Browse workspace folders…"}
+                      </MenuItem>
+                      <div className="border-border border-t px-2 pb-1 pt-1.5 text-muted-foreground text-xs leading-4">
+                        <span className="font-medium text-foreground">
+                          {attachCapabilitySummary.modelName}
+                        </span>{" — "}
+                        {attachCapabilitySummary.line}
+                      </div>
+                    </MenuPopup>
+                  </Menu>
                   {noProviderAvailable ? (
                     <Button
                       type="button"
@@ -3546,6 +3798,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       }}
                       getModelDisabledReason={getModelDisabledReason}
                       onInstanceModelChange={onProviderModelSelect}
+                      {...(lockedProvider === null
+                        ? {
+                            onAddService: () =>
+                              openClaudeServiceSetup({
+                                environmentId,
+                                origin: "composer",
+                              }),
+                          }
+                        : {})}
                     />
                   )}
 
@@ -3629,6 +3890,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             )}
           </div>
         </div>
+        <input
+          ref={attachFilesInputRef}
+          accept="image/*,audio/*,video/*"
+          className="hidden"
+          multiple
+          type="file"
+          onChange={onAttachFilesInputChange}
+        />
+        {/* webkitdirectory is not in React's typings; set it on mount. */}
+        <input
+          ref={(element) => {
+            attachFolderInputRef.current = element;
+            element?.setAttribute("webkitdirectory", "");
+          }}
+          className="hidden"
+          multiple
+          type="file"
+          onChange={onAttachFolderInputChange}
+        />
       </div>
     </form>
   );

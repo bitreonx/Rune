@@ -7,7 +7,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AntigravitySettings } from "@t3tools/contracts";
+import { AntigravitySettings } from "@rune/contracts";
 import {
   buildInitialAntigravityProviderSnapshot,
   checkAntigravityProviderStatus,

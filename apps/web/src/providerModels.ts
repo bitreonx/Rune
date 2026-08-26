@@ -7,8 +7,13 @@ import {
   type ProviderInstanceId,
   type ServerProvider,
   type ServerProviderModel,
-} from "@t3tools/contracts";
-import { createModelCapabilities, normalizeModelSlug } from "@t3tools/shared/model";
+} from "@rune/contracts";
+import {
+  createModelCapabilities,
+  type ModelMediaSupport,
+  normalizeModelSlug,
+  resolveModelMediaSupport,
+} from "@rune/shared/model";
 
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -90,6 +95,20 @@ export function getProviderModelCapabilities(
     return caps;
   }
   return withoutPlanAgentOption(caps);
+}
+
+/**
+ * Which input media the selected model accepts natively, per its catalog
+ * metadata. Unknown catalogs fall back to images-only so gating never
+ * invents audio/video support.
+ */
+export function getProviderModelMediaSupport(
+  models: ReadonlyArray<ServerProviderModel>,
+  model: string | null | undefined,
+  provider: ProviderDriverKind,
+): ModelMediaSupport {
+  const slug = normalizeModelSlug(model, provider);
+  return resolveModelMediaSupport(models.find((candidate) => candidate.slug === slug)?.metadata);
 }
 
 // The opencode "plan" agent is only reachable while legacy plan mode is on.

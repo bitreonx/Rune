@@ -1,5 +1,5 @@
-import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
-import type { ServerProvider } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId } from "@rune/contracts";
+import type { ServerProvider } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "./claudeServices";

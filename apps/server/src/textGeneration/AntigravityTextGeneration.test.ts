@@ -8,8 +8,8 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AntigravitySettings, ProviderInstanceId } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
+import { AntigravitySettings, ProviderInstanceId } from "@rune/contracts";
+import { createModelSelection } from "@rune/shared/model";
 
 import { makeAntigravityTextGeneration } from "./AntigravityTextGeneration.ts";
 

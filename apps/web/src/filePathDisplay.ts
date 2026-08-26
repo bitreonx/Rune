@@ -55,3 +55,33 @@ export function formatWorkspaceRelativePath(
   if (!line) return displayPath;
   return `${displayPath}:${line}${column ? `:${column}` : ""}`;
 }
+
+/**
+ * Resolves a provider-supplied path to the relative path used by the file
+ * explorer. Unlike formatWorkspaceRelativePath, this intentionally omits the
+ * workspace label because the result is an interaction value, not display text.
+ */
+export function resolveWorkspaceRelativePath(
+  pathWithPosition: string,
+  workspaceRoot: string | undefined,
+): string {
+  const { path } = splitPathAndPosition(pathWithPosition);
+  const normalizedPath = canonicalizeWindowsDrivePath(normalizePathSeparators(path));
+  if (!workspaceRoot) return stripRelativePrefixes(normalizedPath);
+
+  const normalizedWorkspaceRoot = canonicalizeWindowsDrivePath(
+    normalizePathSeparators(trimTrailingPathSeparators(workspaceRoot)),
+  );
+  const pathForCompare = normalizedPath.toLowerCase();
+  const workspaceForCompare = normalizedWorkspaceRoot.toLowerCase();
+  const workspaceLabel = basenameOfPath(normalizedWorkspaceRoot);
+  const workspaceLabelPrefix = `${workspaceLabel.toLowerCase()}/`;
+
+  if (pathForCompare.startsWith(`${workspaceForCompare}/`)) {
+    return normalizedPath.slice(normalizedWorkspaceRoot.length + 1);
+  }
+  if (pathForCompare.startsWith(workspaceLabelPrefix)) {
+    return normalizedPath.slice(workspaceLabel.length + 1);
+  }
+  return stripRelativePrefixes(normalizedPath);
+}

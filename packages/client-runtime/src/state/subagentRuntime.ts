@@ -17,7 +17,8 @@
  * folding (completion can create an agent; a late start only fills
  * metadata).
  */
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import type { OrchestrationThreadActivity } from "@rune/contracts";
+import { generateSubagentIdentity, type SubagentIconName } from "./subagentIdentity.ts";
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -62,6 +63,8 @@ export interface SubagentChatHandle {
   readonly canRead: boolean;
   readonly canSend: boolean;
   readonly canInterrupt: boolean;
+  /** Thread ID for Codex v2 sub-agents (when this sub-agent is a full thread). */
+  readonly agentThreadId?: string;
 }
 
 export interface RuntimeSubagent {
@@ -95,6 +98,14 @@ export interface RuntimeSubagent {
   readonly startedAt: string | null;
   readonly completedAt: string | null;
   readonly updatedAt: string;
+  /** Generated whimsical name for display (e.g., "Lobarna", "Zephion"). */
+  readonly generatedName: string;
+  /** HSL color for icon display (e.g., "hsl(210, 75%, 55%)"). */
+  readonly iconColor: string;
+  /** Deterministic icon glyph name (e.g., "sparkles", "cpu", "atom"). */
+  readonly iconName: SubagentIconName;
+  /** Thread ID for Codex v2 sub-agents (when this sub-agent is a full thread). */
+  readonly agentThreadId: string | null;
 }
 
 const TERMINAL_STATUSES: ReadonlySet<RuntimeSubagentStatus> = new Set([
@@ -170,12 +181,17 @@ function asChatHandle(value: unknown): SubagentChatHandle | undefined {
   ) {
     return undefined;
   }
-  return {
+  const handle: SubagentChatHandle = {
     provider,
     canRead: record.canRead,
     canSend: record.canSend,
     canInterrupt: record.canInterrupt,
   };
+  const agentThreadId = asString(record.agentThreadId);
+  if (agentThreadId) {
+    return { ...handle, agentThreadId };
+  }
+  return handle;
 }
 
 function asUsage(value: unknown): SubagentUsage | undefined {
@@ -287,6 +303,10 @@ interface MutableAgent {
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+  generatedName: string;
+  iconColor: string;
+  iconName: SubagentIconName;
+  agentThreadId: string | null;
 }
 
 function kindFromPayload(
@@ -313,6 +333,7 @@ function getOrCreate(
   if (existing) {
     return existing;
   }
+  const identity = generateSubagentIdentity(id);
   const created: MutableAgent = {
     id,
     kind: kindFromPayload(payload, id),
@@ -343,6 +364,10 @@ function getOrCreate(
     startedAt: null,
     completedAt: null,
     updatedAt: at,
+    generatedName: identity.generatedName,
+    iconColor: identity.iconColor,
+    iconName: identity.iconName,
+    agentThreadId: asString(payload.agentThreadId) ?? null,
   };
   agents.set(id, created);
   return created;
@@ -392,6 +417,8 @@ function fillMetadata(agent: MutableAgent, payload: Record<string, unknown>): vo
   if (agentPath) agent.agentPath = agentPath;
   const chat = asChatHandle(payload.chat);
   if (chat) agent.chat = chat;
+  const agentThreadId = asString(payload.agentThreadId);
+  if (agentThreadId) agent.agentThreadId = agentThreadId;
   if (Array.isArray(payload.phases)) {
     const phases: SubagentWorkflowPhase[] = [];
     for (const entry of payload.phases) {

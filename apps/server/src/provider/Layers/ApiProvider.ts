@@ -6,10 +6,11 @@ import {
   ProviderDriverKind,
   type ServerProvider,
   type ServerProviderModel,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
+import { ProcessRunner } from "../../processRunner.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
@@ -27,7 +28,10 @@ import {
   providerModelsFromSettings,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
-import { defaultProviderContinuationIdentity, type ProviderInstance } from "../ProviderDriver.ts";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderInstance,
+} from "../ProviderDriver.ts";
 import { makeApiAdapter } from "./ApiAdapter.ts";
 
 export type ApiProviderSettings = OpenAiApiSettings | OpenRouterSettings;
@@ -70,10 +74,7 @@ function configuredApiModels(settings: ApiProviderSettings): ReadonlyArray<Serve
   return providerModelsFromSettings([], configured, {});
 }
 
-function apiAuth(input: {
-  readonly apiKey: string;
-  readonly label: string;
-}): ServerProvider["auth"] {
+function apiAuth(input: { readonly apiKey: string; readonly label: string }): ServerProvider["auth"] {
   return input.apiKey.trim().length > 0
     ? { status: "authenticated", type: "apiKey", label: input.label }
     : { status: "unauthenticated", type: "apiKey", label: input.label };
@@ -117,16 +118,12 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
   const serverSettings = yield* ServerSettingsService;
   const processEnv = mergeProviderInstanceEnvironment(input.environment);
   const apiKeyName = apiKeyEnvironmentVariableForDriver(input.driver);
-  const apiKey = apiKeyName ? (processEnv[apiKeyName] ?? "") : "";
+  const apiKey = apiKeyName ? processEnv[apiKeyName] ?? "" : "";
   const baseUrl = normalizeApiProviderBaseUrl(input.settings.baseUrl, input.defaultBaseUrl);
   const continuationIdentity = defaultProviderContinuationIdentity({
     driverKind: input.driver,
     instanceId: input.instanceId,
   });
-  const toolServices = {
-    workspaceFileSystem: yield* WorkspaceFileSystem,
-    workspaceEntries: yield* WorkspaceEntries,
-  };
   const stampIdentity = withInstanceIdentity({
     instanceId: input.instanceId,
     driver: input.driver,
@@ -141,7 +138,12 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
     apiKey,
     defaultModel: input.settings.customModels[0] ?? input.defaultModel,
     requestHeaders: input.requestHeaders,
-    toolServices,
+    // Native agent loop tools: workspace-scoped file/process access.
+    toolServices: {
+      workspaceFileSystem: yield* WorkspaceFileSystem,
+      workspaceEntries: yield* WorkspaceEntries,
+      processRunner: yield* ProcessRunner,
+    },
   });
   const textGeneration = yield* makeApiTextGeneration(input.settings, {
     baseUrl,
@@ -186,10 +188,7 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
               const remoteModels = (payload as { readonly data?: unknown }).data;
               const remoteIds = Array.isArray(remoteModels)
                 ? remoteModels.flatMap((model) =>
-                    typeof model === "object" &&
-                    model !== null &&
-                    "id" in model &&
-                    typeof model.id === "string"
+                    typeof model === "object" && model !== null && "id" in model && typeof model.id === "string"
                       ? [model.id]
                       : [],
                   )

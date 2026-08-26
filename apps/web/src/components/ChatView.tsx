@@ -22,43 +22,43 @@ import {
   ProviderDriverKind,
   RuntimeMode,
   TerminalOpenInput,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import {
   connectionStatusTitle,
   type EnvironmentConnectionPresentation,
-} from "@t3tools/client-runtime/connection";
-import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
+} from "@rune/client-runtime/connection";
+import { wasBootstrapThreadDeleted } from "@rune/client-runtime/errors";
 import {
   changeRequestAutoSettles,
   effectiveSettled,
   effectiveSnoozed,
   threadWokeAt,
-} from "@t3tools/client-runtime/state/thread-settled";
+} from "@rune/client-runtime/state/thread-settled";
 import {
   codexFeedbackMessage,
   parseCodexFeedbackCommand,
   submitCodexFeedback,
   type CodexFeedbackSubmission,
-} from "@t3tools/client-runtime/state/threads";
+} from "@rune/client-runtime/state/threads";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
+} from "@rune/client-runtime/environment";
 import {
   applyClaudePromptEffortPrefix,
   createModelSelection,
   resolvePromptInjectedEffort,
-} from "@t3tools/shared/model";
-import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
-import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { truncate } from "@t3tools/shared/String";
+} from "@rune/shared/model";
+import { CHAT_LIST_ANCHOR_OFFSET } from "@rune/shared/chatList";
+import { projectScriptCwd, projectScriptRuntimeEnv } from "@rune/shared/projectScripts";
+import { truncate } from "@rune/shared/String";
 import {
   getTerminalLabel,
   nextTerminalId,
   resolveTerminalSessionLabel,
-} from "@t3tools/shared/terminalLabels";
+} from "@rune/shared/terminalLabels";
 import { Debouncer } from "@tanstack/react-pacer";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -81,7 +81,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
@@ -104,6 +104,7 @@ import {
   deriveTurnPlans,
   findLatestProposedPlan,
   deriveWorkLogEntries,
+  deriveSimplifiedWorkLogEntries,
   hasActionableProposedPlan,
   isLatestTurnSettled,
 } from "../session-logic";
@@ -136,7 +137,7 @@ import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
-import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
+import { buildTemporaryWorktreeBranchName } from "@rune/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
@@ -174,7 +175,7 @@ import { AgentsPanel } from "./AgentsPanel";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@rune/client-runtime/state/subagentRuntime";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -264,7 +265,7 @@ import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
-} from "@t3tools/client-runtime/state/threads";
+} from "@rune/client-runtime/state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
@@ -276,6 +277,7 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { usePromptQueue, usePromptQueueStore } from "../promptQueueStore";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -389,6 +391,8 @@ import {
 } from "./ui/alert-dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ServerUpdateAction, ServerUpdateProgress } from "./ServerUpdateAction";
+import { useThreadActions } from "~/hooks/useThreadActions";
+import { TemporaryThreadExitDialog } from "./TemporaryThreadExitDialog";
 import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
@@ -1305,6 +1309,11 @@ function ChatViewContent(props: ChatViewProps) {
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
+  const {
+    deleteThread: deleteThreadViaAction,
+    keepThread,
+    snoozeTemporaryDeletion,
+  } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1431,6 +1440,12 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const setComposerDraftTemporary = useComposerDraftStore((store) => store.setTemporary);
+  const setComposerTemporaryChat = useCallback(
+    (temporary: boolean) => {
+      setComposerDraftTemporary(composerDraftTarget, temporary);
+    },
+    [composerDraftTarget, setComposerDraftTemporary],
+  );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
@@ -1718,6 +1733,24 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+
+  useEffect(() => {
+    if (!activeThread || activeThread.temporaryAt == null) return;
+    const isSnoozed =
+      activeThread.temporaryDeletionSnoozedUntil != null &&
+      new Date(activeThread.temporaryDeletionSnoozedUntil).getTime() > Date.now();
+    if (isSnoozed) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "You are closing an unsaved temporary chat. Are you sure?";
+      return e.returnValue;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [activeThread?.temporaryAt, activeThread?.temporaryDeletionSnoozedUntil]);
+
   const changeRequestSnapshotByKey = useAtomValue(threadChangeRequestSnapshotsAtom);
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
@@ -1942,6 +1975,7 @@ function ChatViewContent(props: ChatViewProps) {
     ? `${activeProject.environmentId}:${activeProject.workspaceRoot}`
     : null;
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const simplifiedActivity = useClientSettings((settings) => settings.simplifiedActivity);
   const clientSettingsHydrated = useClientSettingsHydrated();
   const [pendingFileSurfaceIdsByProject, setPendingFileSurfaceIdsByProject] = useState<
     ReadonlyMap<string, ReadonlySet<string>>
@@ -2421,7 +2455,13 @@ function ChatViewContent(props: ChatViewProps) {
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
-  const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const workLogEntries = useMemo(
+    () =>
+      simplifiedActivity
+        ? deriveSimplifiedWorkLogEntries(threadActivities)
+        : deriveWorkLogEntries(threadActivities),
+    [simplifiedActivity, threadActivities],
+  );
   const turnPlans = useMemo(() => deriveTurnPlans(threadActivities), [threadActivities]);
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
@@ -2527,6 +2567,12 @@ function ChatViewContent(props: ChatViewProps) {
     threadError,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const promptQueue = usePromptQueue(activeThreadId);
+  const enqueuePrompt = usePromptQueueStore((store) => store.enqueue);
+  const editQueuedPrompt = usePromptQueueStore((store) => store.edit);
+  const removeQueuedPrompt = usePromptQueueStore((store) => store.remove);
+  const reorderQueuedPrompt = usePromptQueueStore((store) => store.reorder);
+  const promoteQueuedPrompt = usePromptQueueStore((store) => store.promoteSteer);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -4917,17 +4963,139 @@ function ChatViewContent(props: ChatViewProps) {
   // Armed while the composer is set to start the next chat as temporary. The
   // toggle itself is the only way out — dismissing here would hide armed state.
   const temporaryChatBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
-    if (routeKind !== "draft" || !composerTemporaryChat) {
+    if (routeKind === "draft") {
+      if (!composerTemporaryChat) {
+        return null;
+      }
+      return {
+        id: "temporary-chat-armed",
+        variant: "default",
+        icon: <GhostIcon className="size-3.5 text-muted-foreground" />,
+        title: (
+          <span className="flex items-center gap-1.5 font-normal">
+            <span className="font-medium text-foreground">Temporary chat</span>
+            <span className="text-muted-foreground">— auto-deletes 24 hours after your last message</span>
+          </span>
+        ),
+        actions: (
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => setComposerTemporaryChat(false)}
+          >
+            Cancel
+          </Button>
+        ),
+      };
+    }
+
+    if (!activeThread || activeThread.temporaryAt == null) {
       return null;
     }
+
+    const isSnoozed =
+      activeThread.temporaryDeletionSnoozedUntil != null &&
+      new Date(activeThread.temporaryDeletionSnoozedUntil).getTime() > Date.now();
+
+    const snoozedUntilFormatted =
+      isSnoozed && activeThread.temporaryDeletionSnoozedUntil
+        ? new Date(activeThread.temporaryDeletionSnoozedUntil).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : null;
+
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+
     return {
-      id: "temporary-chat-armed",
-      variant: "info",
-      icon: <GhostIcon />,
-      title: "Temporary chat",
-      description: "Auto-deletes 24 hours after your last message.",
+      id: `temporary-chat:${activeThread.id}`,
+      variant: "default",
+      icon: <GhostIcon className="size-3.5 text-amber-500/90 dark:text-amber-400/90" />,
+      title: (
+        <span className="flex min-w-0 items-baseline gap-1.5 text-xs">
+          <span className="font-medium text-foreground">Temporary chat</span>
+          <span className="truncate text-muted-foreground">
+            {isSnoozed
+              ? `— Deletion paused until ${snoozedUntilFormatted}`
+              : "— Auto-deletes on leave"}
+          </span>
+        </span>
+      ),
+      className: "dark:shadow-none",
+      actions: (
+        <div className="flex items-center gap-1">
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              void snoozeTemporaryDeletion(threadRef, 5);
+              toastManager.add({
+                type: "info",
+                title: "Deletion snoozed for 5 minutes",
+                description: "This temporary chat won't be deleted for the next 5 minutes.",
+              });
+            }}
+          >
+            Snooze 5m
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              void snoozeTemporaryDeletion(threadRef, 10);
+              toastManager.add({
+                type: "info",
+                title: "Deletion snoozed for 10 minutes",
+                description: "This temporary chat won't be deleted for the next 10 minutes.",
+              });
+            }}
+          >
+            Snooze 10m
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            className="h-6 text-[11px] font-medium"
+            onClick={() => {
+              void keepThread(threadRef);
+              toastManager.add({
+                type: "success",
+                title: "Saved as permanent chat",
+                description: "This chat has been moved to your permanent threads.",
+              });
+            }}
+          >
+            Keep chat
+          </Button>
+          <Button
+            size="xs"
+            variant="destructive"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => {
+              void deleteThreadViaAction(threadRef);
+              toastManager.add({
+                type: "success",
+                title: "Temporary chat deleted",
+              });
+            }}
+          >
+            Delete now
+          </Button>
+        </div>
+      ),
     };
-  }, [composerTemporaryChat, routeKind]);
+  }, [
+    activeThread,
+    composerTemporaryChat,
+    deleteThreadViaAction,
+    keepThread,
+    routeKind,
+    setComposerTemporaryChat,
+    snoozeTemporaryDeletion,
+  ]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const isUrgentSystemItem = (item: ComposerBannerStackItem) =>
       item.urgent === true || item.variant === "error" || item.variant === "warning";
@@ -5638,6 +5806,23 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    // A running thread has one authoritative execution lane. Keep the
+    // composer live, but turn a second submission into a durable per-thread
+    // queue item instead of racing another provider turn against the active
+    // one. The queued text goes through this same send path when drained.
+    if (phase === "running") {
+      enqueuePrompt(threadIdForSend, outgoingMessageText);
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      toastManager.add({
+        type: "info",
+        title: "Added to queue",
+        description: "It will start when the current turn finishes.",
+      });
+      return;
+    }
+
     sendInFlightRef.current = true;
     if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
       for (const image of composerImagesSnapshot) {
@@ -6015,6 +6200,36 @@ function ChatViewContent(props: ChatViewProps) {
       resetLocalDispatch();
     }
   };
+
+  // Drain exactly one item after the authoritative session leaves running.
+  // Claiming before dispatch makes rapid completion/reconnect events
+  // idempotent; a failed start remains visible as a recoverable queue item.
+  useEffect(() => {
+    if (!activeThread || activeThreadId === null || phase !== "ready" || isSendBusy) return;
+    const next = promptQueue.queue.find((item) => item.status === "queued" || item.status === "steering");
+    if (!next) return;
+    const claimTurnId = next.id as TurnId;
+    const now = new Date().toISOString();
+    usePromptQueueStore.getState().update(activeThreadId, {
+      type: "claim-next",
+      turnId: claimTurnId,
+      now,
+    });
+    setComposerDraftPrompt(composerDraftTarget, next.text);
+    promptRef.current = next.text;
+    composerRef.current?.resetCursorState({ prompt: next.text, cursor: next.text.length, detectTrigger: true });
+    void onSend(undefined, "foreground");
+  }, [
+    activeThread,
+    activeThreadId,
+    composerDraftTarget,
+    isSendBusy,
+    onSend,
+    phase,
+    promptQueue.revision,
+    promptRef,
+    setComposerDraftPrompt,
+  ]);
 
   const onInterrupt = async () => {
     if (!activeThread) return;
@@ -6976,6 +7191,7 @@ function ChatViewContent(props: ChatViewProps) {
                   activeThreadEnvironmentId={activeThread.environmentId}
                   routeThreadKey={routeThreadKey}
                   onOpenTurnDiff={onOpenTurnDiff}
+                  onOpenFile={openFileSurface}
                   onRevertTurn={onRevertTurn}
                   revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                   onEditUserMessage={onEditUserMessage}
@@ -7309,7 +7525,10 @@ function ChatViewContent(props: ChatViewProps) {
         <div
           ref={rightPanelHostRef}
           className={cn(
-            "rune-right-panel-host min-h-0 min-w-0 overflow-hidden",
+            // Flex (not block) so the surface child stretches to the host's
+            // full height; as a block the surface's flex-1 is inert and the
+            // panel content collapses to its own height, pinned to the top.
+            "rune-right-panel-host flex min-h-0 min-w-0 overflow-hidden",
             rightPanelMaximized
               ? "flex-1"
               : "shrink-0 border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))]",

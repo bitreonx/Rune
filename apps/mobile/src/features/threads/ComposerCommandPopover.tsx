@@ -1,9 +1,9 @@
 import {
   resolveProviderSkillSourceKind,
   type ProviderSkillSourceKind,
-} from "@t3tools/client-runtime/providerSkills";
-import type { ServerProviderSkill, ServerProviderSlashCommand } from "@t3tools/contracts";
-import type { ComposerTriggerKind } from "@t3tools/shared/composerTrigger";
+} from "@rune/client-runtime/providerSkills";
+import type { ServerProviderSkill, ServerProviderSlashCommand } from "@rune/contracts";
+import type { ComposerTriggerKind } from "@rune/shared/composerTrigger";
 import { memo } from "react";
 import { Pressable, ScrollView, View, type ViewStyle } from "react-native";
 
@@ -144,7 +144,7 @@ const CommandRow = memo(function CommandRow(props: {
       ) : iconName ? (
         <SymbolView name={iconName} size={14} tintColor={iconColor} type="monochrome" />
       ) : null}
-      <Text className="shrink-0 text-base font-t3-medium text-foreground" numberOfLines={1}>
+      <Text className="shrink-0 text-base font-rune-medium text-foreground" numberOfLines={1}>
         {props.isSlashSkill && props.item.type === "skill" ? (
           <>
             <Text className="text-foreground-muted">skill:</Text>
@@ -172,7 +172,7 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
     <PopoverSurface>
       {label ? (
         <View className="px-3.5 pt-2.5 pb-1">
-          <Text className="text-3xs font-t3-bold tracking-[0.8px] uppercase text-foreground-muted">
+          <Text className="text-3xs font-rune-bold tracking-[0.8px] uppercase text-foreground-muted">
             {label}
           </Text>
         </View>

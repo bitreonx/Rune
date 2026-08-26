@@ -1,4 +1,4 @@
-import type { OrchestrationThreadDetailSnapshot, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationThreadDetailSnapshot, ThreadId } from "@rune/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -68,6 +68,8 @@ export const fetchEnvironmentThreadSnapshot = Effect.fn(
           ...(input.window?.beforeCursor !== undefined
             ? { beforeCursor: input.window.beforeCursor }
             : {}),
+          // This client decodes role-"reasoning" messages (see subscribeThread).
+          supportsReasoningMessages: true,
         },
         headers,
       }),
@@ -92,7 +94,7 @@ export class ThreadSnapshotLoader extends Context.Service<
       window?: ThreadSnapshotWindow,
     ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>>;
   }
->()("@t3tools/client-runtime/state/threadSnapshotHttp/ThreadSnapshotLoader") {}
+>()("@rune/client-runtime/state/threadSnapshotHttp/ThreadSnapshotLoader") {}
 
 export const threadSnapshotLoaderLayer: Layer.Layer<
   ThreadSnapshotLoader,

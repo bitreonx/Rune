@@ -15,7 +15,7 @@ import type {
   ProjectReadFileResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -142,6 +142,17 @@ export class WorkspaceFileSystem extends Context.Service<
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
     /**
+     * Validate and write a bounded set of files through one workspace service
+     * operation. All paths are resolved before the first write.
+     */
+    readonly writeFiles: (input: {
+      readonly cwd: string;
+      readonly files: ReadonlyArray<{ readonly relativePath: string; readonly contents: string }>;
+    }) => Effect.Effect<
+      ReadonlyArray<ProjectWriteFileResult>,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    /**
      * Read a file's committed (HEAD) contents relative to the workspace root,
      * for diffing uncommitted work. Untracked files and repositories without
      * commits succeed with `presentInHead: false` rather than failing — there
@@ -154,7 +165,7 @@ export class WorkspaceFileSystem extends Context.Service<
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
   }
->()("t3/workspace/WorkspaceFileSystem") {}
+>()("@rune/server/workspace/WorkspaceFileSystem") {}
 
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -421,7 +432,39 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return WorkspaceFileSystem.of({ readFile, writeFile, readFileAtHead });
+  const writeFiles: WorkspaceFileSystem["Service"]["writeFiles"] = Effect.fn(
+    "WorkspaceFileSystem.writeFiles",
+  )(function* (input) {
+    const targets = yield* Effect.forEach(input.files, (file) =>
+      workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: input.cwd,
+        relativePath: file.relativePath,
+      }),
+    );
+    const seen = new Set<string>();
+    for (const target of targets) {
+      if (seen.has(target.relativePath)) {
+        return yield* new WorkspacePathNotFileError({
+          workspaceRoot: input.cwd,
+          relativePath: target.relativePath,
+          resolvedPath: target.absolutePath,
+        });
+      }
+      seen.add(target.relativePath);
+    }
+    const results: ProjectWriteFileResult[] = [];
+    for (const [index, target] of targets.entries()) {
+      const file = input.files[index];
+      if (!file) continue;
+      yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true });
+      yield* fileSystem.writeFileString(target.absolutePath, file.contents);
+      results.push({ relativePath: target.relativePath });
+    }
+    yield* workspaceEntries.refresh(input.cwd);
+    return results;
+  });
+
+  return WorkspaceFileSystem.of({ readFile, writeFile, writeFiles, readFileAtHead });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

@@ -6,7 +6,6 @@ export type SettingsPath =
   | "/settings/sound"
   | "/settings/keybindings"
   | "/settings/providers"
-  | "/settings/models"
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/connections"
@@ -32,7 +31,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/sound": "Sound",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",
-  "/settings/models": "Models",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
@@ -141,9 +139,36 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/sound",
   },
   {
+    id: "sound-switches",
+    title: "Switch sounds",
+    to: "/settings/sound",
+  },
+  {
+    id: "sound-copy",
+    title: "Copy sound",
+    to: "/settings/sound",
+  },
+  {
+    id: "sound-sent",
+    title: "Message sent sound",
+    to: "/settings/sound",
+  },
+  {
     id: "sound-notifications",
     title: "Notifications",
     to: "/settings/sound",
+  },
+  {
+    id: "simplified-activity",
+    title: "Simplified activity",
+    to: "/settings/general",
+    targetId: "agent-activity",
+  },
+  {
+    id: "developer-trace",
+    title: "Show developer trace",
+    to: "/settings/general",
+    targetId: "agent-activity",
   },
   {
     id: "project-grouping",
@@ -246,11 +271,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "providers",
     title: "Providers",
     to: "/settings/providers",
-  },
-  {
-    id: "models",
-    title: "Models",
-    to: "/settings/models",
   },
   {
     id: "agent-browser-access",

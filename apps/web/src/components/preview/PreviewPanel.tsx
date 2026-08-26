@@ -1,6 +1,6 @@
 "use client";
 
-import type { PreviewAnnotationPayload, ScopedThreadRef } from "@t3tools/contracts";
+import type { PreviewAnnotationPayload, ScopedThreadRef } from "@rune/contracts";
 
 import type { ComposerImageAttachment } from "~/composerDraftStore";
 import { APP_BASE_NAME } from "~/branding";

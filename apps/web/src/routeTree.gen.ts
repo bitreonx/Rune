@@ -31,6 +31,7 @@ import { Route as SettingsAppearanceRouteImport } from './routes/settings.appear
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ConnectCallbackRouteImport } from './routes/connect_.callback'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
+import { Route as SettingsProvidersInstanceIdRouteImport } from './routes/settings.providers.$instanceId'
 import { Route as ProjectsProjectKeyWorkspaceRouteImport } from './routes/projects.$projectKey.workspace'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
@@ -144,6 +145,12 @@ const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   path: '/pull-requests',
   getParentRoute: () => ChatRoute,
 } as any)
+const SettingsProvidersInstanceIdRoute =
+  SettingsProvidersInstanceIdRouteImport.update({
+    id: '/$instanceId',
+    path: '/$instanceId',
+    getParentRoute: () => SettingsProvidersRoute,
+  } as any)
 const ProjectsProjectKeyWorkspaceRoute =
   ProjectsProjectKeyWorkspaceRouteImport.update({
     id: '/workspace',
@@ -181,12 +188,13 @@ export interface FileRoutesByFullPath {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/models': typeof SettingsModelsRoute
-  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/providers': typeof SettingsProvidersRouteWithChildren
   '/settings/sound': typeof SettingsSoundRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/projects/$projectKey/workspace': typeof ProjectsProjectKeyWorkspaceRoute
+  '/settings/providers/$instanceId': typeof SettingsProvidersInstanceIdRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
@@ -206,13 +214,14 @@ export interface FileRoutesByTo {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/models': typeof SettingsModelsRoute
-  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/providers': typeof SettingsProvidersRouteWithChildren
   '/settings/sound': typeof SettingsSoundRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/projects/$projectKey/workspace': typeof ProjectsProjectKeyWorkspaceRoute
+  '/settings/providers/$instanceId': typeof SettingsProvidersInstanceIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -234,13 +243,14 @@ export interface FileRoutesById {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/models': typeof SettingsModelsRoute
-  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/providers': typeof SettingsProvidersRouteWithChildren
   '/settings/sound': typeof SettingsSoundRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/projects/$projectKey/workspace': typeof ProjectsProjectKeyWorkspaceRoute
+  '/settings/providers/$instanceId': typeof SettingsProvidersInstanceIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/projects/$projectKey/workspace'
+    | '/settings/providers/$instanceId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
@@ -295,6 +306,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/projects/$projectKey/workspace'
+    | '/settings/providers/$instanceId'
   id:
     | '__root__'
     | '/_chat'
@@ -322,6 +334,7 @@ export interface FileRouteTypes {
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/projects/$projectKey/workspace'
+    | '/settings/providers/$instanceId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -492,6 +505,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPullRequestsRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/settings/providers/$instanceId': {
+      id: '/settings/providers/$instanceId'
+      path: '/$instanceId'
+      fullPath: '/settings/providers/$instanceId'
+      preLoaderRoute: typeof SettingsProvidersInstanceIdRouteImport
+      parentRoute: typeof SettingsProvidersRoute
+    }
     '/projects/$projectKey/workspace': {
       id: '/projects/$projectKey/workspace'
       path: '/workspace'
@@ -532,6 +552,17 @@ const ChatRouteChildren: ChatRouteChildren = {
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
+interface SettingsProvidersRouteChildren {
+  SettingsProvidersInstanceIdRoute: typeof SettingsProvidersInstanceIdRoute
+}
+
+const SettingsProvidersRouteChildren: SettingsProvidersRouteChildren = {
+  SettingsProvidersInstanceIdRoute: SettingsProvidersInstanceIdRoute,
+}
+
+const SettingsProvidersRouteWithChildren =
+  SettingsProvidersRoute._addFileChildren(SettingsProvidersRouteChildren)
+
 interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchivedRoute: typeof SettingsArchivedRoute
@@ -541,7 +572,7 @@ interface SettingsRouteChildren {
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsKeybindingsRoute: typeof SettingsKeybindingsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
-  SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsProvidersRoute: typeof SettingsProvidersRouteWithChildren
   SettingsSoundRoute: typeof SettingsSoundRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
 }
@@ -555,7 +586,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsKeybindingsRoute: SettingsKeybindingsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
-  SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsProvidersRoute: SettingsProvidersRouteWithChildren,
   SettingsSoundRoute: SettingsSoundRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
 }

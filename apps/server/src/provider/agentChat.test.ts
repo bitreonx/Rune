@@ -1,4 +1,4 @@
-import { RuntimeTaskId, ThreadId, TurnId } from "@t3tools/contracts";
+import { RuntimeTaskId, ThreadId, TurnId } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { normalizeProviderAgentChatSnapshot } from "./agentChat.ts";

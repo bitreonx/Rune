@@ -1,6 +1,6 @@
 import * as Crypto from "effect/Crypto";
 import { Atom } from "effect/unstable/reactivity";
-import { WS_METHODS } from "@t3tools/contracts";
+import { type EnvironmentId, type ThreadId, WS_METHODS } from "@rune/contracts";
 
 import {
   createAtomCommandScheduler,
@@ -18,6 +18,7 @@ import {
   type SetThreadInteractionModeInput,
   type SetThreadRuntimeModeInput,
   type SetThreadTemporaryInput,
+  type SnoozeThreadTemporaryDeletionInput,
   type PinThreadInput,
   type ReorderPinnedThreadInput,
   type SettleThreadInput,
@@ -39,6 +40,7 @@ import {
   setThreadInteractionMode,
   setThreadRuntimeMode,
   setThreadTemporary,
+  snoozeThreadTemporaryDeletion,
   pinThread,
   reorderPinnedThread,
   settleThread,
@@ -83,8 +85,13 @@ export function createThreadEnvironmentAtoms<R, E>(
   const scheduler = createAtomCommandScheduler();
   const concurrency = {
     mode: "serial" as const,
-    key: ({ environmentId, input }: { environmentId: string; input: { threadId: string } }) =>
-      JSON.stringify([environmentId, input.threadId]),
+    key: ({
+      environmentId,
+      input,
+    }: {
+      readonly environmentId: EnvironmentId;
+      readonly input: { readonly threadId?: ThreadId | string | undefined };
+    }) => JSON.stringify([environmentId, input.threadId]),
   };
   return {
     create: createEnvironmentCommand(runtime, {
@@ -174,6 +181,13 @@ export function createThreadEnvironmentAtoms<R, E>(
     setTemporary: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-temporary",
       execute: (input: SetThreadTemporaryInput) => setThreadTemporary(input),
+      scheduler,
+      concurrency,
+    }),
+    snoozeTemporaryDeletion: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:snooze-temporary-deletion",
+      execute: (input: SnoozeThreadTemporaryDeletionInput) =>
+        snoozeThreadTemporaryDeletion(input),
       scheduler,
       concurrency,
     }),

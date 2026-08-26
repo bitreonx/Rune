@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { BoxesIcon, SearchIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { EnvironmentId, ProviderInstanceConfig, ProviderInstanceId } from "@t3tools/contracts";
+import type { EnvironmentId, ProviderInstanceConfig, ProviderInstanceId } from "@rune/contracts";
 
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { usePrimaryEnvironmentId } from "../../state/environments";

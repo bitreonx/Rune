@@ -1,17 +1,17 @@
-import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopedThreadKey } from "@rune/client-runtime/environment";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import {
   canSnooze,
   effectiveSettled,
   effectiveSnoozed,
   type ChangeRequestSettleSource,
-} from "@t3tools/client-runtime/state/thread-settled";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+} from "@rune/client-runtime/state/thread-settled";
+import type { ScopedThreadRef, ThreadId } from "@rune/contracts";
 import { useCallback } from "react";
 
 import { resolveSnoozePresets, snoozeWakeDescription } from "../components/Sidebar.snooze";
@@ -49,7 +49,7 @@ function failureToast(title: string, error: unknown) {
 /**
  * The per-thread action menu (pin, settle, snooze, rename, copy, delete…) as
  * a self-contained hook, for surfaces other than the sidebar row — today the
- * chat header. Renders through the native context-menu bridge and dispatches
+ * chat header. Renders through the shared context-menu bridge and dispatches
  * through the same mutations the sidebar uses.
  *
  * Unlike the sidebar, settle and snooze here never navigate away: the caller

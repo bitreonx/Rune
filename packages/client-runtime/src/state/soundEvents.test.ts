@@ -4,7 +4,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { EnvironmentThreadShell } from "./models.ts";

@@ -9,13 +9,13 @@ import {
   ProviderDriverKind,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
-} from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+} from "@rune/contracts";
+import { scopeThreadRef } from "@rune/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
@@ -34,9 +34,9 @@ import {
   MIN_PROMPT_FONT_SIZE,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_TERMINAL_FONT_SIZE,
-} from "@t3tools/contracts/settings";
-import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
-import { createModelSelection } from "@t3tools/shared/model";
+} from "@rune/contracts/settings";
+import { resolveServerBackgroundActivitySettings } from "@rune/shared/backgroundActivitySettings";
+import { createModelSelection } from "@rune/shared/model";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
@@ -1908,6 +1908,30 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <SettingsSection title="Agent" id="agent-activity">
+        <SettingsRow
+          {...searchableSetting("simplified-activity")}
+          description="Group tool work into clear activities such as exploring, implementing, testing, and reviewing."
+          control={
+            <Switch
+              checked={settings.simplifiedActivity}
+              onCheckedChange={(checked) => updateSettings({ simplifiedActivity: Boolean(checked) })}
+              aria-label="Simplified activity"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("developer-trace")}
+          description="Keep raw tool names, parameters, output, timing, and provider details available when expanding an activity."
+          control={
+            <Switch
+              checked={settings.showDeveloperTrace}
+              onCheckedChange={(checked) => updateSettings({ showDeveloperTrace: Boolean(checked) })}
+              aria-label="Show developer trace"
+            />
+          }
+        />
+      </SettingsSection>
       <SettingsSection title="General">
         <SettingsRow
           {...searchableSetting("project-grouping")}

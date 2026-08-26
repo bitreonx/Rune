@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ORPHANED_PROVIDER_SESSION_ERROR } from "@t3tools/contracts";
+import { ORPHANED_PROVIDER_SESSION_ERROR } from "@rune/contracts";
 
 import {
   dismissThreadErrorBannerForSession,

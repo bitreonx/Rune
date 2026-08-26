@@ -34,7 +34,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
-import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
+import { RuneConnectSidebarAvatar, RuneConnectSidebarSignIn } from "../clerk/RuneConnectSidebarSignIn";
 import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
@@ -52,7 +52,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/sound": Volume2Icon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
-  "/settings/models": BlocksIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/connections": Link2Icon,
@@ -304,12 +303,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         data-rune-page-transition-chrome="settings-sidebar"
         data-rune-sidebar-section="utility"
       >
-        <T3ConnectSidebarSignIn />
+        <RuneConnectSidebarSignIn />
         <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <SidebarUtilityMenu />
           </div>
-          <T3ConnectSidebarAvatar />
+          <RuneConnectSidebarAvatar />
         </div>
       </SidebarFooter>
     </>

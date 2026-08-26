@@ -23,20 +23,17 @@ import {
   effectiveSettled,
   effectiveSnoozed,
   threadWokeAt,
-} from "@t3tools/client-runtime/state/thread-settled";
+} from "@rune/client-runtime/state/thread-settled";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
   type RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import {
-  scopeProjectRef,
-  scopeThreadRef,
-  scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import type { TimestampFormat } from "@t3tools/contracts/settings";
+} from "@rune/client-runtime/state/subagentRuntime";
+import { SubagentAvatar } from "./agent-chat/SubagentAvatar";
+import type { EnvironmentThreadShell } from "@rune/client-runtime/state/models";
+import { scopeProjectRef, scopeThreadRef, scopedThreadKey } from "@rune/client-runtime/environment";
+import type { ScopedThreadRef, ThreadId } from "@rune/contracts";
+import type { TimestampFormat } from "@rune/contracts/settings";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
@@ -79,7 +76,7 @@ import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -210,9 +207,9 @@ import {
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 // Keep the v2 key so existing preferences survive the v2-to-default rename.
-const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
-const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:snoozed-expanded";
-const TEMPORARY_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:temporary-expanded";
+const SETTLED_SHELF_EXPANDED_KEY = "rune:sidebar-v2:settled-expanded";
+const SNOOZED_SHELF_EXPANDED_KEY = "rune:sidebar-v2:snoozed-expanded";
+const TEMPORARY_SHELF_EXPANDED_KEY = "rune:sidebar-v2:temporary-expanded";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -713,10 +710,7 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
 function subagentMembers(model: ReturnType<typeof deriveAgentPanelModel>): RuntimeSubagent[] {
   const members = [...model.directAgents];
   for (const workflow of model.workflows) {
-    members.push(
-      ...workflow.phases.flatMap((phase) => phase.members),
-      ...workflow.unphasedMembers,
-    );
+    members.push(...workflow.phases.flatMap((phase) => phase.members), ...workflow.unphasedMembers);
   }
   return members;
 }
@@ -805,37 +799,45 @@ const SidebarSubagentBranch = memo(function SidebarSubagentBranch({
         aria-hidden={!expanded}
       >
         <div className="min-h-0 overflow-hidden pl-1 pt-0.5">
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              type="button"
-              tabIndex={expanded ? 0 : -1}
-              className="group flex min-h-9 w-full cursor-pointer items-center gap-2 border-b border-sidebar-border/45 px-2 py-1 text-left text-[11px] text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-              aria-label={`Open ${agent.title} ${agent.chat?.canRead ? "chat" : "activity"} (${agent.status}) in the Agents panel`}
-              title={agent.agentPath ?? agent.title}
-              onClick={() => openAgentActivity(agent.id)}
-              data-rune-sidebar-agent={agent.id}
-            >
-              <span className="relative flex size-5 shrink-0 items-center justify-center border border-sidebar-border/70 bg-sidebar-control-surface">
-                <Bot aria-hidden className="size-3 text-sidebar-muted-foreground/80" />
-                <span
-                  aria-hidden
-                  className={cn(
-                    "absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-2 ring-sidebar",
-                    subagentStatusDotClass(agent.status),
-                  )}
-                />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-sidebar-foreground/90">
-                  {agent.title}
+          {agents.map((agent) => {
+            const displayName = agent.generatedName || agent.title;
+            return (
+              <button
+                key={agent.id}
+                type="button"
+                tabIndex={expanded ? 0 : -1}
+                className="group flex min-h-9 w-full cursor-pointer items-center gap-2 border-b border-sidebar-border/45 px-2 py-1 text-left text-[11px] text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                aria-label={`Open ${displayName} ${agent.chat?.canRead ? "chat" : "activity"} (${agent.status}) in the Agents panel`}
+                title={agent.agentPath ?? displayName}
+                onClick={() => openAgentActivity(agent.id)}
+                data-rune-sidebar-agent={agent.id}
+              >
+                <div className="relative flex size-5 shrink-0 items-center justify-center">
+                  <SubagentAvatar
+                    iconName={agent.iconName}
+                    iconColor={agent.iconColor}
+                    className="size-5 rounded-xs"
+                    iconClassName="size-2.5"
+                  />
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-2 ring-sidebar",
+                      subagentStatusDotClass(agent.status),
+                    )}
+                  />
+                </div>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-sidebar-foreground/90">
+                    {displayName}
+                  </span>
+                  <span className="block truncate text-[10px] text-sidebar-muted-foreground/70">
+                    {agent.agentPath ?? agent.role ?? "Agent"}
+                  </span>
                 </span>
-                <span className="block truncate text-[10px] text-sidebar-muted-foreground/70">
-                  {agent.agentPath ?? agent.role ?? "Agent"}
-                </span>
-              </span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
     </li>
@@ -3885,12 +3887,12 @@ export default function Sidebar() {
               closeDelay={0}
               timeout={400}
             >
-                <ul
-                  ref={attachListAutoAnimateRef}
-                  role="list"
-                  className="flex flex-col gap-px"
-                  data-rune-sidebar-section="thread-list"
-                >
+              <ul
+                ref={attachListAutoAnimateRef}
+                role="list"
+                className="flex flex-col gap-px"
+                data-rune-sidebar-section="thread-list"
+              >
                 {(() => {
                   const renderThreadRow = (
                     thread: EnvironmentThreadShell,
@@ -3909,94 +3911,95 @@ export default function Sidebar() {
                     return (
                       <Fragment key={`${threadKey}:${rowVariant}:branch`}>
                         <SidebarThreadRow
-                        // Keyed per variant on purpose: when a thread settles,
-                        // the card fades out in place and the slim row fades
-                        // in at its settled position instead of one element
-                        // FLIP-sliding through every row in between (rows here
-                        // are translucent, so a crossing row reads as text
-                        // painted over text).
-                        key={`${threadKey}:${rowVariant}`}
-                        thread={thread}
-                        variant={rowVariant}
-                        // Snoozed rows wake; settled rows un-settle (explicit
-                        // settles clear the override, auto-settled rows get
-                        // pinned active); cards settle.
-                        variantAction={
-                          section === "snoozed"
-                            ? "unsnooze"
-                            : section === "settled"
-                              ? "unsettle"
-                              : section === "temporary"
-                                ? null
-                                : "settle"
-                        }
-                        settlementSupported={
-                          serverConfigs.get(thread.environmentId)?.environment.capabilities
-                            .threadSettlement === true
-                        }
-                        autoSettleOnMerge={autoSettleOnMerge}
-                        snoozeSupported={
-                          serverConfigs.get(thread.environmentId)?.environment.capabilities
-                            .threadSnooze === true
-                        }
-                        pinningSupported={
-                          serverConfigs.get(thread.environmentId)?.environment.capabilities
-                            .threadPinning === true
-                        }
-                        isPinned={thread.pinnedAt != null}
-                        sortable={sortable}
-                        snoozeWakeLabelText={
-                          section === "snoozed" && thread.snoozedUntil != null
-                            ? snoozeWakeLabel(thread.snoozedUntil, {
-                                now: new Date().toISOString(),
-                              })
-                            : null
-                        }
-                        // All sections: a woken thread can classify straight
-                        // into the settled tail (PR merged while snoozed), and
-                        // the wake signal must survive the trip. Still-snoozed
-                        // rows resolve to null on their own.
-                        wokeAt={threadWokeAt(thread, { now: snoozeNow })}
-                        isActive={routeThreadKey === threadKey}
-                        openPullRequestsInRightPanel={routeThreadRef !== null}
-                        jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
-                        currentEnvironmentId={primaryEnvironmentId}
-                        environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
-                        projectCwd={
-                          projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
-                        }
-                        projectFaviconPath={
-                          projectFaviconPathByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
-                        }
-                        projectTitle={
-                          projectDisplayNameByKey.get(
-                            `${thread.environmentId}:${thread.projectId}`,
-                          ) ?? null
-                        }
-                        providerEntryByInstanceId={
-                          providerEntriesByEnvironment.get(thread.environmentId) ??
-                          EMPTY_PROVIDER_ENTRIES
-                        }
-                        timestampFormat={timestampFormat}
-                        onThreadClick={handleThreadClick}
-                        onThreadActivate={navigateToThread}
-                        onStartRename={startThreadRename}
-                        onRenameTitleChange={setRenamingTitle}
-                        onCommitRename={commitThreadRename}
-                        onCancelRename={cancelThreadRename}
-                        isRenaming={renamingThreadKey === threadKey}
-                        renamingTitle={renamingThreadKey === threadKey ? renamingTitle : ""}
-                        onContextMenu={handleThreadContextMenu}
-                        onSettle={attemptSettle}
-                        onUnsettle={attemptUnsettle}
-                        onSnooze={attemptSnooze}
-                        onUnsnooze={attemptUnsnooze}
-                        onUnpin={attemptUnpin}
-                        onAcknowledgeWoke={acknowledgeWoke}
-                        changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
-                        onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
+                          // Keyed per variant on purpose: when a thread settles,
+                          // the card fades out in place and the slim row fades
+                          // in at its settled position instead of one element
+                          // FLIP-sliding through every row in between (rows here
+                          // are translucent, so a crossing row reads as text
+                          // painted over text).
+                          key={`${threadKey}:${rowVariant}`}
+                          thread={thread}
+                          variant={rowVariant}
+                          // Snoozed rows wake; settled rows un-settle (explicit
+                          // settles clear the override, auto-settled rows get
+                          // pinned active); cards settle.
+                          variantAction={
+                            section === "snoozed"
+                              ? "unsnooze"
+                              : section === "settled"
+                                ? "unsettle"
+                                : section === "temporary"
+                                  ? null
+                                  : "settle"
+                          }
+                          settlementSupported={
+                            serverConfigs.get(thread.environmentId)?.environment.capabilities
+                              .threadSettlement === true
+                          }
+                          autoSettleOnMerge={autoSettleOnMerge}
+                          snoozeSupported={
+                            serverConfigs.get(thread.environmentId)?.environment.capabilities
+                              .threadSnooze === true
+                          }
+                          pinningSupported={
+                            serverConfigs.get(thread.environmentId)?.environment.capabilities
+                              .threadPinning === true
+                          }
+                          isPinned={thread.pinnedAt != null}
+                          sortable={sortable}
+                          snoozeWakeLabelText={
+                            section === "snoozed" && thread.snoozedUntil != null
+                              ? snoozeWakeLabel(thread.snoozedUntil, {
+                                  now: new Date().toISOString(),
+                                })
+                              : null
+                          }
+                          // All sections: a woken thread can classify straight
+                          // into the settled tail (PR merged while snoozed), and
+                          // the wake signal must survive the trip. Still-snoozed
+                          // rows resolve to null on their own.
+                          wokeAt={threadWokeAt(thread, { now: snoozeNow })}
+                          isActive={routeThreadKey === threadKey}
+                          openPullRequestsInRightPanel={routeThreadRef !== null}
+                          jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
+                          currentEnvironmentId={primaryEnvironmentId}
+                          environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
+                          projectCwd={
+                            projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
+                            null
+                          }
+                          projectFaviconPath={
+                            projectFaviconPathByKey.get(
+                              `${thread.environmentId}:${thread.projectId}`,
+                            ) ?? null
+                          }
+                          projectTitle={
+                            projectDisplayNameByKey.get(
+                              `${thread.environmentId}:${thread.projectId}`,
+                            ) ?? null
+                          }
+                          providerEntryByInstanceId={
+                            providerEntriesByEnvironment.get(thread.environmentId) ??
+                            EMPTY_PROVIDER_ENTRIES
+                          }
+                          timestampFormat={timestampFormat}
+                          onThreadClick={handleThreadClick}
+                          onThreadActivate={navigateToThread}
+                          onStartRename={startThreadRename}
+                          onRenameTitleChange={setRenamingTitle}
+                          onCommitRename={commitThreadRename}
+                          onCancelRename={cancelThreadRename}
+                          isRenaming={renamingThreadKey === threadKey}
+                          renamingTitle={renamingThreadKey === threadKey ? renamingTitle : ""}
+                          onContextMenu={handleThreadContextMenu}
+                          onSettle={attemptSettle}
+                          onUnsettle={attemptUnsettle}
+                          onSnooze={attemptSnooze}
+                          onUnsnooze={attemptUnsnooze}
+                          onUnpin={attemptUnpin}
+                          onAcknowledgeWoke={acknowledgeWoke}
+                          changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
+                          onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
                         />
                         {routeThreadKey === threadKey ? (
                           <SidebarSubagentBranch

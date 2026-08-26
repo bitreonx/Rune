@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 
-import { CommandId } from "@t3tools/contracts";
+import { CommandId } from "@rune/contracts";
 
 import { forkParked } from "../../serverActivation.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -47,6 +47,15 @@ const makeTemporaryThreadSweeper = (options?: TemporaryThreadSweeperLiveOptions)
         // here is an active temporary chat past its TTL.
         if (thread.temporaryAt == null) {
           continue;
+        }
+
+        // Skip threads with active deletion snooze — the user explicitly
+        // postponed automatic deletion until a future time.
+        if (thread.temporaryDeletionSnoozedUntil != null) {
+          const snoozedUntilMs = Date.parse(thread.temporaryDeletionSnoozedUntil);
+          if (!Number.isNaN(snoozedUntilMs) && now < snoozedUntilMs) {
+            continue;
+          }
         }
 
         const updatedAtMs = Date.parse(thread.updatedAt);

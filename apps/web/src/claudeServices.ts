@@ -12,7 +12,7 @@
  *
  * @module claudeServices
  */
-import type { ProviderInstanceConfig } from "@t3tools/contracts";
+import type { ProviderInstanceConfig } from "@rune/contracts";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 

@@ -1,4 +1,4 @@
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
 
 import { formatFileCommentRange } from "./fileCommentAnnotations";
 

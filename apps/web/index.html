@@ -15,20 +15,36 @@
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#0a0a0a";
-        const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
-        const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
-        const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
-        const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
+        const CUSTOM_THEMES_STORAGE_KEY = "rune:themes:v1";
+        const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "rune:theme-follow-system";
+        const THEME_APPEARANCE_MODE_STORAGE_KEY = "rune:theme-appearance-mode";
+        const THEME_HALVES_STORAGE_KEY = "rune:theme-halves:v1";
+        // One-time migration: pre-rebrand builds stored every preference under
+        // the "rune:" prefix. Copy each key the "rune:" prefix has not
+        // already taken over so settings survive the rename.
+        try {
+          for (let i = window.localStorage.length - 1; i >= 0; i--) {
+            const legacyKey = window.localStorage.key(i);
+            if (!legacyKey || !legacyKey.startsWith("rune:")) continue;
+            const modernKey = "rune:" + legacyKey.slice(7);
+            if (window.localStorage.getItem(modernKey) === null) {
+              const value = window.localStorage.getItem(legacyKey);
+              if (value !== null) window.localStorage.setItem(modernKey, value);
+            }
+          }
+        } catch {
+          // Storage unavailable; continue with defaults.
+        }
         const SPLASH_COLORS = {
           light: {
             background: "#ffffff",
             foreground: "#262626",
-            accent: "#4f46e5",
+            accent: "#7C3AED",
           },
           dark: {
             background: "#0a0a0a",
             foreground: "#f5f5f5",
-            accent: "#818cf8",
+            accent: "#A78BFA",
           },
         };
         // These are the runtime defaults used to complete a custom palette
@@ -39,7 +55,7 @@
           light: {
             background: "oklch(0.969049 0.005397 297.726)",
             foreground: "oklch(0.222003 0.03479 328.979)",
-            accent: "oklch(0.553523 0.18769 288.819)",
+            accent: "oklch(0.541337 0.246586 293.009)",
             chrome: "oklch(0.969049 0.005397 297.726)",
           },
           dark: {
@@ -52,11 +68,11 @@
         // Keep this small boot-time copy in sync with the built-in palettes so
         // the selected theme is visible before the app has mounted.
         const BUILT_IN_THEME_PALETTES = {
-          "t3-chat": {
+          "rune": {
             light: {
               background: "oklch(0.969049 0.005397 297.726)",
               foreground: "oklch(0.222003 0.03479 328.979)",
-              accent: "oklch(0.553523 0.18769 288.819)",
+              accent: "oklch(0.541337 0.246586 293.009)",
               chrome: "oklch(0.969049 0.005397 297.726)",
             },
             dark: {
@@ -135,7 +151,7 @@
           "system",
           "light",
           "dark",
-          "t3-chat",
+          "rune",
           "grove",
           "ocean",
           "ember",
@@ -218,13 +234,14 @@
         };
 
         try {
-          const storedTheme = window.localStorage.getItem("t3code:theme");
+          const storedTheme = window.localStorage.getItem("rune:theme");
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           // Older builds stored the dark RUNE Core palette as its own theme id
           // and every maintainer theme under a t3- prefix; keep those
           // preferences readable. Mirrors the runtime's legacy alias table.
           const LEGACY_THEME_IDS = {
-            "t3-chat-dark": "t3-chat",
+            "t3-chat-dark": "rune",
+            "t3-chat": "rune",
             "t3-grove": "grove",
             "t3-ocean": "ocean",
             "t3-ember": "ember",
@@ -448,10 +465,124 @@
         height: 96px;
       }
 
-      #boot-shell-logo {
-        width: 64px;
-        height: 64px;
-        object-fit: contain;
+      /* Inline copy of src/components/runeLoader.css so the animated mark is
+         on screen before any bundle loads — keep the two in sync. */
+      .rune-loader {
+        position: relative;
+        display: grid;
+        place-items: center;
+        animation: rune-loader-breathe 0.9s ease-in-out both;
+      }
+
+      .rune-loader-glow {
+        position: absolute;
+        width: 165%;
+        height: 165%;
+        border-radius: 9999px;
+        background: radial-gradient(closest-side, rgb(124 58 237 / 0.38), rgb(124 58 237 / 0) 72%);
+        animation:
+          rune-loader-glow-intro 0.9s ease-in-out both,
+          rune-loader-glow-loop 2.7s linear 0.9s infinite;
+      }
+
+      .rune-loader-mark {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .rune-loader-facet {
+        transform-box: view-box;
+        animation: rune-loader-facet-cycle 2.7s linear calc(0.9s + var(--rune-facet-stagger, 0ms))
+          infinite;
+      }
+
+      @keyframes rune-loader-breathe {
+        0% {
+          transform: scale(1);
+        }
+        55% {
+          transform: scale(1.045);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      @keyframes rune-loader-glow-intro {
+        0% {
+          opacity: 0;
+        }
+        55% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0.35;
+        }
+      }
+
+      @keyframes rune-loader-glow-loop {
+        0% {
+          opacity: 0.35;
+        }
+        20% {
+          opacity: 1;
+        }
+        46% {
+          opacity: 0.5;
+        }
+        60% {
+          opacity: 0.3;
+        }
+        100% {
+          opacity: 0.35;
+        }
+      }
+
+      @keyframes rune-loader-facet-cycle {
+        0% {
+          transform: translate(0, 0) rotate(0deg);
+          animation-timing-function: cubic-bezier(0.45, 0, 0.74, 0.36);
+        }
+        20% {
+          transform: translate(var(--rune-facet-dx, 0px), var(--rune-facet-dy, 0px))
+            rotate(var(--rune-facet-tilt, 0deg));
+        }
+        26% {
+          transform: translate(var(--rune-facet-dx, 0px), var(--rune-facet-dy, 0px))
+            rotate(var(--rune-facet-tilt, 0deg));
+          animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        46% {
+          transform: translate(0, 0) rotate(0deg);
+        }
+        100% {
+          transform: translate(0, 0) rotate(0deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .rune-loader {
+          animation: none;
+        }
+
+        .rune-loader-facet {
+          animation: none;
+        }
+
+        .rune-loader-glow {
+          animation: rune-loader-glow-calm 2.4s ease-in-out infinite;
+        }
+      }
+
+      @keyframes rune-loader-glow-calm {
+        0%,
+        100% {
+          opacity: 0.15;
+        }
+        50% {
+          opacity: 0.45;
+        }
       }
     </style>
     <title>RUNE (Alpha)</title>
@@ -459,8 +590,78 @@
   <body>
     <div id="root">
       <div id="boot-shell">
-        <div id="boot-shell-card" aria-label="RUNE splash screen">
-          <img id="boot-shell-logo" src="/rune-mark.svg" alt="RUNE" />
+        <div id="boot-shell-card">
+          <div class="rune-loader" role="status" aria-label="Loading RUNE" style="width: 72px; height: 72px">
+            <div class="rune-loader-glow" aria-hidden="true"></div>
+            <svg aria-hidden="true" class="rune-loader-mark" viewBox="0 0 1254 1254">
+              <defs>
+                <linearGradient id="boot-rune-loader-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#A78BFA" />
+                  <stop offset="100%" stop-color="#7C3AED" />
+                </linearGradient>
+                <clipPath id="boot-rune-loader-facet-0">
+                  <polygon points="627.67,620.5 628,156 997,370" />
+                </clipPath>
+                <clipPath id="boot-rune-loader-facet-1">
+                  <polygon points="627.67,620.5 997,370 997,858" />
+                </clipPath>
+                <clipPath id="boot-rune-loader-facet-2">
+                  <polygon points="627.67,620.5 997,858 627,1108" />
+                </clipPath>
+                <clipPath id="boot-rune-loader-facet-3">
+                  <polygon points="627.67,620.5 627,1108 258,858" />
+                </clipPath>
+                <clipPath id="boot-rune-loader-facet-4">
+                  <polygon points="627.67,620.5 258,858 259,373" />
+                </clipPath>
+                <clipPath id="boot-rune-loader-facet-5">
+                  <polygon points="627.67,620.5 259,373 628,156" />
+                </clipPath>
+              </defs>
+              <g
+                class="rune-loader-facet"
+                clip-path="url(#boot-rune-loader-facet-0)"
+                style="--rune-facet-dx: 41.3px; --rune-facet-dy: -79.9px; --rune-facet-tilt: 4deg; --rune-facet-stagger: 0ms; transform-origin: 750.9px 382.2px"
+              >
+                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+              </g>
+              <g
+                class="rune-loader-facet"
+                clip-path="url(#boot-rune-loader-facet-1)"
+                style="--rune-facet-dx: 90px; --rune-facet-dy: -1.6px; --rune-facet-tilt: -4deg; --rune-facet-stagger: 60ms; transform-origin: 873.9px 616.2px"
+              >
+                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+              </g>
+              <g
+                class="rune-loader-facet"
+                clip-path="url(#boot-rune-loader-facet-2)"
+                style="--rune-facet-dx: 40.8px; --rune-facet-dy: 80.2px; --rune-facet-tilt: 4deg; --rune-facet-stagger: 120ms; transform-origin: 750.6px 862.2px"
+              >
+                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+              </g>
+              <g
+                class="rune-loader-facet"
+                clip-path="url(#boot-rune-loader-facet-3)"
+                style="--rune-facet-dx: -40.9px; --rune-facet-dy: 80.1px; --rune-facet-tilt: -4deg; --rune-facet-stagger: 180ms; transform-origin: 504.2px 862.2px"
+              >
+                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+              </g>
+              <g
+                class="rune-loader-facet"
+                clip-path="url(#boot-rune-loader-facet-4)"
+                style="--rune-facet-dx: -90px; --rune-facet-dy: -1.2px; --rune-facet-tilt: 4deg; --rune-facet-stagger: 240ms; transform-origin: 381.6px 617.2px"
+              >
+                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+              </g>
+              <g
+                class="rune-loader-facet"
+                clip-path="url(#boot-rune-loader-facet-5)"
+                style="--rune-facet-dx: -41.4px; --rune-facet-dy: -79.9px; --rune-facet-tilt: -4deg; --rune-facet-stagger: 300ms; transform-origin: 504.9px 383.2px"
+              >
+                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+              </g>
+            </svg>
+          </div>
         </div>
       </div>
     </div>

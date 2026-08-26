@@ -3,12 +3,12 @@ import type {
   ProviderInstanceConfigMap,
   ProviderInstanceId,
   ServerProvider,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import {
   buildProviderWorkspaceSummary,
   type ProviderConnectionCategory,
   type ProviderWorkspaceSummary,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 export interface ProviderWorkspaceEntry extends ProviderWorkspaceSummary {
   readonly config: ProviderInstanceConfig;

@@ -2,7 +2,7 @@ import {
   CommandId,
   ORCHESTRATION_WS_METHODS,
   type ClientOrchestrationCommand,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -270,6 +270,20 @@ export const setThreadTemporary: (input: SetThreadTemporaryInput) => CommandEffe
   return yield* dispatch({
     ...input,
     type: "thread.temporary.set",
+    commandId: yield* commandId(input),
+  });
+});
+
+export type SnoozeThreadTemporaryDeletionInput = CommandInput<"thread.temporary.deletion-snooze">;
+
+export const snoozeThreadTemporaryDeletion: (
+  input: SnoozeThreadTemporaryDeletionInput,
+) => CommandEffect = Effect.fn("EnvironmentCommands.snoozeThreadTemporaryDeletion")(function* (
+  input,
+) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.temporary.deletion-snooze",
     commandId: yield* commandId(input),
   });
 });

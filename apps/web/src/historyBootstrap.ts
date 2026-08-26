@@ -77,7 +77,9 @@ export function buildBootstrapInput(
   const newestFirstBlocks: string[] = [];
   for (let index = previousMessages.length - 1; index >= 0; index -= 1) {
     const message = previousMessages[index];
-    if (!message) continue;
+    // Reasoning is the model's private scratchpad — it must not leak into
+    // handoff transcripts, which read as user/assistant dialogue.
+    if (!message || message.role === "reasoning") continue;
     newestFirstBlocks.push(buildMessageBlock(message));
   }
 

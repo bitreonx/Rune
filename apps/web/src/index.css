@@ -12,29 +12,29 @@ html[data-mobile-composer-route-transition="true"]::view-transition-new(root) {
   animation: none;
 }
 
-html[data-mobile-composer-route-transition="true"]::view-transition-group(t3-mobile-composer) {
+html[data-mobile-composer-route-transition="true"]::view-transition-group(rune-mobile-composer) {
   animation-duration: 180ms;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-html[data-mobile-composer-route-transition="true"]::view-transition-image-pair(t3-mobile-composer) {
+html[data-mobile-composer-route-transition="true"]::view-transition-image-pair(rune-mobile-composer) {
   isolation: isolate;
 }
 
-html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobile-composer) {
-  animation: t3-mobile-composer-old 180ms linear both;
+html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mobile-composer) {
+  animation: rune-mobile-composer-old 180ms linear both;
   mix-blend-mode: normal;
 }
 
-html[data-mobile-composer-route-transition="true"]::view-transition-new(t3-mobile-composer) {
-  animation: t3-mobile-composer-new 180ms linear both;
+html[data-mobile-composer-route-transition="true"]::view-transition-new(rune-mobile-composer) {
+  animation: rune-mobile-composer-new 180ms linear both;
   mix-blend-mode: normal;
 }
 
 /* The expanded and compact composers have different internal layouts. Use a
    brief crossfade while their shared wrapper moves so the layout change does
    not read as a single-frame cut. */
-@keyframes t3-mobile-composer-old {
+@keyframes rune-mobile-composer-old {
   0%,
   35% {
     opacity: 1;
@@ -45,7 +45,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-new(t3-mobil
   }
 }
 
-@keyframes t3-mobile-composer-new {
+@keyframes rune-mobile-composer-new {
   0%,
   35% {
     opacity: 0;
@@ -56,16 +56,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-new(t3-mobil
   }
 }
 
-html[data-mobile-composer-route-transition="true"]::view-transition-group(t3-mobile-draft-headline) {
+html[data-mobile-composer-route-transition="true"]::view-transition-group(rune-mobile-draft-headline) {
   animation-duration: 130ms;
 }
 
-html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobile-draft-headline) {
-  animation: t3-mobile-draft-headline-exit 130ms cubic-bezier(0.4, 0, 1, 1) both;
+html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mobile-draft-headline) {
+  animation: rune-mobile-draft-headline-exit 130ms cubic-bezier(0.4, 0, 1, 1) both;
   mix-blend-mode: normal;
 }
 
-@keyframes t3-mobile-draft-headline-exit {
+@keyframes rune-mobile-draft-headline-exit {
   from {
     opacity: 1;
     transform: translateY(0);
@@ -600,7 +600,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      vellum, forest drafting paper, marine cyanotype, copper, and violet ink.
      These colors stay deliberately deep at the top edge so the white stage
      wordmark and controls retain contrast in both appearance modes. */
-  html[data-theme-id="t3-chat"] {
+  html[data-theme-id="rune"] {
     --stage-art-top: oklch(0.760675 0.141361 348.019);
     --stage-art-mid: oklch(0.588093 0.188832 353.138);
     --stage-art-bottom: oklch(0.383959 0.135096 348.656);
@@ -728,7 +728,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
   }
 
-  :is(html[data-theme-id="t3-chat"], html[data-theme-id="ocean"], html[data-theme-id="iris"]) {
+  :is(html[data-theme-id="rune"], html[data-theme-id="ocean"], html[data-theme-id="iris"]) {
     --stage-night-top: color-mix(in oklch, var(--stage-art-top) 38%, var(--stage-night-base-top));
     --stage-night-mid: color-mix(in oklch, var(--stage-art-mid) 38%, var(--stage-night-base-mid));
     --stage-night-bottom: color-mix(
@@ -751,7 +751,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 
   :is(
-    html[data-theme-id="t3-chat"],
+    html[data-theme-id="rune"],
     html[data-theme-id="grove"],
     html[data-theme-id="ocean"],
     html[data-theme-id="ember"],
@@ -977,6 +977,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     --chat-composer-outline: rgb(0 0 0 / 8%);
 
     isolation: isolate;
+    border-radius: 22px;
 
     @variant dark {
       --chat-composer-glass-surface: color-mix(in srgb, var(--background) 96%, var(--color-white));
@@ -1046,6 +1047,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 
   .chat-composer-glass-host {
+    border-radius: 22px;
     box-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
 
     @variant dark {
@@ -1617,7 +1619,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     outline-color var(--rune-motion-fast) ease;
 }
 
-[data-app-sidebar] [data-sidebar="sidebar-inner"] {
+[data-app-sidebar] [data-slot="sidebar-inner"] {
   border: 1px solid color-mix(in srgb, var(--sidebar-border) 78%, var(--rune-violet-soft));
   border-radius: 0;
   background: color-mix(in srgb, var(--rune-sidebar-surface) 86%, transparent);
@@ -1771,17 +1773,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   box-shadow: none;
 }
 
-[data-rune-chat-surface] .chat-composer-glass-shell::before,
-[data-rune-chat-surface] .chat-composer-glass-host,
-[data-rune-chat-surface] [data-chat-composer-main-surface="true"],
-[data-rune-chat-surface] [data-chat-composer-surface="true"] {
-  border-radius: 0;
-}
-
-[data-rune-chat-surface] .chat-composer-glass-host {
-  box-shadow: none;
-}
-
 [data-rune-preview-panel-host] {
   border-radius: 0;
   box-shadow: none;
@@ -1869,18 +1860,45 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   transform: translateY(0);
 }
 
+/* The tasks sheet grows out of the composer seam like an iOS sheet: height
+   and seam margin live on the host so the composer glides down with it
+   instead of jumping, while the inner drawer only fades/rises. Height
+   animates between 0 and auto where interpolate-size is supported
+   (Chromium 129+); older engines keep the fade/rise and snap the height. */
 [data-rune-tasks-drawer-host] {
+  --rune-tasks-duration: 280ms;
+  --rune-tasks-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --chat-composer-attachment-overlap: calc(1rem + 1px);
+  interpolate-size: allow-keywords;
+  height: auto;
+  margin-bottom: calc(-1 * var(--chat-composer-attachment-overlap));
   transform-origin: center bottom;
+  transition:
+    height var(--rune-tasks-duration) var(--rune-tasks-ease-sheet),
+    margin-bottom var(--rune-tasks-duration) var(--rune-tasks-ease-sheet);
   will-change: opacity, transform;
 }
 
+[data-rune-tasks-drawer-host] .chat-composer-top-drawer {
+  /* The host owns the seam overlap; a child negative margin here would
+     collapse through the host and fight the height transition. */
+  margin-bottom: 0;
+}
+
 [data-rune-tasks-drawer-host][data-rune-tasks-drawer-state="opening"] {
-  animation: rune-tasks-drawer-enter var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
+  animation: rune-tasks-drawer-enter var(--rune-tasks-duration) var(--rune-tasks-ease-sheet)
     both;
+
+  @starting-style {
+    height: 0;
+    margin-bottom: 0;
+  }
 }
 
 [data-rune-tasks-drawer-host][data-rune-tasks-drawer-state="closing"] {
-  animation: rune-tasks-drawer-exit var(--rune-motion-standard) cubic-bezier(0.4, 0, 1, 1) both;
+  height: 0;
+  margin-bottom: 0;
+  animation: rune-tasks-drawer-exit 240ms cubic-bezier(0.4, 0, 1, 1) both;
   pointer-events: none;
 }
 
@@ -1917,6 +1935,134 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 /* Tasks drawer motion lives on its host ([data-rune-tasks-drawer-host]); the
    inner .chat-composer-top-drawer stays motion-free so the two layers never
    compound into mush. */
+
+/* Collapsed tasks tab: springs out of the composer seam when a turn spawns
+   tasks, sinks back in on collapse or dismiss. Transform/opacity only — a
+   filter here would isolate the tab's backdrop glass mid-animation. */
+[data-composer-tasks-badge][data-rune-tasks-tab-state] {
+  transform-origin: center bottom;
+}
+
+.chat-composer-tasks-tab[data-rune-tasks-tab-state] {
+  transform-origin: left bottom;
+}
+
+[data-composer-tasks-badge][data-rune-tasks-tab-state="opening"] {
+  animation: rune-tasks-tab-enter 240ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+[data-composer-tasks-badge][data-rune-tasks-tab-state="closing"] {
+  animation: rune-tasks-tab-exit 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+@keyframes rune-tasks-tab-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.4rem, 0) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes rune-tasks-tab-exit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, 0.25rem, 0) scale(0.97);
+  }
+}
+
+/* Drawer rows cascade in on open and when the agent adds a step mid-turn. */
+.rune-task-row {
+  animation: rune-task-row-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--stagger-index, 0) * 30ms);
+}
+
+@keyframes rune-task-row-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Completed steps draw their checkmark; the delay lets the row land first.
+   pathLength=1 on the path makes the dash math resolution-independent. */
+.rune-task-check svg path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rune-task-check-draw 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(80ms + var(--stagger-index, 0) * 30ms);
+}
+
+@keyframes rune-task-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Tab progress segments sweep their fill when a step lands or completes. */
+.rune-task-segment-fill {
+  animation: rune-task-segment-fill var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
+    both;
+}
+
+@keyframes rune-task-segment-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.rune-task-step-swap {
+  animation: rune-task-step-swap var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
+    both;
+}
+
+@keyframes rune-task-step-swap {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.rune-tasks-progress {
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
+}
+
+.rune-tasks-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  @starting-style {
+    width: 0;
+  }
+}
+
+[data-rune-tasks-progress="done"] .rune-tasks-progress-fill {
+  background: var(--success);
+}
 
 [data-composer-context-tray] {
   background: color-mix(in srgb, var(--background) 72%, var(--rune-violet-soft) 4%);
@@ -2039,6 +2185,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     transition: none;
     animation: none;
     transform: none;
+  }
+
+  [data-composer-tasks-badge][data-rune-tasks-tab-state],
+  .rune-task-row,
+  .rune-task-check svg path,
+  .rune-task-segment-fill,
+  .rune-task-step-swap,
+  .rune-tasks-progress-fill {
+    transition: none;
+    animation: none;
   }
 
   [data-rune-sidebar-rail] {
@@ -2172,7 +2328,7 @@ html[data-theme-id]
   }
 }
 
-html[data-theme-id="t3-chat"] .chat-composer-glass-shell {
+html[data-theme-id="rune"] .chat-composer-glass-shell {
   /* RUNE Core's visible composer edge is a dark plum, not the stock translucent
      white outline. Its highlight is derived from --chat-input-gradient. */
   @variant dark {
@@ -2181,7 +2337,7 @@ html[data-theme-id="t3-chat"] .chat-composer-glass-shell {
   }
 }
 
-html[data-theme-id="t3-chat"]
+html[data-theme-id="rune"]
   :is(.chat-composer-banner-stack-cap, .chat-composer-drawer-surface, .chat-composer-top-drawer):is(
     :not([data-variant]),
     [data-variant="default"]
@@ -2333,7 +2489,7 @@ html[data-theme-id] .chat-markdown .chat-markdown-chrome-action {
 /* RUNE Core renders inline code and compact chat artifacts with its translucent
    secondary surface flattened over the light chat canvas. The raw muted and
    secondary tokens are substantially darker than those visible pixels. */
-html[data-theme-id="t3-chat"] {
+html[data-theme-id="rune"] {
   @variant light {
     & .chat-markdown :not(pre) > code,
     & [data-changed-files-state],
@@ -2386,7 +2542,7 @@ html[data-theme-id] [data-app-sidebar] {
 
 /* RUNE Core's panel divider is deliberately purple, and its resize affordance
    keeps that color while hovered. Do not neutralize this branded edge. */
-html[data-theme-id="t3-chat"] [data-app-sidebar] {
+html[data-theme-id="rune"] [data-app-sidebar] {
   @variant dark {
     border-color: var(--contrast-sidebar-border);
   }
@@ -2559,7 +2715,7 @@ body {
 /* The live RUNE Core texture is a 128px grayscale tile with a constant 7/255
    alpha. Keep our procedural texture cheap while matching that scale and
    strength for the branded preset. */
-html[data-theme-id="t3-chat"] {
+html[data-theme-id="rune"] {
   --surface-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 128 128' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02745'/%3E%3C/svg%3E");
   --surface-grain-size: 128px 128px;
 }

@@ -1,7 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
   <title id="title">RUNE</title>
-  <desc id="desc">A geometric RUNE R mark</desc>
-  <rect width="180" height="180" rx="42" fill="#10111a"/>
-  <path fill="#c4a1ff" d="M49 132V48h37c27 0 43 13 43 33 0 14-7 24-20 30l27 21h-28l-24-19H68v19H49Zm19-66v30h16c16 0 24-5 24-15 0-10-8-15-24-15H68Z"/>
-  <path fill="#f3edff" d="M118 48h14v19h-14z"/>
+  <desc id="desc">A geometric hexagonal RUNE R mark with a purple gradient</desc>
+  <defs>
+    <linearGradient id="runePurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <polygon points="628,156 997,370 997,858 927,905 858,952 627,1108 541,1050 438,983 258,858 259,373" fill="url(#runePurple)"/>
+  <g fill="#171717">
+    <polygon points="629,156 259,373 749,373 913,537 749,709 927,905 997,858 997,370"/>
+    <polygon points="259,373 439,491 438,983 258,858"/>
+    <polygon points="758,511 541,511 541,1050 627,1108 858,952 544,736"/>
+  </g>
 </svg>

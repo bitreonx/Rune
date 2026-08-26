@@ -1,10 +1,11 @@
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessPlatform } from "@rune/shared/hostProcess";
 
 import { ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
+import { COMPOUND_MUTATION_TOOLS, COMPOUND_READ_TOOLS } from "./ApiWorkspaceTools.ts";
 
 /**
  * Native tools for the API-provider agent loop.
@@ -171,7 +172,12 @@ export const searchTool: NativeToolDef = {
       ),
 };
 
-export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [readFileTool, listDirTool, searchTool];
+export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [
+  ...COMPOUND_READ_TOOLS,
+  readFileTool,
+  listDirTool,
+  searchTool,
+];
 
 const BASH_TIMEOUT = Duration.seconds(120);
 const BASH_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -255,6 +261,10 @@ export const bashTool: NativeToolDef = {
   },
 };
 
-export const GATED_TOOLS: ReadonlyArray<NativeToolDef> = [editFileTool, bashTool];
+export const GATED_TOOLS: ReadonlyArray<NativeToolDef> = [
+  ...COMPOUND_MUTATION_TOOLS,
+  editFileTool,
+  bashTool,
+];
 
 export const NATIVE_TOOLS: ReadonlyArray<NativeToolDef> = [...SAFE_TOOLS, ...GATED_TOOLS];

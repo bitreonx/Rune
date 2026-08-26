@@ -20,8 +20,12 @@ export const defaultIdentity = [
 
 export const defaultToolGuidance = [
   "- Prefer search over listing directories when locating code.",
+  "- Use workspace_snapshot, search_many, and read_many to batch independent inspection.",
+  "- Make one atomic apply_patch for related edits, then run focused checks.",
+  "- Use generate_files for repetitive declared output; do not stream thousands of repeated lines.",
   "- Keep command output small; you will see only what fits.",
   "Verify edits compile/run when the workspace has fast checks available.",
+  "- Stop calling tools when the task is verified; request count is intentionally bounded.",
 ].join("\n");
 
 export function compileSystemPrompt(input: {

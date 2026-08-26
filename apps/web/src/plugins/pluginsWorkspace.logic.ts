@@ -1,5 +1,5 @@
-import type { EnvironmentId, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
-import { formatProviderSkillDisplayName, resolveProviderSkillSourceKind } from "@t3tools/client-runtime/providerSkills";
+import type { EnvironmentId, ProviderInstanceId, ServerProvider } from "@rune/contracts";
+import { formatProviderSkillDisplayName, resolveProviderSkillSourceKind } from "@rune/client-runtime/providerSkills";
 
 import { deriveProviderInstanceEntries } from "../providerInstances";
 

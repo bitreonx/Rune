@@ -1,4 +1,4 @@
-import type { ServerProvider, ServerProviderVersionAdvisory } from "@t3tools/contracts";
+import type { ServerProvider, ServerProviderVersionAdvisory } from "@rune/contracts";
 import { APP_BASE_NAME } from "../../branding";
 
 /**
@@ -59,15 +59,18 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
   }
   if (provider.auth.status === "unauthenticated") {
     return {
-      headline: "Not authenticated",
-      detail: provider.message ?? null,
+      headline: "Sign in required",
+      detail:
+        provider.message ??
+        "This account is not signed in. Open the provider's sign-in command or configure its credentials before using it.",
     };
   }
   if (provider.status === "warning") {
     return {
       headline: "Needs attention",
       detail:
-        provider.message ?? "The provider is installed, but the server could not fully verify it.",
+        provider.message ??
+        "The provider is installed, but something needs fixing. Check the details below; sign-in is required if the account is not authenticated.",
     };
   }
   if (provider.status === "error") {

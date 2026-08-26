@@ -7,7 +7,7 @@ import {
   type ServerProvider,
   ServerSettings,
   type ServerSettingsPatch,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
@@ -187,6 +187,20 @@ export function applyServerSettingsPatch(
       : {}),
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
+      : {}),
+    ...(patch.harnesses !== undefined
+      ? {
+          harnesses: {
+            profiles:
+              patch.harnesses.profiles !== undefined
+                ? patch.harnesses.profiles
+                : (current.harnesses?.profiles ?? {}),
+            services:
+              patch.harnesses.services !== undefined
+                ? patch.harnesses.services
+                : (current.harnesses?.services ?? {}),
+          },
+        }
       : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }

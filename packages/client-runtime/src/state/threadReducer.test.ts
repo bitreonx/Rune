@@ -9,8 +9,8 @@ import {
   ProviderInstanceId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import type { OrchestrationThread } from "@t3tools/contracts";
+} from "@rune/contracts";
+import type { OrchestrationThread } from "@rune/contracts";
 
 import { applyThreadDetailEvent } from "./threadReducer.ts";
 
@@ -57,7 +57,7 @@ describe("applyThreadDetailEvent", () => {
         type: "project.created",
         payload: {
           projectId: ProjectId.make("project-1"),
-          title: "T3 Code",
+          title: "RUNE",
           workspaceRoot: "/repo",
           repositoryIdentity: null,
           defaultModelSelection: null,
@@ -377,7 +377,88 @@ describe("applyThreadDetailEvent", () => {
       }
     });
 
-    it("updates latestTurn for assistant messages with a turn", () => {
+    it("appends text for streaming reasoning messages without touching latestTurn", () => {
+      const threadWithReasoning: OrchestrationThread = {
+        ...baseThread,
+        latestTurn: {
+          turnId: TurnId.make("turn-1"),
+          state: "running",
+          requestedAt: "2026-04-01T06:00:00.000Z",
+          startedAt: "2026-04-01T06:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: MessageId.make("reasoning:turn-1"),
+            role: "reasoning",
+            text: "pondering",
+            turnId: TurnId.make("turn-1"),
+            streaming: true,
+            createdAt: "2026-04-01T06:00:00.000Z",
+            updatedAt: "2026-04-01T06:00:00.000Z",
+          },
+        ],
+      };
+
+      const result = applyThreadDetailEvent(threadWithReasoning, {
+        ...baseEventFields,
+        sequence: 7,
+        occurredAt: "2026-04-01T06:01:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-sent",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("reasoning:turn-1"),
+          role: "reasoning",
+          text: " harder",
+          turnId: TurnId.make("turn-1"),
+          streaming: true,
+          createdAt: "2026-04-01T06:00:00.000Z",
+          updatedAt: "2026-04-01T06:01:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.messages[0]?.role).toBe("reasoning");
+        expect(result.thread.messages[0]?.text).toBe("pondering harder");
+        expect(result.thread.messages[0]?.streaming).toBe(true);
+        // Reasoning must never settle or mutate the turn.
+        expect(result.thread.latestTurn?.state).toBe("running");
+        expect(result.thread.latestTurn?.assistantMessageId).toBeNull();
+      }
+    });
+
+    it("finalizes a reasoning message on completion without settling the turn", () => {
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 8,
+        occurredAt: "2026-04-01T07:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-sent",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("reasoning:turn-2"),
+          role: "reasoning",
+          text: "",
+          turnId: TurnId.make("turn-2"),
+          streaming: false,
+          createdAt: "2026-04-01T07:00:00.000Z",
+          updatedAt: "2026-04-01T07:00:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        const message = result.thread.messages.find((entry) => entry.role === "reasoning");
+        expect(message?.streaming).toBe(false);
+        // baseThread has no latestTurn; reasoning completion must not create one.
+        expect(result.thread.latestTurn).toBeNull();
+      }
+    });
       const result = applyThreadDetailEvent(baseThread, {
         ...baseEventFields,
         sequence: 8,

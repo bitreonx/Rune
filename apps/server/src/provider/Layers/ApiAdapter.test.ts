@@ -1,27 +1,35 @@
-import { describe, expect, it } from "vite-plus/test";
-
+// @effect-diagnostics nodeBuiltinImport:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import type { ProviderRuntimeEvent } from "@t3tools/contracts";
-import {
+import type {
   ApprovalRequestId,
+  ProviderRuntimeEvent,
+} from "@rune/contracts";
+import {
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
+
+import * as ProcessRunner from "../../processRunner.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "../../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
-
-import { extractOpenAiCompatibleModelIds, extractOpenAiCompatibleText } from "./ApiAdapter.ts";
-import { makeApiAdapter } from "./ApiAdapter.ts";
+import {
+  extractOpenAiCompatibleModelIds,
+  extractOpenAiCompatibleText,
+  makeApiAdapter,
+  type ApiProviderAdapter,
+} from "./ApiAdapter.ts";
 
 describe("ApiAdapter response parsing", () => {
   it("reads chat-completion text and array content", () => {
@@ -67,7 +75,7 @@ function sseResponse(request: Parameters<typeof HttpClientResponse.fromWeb>[0], 
   );
 }
 
-function makeStreamingClient(chunks: string[], failAfter?: number, scriptedChunks?: string[][]) {
+function makeStreamingClient(chunks: string[], failAfter?: number) {
   const requests: CapturedRequest[] = [];
   const client = {
     execute: (request: Parameters<typeof HttpClientResponse.fromWeb>[0]) => {
@@ -82,13 +90,12 @@ function makeStreamingClient(chunks: string[], failAfter?: number, scriptedChunk
       }
       requests.push({ url: request.url, body });
 
-      const responseChunks = scriptedChunks?.[requests.length - 1] ?? chunks;
       if (failAfter !== undefined) {
         const encoder = new TextEncoder();
         const response = new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
-              for (const chunk of responseChunks.slice(0, failAfter)) {
+              for (const chunk of chunks.slice(0, failAfter)) {
                 controller.enqueue(encoder.encode(chunk));
               }
               controller.error(new Error("connection reset mid-stream"));
@@ -98,7 +105,7 @@ function makeStreamingClient(chunks: string[], failAfter?: number, scriptedChunk
         );
         return Effect.succeed(HttpClientResponse.fromWeb(request, response));
       }
-      return Effect.succeed(sseResponse(request, responseChunks));
+      return Effect.succeed(sseResponse(request, chunks));
     },
   };
   return {
@@ -110,36 +117,25 @@ function makeStreamingClient(chunks: string[], failAfter?: number, scriptedChunk
 const makeAdapterLayer = (httpClient: HttpClient.HttpClient) =>
   Layer.mergeAll(NodeServices.layer, Layer.succeed(HttpClient.HttpClient, httpClient));
 
-const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
-const workspaceFileSystemLayer = WorkspaceFileSystem.layer.pipe(
-  Layer.provide(WorkspacePaths.layer),
-  Layer.provide(workspaceEntriesLayer),
-  Layer.provideMerge(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-);
-const workspaceToolLayer = Layer.empty.pipe(
-  Layer.provideMerge(workspaceFileSystemLayer),
-  Layer.provideMerge(workspaceEntriesLayer),
-  Layer.provideMerge(WorkspacePaths.layer),
-  Layer.provideMerge(NodeServices.layer),
-);
+// Live platform services (no TestClock): turn fibers fork into a real scope
+// and SSE consumption completes against live timers.
+it.layer(Layer.empty, { excludeTestServices: true })("ApiAdapter", (it) => {
+  it.effect("streams chat completions as deltas before completing the item", () =>
+    Effect.gen(function* () {
+      const { httpClient, requests } = makeStreamingClient([
+        'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+        ": OPENROUTER PROCESSING\n\n",
+        'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
+        "data: [DONE]\n\n",
+      ]);
 
-describe("ApiAdapter streaming turns", () => {
-  it("streams chat completions as deltas before completing the item", async () => {
-    const { httpClient, requests } = makeStreamingClient([
-      'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
-      ": OPENROUTER PROCESSING\n\n",
-      'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
-      "data: [DONE]\n\n",
-    ]);
-
-    const program = Effect.gen(function* () {
       const adapter = yield* makeApiAdapter({
         provider: PROVIDER,
         instanceId: INSTANCE_ID,
         baseUrl: "https://example.invalid/v1",
         apiKey: "key",
         defaultModel: "test/default-model",
-      });
+      }).pipe(Effect.provide(makeAdapterLayer(httpClient)));
 
       yield* adapter.startSession({ threadId: THREAD_ID, runtimeMode: "full-access" });
 
@@ -162,9 +158,8 @@ describe("ApiAdapter streaming turns", () => {
       expect(deltas.join("")).toBe("Hello world");
 
       const completed = events.find((event) => event.type === "item.completed");
-      expect(
-        completed && completed.type === "item.completed" ? completed.payload : undefined,
-      ).toMatchObject({ itemType: "assistant_message", status: "completed" });
+      expect(completed && completed.type === "item.completed" ? completed.payload : undefined)
+        .toMatchObject({ itemType: "assistant_message", status: "completed" });
 
       const thread = yield* adapter.readThread(THREAD_ID);
       expect(thread.turns[0]?.items).toEqual([
@@ -172,155 +167,26 @@ describe("ApiAdapter streaming turns", () => {
         { role: "assistant", content: "Hello world" },
       ]);
 
-      return requests;
-    }).pipe(Effect.provide(makeAdapterLayer(httpClient)), Effect.scoped);
+      const firstRequest = requests[0];
+      expect(requests).toHaveLength(1);
+      expect(firstRequest?.url).toContain("/chat/completions");
+      expect(firstRequest?.body).toMatchObject({ stream: true, model: "test/default-model" });
+    }));
 
-    const capturedRequests = await Effect.runPromise(program);
-    const firstRequest = capturedRequests[0];
-    expect(capturedRequests).toHaveLength(1);
-    expect(firstRequest?.url).toContain("/chat/completions");
-    expect(firstRequest?.body).toMatchObject({ stream: true, model: "test/default-model" });
-  });
+  it.effect("marks the turn failed when the stream dies mid-generation", () =>
+    Effect.gen(function* () {
+      const { httpClient } = makeStreamingClient(
+        ['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'],
+        1,
+      );
 
-  it("offers native workspace tools when a session has a cwd", async () => {
-    const toolRound = [
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":\\"hello.txt\\"}"}}]}}]}\n\n',
-      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
-    const finalRound = [
-      'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
-      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
-    const { httpClient, requests } = makeStreamingClient([], undefined, [toolRound, finalRound]);
-
-    const program = Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-api-adapter-tools-" });
-      yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "hello from workspace\n");
       const adapter = yield* makeApiAdapter({
         provider: PROVIDER,
         instanceId: INSTANCE_ID,
         baseUrl: "https://example.invalid/v1",
         apiKey: "key",
         defaultModel: "test/default-model",
-        toolServices: {
-          workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
-          workspaceEntries: yield* WorkspaceEntries.WorkspaceEntries,
-        },
-      });
-      yield* adapter.startSession({ threadId: THREAD_ID, cwd, runtimeMode: "full-access" });
-      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
-      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "read hello.txt" });
-      while (true) {
-        const event = yield* Queue.take(queue);
-        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
-      }
-    }).pipe(
-      Effect.provide(Layer.mergeAll(workspaceToolLayer, makeAdapterLayer(httpClient))),
-      Effect.scoped,
-    );
-
-    await Effect.runPromise(program);
-    const firstBody = requests[0]?.body as { tools?: Array<{ function: { name: string } }> };
-    expect(firstBody.tools?.map((tool) => tool.function.name)).toEqual([
-      "read_file",
-      "list_dir",
-      "search",
-      "edit_file",
-    ]);
-    const secondBody = requests[1]?.body as {
-      messages?: Array<{ role: string; content?: string }>;
-    };
-    expect(secondBody.messages?.find((message) => message.role === "tool")?.content).toContain(
-      "hello from workspace",
-    );
-  });
-
-  it("pauses gated edits until the approval response arrives", async () => {
-    const editRound = [
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"edit_1","function":{"name":"edit_file","arguments":""}}]}}]}\n\n',
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":\\"hello.txt\\",\\"oldText\\":\\"before\\",\\"newText\\":\\"after\\"}"}}]}}]}\n\n',
-      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
-    const finalRound = [
-      'data: {"choices":[{"delta":{"content":"saved"}}]}\n\n',
-      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
-      "data: [DONE]\n\n",
-    ];
-    const { httpClient } = makeStreamingClient([], undefined, [editRound, finalRound]);
-
-    const program = Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-api-adapter-approval-" });
-      yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "before\n");
-      const adapter = yield* makeApiAdapter({
-        provider: PROVIDER,
-        instanceId: INSTANCE_ID,
-        baseUrl: "https://example.invalid/v1",
-        apiKey: "key",
-        defaultModel: "test/default-model",
-        toolServices: {
-          workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
-          workspaceEntries: yield* WorkspaceEntries.WorkspaceEntries,
-        },
-      });
-      yield* adapter.startSession({
-        threadId: THREAD_ID,
-        cwd,
-        approvalPolicy: "on-request",
-        sandboxMode: "workspace-write",
-        runtimeMode: "approval-required",
-      });
-      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
-      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "update hello.txt" });
-      const events: Array<ProviderRuntimeEvent> = [];
-      while (true) {
-        const event = yield* Queue.take(queue);
-        events.push(event);
-        if (event.type === "request.opened" && event.requestId !== undefined) {
-          yield* adapter.respondToRequest(
-            THREAD_ID,
-            ApprovalRequestId.make(String(event.requestId)),
-            "accept",
-          );
-        }
-        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
-      }
-      return {
-        events,
-        contents: yield* fileSystem.readFileString(path.join(cwd, "hello.txt")),
-      };
-    }).pipe(
-      Effect.provide(Layer.mergeAll(workspaceToolLayer, makeAdapterLayer(httpClient))),
-      Effect.scoped,
-    );
-
-    const result = await Effect.runPromise(program);
-    expect(result.contents).toBe("after\n");
-    expect(result.events.some((event) => event.type === "request.opened")).toBe(true);
-    expect(result.events.some((event) => event.type === "request.resolved")).toBe(true);
-  });
-
-  it("marks the turn failed when the stream dies mid-generation", async () => {
-    const { httpClient } = makeStreamingClient(
-      ['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'],
-      1,
-    );
-
-    const program = Effect.gen(function* () {
-      const adapter = yield* makeApiAdapter({
-        provider: PROVIDER,
-        instanceId: INSTANCE_ID,
-        baseUrl: "https://example.invalid/v1",
-        apiKey: "key",
-        defaultModel: "test/default-model",
-      });
+      }).pipe(Effect.provide(makeAdapterLayer(httpClient)));
 
       yield* adapter.startSession({ threadId: THREAD_ID, runtimeMode: "full-access" });
 
@@ -335,10 +201,290 @@ describe("ApiAdapter streaming turns", () => {
           break;
         }
       }
-      return lastTurnEvent;
-    }).pipe(Effect.provide(makeAdapterLayer(httpClient)), Effect.scoped);
+      expect(lastTurnEvent?.payload.state).toBe("failed");
+    }));
+});
 
-    const turnCompleted = await Effect.runPromise(program);
-    expect(turnCompleted?.payload.state).toBe("failed");
+// ---------------------------------------------------------------------------
+// Native agent loop integration: tools, approvals, sandbox.
+// ---------------------------------------------------------------------------
+
+const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
+
+interface CapturedProcessRun {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string | undefined;
+}
+
+const capturedProcessRuns: Array<CapturedProcessRun> = [];
+
+const fakeProcessRunnerLayer = Layer.mock(ProcessRunner.ProcessRunner)({
+  run: (input) =>
+    Effect.suspend(() => {
+      capturedProcessRuns.push({ command: input.command, args: input.args, cwd: input.cwd });
+      return Effect.succeed({
+        stdout: "ran via mock runner\n",
+        stderr: "",
+        code: ChildProcessSpawner.ExitCode(0),
+        timedOut: false,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        stdoutInvalidUtf8: false,
+        stderrInvalidUtf8: false,
+      });
+    }),
+});
+
+const agenticBaseLayer = Layer.mergeAll(
+  WorkspacePaths.layer,
+  workspaceEntriesLayer,
+  WorkspaceFileSystem.layer.pipe(
+    Layer.provide(WorkspacePaths.layer),
+    Layer.provide(workspaceEntriesLayer),
+    Layer.provideMerge(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+  ),
+  fakeProcessRunnerLayer,
+).pipe(Layer.provideMerge(NodeServices.layer));
+
+const makeAgenticLayer = (httpClient: HttpClient.HttpClient) =>
+  Layer.mergeAll(agenticBaseLayer, Layer.succeed(HttpClient.HttpClient, httpClient));
+
+const makeMultiScriptClient = (scripts: ReadonlyArray<string>) => {
+  const requests: CapturedRequest[] = [];
+  const encoder = new TextEncoder();
+  const client = {
+    execute: (request: Parameters<typeof HttpClientResponse.fromWeb>[0]) => {
+      let body: unknown;
+      const rawBody = (request.body as { body?: Uint8Array } | undefined)?.body;
+      if (rawBody) {
+        try {
+          body = JSON.parse(new TextDecoder().decode(rawBody));
+        } catch {
+          body = undefined;
+        }
+      }
+      requests.push({ url: request.url, body });
+      const script = scripts[Math.min(requests.length - 1, scripts.length - 1)];
+      const response = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(script));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+      return Effect.succeed(HttpClientResponse.fromWeb(request, response));
+    },
+  };
+  return { httpClient: client as unknown as HttpClient.HttpClient, requests };
+};
+
+const toolCallChunk = (name: string, rawArguments: string) =>
+  [
+    `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"${name}","arguments":""}}]}}]}`,
+    `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":${JSON.stringify(rawArguments)}}}]}}]}`,
+    `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+    "data: [DONE]",
+  ].join("\n\n") + "\n\n";
+
+const textChunk = (text: string) =>
+  [
+    `data: {"choices":[{"delta":{"content":"${text}"}}]}`,
+    `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+    `data: {"choices":[],"usage":{"prompt_tokens":90,"completion_tokens":30,"total_tokens":120}}`,
+    "data: [DONE]",
+  ].join("\n\n") + "\n\n";
+
+/** Adapter over scripted SSE responses plus the workspace tool services. */
+interface AgenticFixture {
+  readonly httpClient: HttpClient.HttpClient;
+  readonly requests: ReadonlyArray<CapturedRequest>;
+}
+
+const makeAgenticFixture = (scripts: ReadonlyArray<string>): AgenticFixture => {
+  const { httpClient, requests } = makeMultiScriptClient(scripts);
+  return { httpClient, requests };
+};
+
+// The provide wraps the whole gen so the workspace/process tags the
+// toolServices are read from resolve inside the agentic layer, not the
+// ambient (empty) test environment.
+const makeAgenticAdapter = (fixture: AgenticFixture) =>
+  Effect.gen(function* () {
+    return yield* makeApiAdapter({
+      provider: PROVIDER,
+      instanceId: INSTANCE_ID,
+      baseUrl: "https://example.invalid/v1",
+      apiKey: "key",
+      defaultModel: "test/default-model",
+      toolServices: {
+        workspaceFileSystem: yield* WorkspaceFileSystem.WorkspaceFileSystem,
+        workspaceEntries: yield* WorkspaceEntries.WorkspaceEntries,
+        processRunner: yield* ProcessRunner.ProcessRunner,
+      },
+    });
+  }).pipe(Effect.provide(makeAgenticLayer(fixture.httpClient)));
+
+it.layer(Layer.empty, { excludeTestServices: true })("ApiAdapter native agent loop", (it) => {
+  const startAgenticSession = (
+    adapter: ApiProviderAdapter,
+    input: { cwd?: string; approvalPolicy?: "untrusted"; sandboxMode?: "read-only" } = {},
+  ) =>
+    adapter.startSession({
+      threadId: THREAD_ID,
+      runtimeMode: "full-access",
+      cwd: input.cwd ?? "/tmp",
+      ...(input.approvalPolicy ? { approvalPolicy: input.approvalPolicy } : {}),
+      ...(input.sandboxMode ? { sandboxMode: input.sandboxMode } : {}),
+    });
+
+  const drainUntilCompleted = function* (started: { readonly turnId: import("@rune/contracts").TurnId }, queue: Queue.Queue<ProviderRuntimeEvent>) {
+    const events: Array<ProviderRuntimeEvent> = [];
+    while (true) {
+      const event = yield* Queue.take(queue);
+      events.push(event);
+      if (event.type === "turn.completed" && event.turnId === started.turnId) break;
+    }
+    return events;
+  };
+
+  const findPayload = <K extends ProviderRuntimeEvent["type"]>(
+    events: ReadonlyArray<ProviderRuntimeEvent>,
+    kind: K,
+  ): Extract<ProviderRuntimeEvent, { type: K }> | undefined =>
+    events.find((event): event is Extract<ProviderRuntimeEvent, { type: K }> => event.type === kind);
+
+  it.effect("runs a tool round-trip through sendTurn and completes the turn", () => {
+    const fixture = makeAgenticFixture([
+      toolCallChunk("read_file", '{"path": "hello.txt"}'),
+      textChunk("done"),
+    ]);
+    // The layer provides FileSystem/Path for the temp workspace below.
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "rune-api-adapter-" });
+      yield* fileSystem.writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n").pipe(Effect.orDie);
+
+      const adapter = yield* makeAgenticAdapter(fixture);
+      yield* startAgenticSession(adapter, { cwd });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "read hello.txt" });
+      const events = yield* drainUntilCompleted(started, queue);
+
+      const completed = findPayload(events, "turn.completed");
+      expect(completed?.payload).toMatchObject({ state: "completed" });
+
+      // read_file is a read-only tool: no approval request opens for it.
+      expect(events.some((event) => event.type === "request.opened")).toBe(false);
+      const deltas = events.flatMap((event) =>
+        event.type === "content.delta" ? [event.payload.delta] : [],
+      );
+      expect(deltas.join("")).toBe("done");
+
+      const usageEvent = findPayload(events, "thread.token-usage.updated");
+      expect(usageEvent?.payload.usage).toMatchObject({ usedTokens: 120 });
+
+      expect(fixture.requests).toHaveLength(2);
+      const secondMessages =
+        (fixture.requests[1]?.body as { messages?: Array<Record<string, unknown>> } | undefined)
+          ?.messages ?? [];
+      expect(secondMessages.some((message) => message.role === "tool")).toBe(true);
+    }).pipe(Effect.provide(makeAgenticLayer(fixture.httpClient)));
   });
+
+  it.effect("gates bash behind an approval request and runs it on accept", () =>
+    Effect.gen(function* () {
+      const fixture = makeAgenticFixture([
+        toolCallChunk("bash", '{"command": "echo hi"}'),
+        textChunk("ok"),
+      ]);
+      capturedProcessRuns.length = 0;
+
+      const adapter = yield* makeAgenticAdapter(fixture);
+      yield* startAgenticSession(adapter, { approvalPolicy: "untrusted" });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "run echo hi" });
+
+      let openedRequestId: ApprovalRequestId | undefined;
+      const events: Array<ProviderRuntimeEvent> = [];
+      while (true) {
+        const event = yield* Queue.take(queue);
+        events.push(event);
+        if (event.type === "request.opened" && !openedRequestId) {
+          openedRequestId = event.requestId ?? undefined;
+          yield* adapter.respondToRequest(THREAD_ID, event.requestId!, "accept");
+        }
+        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
+      }
+
+      expect(openedRequestId).toBeDefined();
+      const opened = findPayload(events, "request.opened");
+      expect(opened?.payload.requestType).toBe("command_execution_approval");
+      const resolved = findPayload(events, "request.resolved");
+      expect(resolved?.payload.decision).toBe("accept");
+
+      const completed = findPayload(events, "turn.completed");
+      expect(completed?.payload).toMatchObject({ state: "completed" });
+      // The gated bash actually ran through the process runner on accept.
+      expect(capturedProcessRuns).toHaveLength(1);
+    }));
+
+  it.effect("reports a denied gated tool back to the model", () =>
+    Effect.gen(function* () {
+      const fixture = makeAgenticFixture([
+        toolCallChunk("edit_file", '{"path": "a.txt", "oldText": "x", "newText": "y"}'),
+        textChunk("ok"),
+      ]);
+
+      const adapter = yield* makeAgenticAdapter(fixture);
+      yield* startAgenticSession(adapter, { approvalPolicy: "untrusted" });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "edit a.txt" });
+
+      const events: Array<ProviderRuntimeEvent> = [];
+      let responded = false;
+      while (true) {
+        const event = yield* Queue.take(queue);
+        events.push(event);
+        if (event.type === "request.opened" && !responded) {
+          responded = true;
+          yield* adapter.respondToRequest(THREAD_ID, event.requestId!, "decline");
+        }
+        if (event.type === "turn.completed" && event.turnId === started.turnId) break;
+      }
+
+      const resolved = findPayload(events, "request.resolved");
+      expect(resolved?.payload.decision).toBe("decline");
+      const completed = findPayload(events, "turn.completed");
+      expect(completed?.payload).toMatchObject({ state: "completed" });
+
+      // The model saw the denial observation and wrapped up with text.
+      expect(fixture.requests.length).toBeGreaterThanOrEqual(2);
+      const secondMessages =
+        (fixture.requests[1]?.body as { messages?: Array<Record<string, unknown>> } | undefined)
+          ?.messages ?? [];
+      const toolResult = secondMessages.find((message) => message.role === "tool");
+      expect(String(toolResult?.content)).toContain("user denied edit_file");
+    }));
+
+  it.effect("offers no gated tools when the session is read-only", () =>
+    Effect.gen(function* () {
+      const fixture = makeAgenticFixture([textChunk("readonly")]);
+
+      const adapter = yield* makeAgenticAdapter(fixture);
+      yield* startAgenticSession(adapter, { sandboxMode: "read-only" });
+      const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "hi" });
+      yield* drainUntilCompleted(started, queue);
+
+      const names = (
+        (fixture.requests[0]?.body as { tools?: Array<{ function: { name: string } }> } | undefined)
+          ?.tools ?? []
+      ).map((tool) => tool.function.name);
+      expect(names).not.toContain("edit_file");
+      expect(names).not.toContain("bash");
+    }));
 });

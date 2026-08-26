@@ -237,15 +237,15 @@
 }
 
 /* ─── Custom utilities ──────────────────────────────────────────────── */
-@utility font-t3-medium {
+@utility font-rune-medium {
   font-family: var(--font-medium);
 }
 
-@utility font-t3-bold {
+@utility font-rune-bold {
   font-family: var(--font-bold);
 }
 
-@utility font-t3-extrabold {
+@utility font-rune-extrabold {
   font-family: var(--font-bold);
   font-weight: 800;
 }

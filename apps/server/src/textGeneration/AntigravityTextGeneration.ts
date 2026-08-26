@@ -8,10 +8,10 @@ import {
   type AntigravitySettings,
   TextGenerationError,
   type ModelSelection,
-} from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
-import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+} from "@rune/contracts";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@rune/shared/git";
+import { getModelSelectionStringOptionValue } from "@rune/shared/model";
+import { resolveSpawnCommand } from "@rune/shared/shell";
 
 import * as TextGeneration from "./TextGeneration.ts";
 import {

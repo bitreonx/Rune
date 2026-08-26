@@ -1,6 +1,6 @@
 # Remote Architecture
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+> For maintainers. Using RUNE? See [docs/user](../user/).
 
 Remote environments are shipped, not planned. Direct, bearer-paired, relay-tunneled, Tailscale, and
 desktop-managed SSH access all exist today. This document describes the model they share and where
@@ -54,7 +54,7 @@ control plane or a copy of session state.
 | ------------------------- | ------------------------------------------------------------------------ |
 | `PrimaryConnectionTarget` | The platform-managed local server (desktop backend, CLI-served web app). |
 | `BearerConnectionTarget`  | Any manually paired endpoint reached over direct HTTP/WebSocket.         |
-| `RelayConnectionTarget`   | Managed T3 Connect relay tunnels.                                        |
+| `RelayConnectionTarget`   | Managed RUNE Connect relay tunnels.                                        |
 | `SshConnectionTarget`     | Desktop-managed SSH environments.                                        |
 
 Bearer, relay, and SSH are persisted; primary is platform-managed. Note that Tailscale is not a
@@ -97,7 +97,7 @@ model: core owns environments, pairing, and connection lifecycle, and providers 
 Tailscale is the first provider, and T3 manages more than discovery. When `tailscaleServeEnabled` is
 set, the server acquires a Tailscale serve mapping for its actual listening port at startup with
 `ensureTailscaleServe` and releases it with `disableTailscaleServe` on scope close
-(`apps/server/src/server.ts`, using [`@t3tools/tailscale`](../../packages/tailscale/src/tailscale.ts)).
+(`apps/server/src/server.ts`, using [`@rune/tailscale`](../../packages/tailscale/src/tailscale.ts)).
 Endpoint identifiers are synthesized in `apps/desktop/src/backend/tailscaleEndpointProvider.ts` with
 `private-network` reachability.
 
@@ -106,7 +106,7 @@ Endpoint identifiers are synthesized in `apps/desktop/src/backend/tailscaleEndpo
 A hosted pairing request is a bootstrap URL for the static web app, not a transport:
 
 ```text
-https://app.t3.codes/pair?host=https://backend.example.com:3773#token=PAIRCODE
+https://app.rune.dev/pair?host=https://backend.example.com:3773#token=PAIRCODE
 ```
 
 The hosted app reads `host`, takes the token from the URL hash, exchanges it directly with that
@@ -142,12 +142,12 @@ are part of it: a hosted HTTPS client cannot connect to plain `ws://` or `http:/
 
 ### Relay-tunneled access
 
-Managed T3 Connect relay tunnels use `RelayConnectionTarget` and are the answer when the host is
+Managed RUNE Connect relay tunnels use `RelayConnectionTarget` and are the answer when the host is
 behind NAT, inbound ports are unavailable, or mobile must reach a desktop-hosted environment. From
 the client's perspective this is still an ordinary WebSocket connection; the route is mediated. The
 relay Worker only brokers credentials and a managed endpoint; application traffic then flows over
 the provisioned Cloudflare tunnel hostname for the life of the connection, not through the relay
-Worker itself. See [t3-connect.md](./t3-connect.md).
+Worker itself. See [rune-connect.md](./rune-connect.md).
 
 ### Tailscale access
 
@@ -187,7 +187,7 @@ it separate from access.
   came from SSH launch for reconnect and lifecycle UX only; that metadata never changes the protocol
   or the identity model.
 - **Client-managed local publish.** A local server is published through the relay with
-  `t3 connect link`, exposing a desktop-hosted environment to mobile without router or firewall
+  `rune connect link`, exposing a desktop-hosted environment to mobile without router or firewall
   changes.
 
 The same `ExecutionEnvironment` can be reached several of these ways. Only the launch and access
@@ -225,7 +225,7 @@ supervisor owns the resulting disconnect and reconnect like any other involuntar
 These remain unbuilt and are listed to keep the model honest:
 
 - third-party tunnel products as additional endpoint providers;
-- a relay-hosted OAuth callback broker (see [t3-connect.md](./t3-connect.md));
+- a relay-hosted OAuth callback broker (see [rune-connect.md](./rune-connect.md));
 - richer multi-environment UI beyond the current connections list.
 
 [model]: ../../packages/client-runtime/src/connection/model.ts

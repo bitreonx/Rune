@@ -5,8 +5,8 @@ import {
   settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+} from "@rune/client-runtime/state/runtime";
+import { scopeProjectRef } from "@rune/client-runtime/environment";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
   deriveProjectGroupingOverrideKey,
@@ -17,12 +17,12 @@ import type {
   ModelSelection,
   ProviderDriverKind,
   SidebarProjectGroupingMode,
-  T3ProjectFileScript,
+  RuneProjectFileScript,
   ThreadEnvMode,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
-import { createModelSelection } from "@t3tools/shared/model";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { createModelSelection } from "@rune/shared/model";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@rune/shared/keybindings";
 import { useCanGoBack, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import { ChevronDownIcon, CopyIcon, PlusIcon, SettingsIcon, Trash2Icon } from "lucide-react";
@@ -43,7 +43,7 @@ import {
   usePrimarySettings,
 } from "../../hooks/useSettings";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
+import { useRuneProjectFileState } from "../../hooks/useRuneProjectFileScripts";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { keybindingValueForCommand } from "../../lib/projectScriptKeybindings";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
@@ -473,17 +473,17 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
   // from the same snapshot would drop each other's changes. One at a time.
   const [isSavingScripts, setIsSavingScripts] = useState(false);
   const savingScriptsRef = useRef(false);
-  const t3File = useT3ProjectFileState(
+  const runeFile = useRuneProjectFileState(
     selectedCheckout.environmentId,
     selectedCheckout.workspaceRoot,
   );
   // What the "Default" option resolves to while no override is set: the
-  // repo's t3.json value when present, otherwise the global setting.
-  const inheritedEnvMode = t3File.file?.defaultThreadEnvMode ?? settings.defaultThreadEnvMode;
-  const inheritedEnvModeSource = t3File.file?.defaultThreadEnvMode != null ? "t3.json" : "global";
+  // repo's rune.json value when present, otherwise the global setting.
+  const inheritedEnvMode = runeFile.file?.defaultThreadEnvMode ?? settings.defaultThreadEnvMode;
+  const inheritedEnvModeSource = runeFile.file?.defaultThreadEnvMode != null ? "rune.json" : "global";
   const importableScripts = useMemo(
     () =>
-      t3File.scripts.filter(
+      runeFile.scripts.filter(
         (fileScript) =>
           !scripts.some(
             (script) =>
@@ -491,7 +491,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
               script.name.toLowerCase() === fileScript.name.toLowerCase(),
           ),
       ),
-    [scripts, t3File.scripts],
+    [scripts, runeFile.scripts],
   );
 
   const persistScripts = useCallback(
@@ -625,7 +625,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
   );
 
   const importFileScript = useCallback(
-    async (fileScript: T3ProjectFileScript) => {
+    async (fileScript: RuneProjectFileScript) => {
       const payload: NewProjectScriptInput = {
         name: fileScript.name,
         command: fileScript.command,
@@ -867,7 +867,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
           />
           <SettingsRow
             title="Workspace"
-            description="Where new threads in this project start. Overrides t3.json and the global default; applies to every checkout in this group."
+            description="Where new threads in this project start. Overrides rune.json and the global default; applies to every checkout in this group."
             resetAction={
               storedEnvMode !== null ? (
                 <SettingResetButton
@@ -899,7 +899,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                 <SelectPopup align="end" alignItemWithTrigger={false}>
                   <SelectItem value="inherit">
                     {group.memberProjects.length > 1
-                      ? "Default (each checkout's t3.json or global setting)"
+                      ? "Default (each checkout's rune.json or global setting)"
                       : `Default (${inheritedEnvModeSource}: ${resolveEnvModeLabel(inheritedEnvMode).toLowerCase()})`}
                   </SelectItem>
                   <SelectItem value="worktree">{resolveEnvModeLabel("worktree")}</SelectItem>
@@ -1042,7 +1042,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                   </MenuTrigger>
                   <MenuPopup align="end" className="w-72">
                     <MenuGroup>
-                      <MenuGroupLabel>Import from t3.json</MenuGroupLabel>
+          <MenuGroupLabel>Import from rune.json</MenuGroupLabel>
                       <p className="px-2 pb-2 text-pretty text-sm text-muted-foreground">
                         Add actions declared by this checkout without editing them first.
                       </p>
@@ -1137,10 +1137,10 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
               );
             })
           )}
-          {t3File.status === "invalid" ? (
+          {runeFile.status === "invalid" ? (
             <SettingsRow
-              title="t3.json is invalid"
-              description="A t3.json exists in this checkout but fails to parse, so every action and icon it declares is ignored. Check the JSON syntax and icon values."
+              title="rune.json is invalid"
+              description="A rune.json exists in this checkout but fails to parse, so every action and icon it declares is ignored. Check the JSON syntax and icon values."
               className="text-warning"
             />
           ) : null}

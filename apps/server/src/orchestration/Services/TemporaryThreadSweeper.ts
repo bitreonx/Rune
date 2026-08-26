@@ -30,4 +30,4 @@ export interface TemporaryThreadSweeperShape {
 export class TemporaryThreadSweeper extends Context.Service<
   TemporaryThreadSweeper,
   TemporaryThreadSweeperShape
->()("t3/orchestration/Services/TemporaryThreadSweeper") {}
+>()("@rune/server/orchestration/Services/TemporaryThreadSweeper") {}

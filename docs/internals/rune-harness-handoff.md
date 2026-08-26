@@ -45,7 +45,7 @@ An older isolated worktree exists at:
 
 Branch: `codex/rune-harness-foundation`
 
-Its implementation is uncommitted and based on the older `@t3tools/*` snapshot. It contains useful reference work in:
+Its implementation is uncommitted and based on the older `@rune/*` snapshot. It contains useful reference work in:
 
 - `apps/server/src/provider/Layers/ApiHarness.ts`
 - `apps/server/src/provider/Layers/ApiSessionState.ts`

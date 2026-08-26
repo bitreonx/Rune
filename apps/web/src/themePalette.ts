@@ -7,21 +7,19 @@ import {
   GROVE_THEME,
   IRIS_THEME,
   OCEAN_THEME,
-  T3_CHAT_THEME as LEGACY_T3_CHAT_THEME,
   THEME_COLOR_ROLES,
   type ThemeAppearance,
   type ThemeColorRole,
   type ThemeColors,
   type ThemeDefinition,
   type ThemeVariants,
-} from "@t3tools/shared/themePalettes";
+} from "@rune/shared/themePalettes";
 
 export { EMBER_THEME, GROVE_THEME, IRIS_THEME, OCEAN_THEME, THEME_COLOR_ROLES };
 export type { ThemeAppearance, ThemeColorRole, ThemeColors, ThemeDefinition, ThemeVariants };
 
-export const T3_CHAT_THEME_ID = "t3-chat" as const;
-// Keep the legacy id for stored preferences, but expose the RUNE name in the UI.
-export const T3_CHAT_THEME_LABEL = "RUNE Core";
+export const CORE_THEME_ID = "rune" as const;
+export const CORE_THEME_LABEL = "RUNE Core";
 export const GROVE_THEME_ID = "grove" as const;
 export const GROVE_THEME_LABEL = "Grove";
 export const OCEAN_THEME_ID = "ocean" as const;
@@ -31,12 +29,15 @@ export const EMBER_THEME_LABEL = "Ember";
 export const IRIS_THEME_ID = "iris" as const;
 export const IRIS_THEME_LABEL = "Iris";
 export const THEME_FILE_VERSION = 1 as const;
-export const CUSTOM_THEMES_STORAGE_KEY = "t3code:themes:v1";
-export const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
-export const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
-export const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
+export const CUSTOM_THEMES_STORAGE_KEY = "rune:themes:v1";
+export const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "rune:theme-follow-system";
+export const THEME_APPEARANCE_MODE_STORAGE_KEY = "rune:theme-appearance-mode";
+export const THEME_HALVES_STORAGE_KEY = "rune:theme-halves:v1";
 
-const LEGACY_T3_CHAT_DARK_THEME_ID = "t3-chat-dark";
+// Pre-rebrand builds stored the core palette under T3 ids; keep those
+// preferences readable through the alias table below.
+const LEGACY_T3_CHAT_DARK_THEME_ID = "rune-chat-dark";
+const LEGACY_CORE_THEME_ID = "rune-chat";
 
 export const ThemePreference = Schema.String;
 export type ThemePreference = typeof ThemePreference.Type;
@@ -61,16 +62,17 @@ const RESERVED_THEME_IDS = new Set([
   "system",
   "light",
   "dark",
-  T3_CHAT_THEME_ID,
+  CORE_THEME_ID,
   GROVE_THEME_ID,
   OCEAN_THEME_ID,
   EMBER_THEME_ID,
   IRIS_THEME_ID,
   LEGACY_T3_CHAT_DARK_THEME_ID,
-  "t3-grove",
-  "t3-ocean",
-  "t3-ember",
-  "t3-iris",
+  LEGACY_CORE_THEME_ID,
+  "rune-grove",
+  "rune-ocean",
+  "rune-ember",
+  "rune-iris",
 ]);
 
 const customThemeListeners = new Set<() => void>();
@@ -275,11 +277,12 @@ export function subscribeToCustomThemes(listener: () => void): () => void {
 // genuinely T3-branded palette keeps it. Stored preferences and mixes with the
 // old ids stay readable through this alias table.
 const LEGACY_THEME_ID_ALIASES: Readonly<Record<string, string>> = {
-  [LEGACY_T3_CHAT_DARK_THEME_ID]: T3_CHAT_THEME_ID,
-  "t3-grove": GROVE_THEME_ID,
-  "t3-ocean": OCEAN_THEME_ID,
-  "t3-ember": EMBER_THEME_ID,
-  "t3-iris": IRIS_THEME_ID,
+  [LEGACY_T3_CHAT_DARK_THEME_ID]: CORE_THEME_ID,
+  [LEGACY_CORE_THEME_ID]: CORE_THEME_ID,
+  "rune-grove": GROVE_THEME_ID,
+  "rune-ocean": OCEAN_THEME_ID,
+  "rune-ember": EMBER_THEME_ID,
+  "rune-iris": IRIS_THEME_ID,
 };
 
 function normalizeThemeId(themeId: string): string {
@@ -328,8 +331,8 @@ const RUNE_STANDARD_LIGHT_THEME_COLORS: ThemeColors = {
   textMuted: "#71717b",
   border: "#e4e4e7",
   input: "#d4d4d8",
-  focus: "#7357d7",
-  accent: "#7357d7",
+  focus: "#7C3AED",
+  accent: "#7C3AED",
   accentForeground: "#ffffff",
   secondary: "#fafafa",
   secondaryForeground: "#27272a",
@@ -344,16 +347,16 @@ const RUNE_STANDARD_LIGHT_THEME_COLORS: ThemeColors = {
   warning: "#fe9a00",
   warningForeground: "#bb4d00",
   warningSurface: "#fcf4e8",
-  update: "#7357d7",
-  updateForeground: "#6347c5",
-  updateSurface: "#eeeaff",
+  update: "#7C3AED",
+  updateForeground: "#6D28D9",
+  updateSurface: "#F5F3FF",
   accentSurface: "#f4f4f5",
   accentSurfaceForeground: "#18181b",
   messageSurface: "#f4f4f5",
   messageForeground: "#27272a",
-  messageAction: "#7357d7",
+  messageAction: "#7C3AED",
   messageActionForeground: "#ffffff",
-  messageActionHover: "#6347c5",
+  messageActionHover: "#6D28D9",
   codeBackground: "#ffffff",
   codeForeground: "#27272a",
   sidebar: "#fafafa",
@@ -366,8 +369,8 @@ const RUNE_STANDARD_LIGHT_THEME_COLORS: ThemeColors = {
   sidebarBorder: "#e4e4e7",
   terminalBackground: "#fcfcfc",
   terminalForeground: "#27272a",
-  terminalCursor: "#7357d7",
-  terminalSelection: "#ded4ff",
+  terminalCursor: "#7C3AED",
+  terminalSelection: "#DDD6FE",
   terminalScrollbar: "#d6d6d6",
   terminalScrollbarHover: "#bdbdbd",
 };
@@ -823,7 +826,9 @@ export function createVividThemeColors(
   backgroundValue: string,
   accentValue: string,
 ): ThemeColors {
-  const defaults = getDefaultThemeColors(appearance);
+  // RUNE_CORE_THEME is built with this function, so its first invocation
+  // happens before the exported constant has finished initializing.
+  const defaults = runeCoreTheme?.colors ?? ({} as ThemeColors);
   const canvasRgb = parseThemeRgbColor(
     backgroundValue,
     appearance === "dark" ? { r: 24, g: 15, b: 27 } : { r: 250, g: 245, b: 250 },
@@ -1228,10 +1233,10 @@ export function createManagedThemeColors(
 let runeCoreTheme: ThemeDefinition | undefined;
 
 export const RUNE_CORE_THEME: ThemeDefinition = {
-  id: T3_CHAT_THEME_ID,
-  label: T3_CHAT_THEME_LABEL,
+  id: CORE_THEME_ID,
+  label: CORE_THEME_LABEL,
   appearance: "light",
-  colors: createManagedThemeColors("light", "#f5f4f8", "#7357d7", {
+  colors: createManagedThemeColors("light", "#f5f4f8", "#7C3AED", {
     exactSeeds: true,
   }),
   variants: {
@@ -1245,12 +1250,13 @@ runeCoreTheme = RUNE_CORE_THEME;
 
 // Keep the import name used by existing web settings/tests while exposing the
 // new RUNE identity through the same compatibility boundary.
-export { RUNE_CORE_THEME as T3_CHAT_THEME };
+export { RUNE_CORE_THEME as CORE_THEME };
 
 /** Theme-file defaults follow the RUNE palette for the requested mode. */
 export function getDefaultThemeColors(appearance: ThemeAppearance): ThemeColors {
-  const theme = runeCoreTheme ?? LEGACY_T3_CHAT_THEME;
-  return appearance === "dark" ? theme.variants!.dark! : theme.colors;
+  const theme = runeCoreTheme;
+  if (!theme) return {} as ThemeColors;
+  return appearance === "dark" ? theme.variants?.dark ?? theme.colors : theme.colors;
 }
 
 /**
@@ -1445,9 +1451,12 @@ export function updateThemeColorFamily(
   }
 }
 
-const BUILT_IN_THEME_DEFINITIONS: ReadonlyArray<ThemeDefinition> = BUILT_IN_THEMES.map((theme) =>
-  theme.id === T3_CHAT_THEME_ID ? RUNE_CORE_THEME : theme,
-);
+// The shared package ships only the maintainer themes; the RUNE core palette
+// lives in web and leads the registry so the stock look always resolves.
+const BUILT_IN_THEME_DEFINITIONS: ReadonlyArray<ThemeDefinition> = [
+  RUNE_CORE_THEME,
+  ...BUILT_IN_THEMES,
+];
 
 export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | null {
   const themeId = themeIdFromPreference(theme);

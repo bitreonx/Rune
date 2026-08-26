@@ -1,7 +1,7 @@
 import * as Option from "effect/Option";
 import * as Arr from "effect/Array";
 import * as Schema from "effect/Schema";
-import { isBackgroundTaskActivity } from "@t3tools/client-runtime/state/subagentRuntime";
+import { isBackgroundTaskActivity } from "@rune/client-runtime/state/subagentRuntime";
 import {
   ApprovalRequestId,
   isToolLifecycleItemType,
@@ -15,7 +15,8 @@ import {
   type UserInputQuestion,
   type ThreadId,
   type TurnId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
+import { deriveAgentActivityJob } from "@rune/shared/agentActivity";
 
 import type {
   ChatMessage,
@@ -80,6 +81,8 @@ export interface WorkLogEntry {
   detail?: string;
   command?: string;
   rawCommand?: string;
+  /** Workspace files referenced by a tool, such as a file being read. */
+  filePaths?: ReadonlyArray<string>;
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
@@ -883,6 +886,33 @@ export function deriveWorkLogEntries(
   return collapseDerivedWorkLogEntries(entries);
 }
 
+/** Adapter from the shared semantic activity model to the existing timeline
+ * row contract. The technical stream remains intact underneath this view. */
+export function deriveSimplifiedWorkLogEntries(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): WorkLogEntry[] {
+  return deriveAgentActivityJob(activities).activities.map((activity) => {
+    const files = [...new Set(activity.operations.map((entry) => entry.filePath).filter(Boolean))];
+    const count = activity.operations.length;
+    const detail = activity.reasoningSummary ??
+      (files.length > 0
+        ? `${files.slice(0, 3).join(", ")}${files.length > 3 ? ` +${files.length - 3} files` : ""}`
+        : count > 1 ? `${count} operations` : undefined);
+    return {
+      id: activity.id,
+      createdAt: activity.createdAt,
+      turnId: activity.operations[0]?.rawTrace.turnId ?? null,
+      label: activity.label,
+      ...(detail ? { detail } : {}),
+      tone: activity.status === "failed" ? "error" : activity.status === "working" ? "thinking" : "info",
+      sourceActivityKind: activity.operations.at(-1)?.rawTrace.kind,
+      toolLifecycleStatus:
+        activity.status === "working" ? "inProgress" : activity.status === "failed" ? "failed" : activity.status === "done" ? "completed" : undefined,
+      toolTitle: `${activity.label} · ${count} ${count === 1 ? "operation" : "operations"}`,
+    } satisfies WorkLogEntry;
+  });
+}
+
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
   if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
     return false;
@@ -924,6 +954,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? (activity.payload as Record<string, unknown>)
       : null;
   const commandPreview = extractToolCommand(payload);
+  const filePaths = extractReferencedFiles(payload);
   const changedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
   const isTaskActivity =
@@ -974,6 +1005,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (commandPreview.rawCommand) {
     entry.rawCommand = commandPreview.rawCommand;
+  }
+  if (filePaths.length > 0) {
+    entry.filePaths = filePaths;
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
@@ -1197,6 +1231,7 @@ function mergeDerivedWorkLogEntries(
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
   const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
+  const filePaths = mergeChangedFiles(previous.filePaths, next.filePaths);
   const detail = next.detail ?? previous.detail;
   const command = next.command ?? previous.command;
   const rawCommand = next.rawCommand ?? previous.rawCommand;
@@ -1213,6 +1248,7 @@ function mergeDerivedWorkLogEntries(
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
     ...(rawCommand ? { rawCommand } : {}),
+    ...(filePaths.length > 0 ? { filePaths } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
@@ -1783,6 +1819,60 @@ function extractChangedFiles(payload: Record<string, unknown> | null): string[] 
   const seen = new Set<string>();
   collectChangedFiles(asRecord(payload?.data), changedFiles, seen, 0);
   return changedFiles;
+}
+
+function collectReferencedFiles(
+  value: unknown,
+  target: string[],
+  seen: Set<string>,
+  depth: number,
+): void {
+  if (depth > 4 || target.length >= 12) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectReferencedFiles(entry, target, seen, depth + 1);
+      if (target.length >= 12) return;
+    }
+    return;
+  }
+
+  const record = asRecord(value);
+  if (!record) return;
+
+  for (const key of ["file_path", "filePath", "relativePath", "filename", "path"]) {
+    pushChangedFile(target, seen, record[key]);
+  }
+
+  for (const nestedKey of ["file", "files", "input", "arguments", "params", "request"]) {
+    if (nestedKey in record) {
+      collectReferencedFiles(record[nestedKey], target, seen, depth + 1);
+    }
+    if (target.length >= 12) return;
+  }
+}
+
+function extractReferencedFiles(payload: Record<string, unknown> | null): string[] {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const referencedFiles: string[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of [
+    payload,
+    data?.input,
+    data?.arguments,
+    data?.rawInput,
+    item?.input,
+    item?.arguments,
+    item?.request,
+  ]) {
+    collectReferencedFiles(candidate, referencedFiles, seen, 0);
+    if (referencedFiles.length >= 12) break;
+  }
+
+  return referencedFiles;
 }
 
 function compareActivitiesByOrder(

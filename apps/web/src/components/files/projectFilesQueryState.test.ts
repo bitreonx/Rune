@@ -1,5 +1,5 @@
-import type { ProjectReadFileResult } from "@t3tools/contracts";
-import { EnvironmentId } from "@t3tools/contracts";
+import type { ProjectReadFileResult } from "@rune/contracts";
+import { EnvironmentId } from "@rune/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -8,6 +8,7 @@ import {
   getOptimisticProjectFileQueryData,
   resolveProjectFileQueryData,
   setProjectFileQueryData,
+  shouldReadProjectFile,
 } from "./projectFilesQueryState";
 
 const environmentId = EnvironmentId.make("environment-project-files-query-test");
@@ -47,5 +48,11 @@ describe("project files queries", () => {
     expect(
       confirmProjectFileQueryData(environmentId, "/repo", "convex.json", '{"nodeVersion":"22"}'),
     ).toBe(true);
+  });
+
+  it("does not issue a file read while the explorer has no selected file", () => {
+    expect(shouldReadProjectFile(null)).toBe(false);
+    expect(shouldReadProjectFile("src/index.ts")).toBe(true);
+    expect(shouldReadProjectFile("src/index.ts", false)).toBe(false);
   });
 });

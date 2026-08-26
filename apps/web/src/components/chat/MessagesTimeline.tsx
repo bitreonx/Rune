@@ -4,17 +4,17 @@ import {
   type ScopedThreadRef,
   type ServerProviderSkill,
   type TurnId,
-} from "@t3tools/contracts";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@rune/contracts";
+import { parseScopedThreadKey } from "@rune/client-runtime/environment";
+import type { AgentPanelModel } from "@rune/client-runtime/state/subagentRuntime";
 import {
   emptyAgentPanelModel,
   formatSubagentTokenCount,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@rune/client-runtime/state/subagentRuntime";
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
-import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+import { resolveChatListAnchoredEndSpace } from "@rune/shared/chatList";
 import {
   createContext,
   Fragment,
@@ -26,7 +26,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -34,6 +33,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { FileDiff } from "@pierre/diffs/react";
 import {
   deriveTimelineEntries,
+  formatElapsed,
   workEntryDisplayIndicatesToolFailure,
   workLogEntryIsToolLike,
 } from "../../session-logic";
@@ -44,6 +44,7 @@ import {
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
 import ChatMarkdown from "../ChatMarkdown";
+import { SubagentAvatar } from "../agent-chat/SubagentAvatar";
 import {
   BotIcon,
   CheckIcon,
@@ -71,6 +72,7 @@ import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImage
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import {
+  changedFileName,
   shouldAutoExpandChangedFiles,
   summarizeWorkEntryDiffStat,
 } from "./changedFilesPresentation";
@@ -116,7 +118,7 @@ import {
 } from "~/lib/previewAnnotation";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type TimestampFormat } from "@rune/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 
 import {
@@ -125,7 +127,11 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
-import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import {
+  formatWorkspaceRelativePath,
+  resolveWorkspaceRelativePath,
+} from "../../filePathDisplay";
+import { PierreEntryIcon } from "./PierreEntryIcon";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -155,6 +161,7 @@ interface TimelineRowSharedState {
   onDeleteUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenFile: (relativePath: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   /** Checkpoint-revert a turn; absent when the caller does not offer rewinds. */
@@ -231,6 +238,7 @@ interface MessagesTimelineProps {
   turnDiffSummaryByTurnId: Map<TurnId, TurnDiffSummary>;
   routeThreadKey: string;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenFile: (relativePath: string) => void;
   onRevertTurn?: (turnCount: number) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onEditUserMessage: (messageId: MessageId, messageText: string) => void;
@@ -279,6 +287,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   turnDiffSummaryByTurnId,
   routeThreadKey,
   onOpenTurnDiff,
+  onOpenFile,
   onRevertTurn,
   revertTurnCountByUserMessageId,
   onEditUserMessage,
@@ -548,6 +557,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onDeleteUserMessage,
       onImageExpand,
       onOpenTurnDiff,
+      onOpenFile,
       onToggleTurnFold,
       onToggleWorkGroup,
       ...(onRevertTurn ? { onRevertTurn } : {}),
@@ -567,6 +577,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onDeleteUserMessage,
       onImageExpand,
       onOpenTurnDiff,
+      onOpenFile,
       onToggleTurnFold,
       onToggleWorkGroup,
       onRevertTurn,
@@ -983,6 +994,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "work" ||
                   row.kind === "work-live" ||
                   row.kind === "work-toggle" ||
+                  row.kind === "reasoning" ||
                   row.kind === "turn-plan"
                 ? "pb-2"
                 : "pb-4",
@@ -1009,6 +1021,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "turn-plan" ? <TurnPlanTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
+      {row.kind === "reasoning" ? <ReasoningTimelineRow row={row} /> : null}
     </div>
   );
 });
@@ -1401,7 +1414,55 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
 }
 
 // ---------------------------------------------------------------------------
-// Self-ticking labels — update their own text nodes so elapsed-time display
+// Reasoning rows — the provider's thinking text. Streams as a muted plain-text
+// tail while the segment is open, collapses into a "Thought for Ns" expander
+// once it settles. Plain text by design (v1): reasoning is scratchpad, not
+// prose, and markdown parsing per delta would burn main-thread time.
+// ---------------------------------------------------------------------------
+
+/** Live tail length cap — show recent thinking, not the whole block so far. */
+const REASONING_LIVE_TAIL_CHARS = 220;
+
+function ReasoningTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "reasoning" }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = row.message.text ?? "";
+
+  if (row.message.streaming) {
+    const tail =
+      text.length > REASONING_LIVE_TAIL_CHARS ? text.slice(-REASONING_LIVE_TAIL_CHARS) : text;
+    return (
+      <div className="min-w-0 px-1 py-0.5">
+        <p className="line-clamp-3 min-w-0 whitespace-pre-wrap break-words text-[13px] leading-5 text-muted-foreground/60">
+          {tail}
+        </p>
+      </div>
+    );
+  }
+
+  const duration = formatElapsed(row.message.createdAt, row.message.updatedAt);
+  const Chevron = expanded ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <div className="min-w-0 px-1 py-0.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        data-scroll-anchor-ignore
+        onClick={() => setExpanded((value) => !value)}
+        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 py-0.5 text-[12px] leading-5 text-muted-foreground/65 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      >
+        <span>Thought{duration === null ? "" : ` for ${duration}`}</span>
+        <Chevron className="size-3.5" />
+      </button>
+      {expanded ? (
+        <div className="mt-0.5 max-h-64 overflow-y-auto pl-2 pr-1" data-reasoning-text="">
+          <p className="min-w-0 whitespace-pre-wrap break-words text-[13px] leading-5 text-muted-foreground/70">
+            {text}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 // does not create a React commit every second while a response is streaming.
 // ---------------------------------------------------------------------------
 
@@ -1765,6 +1826,7 @@ function AssistantChangedFilesSectionInner({
       }
       onToggleAllDirectories={() => setAllDirectoriesExpanded((current) => !current)}
       onOpenTurnDiff={onOpenTurnDiff}
+      onOpenFile={shared.onOpenFile}
       environmentId={threadRef.environmentId}
       threadId={threadRef.threadId}
       checkpointTurnCount={turnSummary.checkpointTurnCount}
@@ -2644,20 +2706,29 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
 
   // One steady in-flight presentation (monitoring-pill rule): waiting and
   // stalled agents read as working; only settled states differentiate.
-  const working = running + waiting;
-  const dotClass = live ? "bg-info" : failed > 0 ? "bg-destructive" : "bg-success";
-  const lead = live
-    ? `Kicked off ${agentCount} subagent${agentCount === 1 ? "" : "s"}`
-    : `Ran ${agentCount} subagent${agentCount === 1 ? "" : "s"}`;
+  const singleAgent = agents.length === 1 ? agents[0] : undefined;
+  const singleAgentName = singleAgent ? (singleAgent.generatedName || singleAgent.title) : undefined;
+  const lead = singleAgentName
+    ? live
+      ? `Dispatched ${singleAgentName}`
+      : `${singleAgentName} completed`
+    : live
+      ? `Kicked off ${agentCount} subagent${agentCount === 1 ? "" : "s"}`
+      : `Ran ${agentCount} subagent${agentCount === 1 ? "" : "s"}`;
   const status = live
     ? livePhase
       ? `${livePhase.title} · ${livePhase.activeCount} working`
-      : working > 0
-        ? `${working} working`
+      : running > 0
+        ? `${running} working`
         : "working"
     : failed > 0
       ? `${failed} failed`
       : "✓ completed";
+  const dotClass = live
+    ? "bg-sky-500"
+    : failed > 0
+      ? "bg-destructive"
+      : "bg-muted-foreground/60";
 
   return (
     <button
@@ -2666,7 +2737,16 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
       className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
-      <WorkEntryIconSvg name="bot" className="size-3.5 shrink-0 text-muted-foreground" />
+      {singleAgent ? (
+        <SubagentAvatar
+          iconName={singleAgent.iconName}
+          iconColor={singleAgent.iconColor}
+          className="size-4.5 rounded-xs"
+          iconClassName="size-2.5"
+        />
+      ) : (
+        <WorkEntryIconSvg name="bot" className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
       <span className="min-w-0 truncate">
         <span className="font-medium">{lead}</span>
         {workflowName ? <span className="text-muted-foreground"> · {workflowName}</span> : null}
@@ -2701,6 +2781,65 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   );
 });
 
+const WORK_ENTRY_FILE_PREVIEW_LIMIT = 3;
+
+function WorkEntryFileChips({
+  filePaths,
+  workspaceRoot,
+  resolvedTheme,
+  onOpenFile,
+}: {
+  filePaths: ReadonlyArray<string>;
+  workspaceRoot: string | undefined;
+  resolvedTheme: "light" | "dark";
+  onOpenFile: (relativePath: string) => void;
+}) {
+  if (filePaths.length === 0) return null;
+  const visibleFiles = filePaths.slice(0, WORK_ENTRY_FILE_PREVIEW_LIMIT);
+
+  return (
+    <div className="ms-7 flex flex-wrap items-center gap-1 pb-0.5" data-work-file-links="true">
+      {visibleFiles.map((filePath) => {
+        const fileName = changedFileName(filePath);
+        const displayPath = formatWorkspaceRelativePath(filePath, workspaceRoot);
+        return (
+          <Tooltip key={filePath}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  data-file-path={filePath}
+                  aria-label={`Open file ${fileName}`}
+                  className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/65 bg-background/50 px-1.5 py-1 text-left font-mono text-[10px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenFile(resolveWorkspaceRelativePath(filePath, workspaceRoot));
+                  }}
+                  onPointerDown={stopRowToggle}
+                />
+              }
+            >
+              <PierreEntryIcon
+                pathValue={filePath}
+                kind="file"
+                theme={resolvedTheme}
+                className="size-3 shrink-0 text-muted-foreground/75"
+              />
+              <span className="truncate">{fileName}</span>
+            </TooltipTrigger>
+            <TooltipPopup side="top">{displayPath}</TooltipPopup>
+          </Tooltip>
+        );
+      })}
+      {filePaths.length > visibleFiles.length ? (
+        <span className="px-1 text-[10px] text-muted-foreground/70">
+          +{filePaths.length - visibleFiles.length} more
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
@@ -2714,7 +2853,13 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
   const entryIconName =
     showWarningIndicator || showFailedIndicator ? "x" : workEntryIconName(workEntry);
-  const displayText = workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry);
+  const filePaths = [
+    ...new Set([...(workEntry.filePaths ?? []), ...(workEntry.changedFiles ?? [])]),
+  ];
+  const displayText =
+    filePaths.length > 0
+      ? toolWorkEntryHeading(workEntry)
+      : (workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry));
   // Edit rows expand into the real file diff instead of the raw tool payload.
   const turnSummary =
     workEntry.turnId != null ? shared.turnDiffSummaryByTurnId.get(workEntry.turnId) : undefined;
@@ -2755,75 +2900,78 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const accessibleDisplayText = showFailedIndicator
     ? `${displayText}, tool call failed`
     : displayText;
-  const rowToggleProps = canExpand
-    ? {
-        role: "button" as const,
-        tabIndex: 0 as const,
-        "aria-label": accessibleDisplayText,
-        "aria-expanded": expanded,
-        onClick: () => setExpanded((v) => !v),
-        onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpanded((v) => !v);
-          }
-        },
-      }
-    : {};
+  const mainRow = (
+    <span className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
+      <span
+        className={cn(iconWrapperClass, !showEntryIcon && "invisible")}
+        role={showFailedIndicator ? "img" : undefined}
+        aria-label={showFailedIndicator ? "Tool call failed" : undefined}
+        aria-hidden={!showEntryIcon}
+      >
+        <WorkEntryIconSvg
+          name={entryIconName}
+          className="block size-4 shrink-0 stroke-[1.8] opacity-70"
+        />
+      </span>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="min-w-0 flex-1 overflow-hidden">
+          <span className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
+            <span className={cn("min-w-0 flex-1 truncate", headingClass)}>{displayText}</span>
+            {entryDiffStat ? (
+              <span className="shrink-0 text-[11px]">
+                <DiffStatLabel
+                  additions={entryDiffStat.additions}
+                  deletions={entryDiffStat.deletions}
+                  layout="inline"
+                />
+              </span>
+            ) : null}
+          </span>
+        </span>
+        <span
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center",
+            !canExpand && "invisible",
+          )}
+          aria-hidden
+        >
+          <ChevronDownIcon
+            className={cn(
+              "size-3 shrink-0 text-icon-muted opacity-70 transition-transform duration-200",
+              expanded && "rotate-180",
+            )}
+          />
+        </span>
+      </span>
+    </span>
+  );
 
   return (
     <div
       className={cn(
         "flex flex-col rounded-md px-0.5 transition-colors",
         isExpandedToolGroupEntry ? "py-0" : "py-0.5",
-        canExpand &&
-          "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
       )}
-      {...rowToggleProps}
     >
-      <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
-        <span
-          className={cn(iconWrapperClass, !showEntryIcon && "invisible")}
-          role={showFailedIndicator ? "img" : undefined}
-          aria-label={showFailedIndicator ? "Tool call failed" : undefined}
-          aria-hidden={!showEntryIcon}
+      {canExpand ? (
+        <button
+          type="button"
+          className="w-full cursor-pointer rounded-md text-left hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          aria-label={accessibleDisplayText}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
         >
-          <WorkEntryIconSvg
-            name={entryIconName}
-            className="block size-4 shrink-0 stroke-[1.8] opacity-70"
-          />
-        </span>
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
-              <span className={cn("min-w-0 flex-1 truncate", headingClass)}>{displayText}</span>
-              {entryDiffStat ? (
-                <span className="shrink-0 text-[11px]">
-                  <DiffStatLabel
-                    additions={entryDiffStat.additions}
-                    deletions={entryDiffStat.deletions}
-                    layout="inline"
-                  />
-                </span>
-              ) : null}
-            </p>
-          </div>
-          <span
-            className={cn(
-              "flex size-4 shrink-0 items-center justify-center",
-              !canExpand && "invisible",
-            )}
-            aria-hidden
-          >
-            <ChevronDownIcon
-              className={cn(
-                "size-3 shrink-0 text-icon-muted opacity-70 transition-transform duration-200",
-                expanded && "rotate-180",
-              )}
-            />
-          </span>
-        </div>
-      </div>
+          {mainRow}
+        </button>
+      ) : (
+        mainRow
+      )}
+      <WorkEntryFileChips
+        filePaths={filePaths}
+        workspaceRoot={workspaceRoot}
+        resolvedTheme={shared.resolvedTheme}
+        onOpenFile={shared.onOpenFile}
+      />
       {expanded && canExpand ? (
         <div
           className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"

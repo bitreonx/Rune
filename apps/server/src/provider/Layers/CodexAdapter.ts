@@ -25,7 +25,7 @@ import {
   ProviderApprovalDecision,
   ThreadId,
   ProviderSendTurnInput,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
 import * as Exit from "effect/Exit";
@@ -39,7 +39,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
-import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { getModelSelectionStringOptionValue } from "@rune/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 
@@ -150,9 +150,27 @@ function trimText(value: string | undefined | null): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
+const FATAL_CODEX_STDERR_SNIPPETS = [
+  "failed to connect to websocket",
+  "connection refused",
+  "rate limit",
+  "rate_limit",
+  "429",
+  "request rejected (429)",
+  "free-models-per-day",
+  "add 10 credits",
+  "add credits",
+  "quota exceeded",
+  "insufficient quota",
+  "out of credits",
+  "invalid api key",
+  "unauthorized",
+  "authentication failed",
+  "forbidden (403)",
+  "payment required (402)",
+];
 
-function isFatalCodexProcessStderrMessage(message: string): boolean {
+export function isFatalCodexProcessStderrMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return FATAL_CODEX_STDERR_SNIPPETS.some((snippet) => normalized.includes(snippet));
 }
@@ -1544,7 +1562,8 @@ function mapToRuntimeEvents(
   if (event.method === "error") {
     const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
     const message = payload?.error.message ?? event.message ?? "Provider runtime error";
-    const willRetry = payload?.willRetry === true;
+    const fatal = isFatalCodexProcessStderrMessage(message);
+    const willRetry = !fatal && payload?.willRetry === true;
     return [
       {
         type: willRetry ? "runtime.warning" : "runtime.error",
@@ -1709,13 +1728,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? {
                 environment: {
                   ...(options?.environment ?? process.env),
-                  T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
+                  RUNE_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
                 appServerArgs: [
                   "-c",
-                  `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
+                  `mcp_servers.rune.url=${mcpSession.endpoint}`,
                   "-c",
-                  'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
+                  'mcp_servers.rune.bearer_token_env_var="RUNE_MCP_BEARER_TOKEN"',
                 ],
               }
             : {}),

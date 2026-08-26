@@ -2,13 +2,14 @@ import {
   OPENAI_API_DEFAULT_BASE_URL,
   OpenAiApiSettings,
   ProviderDriverKind,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 
+import { ProcessRunner } from "../../processRunner.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
@@ -25,6 +26,7 @@ export type OpenAiApiDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
   | Crypto.Crypto
   | HttpClient.HttpClient
+  | ProcessRunner
   | ServerSettingsService
   | WorkspaceEntries
   | WorkspaceFileSystem;
@@ -36,29 +38,29 @@ export const OpenAiApiDriver: ProviderDriver<OpenAiApiSettings, OpenAiApiDriverE
   defaultConfig: () => decodeSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     makeApiProviderInstance({
-      driver: DRIVER_KIND,
-      settings: { ...config, enabled },
-      instanceId,
-      displayName,
-      accentColor,
-      environment,
-      enabled,
-      defaultBaseUrl: OPENAI_API_DEFAULT_BASE_URL,
-      defaultModel: "gpt-4.1-mini",
-      apiKeyLabel: "OpenAI API Key",
-      requestHeaders: {
-        ...(config.organization ? { "OpenAI-Organization": config.organization } : {}),
-        ...(config.project ? { "OpenAI-Project": config.project } : {}),
-      },
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProviderDriverError({
-            driver: DRIVER_KIND,
-            instanceId,
-            detail: `Failed to build OpenAI API provider: ${cause instanceof Error ? cause.message : String(cause)}`,
-            cause,
-          }),
+        driver: DRIVER_KIND,
+        settings: { ...config, enabled },
+        instanceId,
+        displayName,
+        accentColor,
+        environment,
+        enabled,
+        defaultBaseUrl: OPENAI_API_DEFAULT_BASE_URL,
+        defaultModel: "gpt-4.1-mini",
+        apiKeyLabel: "OpenAI API Key",
+        requestHeaders: {
+          ...(config.organization ? { "OpenAI-Organization": config.organization } : {}),
+          ...(config.project ? { "OpenAI-Project": config.project } : {}),
+        },
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: `Failed to build OpenAI API provider: ${cause instanceof Error ? cause.message : String(cause)}`,
+              cause,
+            }),
+        ),
       ),
-    ),
 };

@@ -12,11 +12,12 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId,
+  type ApiModelCapabilities,
   type ProviderApprovalDecision,
   type ProviderApprovalPolicy,
   type ProviderSandboxMode,
   type ProviderUserInputAnswers,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -24,11 +25,10 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
-import { apiProviderEndpoint, normalizeApiProviderBaseUrl } from "@t3tools/contracts";
+import { apiProviderEndpoint, normalizeApiProviderBaseUrl } from "@rune/contracts";
 import { ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
@@ -89,6 +89,8 @@ export interface ApiAdapterOptions {
   readonly apiKey: string;
   readonly defaultModel: string;
   readonly requestHeaders?: Readonly<Record<string, string>>;
+  /** Optional protocol features explicitly advertised by this API instance. */
+  readonly apiCapabilities?: Partial<ApiModelCapabilities> | undefined;
   /** Workspace services powering the native agent loop's tools. */
   readonly toolServices?: ApiAdapterToolServices | undefined;
 }
@@ -187,24 +189,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
   const fetchJson = (operation: string, request: ReturnType<typeof HttpClientRequest.get>) =>
     makeRequest(operation, withHeaders(request));
 
-  const postJson = (operation: string, url: string, body: unknown) => {
-    let request = HttpClientRequest.post(url).pipe(HttpClientRequest.acceptJson);
-    if (options.apiKey.trim().length > 0) {
-      request = request.pipe(HttpClientRequest.bearerToken(options.apiKey.trim()));
-    }
-    for (const [name, value] of Object.entries(options.requestHeaders ?? {})) {
-      if (value.trim().length > 0) request = request.pipe(HttpClientRequest.setHeader(name, value));
-    }
-    return HttpClientRequest.bodyJson(body)(request).pipe(
-      Effect.flatMap(httpClient.execute),
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Unknown)),
-      Effect.mapError((cause) => requestError(options.provider, operation, cause)),
-    );
-  };
-
-  // Streaming variant: same envelope as postJson but hands back the live
-  // response so the SSE body can be consumed incrementally.
+  // Hands back the live response so the SSE body can be consumed incrementally.
   const postStream = (operation: string, url: string, body: unknown) => {
     let request = HttpClientRequest.post(url).pipe(HttpClientRequest.acceptJson);
     if (options.apiKey.trim().length > 0) {
@@ -382,6 +367,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
           workspaceInstructions: context.workspaceInstructions,
           sandboxReadOnly: context.sandboxMode === "read-only",
           toolsOverride: offeredTools,
+          apiCapabilities: options.apiCapabilities,
         },
       );
 

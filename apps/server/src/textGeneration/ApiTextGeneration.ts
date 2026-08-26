@@ -8,9 +8,9 @@ import {
   type ModelSelection,
   type OpenAiApiSettings,
   type OpenRouterSettings,
-} from "@t3tools/contracts";
-import { extractJsonObject } from "@t3tools/shared/schemaJson";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+} from "@rune/contracts";
+import { extractJsonObject } from "@rune/shared/schemaJson";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@rune/shared/git";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,

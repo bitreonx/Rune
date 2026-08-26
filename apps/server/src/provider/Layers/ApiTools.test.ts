@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessPlatform } from "@rune/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -13,7 +13,7 @@ import * as ProcessRunner from "../../processRunner.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "../../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
-import { GATED_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
+import { GATED_TOOLS, SAFE_TOOLS } from "./ApiTools.ts";
 
 const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
 
@@ -60,7 +60,7 @@ const TestLayer = Layer.empty.pipe(
 const makeContext = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3code-api-tools-" });
+  const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "rune-api-tools-" });
   yield* fileSystem
     .writeFileString(path.join(cwd, "hello.txt"), "line1\nline2\n")
     .pipe(Effect.orDie);
@@ -143,25 +143,35 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
 
   describe("tool definitions", () => {
     it("every safe tool def is fully described", () => {
-      expect(SAFE_TOOLS.map((tool) => tool.name)).toEqual(["read_file", "list_dir", "search"]);
+      // Compound read tools from ApiWorkspaceTools lead, base tools follow.
+      expect(SAFE_TOOLS.map((tool) => tool.name)).toEqual([
+        "workspace_snapshot",
+        "search_many",
+        "read_many",
+        "read_file",
+        "list_dir",
+        "search",
+      ]);
       for (const def of SAFE_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
-        expect(
-          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
-            .length,
-        ).toBeGreaterThan(0);
+        // Zero-arg tools like workspace_snapshot legitimately have empty properties.
+        expect((def.parametersJsonSchema as { type?: string }).type).toBe("object");
         expect(def.requiresApproval).toBe(false);
       }
     });
 
     it("every gated tool def is fully described and requires approval", () => {
-      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual(["edit_file", "bash"]);
+      // Compound mutation tools from ApiWorkspaceTools lead, base tools follow.
+      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual([
+        "apply_patch",
+        "generate_files",
+        "run_checks",
+        "edit_file",
+        "bash",
+      ]);
       for (const def of GATED_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
-        expect(
-          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
-            .length,
-        ).toBeGreaterThan(0);
+        expect((def.parametersJsonSchema as { type?: string }).type).toBe("object");
         expect(def.requiresApproval).toBe(true);
       }
     });

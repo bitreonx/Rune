@@ -2,9 +2,9 @@ import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
 } from "@pierre/trees";
-import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectEntry } from "@rune/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
 import { RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
@@ -18,8 +18,9 @@ import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
-import { T3_PIERRE_ICONS } from "~/pierre-icons";
+import { RUNE_PIERRE_ICONS } from "~/pierre-icons";
 
+import { fileTreeAreaState } from "./fileTreeArea";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { FileTreeTruncationFooter } from "./FileTreeTruncationFooter";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
@@ -120,6 +121,14 @@ export default function FileBrowserPanel({
     key: `workspace-files:${environmentId}:${cwd}`,
   });
   const entries = entriesQuery.data?.entries ?? [];
+  // Until the first listing lands the tree would render zero rows; say so
+  // instead of showing a silently blank panel while the walk (or an
+  // environment reconnect) is still in flight.
+  const treeArea = fileTreeAreaState({
+    pending: entriesQuery.isPending,
+    error: entriesQuery.error,
+    hasData: entriesQuery.data !== null,
+  });
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
     [entries],
@@ -233,7 +242,7 @@ export default function FileBrowserPanel({
     fileTreeSearchMode: "hide-non-matches",
     flattenEmptyDirectories: true,
     initialExpansion: 1,
-    icons: T3_PIERRE_ICONS,
+    icons: RUNE_PIERRE_ICONS,
     onSelectionChange: (selectedPaths) => {
       // The drag controller's selection cache must track every change,
       // including reveal-driven ones, or drags act on a stale selection.
@@ -377,8 +386,16 @@ export default function FileBrowserPanel({
           onClose={search.close}
         />
       </div>
-      {entriesQuery.error && entriesQuery.data === null ? (
-        <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>
+      {treeArea.kind === "error" ? (
+        <div className="p-4 text-xs leading-relaxed text-destructive">{treeArea.message}</div>
+      ) : treeArea.kind === "loading" ? (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center gap-2 pb-16 text-xs text-muted-foreground"
+          data-file-tree-loading
+        >
+          <RotateCw className="size-3.5 animate-spin" aria-hidden />
+          Loading {projectName} files…
+        </div>
       ) : (
         <FileTree
           model={model}

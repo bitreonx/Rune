@@ -1,15 +1,15 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { scopeThreadRef } from "@rune/client-runtime/environment";
+import type { ScopedThreadRef } from "@rune/contracts";
+import type { EnvironmentThreadShell } from "@rune/client-runtime/state/models";
 import {
   detectThreadSoundEvents,
   type ThreadSoundEvent,
   type ThreadSoundEventKind,
-} from "@t3tools/client-runtime/state/sound-events";
+} from "@rune/client-runtime/state/sound-events";
 import {
   resolveOsNotificationPermission,
   shouldShowOsNotification,
-} from "@t3tools/client-runtime/sound/notification-gate";
+} from "@rune/client-runtime/sound/notification-gate";
 import { useEffect, useRef } from "react";
 
 import { useThreadShells } from "../state/entities";

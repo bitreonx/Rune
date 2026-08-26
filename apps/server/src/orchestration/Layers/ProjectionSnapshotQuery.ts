@@ -25,7 +25,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -431,6 +431,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           temporary_at AS "temporaryAt",
+          temporary_deletion_snoozed_until AS "temporaryDeletionSnoozedUntil",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
@@ -468,6 +469,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           temporary_at AS "temporaryAt",
+          temporary_deletion_snoozed_until AS "temporaryDeletionSnoozedUntil",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
@@ -507,6 +509,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           temporary_at AS "temporaryAt",
+          temporary_deletion_snoozed_until AS "temporaryDeletionSnoozedUntil",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
@@ -950,6 +953,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
           temporary_at AS "temporaryAt",
+          temporary_deletion_snoozed_until AS "temporaryDeletionSnoozedUntil",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
@@ -2052,6 +2056,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       snoozedUntil: row.snoozedUntil,
                       snoozedAt: row.snoozedAt,
                       temporaryAt: row.temporaryAt,
+                      temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil ?? null,
                       pinnedAt: row.pinnedAt,
                       pinOrderKey: row.pinOrderKey ?? null,
                       titleRegeneration: mapTitleRegeneration(row),

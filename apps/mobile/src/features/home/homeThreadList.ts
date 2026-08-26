@@ -2,24 +2,24 @@ import {
   buildProjectGroups,
   derivePhysicalProjectKey,
   deriveProjectGroupLabel,
-} from "@t3tools/client-runtime/state/project-grouping";
+} from "@rune/client-runtime/state/project-grouping";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+} from "@rune/client-runtime/state/shell";
 import {
   getThreadSortTimestamp,
   sortThreads,
   toSortableTimestamp,
-} from "@t3tools/client-runtime/state/thread-sort";
-import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+} from "@rune/client-runtime/state/thread-sort";
+import { threadSearchMatchKey } from "@rune/client-runtime/state/thread-search";
 import type {
   EnvironmentId,
   ScopedProjectRef,
   SidebarProjectGroupingMode,
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";

@@ -6,7 +6,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   type UnifiedSettings,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { visitElements } from "../../test/reactElementTree";
@@ -64,6 +64,10 @@ vi.mock("../../state/server", () => ({
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: (atom: symbol) =>
     atom === atoms.refreshProviders ? commands.refresh : commands.updateProvider,
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock("../../hooks/useSettings", () => ({

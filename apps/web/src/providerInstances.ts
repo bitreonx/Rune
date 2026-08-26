@@ -24,7 +24,7 @@ import {
   type ServerProviderModel,
   type ServerSettings,
   type ServerProviderState,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import {
   OPENROUTER_LOGO_URL,
@@ -39,7 +39,7 @@ import { formatProviderDriverKindLabel } from "./providerModels";
  * send until a live provider replaces it.
  */
 export const NO_PROVIDER_MODEL_SELECTION: ModelSelection = {
-  instanceId: ProviderInstanceId.make("t3code_no_provider"),
+  instanceId: ProviderInstanceId.make("rune_no_provider"),
   model: "",
 };
 
@@ -142,6 +142,37 @@ export function normalizeProviderAccentColor(value: string | undefined): string 
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
   return /^#[0-9a-fA-F]{6}$/u.test(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * Give each user-created Codex instance a private auth home. Codex can share
+ * its read-only/config state through the normal home while keeping
+ * `auth.json` isolated, which makes “add another Codex account” behave like a
+ * real account instance instead of silently reusing the first login.
+ */
+export function withIsolatedProviderInstanceConfig(
+  driver: ProviderDriverKind,
+  instanceId: ProviderInstanceId,
+  config: unknown,
+  options: { readonly overwriteExisting?: boolean } = {},
+): Record<string, unknown> {
+  const baseConfig: Readonly<Record<string, unknown>> =
+    typeof config === "object" && config !== null && !Array.isArray(config)
+      ? (config as Readonly<Record<string, unknown>>)
+      : {};
+  if (String(driver) !== "codex") return { ...baseConfig };
+  const existingShadowHomePath = baseConfig.shadowHomePath;
+  if (
+    options.overwriteExisting !== true &&
+    typeof existingShadowHomePath === "string" &&
+    existingShadowHomePath.trim().length > 0
+  ) {
+    return { ...baseConfig };
+  }
+  return {
+    ...baseConfig,
+    shadowHomePath: `~/.codex-rune/instances/${String(instanceId)}`,
+  };
 }
 
 /**

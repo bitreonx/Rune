@@ -1,4 +1,12 @@
-export type SoundEventId = "done" | "needs-input" | "error" | "click";
+export type SoundEventId =
+  | "done"
+  | "needs-input"
+  | "error"
+  | "click"
+  | "switch-on"
+  | "switch-off"
+  | "copy"
+  | "sent";
 
 /**
  * Per-device sound preferences. Deliberately local-only state: speakers,
@@ -11,6 +19,11 @@ export interface SoundPreferences {
   /** 0..1, applied to every effect. */
   readonly volume: number;
   readonly events: Readonly<Record<SoundEventId, boolean>>;
+  /**
+   * Chosen flavor per event, when the user picked one. Absent means the
+   * default variant; unknown ids fall back to the default at playback.
+   */
+  readonly variants: Readonly<Partial<Record<SoundEventId, string>>>;
   /** Whether unfocused-window attention edges may raise an OS banner. */
   readonly notifications: boolean;
 }
@@ -18,7 +31,17 @@ export interface SoundPreferences {
 export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
   enabled: true,
   volume: 0.6,
-  events: { done: true, "needs-input": true, error: true, click: true },
+  events: {
+    done: true,
+    "needs-input": true,
+    error: true,
+    click: true,
+    "switch-on": true,
+    "switch-off": true,
+    copy: true,
+    sent: true,
+  },
+  variants: {},
   notifications: true,
 };
 
@@ -26,6 +49,16 @@ export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
 export function clampVolume(value: number): number {
   if (Number.isNaN(value)) return DEFAULT_SOUND_PREFERENCES.volume;
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Slider position to output gain. Loudness is roughly the square of amplitude,
+ * so a linear slider bunches every audible step at the top; squaring spreads
+ * the useful range back out and makes 50% feel like half.
+ */
+export function volumeCurve(volume: number): number {
+  const clamped = clampVolume(volume);
+  return clamped * clamped;
 }
 
 function sanitizeFlag(value: unknown, fallback: boolean): boolean {
@@ -53,12 +86,22 @@ export function sanitizeSoundPreferences(input: unknown): SoundPreferences {
       sanitizeFlag(storedEvents[event], true),
     ]),
   ) as Record<SoundEventId, boolean>;
+  // Variant ids are validated only as strings here; whether an id names a
+  // real variant is playback's concern, and it falls back to the default.
+  const variants = Object.fromEntries(
+    Object.entries(
+      typeof record.variants === "object" && record.variants !== null
+        ? (record.variants as Record<string, unknown>)
+        : {},
+    ).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
   const volume =
     typeof record.volume === "number" ? clampVolume(record.volume) : DEFAULT_SOUND_PREFERENCES.volume;
   return {
     enabled: sanitizeFlag(record.enabled, DEFAULT_SOUND_PREFERENCES.enabled),
     volume,
     events,
+    variants,
     notifications: sanitizeFlag(record.notifications, DEFAULT_SOUND_PREFERENCES.notifications),
   };
 }

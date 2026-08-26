@@ -343,7 +343,7 @@ export interface EnvironmentSessionPrincipalShape {
 export class EnvironmentAuthenticatedPrincipal extends Context.Service<
   EnvironmentAuthenticatedPrincipal,
   EnvironmentSessionPrincipalShape
->()("@t3tools/contracts/environmentHttp/EnvironmentAuthenticatedPrincipal") {}
+>()("@rune/contracts/environmentHttp/EnvironmentAuthenticatedPrincipal") {}
 
 export class EnvironmentAuthenticatedAuth extends HttpApiMiddleware.Service<
   EnvironmentAuthenticatedAuth,
@@ -402,7 +402,7 @@ export const AuthOtherClientSessionsRevokeResult = Schema.Struct({
 export type AuthOtherClientSessionsRevokeResult = typeof AuthOtherClientSessionsRevokeResult.Type;
 
 export class EnvironmentMetadataHttpApi extends HttpApiGroup.make("metadata").add(
-  HttpApiEndpoint.get("descriptor", "/.well-known/t3/environment", {
+  HttpApiEndpoint.get("descriptor", "/.well-known/rune/environment", {
     success: ExecutionEnvironmentDescriptor,
   }),
 ) {}
@@ -495,6 +495,10 @@ const EnvironmentOrchestrationThreadSnapshotQuery = {
     Schema.FiniteFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
   ),
   beforeCursor: Schema.optional(TrimmedNonEmptyString),
+  // Clients that declare reasoning support receive role-"reasoning" messages
+  // in the snapshot; others get them stripped (stale decoders would reject
+  // the whole response on the unknown role value).
+  supportsReasoningMessages: Schema.optional(Schema.Boolean),
 };
 
 export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
@@ -586,7 +590,7 @@ export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
-    HttpApiEndpoint.post("health", "/api/t3-connect/health", {
+    HttpApiEndpoint.post("health", "/api/rune-connect/health", {
       payload: RelayCloudEnvironmentHealthRequest,
       success: RelayEnvironmentHealthResponse,
       error: EnvironmentHttpCloudErrors,
@@ -600,16 +604,50 @@ export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }),
   )
   .add(
-    HttpApiEndpoint.post("t3MintCredential", "/api/t3-connect/mint-credential", {
+    HttpApiEndpoint.post("runeMintCredential", "/api/rune-connect/mint-credential", {
       payload: RelayCloudMintCredentialRequest,
       success: RelayEnvironmentMintResponse,
       error: EnvironmentHttpCloudErrors,
     }),
   ) {}
 
+export const ProviderModelCatalogRequest = Schema.Struct({
+  serviceId: Schema.String,
+  baseUrl: Schema.optionalKey(Schema.String),
+  instanceId: Schema.optionalKey(Schema.String),
+});
+export type ProviderModelCatalogRequest = typeof ProviderModelCatalogRequest.Type;
+
+export const ProviderModelCatalogEntry = Schema.Struct({
+  id: Schema.String,
+  name: Schema.optional(Schema.String),
+  contextLength: Schema.optional(Schema.Number),
+});
+export type ProviderModelCatalogEntry = typeof ProviderModelCatalogEntry.Type;
+
+export const ProviderModelCatalogResponse = Schema.Struct({
+  models: Schema.Array(ProviderModelCatalogEntry),
+});
+export type ProviderModelCatalogResponse = typeof ProviderModelCatalogResponse.Type;
+
+export class EnvironmentProvidersHttpApi extends HttpApiGroup.make("providers").add(
+  HttpApiEndpoint.post("providerModelCatalog", "/api/providers/model-catalog", {
+    headers: OptionalBearerHeaders,
+    payload: ProviderModelCatalogRequest,
+    success: ProviderModelCatalogResponse,
+    error: [
+      EnvironmentRequestInvalidError,
+      EnvironmentAuthInvalidError,
+      EnvironmentScopeRequiredError,
+      EnvironmentInternalError,
+    ],
+  }).middleware(EnvironmentAuthenticatedAuth),
+) {}
+
 export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
-  .add(EnvironmentConnectHttpApi) {}
+  .add(EnvironmentConnectHttpApi)
+  .add(EnvironmentProvidersHttpApi) {}

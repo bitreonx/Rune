@@ -14,7 +14,7 @@ build/
 .logs/
 release/
 release-mock/
-.t3
+.rune
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
@@ -26,6 +26,9 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+*-BLUEPRINT.md
+*-PLAN.md
+*-RESEARCH.md
 dist-electron/
 .electron-runtime/
 .showcase/
@@ -38,3 +41,13 @@ node_modules/
 *.log
 .env*
 !.env.example
+
+# Personal/temporary files
+.t3
+.t3-*
+.dev-sandbox-*
+.superpowers/
+docs/superpowers/
+system-prompts-and-models-of-ai-tools-main/
+T3CODE-*
+*-MAXXING-*

@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/client-runtime",
+  "name": "@rune/client-runtime",
   "private": true,
   "type": "module",
   "exports": {
@@ -139,6 +139,14 @@
       "types": "./src/state/subagentRuntime.ts",
       "default": "./src/state/subagentRuntime.ts"
     },
+    "./state/subagentIdentity": {
+      "types": "./src/state/subagentIdentity.ts",
+      "default": "./src/state/subagentIdentity.ts"
+    },
+    "./state/promptQueue": {
+      "types": "./src/state/promptQueue.ts",
+      "default": "./src/state/promptQueue.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
@@ -177,8 +185,8 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
+    "@rune/contracts": "workspace:*",
+    "@rune/shared": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

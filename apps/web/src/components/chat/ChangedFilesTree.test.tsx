@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, TurnId } from "@rune/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -105,6 +105,29 @@ describe("ChangedFilesCard", () => {
     expect(markup).toContain("README.md");
     expect(markup).toContain("Show all 4 files");
     expect(markup).not.toContain("App.test.tsx");
+  });
+
+  it("opens a preview file in the explorer when an explorer handler is provided", () => {
+    const markup = renderToStaticMarkup(
+      <ChangedFilesCard
+        environmentId={environmentId}
+        threadId={threadId}
+        checkpointTurnCount={3}
+        turnId={TurnId.make("turn-1")}
+        files={[{ path: "apps/web/src/App.tsx", kind: "modified", additions: 2, deletions: 1 }]}
+        expanded={false}
+        showCompactPreview
+        allDirectoriesExpanded={false}
+        resolvedTheme="light"
+        onExpandedChange={() => {}}
+        onToggleAllDirectories={() => {}}
+        onOpenTurnDiff={() => {}}
+        onOpenFile={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('data-file-path="apps/web/src/App.tsx"');
+    expect(markup).toContain('aria-label="Open file App.tsx"');
   });
 
   it("keeps older collapsed changes to a one-line receipt", () => {

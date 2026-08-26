@@ -2,12 +2,15 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
-import { projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
+import {
+  projectThreadDetailSnapshot,
+  withoutReasoningMessages,
+} from "./ActivityPayloadProjection.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 import {
   annotateEnvironmentRequest,
@@ -85,7 +88,12 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
           if (Option.isNone(snapshot)) {
             return yield* failEnvironmentNotFound("thread_not_found");
           }
-          return projectThreadDetailSnapshot(snapshot.value);
+          // Clients that did not declare reasoning support get role-"reasoning"
+          // messages stripped: a stale decoder rejects the unknown role value.
+          const projected = projectThreadDetailSnapshot(snapshot.value);
+          return args.payload.supportsReasoningMessages === true
+            ? projected
+            : withoutReasoningMessages(projected);
         }),
       )
       .handle(

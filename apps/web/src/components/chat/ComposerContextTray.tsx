@@ -6,12 +6,12 @@ import {
   TerminalSquare,
   X,
 } from "lucide-react";
-import type { ServerProviderSkill } from "@t3tools/contracts";
+import type { ServerProviderSkill } from "@rune/contracts";
 
 import {
   formatProviderSkillDisplayName,
   resolveProviderSkillSourceKind,
-} from "@t3tools/client-runtime/providerSkills";
+} from "@rune/client-runtime/providerSkills";
 import { cn } from "~/lib/utils";
 
 export type ComposerContextTrayContextKind = "terminal" | "file" | "element" | "review";

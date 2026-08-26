@@ -28,6 +28,15 @@ export function runePanelTransitionClass(state: RunePanelMotionState): string {
 }
 
 /**
+ * How long to hold a panel in its entering/leaving state before settling.
+ * Panels with longer CSS motion windows pass their duration so the state
+ * never flips while the transition is still on screen.
+ */
+export function resolveRunePanelSettleDelayMs(motionMs?: number): number {
+  return (motionMs ?? RUNE_MOTION_MS.standard) + 40;
+}
+
+/**
  * Keeps a panel mounted for the close transition. The surface owns its
  * session state, so the host may disappear after the transition without
  * tearing down the terminal, preview, or tab state during the animation.
@@ -35,6 +44,7 @@ export function runePanelTransitionClass(state: RunePanelMotionState): string {
 export function useRunePanelMotionState(options: {
   open: boolean;
   reducedMotion: boolean;
+  motionMs?: number;
 }): RunePanelMotionState {
   const previousOpenRef = useRef(options.open);
   const [state, setState] = useState<RunePanelMotionState>(() =>
@@ -65,7 +75,7 @@ export function useRunePanelMotionState(options: {
     // straight to its final style before the browser can paint the animation.
     const timer =
       typeof window !== "undefined"
-        ? window.setTimeout(finish, RUNE_MOTION_MS.standard + 40)
+        ? window.setTimeout(finish, resolveRunePanelSettleDelayMs(options.motionMs))
         : undefined;
     return () => {
       if (timer !== undefined) window.clearTimeout(timer);

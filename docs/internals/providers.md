@@ -1,8 +1,8 @@
 # Provider architecture
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+> For maintainers. Using RUNE? See [docs/user](../user/).
 
-A provider is the agent runtime that does the actual work. T3 Code supports several, and the
+A provider is the agent runtime that does the actual work. RUNE supports several, and the
 orchestration layer does not know which one is behind a thread.
 
 ## Built-in drivers
@@ -25,6 +25,11 @@ adapter in a child scope. Adapter implementations live beside them in
 `apps/server/src/provider/Layers/` (`CodexAdapter.ts`, `ClaudeAdapter.ts`, and so on) and conform to
 [`ProviderAdapter.ts`][adapter]. Read the driver plus its adapter to see how a specific agent's
 transport, config, and event shapes are mapped.
+
+The `openaiApi` and `openrouter` drivers are the exception to CLI wrapping: they have no CLI, so
+their adapter runs Rune's own agent loop over OpenAI-compatible chat-completion streaming — with
+workspace tools, approval gating, and sandboxing provided by the server itself. See
+[native agent loop](./rune-native-agent.md).
 
 ## Registry and routing
 

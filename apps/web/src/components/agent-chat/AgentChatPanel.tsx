@@ -1,18 +1,19 @@
 import { useAtomValue } from "@effect/atom-react";
-import { RuntimeTaskId, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
-import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
-import { ArrowLeft, Bot, CircleStop, Send } from "lucide-react";
+import { RuntimeTaskId, type EnvironmentId, type ThreadId } from "@rune/contracts";
+import type { RuntimeSubagent } from "@rune/client-runtime/state/subagentRuntime";
+import { ArrowLeft, CheckCircle2, CircleStop, Clock, Send, Wrench, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { squashAtomCommandFailure } from "@rune/client-runtime/state/runtime";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
+import { SubagentAvatar } from "./SubagentAvatar";
 import {
   agentChatErrorMessage,
   canInterruptAgentChat,
@@ -59,6 +60,8 @@ export function AgentChatPanel({
   const [optimistic, setOptimistic] = useState<ReadonlyArray<AgentChatMessage>>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const displayName = agent.generatedName || agent.title;
 
   const refresh = useCallback(() => {
     void refreshChat(input);
@@ -133,12 +136,21 @@ export function AgentChatPanel({
     }
   };
 
+  const statusDotClass =
+    agent.status === "running" || agent.status === "pending"
+      ? "bg-info animate-pulse"
+      : agent.status === "failed"
+        ? "bg-destructive"
+        : agent.status === "completed"
+          ? "bg-success"
+          : "bg-muted-foreground/60";
+
   return (
     <section
       className="flex min-h-0 flex-1 flex-col border-b border-border/60 bg-background"
       data-rune-agent-surface
       data-rune-agent-chat
-      aria-label={`${agent.title} chat`}
+      aria-label={`${displayName} chat`}
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2.5">
         <Button
@@ -150,16 +162,19 @@ export function AgentChatPanel({
         >
           <ArrowLeft aria-hidden />
         </Button>
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--rune-violet-strong)_38%,var(--border))] bg-[color-mix(in_srgb,var(--rune-violet-soft)_14%,transparent)] text-[var(--rune-violet-strong)]">
-          <Bot aria-hidden className="size-4" />
-        </span>
+        <SubagentAvatar
+          iconName={agent.iconName}
+          iconColor={agent.iconColor}
+          className="size-7"
+          iconClassName="size-3.5"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-xs font-semibold">{agent.title}</h3>
-            <span className="size-1.5 shrink-0 rounded-full bg-info" aria-hidden />
+            <h3 className="truncate text-xs font-semibold">{displayName}</h3>
+            <span className={cn("size-1.5 shrink-0 rounded-full", statusDotClass)} aria-hidden />
           </div>
           <p className="truncate text-[10px] text-muted-foreground">
-            {agent.agentPath ?? agent.role ?? "Child agent"}
+            {agent.agentPath ?? agent.role ?? agent.title}
           </p>
         </div>
         {(agent.status === "running" || agent.status === "waiting") && interruptSupported ? (
@@ -171,19 +186,31 @@ export function AgentChatPanel({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 px-3 py-3" data-rune-agent-chat-transcript>
+          {/* Initial agent mission banner / prompt context if provided */}
+          <div className="rounded-lg border border-border/60 bg-accent/25 p-2.5 text-xs">
+            <div className="mb-1 flex items-center gap-1.5 font-medium text-muted-foreground">
+              <Wrench className="size-3 text-[var(--rune-violet-strong)]" />
+              <span>Assigned Mission:</span>
+            </div>
+            <p className="font-mono text-[11px] text-foreground/90">{agent.title}</p>
+            {agent.role ? (
+              <p className="mt-1 text-[10px] text-muted-foreground">Role: {agent.role}</p>
+            ) : null}
+          </div>
+
           {!readSupported ? (
             <div className="border border-dashed border-border/70 px-3 py-3 text-xs text-muted-foreground">
-              This agent can report activity but cannot be continued here.
+              This agent reports live activity below. Follow-up messaging is not supported for this provider.
             </div>
           ) : result._tag === "Failure" ? (
             <div className="border border-dashed border-destructive/45 px-3 py-3 text-xs text-destructive-foreground">
-              Unable to load this child chat. Select it again to retry.
+              Unable to load this child chat transcript. Select it again to retry.
             </div>
           ) : result._tag !== "Success" ? (
             <p className="text-xs text-muted-foreground">Loading child chat…</p>
           ) : visibleMessages.length === 0 ? (
             <div className="border border-dashed border-border/70 px-3 py-4 text-center text-xs text-muted-foreground">
-              This agent is ready for a follow-up.
+              This agent is ready. Send a message below to direct it.
             </div>
           ) : (
             visibleMessages.map((message) => (
@@ -194,19 +221,65 @@ export function AgentChatPanel({
                   message.role === "user" ? "ml-auto" : "mr-auto",
                 )}
               >
-                <div className="mb-1 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
-                  {message.role === "user" ? "You" : agent.title}
+                <div className="mb-1 flex items-center gap-1.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                  {message.role === "user" ? (
+                    "You"
+                  ) : (
+                    <>
+                      <SubagentAvatar
+                        iconName={agent.iconName}
+                        iconColor={agent.iconColor}
+                        className="size-3.5 rounded-xs"
+                        iconClassName="size-2"
+                      />
+                      <span>{displayName}</span>
+                    </>
+                  )}
                 </div>
                 {message.role === "assistant" ? (
-                  <ChatMarkdown text={message.text} cwd={cwd} lineBreaks />
+                  <div className="rounded-md border border-border/40 bg-card/60 px-3 py-2">
+                    <ChatMarkdown text={message.text} cwd={cwd} lineBreaks />
+                  </div>
                 ) : (
-                  <p className="whitespace-pre-wrap rounded-md bg-accent/45 px-2.5 py-2 text-foreground/90">
+                  <p className="whitespace-pre-wrap rounded-md bg-accent/55 px-2.5 py-2 text-foreground/90">
                     {message.text}
                   </p>
                 )}
               </article>
             ))
           )}
+
+          {/* Live agent activity stream / tools execution */}
+          {agent.recentActivity.length > 0 ? (
+            <div className="mt-3 space-y-1.5 border-t border-border/50 pt-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                <Clock className="size-3" />
+                <span>Live Activity & Tool Executions:</span>
+              </div>
+              <div className="space-y-1 rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px]">
+                {agent.recentActivity.map((act, i) => (
+                  <div key={`${act.at}-${i}`} className="flex items-start gap-1.5 text-muted-foreground">
+                    <span className="text-[9px] text-muted-foreground/60">{act.at ? new Date(act.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""}</span>
+                    <span className="text-foreground/85">{act.summary}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Agent status summary if finished or error */}
+          {agent.status === "completed" && agent.result ? (
+            <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-2.5 py-2 text-xs text-success">
+              <CheckCircle2 className="size-4 shrink-0" />
+              <span className="truncate">{agent.result}</span>
+            </div>
+          ) : agent.status === "failed" && agent.error ? (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+              <XCircle className="size-4 shrink-0" />
+              <span className="truncate">{agent.error}</span>
+            </div>
+          ) : null}
+
           {error ? (
             <p className="border border-destructive/45 px-2.5 py-2 text-xs text-destructive-foreground">
               {error}
@@ -226,11 +299,11 @@ export function AgentChatPanel({
                 void submit();
               }
             }}
-            placeholder={sendSupported ? "Message this agent…" : "Agent chat unavailable"}
+            placeholder={sendSupported ? `Message ${displayName}…` : "Agent chat unavailable"}
             disabled={!sendSupported || sending}
             unstyled
             className="min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-xs shadow-none outline-none"
-            aria-label={`Message ${agent.title}`}
+            aria-label={`Message ${displayName}`}
           />
           <Button
             size="icon-sm"
@@ -249,3 +322,4 @@ export function AgentChatPanel({
     </section>
   );
 }
+

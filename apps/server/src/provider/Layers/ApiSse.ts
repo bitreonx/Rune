@@ -20,7 +20,7 @@ export type SseLineResult =
       readonly argsDelta: string;
     }
   | { readonly kind: "finish"; readonly reason: string }
-  | { readonly kind: "usage"; readonly usage: Record<string, number> }
+  | { readonly kind: "usage"; readonly usage: Record<string, unknown> }
   | { readonly kind: "done" }
   | { readonly kind: "ignore" };
 
@@ -45,9 +45,9 @@ export const resultFromSseLine = (line: string): SseLineResult => {
   }
   if (!isRecord(parsed)) return { kind: "ignore" };
   if (isRecord(parsed.usage)) {
-    const usage: Record<string, number> = {};
+    const usage: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(parsed.usage)) {
-      if (typeof value === "number") usage[key] = value;
+      usage[key] = value;
     }
     return { kind: "usage", usage };
   }

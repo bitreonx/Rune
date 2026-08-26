@@ -1,9 +1,12 @@
 import {
   randomClickDetune,
+  resolveSoundScore,
   SoundPlayer,
-  SOUND_SCORES,
-} from "@t3tools/client-runtime/sound/engine";
-import { type SoundEventId } from "@t3tools/client-runtime/sound/preferences";
+} from "@rune/client-runtime/sound/engine";
+import {
+  type SoundEventId,
+  volumeCurve,
+} from "@rune/client-runtime/sound/preferences";
 
 import { useSoundPreferencesStore } from "./soundPreferencesStore";
 
@@ -22,9 +25,12 @@ export function playSoundEffect(event: SoundEventId, options: { audition?: boole
   // master switch still owns the device: off means no sound at all.
   if (!preferences.enabled) return;
   if (!options.audition && !preferences.events[event]) return;
-  soundPlayer.setVolume(preferences.volume);
+  soundPlayer.setVolume(volumeCurve(preferences.volume));
   // The first call usually runs inside a user gesture, which doubles as the
   // autoplay-policy unlock; later calls are no-ops.
   void soundPlayer.unlock();
-  soundPlayer.play(SOUND_SCORES[event], event === "click" ? { detuneCents: randomClickDetune() } : undefined);
+  soundPlayer.play(
+    resolveSoundScore(event, preferences.variants[event]),
+    event === "click" ? { detuneCents: randomClickDetune() } : undefined,
+  );
 }

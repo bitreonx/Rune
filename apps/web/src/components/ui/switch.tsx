@@ -2,9 +2,10 @@
 
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 
+import { playSoundEffect } from "~/sound/playback";
 import { cn } from "~/lib/utils";
 
-function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
+function Switch({ className, onCheckedChange, ...props }: SwitchPrimitive.Root.Props) {
   return (
     <SwitchPrimitive.Root
       className={cn(
@@ -13,6 +14,12 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
       )}
       data-slot="switch"
       {...props}
+      // Fires only for real user toggles, never programmatic state changes;
+      // the tick lands with the commit and its pitch follows the direction.
+      onCheckedChange={(checked, details) => {
+        playSoundEffect(checked ? "switch-on" : "switch-off");
+        onCheckedChange?.(checked, details);
+      }}
     >
       <SwitchPrimitive.Thumb
         className={cn(

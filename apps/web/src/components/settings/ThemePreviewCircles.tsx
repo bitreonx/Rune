@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import {
   STANDARD_THEME_PREVIEW_COLORS as SHARED_STANDARD_THEME_PREVIEW_COLORS,
   THEME_PREVIEW_RENDER_SPECS,
-} from "@t3tools/shared/themePreview";
+} from "@rune/shared/themePreview";
 import { cn } from "../../lib/utils";
 import { APP_BASE_NAME } from "../../branding";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";

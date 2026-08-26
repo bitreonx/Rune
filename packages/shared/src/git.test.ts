@@ -1,4 +1,4 @@
-import type { VcsStatusRemoteResult, VcsStatusResult } from "@t3tools/contracts";
+import type { VcsStatusRemoteResult, VcsStatusResult } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -7,28 +7,29 @@ import {
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+  stripWorktreeBranchPrefix,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
-    expect(normalizeGitRemoteUrl("git@github.com:T3Tools/T3Code.git")).toBe(
-      "github.com/t3tools/t3code",
+    expect(normalizeGitRemoteUrl("git@github.com:rune-dev/Rune.git")).toBe(
+      "github.com/rune-dev/rune",
     );
-    expect(normalizeGitRemoteUrl("https://github.com/T3Tools/T3Code.git")).toBe(
-      "github.com/t3tools/t3code",
+    expect(normalizeGitRemoteUrl("https://github.com/rune-dev/Rune.git")).toBe(
+      "github.com/rune-dev/rune",
     );
-    expect(normalizeGitRemoteUrl("ssh://git@github.com/T3Tools/T3Code")).toBe(
-      "github.com/t3tools/t3code",
+    expect(normalizeGitRemoteUrl("ssh://git@github.com/rune-dev/Rune")).toBe(
+      "github.com/rune-dev/rune",
     );
   });
 
   it("preserves nested group paths for providers like GitLab", () => {
-    expect(normalizeGitRemoteUrl("git@gitlab.com:T3Tools/platform/T3Code.git")).toBe(
-      "gitlab.com/t3tools/platform/t3code",
+    expect(normalizeGitRemoteUrl("git@gitlab.com:rune-dev/platform/Rune.git")).toBe(
+      "gitlab.com/rune-dev/platform/rune",
     );
-    expect(normalizeGitRemoteUrl("https://gitlab.com/T3Tools/platform/T3Code.git")).toBe(
-      "gitlab.com/t3tools/platform/t3code",
+    expect(normalizeGitRemoteUrl("https://gitlab.com/rune-dev/platform/Rune.git")).toBe(
+      "gitlab.com/rune-dev/platform/rune",
     );
   });
 
@@ -54,11 +55,11 @@ describe("normalizeGitRemoteUrl", () => {
 describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
   it("extracts the owner and repository from common GitHub remote shapes", () => {
     expect(
-      parseGitHubRepositoryNameWithOwnerFromRemoteUrl("git@github.com:T3Tools/T3Code.git"),
-    ).toBe("T3Tools/T3Code");
+      parseGitHubRepositoryNameWithOwnerFromRemoteUrl("git@github.com:T3Tools/Rune.git"),
+    ).toBe("T3Tools/Rune");
     expect(
-      parseGitHubRepositoryNameWithOwnerFromRemoteUrl("https://github.com/T3Tools/T3Code.git"),
-    ).toBe("T3Tools/T3Code");
+      parseGitHubRepositoryNameWithOwnerFromRemoteUrl("https://github.com/T3Tools/Rune.git"),
+    ).toBe("T3Tools/Rune");
   });
 });
 
@@ -90,6 +91,18 @@ describe("isTemporaryWorktreeBranch", () => {
     expect(
       isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/f4ae4e0e-f971-4d48-b4f2-9cf0aa54ab12`),
     ).toBe(true);
+  });
+
+  it("matches pre-rebrand rune-prefixed temporary worktree refs", () => {
+    expect(isTemporaryWorktreeBranch("rune/deadbeef")).toBe(true);
+    expect(isTemporaryWorktreeBranch("rune/f4ae4e0e-f971-4d48-b4f2-9cf0aa54ab12")).toBe(true);
+    expect(isTemporaryWorktreeBranch("rune/feature/demo")).toBe(false);
+  });
+
+  it("stripWorktreeBranchPrefix drops the current and legacy prefixes", () => {
+    expect(stripWorktreeBranchPrefix(`${WORKTREE_BRANCH_PREFIX}/deadbeef`)).toBe("deadbeef");
+    expect(stripWorktreeBranchPrefix("rune/deadbeef")).toBe("deadbeef");
+    expect(stripWorktreeBranchPrefix("feature/demo")).toBe("feature/demo");
   });
 
   it("rejects UUID-shaped refs that are not RFC 4122 v4", () => {

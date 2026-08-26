@@ -3,13 +3,13 @@ import type {
   EnvironmentId,
   ResolvedKeybindingsConfig,
   ScopedThreadRef,
-} from "@t3tools/contracts";
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+} from "@rune/contracts";
+import { isWorkspaceImagePreviewPath } from "@rune/shared/filePreview";
+import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import { VirtualizedFile, type SelectedLineRange } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
 import { EditProvider, File, type FileOptions, Virtualizer } from "@pierre/diffs/react";
@@ -97,9 +97,9 @@ interface FilePreviewPanelProps {
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
 
-const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
-const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
-const FILE_TREE_WIDTH_STORAGE_KEY = "t3code:file-tree-width";
+const FILE_EXPLORER_STORAGE_KEY = "rune.fileExplorerOpen";
+const RENDER_MARKDOWN_STORAGE_KEY = "rune.renderMarkdown";
+const FILE_TREE_WIDTH_STORAGE_KEY = "rune:file-tree-width";
 /** 22rem — the tree's width before it became user-resizable. */
 const FILE_TREE_DEFAULT_WIDTH = 352;
 const FILE_SAVE_DEBOUNCE_MS = 500;

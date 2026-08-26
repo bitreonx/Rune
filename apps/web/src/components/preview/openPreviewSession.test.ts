@@ -3,7 +3,7 @@ import {
   type PreviewOpenInput,
   type PreviewSessionSnapshot,
   type ScopedThreadRef,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -22,7 +22,7 @@ const snapshot: PreviewSessionSnapshot = {
   tabId: "tab-1",
   navStatus: {
     _tag: "Loading",
-    url: "https://t3.chat/",
+    url: "https://rune.dev/",
     title: "",
   },
   canGoBack: false,
@@ -60,16 +60,16 @@ describe("openPreviewSession", () => {
     await openPreviewSession({
       openPreview: ({ input }) => open(input),
       threadRef,
-      url: "t3.chat",
+      url: "rune.dev",
     });
 
     expect(open).toHaveBeenCalledWith({
       threadId: "thread-1",
-      url: "t3.chat",
+      url: "rune.dev",
       viewport: FILL_PREVIEW_VIEWPORT,
     });
     expect(readThreadPreviewState(threadRef).snapshot).toEqual(snapshot);
-    expect(readThreadPreviewState(threadRef).recentlySeenUrls).toEqual(["https://t3.chat/"]);
+    expect(readThreadPreviewState(threadRef).recentlySeenUrls).toEqual(["https://rune.dev/"]);
   });
 
   it("returns failures without mutating preview state", async () => {
@@ -78,7 +78,7 @@ describe("openPreviewSession", () => {
     const result = await openPreviewSession({
       openPreview: async () => AsyncResult.failure(Cause.fail(failure)),
       threadRef,
-      url: "t3.chat",
+      url: "rune.dev",
     });
 
     expect(result._tag).toBe("Failure");

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { RUNE_MOTION_MS } from "./runeMotion";
+
 import {
   resolveRunePanelMotionState,
+  resolveRunePanelSettleDelayMs,
   runePanelTransitionClass,
 } from "./runePanelMotion";
 
@@ -35,6 +38,11 @@ describe("RUNE panel motion", () => {
     expect(runePanelTransitionClass("open")).toBe("rune-panel-motion-open");
     expect(runePanelTransitionClass("closing")).toBe("rune-panel-motion-closing");
     expect(runePanelTransitionClass("closed")).toBe("rune-panel-motion-closed");
+  });
+
+  it("scales the settle window to the panel's motion duration", () => {
+    expect(resolveRunePanelSettleDelayMs(undefined)).toBe(RUNE_MOTION_MS.standard + 40);
+    expect(resolveRunePanelSettleDelayMs(280)).toBe(320);
   });
 });
 

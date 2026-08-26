@@ -157,6 +157,8 @@ const ProviderRuntimeEventType = Schema.Literals([
   "thread.state.changed",
   "thread.metadata.updated",
   "thread.token-usage.updated",
+  "agent.execution.progress",
+  "api.request.usage",
   "thread.realtime.started",
   "thread.realtime.item-added",
   "thread.realtime.audio.delta",
@@ -208,6 +210,8 @@ const ThreadStartedType = Schema.Literal("thread.started");
 const ThreadStateChangedType = Schema.Literal("thread.state.changed");
 const ThreadMetadataUpdatedType = Schema.Literal("thread.metadata.updated");
 const ThreadTokenUsageUpdatedType = Schema.Literal("thread.token-usage.updated");
+const AgentExecutionProgressType = Schema.Literal("agent.execution.progress");
+const ApiRequestUsageType = Schema.Literal("api.request.usage");
 const ThreadRealtimeStartedType = Schema.Literal("thread.realtime.started");
 const ThreadRealtimeItemAddedType = Schema.Literal("thread.realtime.item-added");
 const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta");
@@ -332,6 +336,46 @@ const ThreadTokenUsageUpdatedPayload = Schema.Struct({
   usage: ThreadTokenUsageSnapshot,
 });
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
+
+export const AgentExecutionStage = Schema.Literals([
+  "inspect",
+  "execute",
+  "verify",
+  "finalize",
+]);
+export type AgentExecutionStage = typeof AgentExecutionStage.Type;
+
+export const AgentExecutionOutcome = Schema.Literals([
+  "continued",
+  "completed",
+  "exhausted",
+  "interrupted",
+  "failed",
+]);
+export type AgentExecutionOutcome = typeof AgentExecutionOutcome.Type;
+
+export const AgentExecutionProgressPayload = Schema.Struct({
+  stage: AgentExecutionStage,
+  requestNumber: NonNegativeInt,
+  maxRequests: PositiveInt,
+  toolCalls: NonNegativeInt,
+  elapsedMs: NonNegativeInt,
+  outcome: Schema.optional(AgentExecutionOutcome),
+});
+export type AgentExecutionProgressPayload = typeof AgentExecutionProgressPayload.Type;
+
+export const ApiRequestUsagePayload = Schema.Struct({
+  requestId: RuntimeRequestId,
+  requestNumber: PositiveInt,
+  retry: Schema.Boolean,
+  inputTokens: Schema.optional(NonNegativeInt),
+  outputTokens: Schema.optional(NonNegativeInt),
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  reasoningTokens: Schema.optional(NonNegativeInt),
+  timeToFirstByteMs: Schema.optional(NonNegativeInt),
+  streamDurationMs: Schema.optional(NonNegativeInt),
+});
+export type ApiRequestUsagePayload = typeof ApiRequestUsagePayload.Type;
 
 const ThreadRealtimeStartedPayload = Schema.Struct({
   realtimeSessionId: Schema.optional(TrimmedNonEmptyStringSchema),
@@ -857,6 +901,21 @@ const ProviderRuntimeThreadTokenUsageUpdatedEvent = Schema.Struct({
 export type ProviderRuntimeThreadTokenUsageUpdatedEvent =
   typeof ProviderRuntimeThreadTokenUsageUpdatedEvent.Type;
 
+const ProviderRuntimeAgentExecutionProgressEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: AgentExecutionProgressType,
+  payload: AgentExecutionProgressPayload,
+});
+export type ProviderRuntimeAgentExecutionProgressEvent =
+  typeof ProviderRuntimeAgentExecutionProgressEvent.Type;
+
+const ProviderRuntimeApiRequestUsageEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: ApiRequestUsageType,
+  payload: ApiRequestUsagePayload,
+});
+export type ProviderRuntimeApiRequestUsageEvent = typeof ProviderRuntimeApiRequestUsageEvent.Type;
+
 const ProviderRuntimeThreadRealtimeStartedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: ThreadRealtimeStartedType,
@@ -1165,6 +1224,8 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadStateChangedEvent,
   ProviderRuntimeThreadMetadataUpdatedEvent,
   ProviderRuntimeThreadTokenUsageUpdatedEvent,
+  ProviderRuntimeAgentExecutionProgressEvent,
+  ProviderRuntimeApiRequestUsageEvent,
   ProviderRuntimeThreadRealtimeStartedEvent,
   ProviderRuntimeThreadRealtimeItemAddedEvent,
   ProviderRuntimeThreadRealtimeAudioDeltaEvent,

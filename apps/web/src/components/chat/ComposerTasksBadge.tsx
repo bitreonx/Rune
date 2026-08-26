@@ -1,7 +1,8 @@
 import { ListTodoIcon, XIcon } from "lucide-react";
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
 
 import { formatDuration } from "../../session-logic";
+import type { RunePanelMotionState } from "../../runePanelMotion";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 
@@ -17,13 +18,78 @@ export interface ComposerTaskStep {
   readonly status: "pending" | "inProgress" | "completed";
 }
 
+/** Long lists stagger only their first rows; the tail enters with the pack. */
+const TASKS_STAGGER_MAX_ROWS = 8;
+
+const TASK_STATUS_LABEL = {
+  completed: "Completed",
+  inProgress: "In progress",
+  pending: "Pending",
+} as const;
+
+export function tasksProgressPercent(completedSteps: number, totalSteps: number): number {
+  if (totalSteps <= 0) return 0;
+  return Math.min(100, Math.round((completedSteps / totalSteps) * 100));
+}
+
+export function taskRowMotionStyle(index: number): CSSProperties {
+  return { "--stagger-index": Math.min(Math.max(index, 0), TASKS_STAGGER_MAX_ROWS) } as CSSProperties;
+}
+
 function keyedTaskSteps(steps: readonly ComposerTaskStep[]) {
   const occurrences = new Map<string, number>();
-  return steps.map((step) => {
+  return steps.map((step, index) => {
     const occurrence = occurrences.get(step.step) ?? 0;
     occurrences.set(step.step, occurrence + 1);
-    return { key: `${step.step}:${occurrence}`, step };
+    return { index, key: `${step.step}:${occurrence}`, step };
   });
+}
+
+/**
+ * Status marks remount whenever a step's status flips (keyed by status
+ * upstream), which is what plays the one-shot fill/draw animations.
+ */
+function TaskStatusIcon({ status }: { status: ComposerTaskStep["status"] }) {
+  if (status === "completed") {
+    return (
+      <span
+        aria-hidden
+        className="rune-task-check flex w-3.5 shrink-0 justify-center text-success"
+        data-rune-task-status="completed"
+      >
+        <svg
+          className="size-3"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2.5}
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 12.5l4.5 4.5L19 7" pathLength={1} />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex w-3.5 shrink-0 justify-center",
+        status === "inProgress" ? "rune-task-dot-active" : "rune-task-dot",
+      )}
+      data-rune-task-status={status}
+    >
+      <span
+        className={cn(
+          "size-2 rounded-full",
+          status === "inProgress"
+            ? "bg-primary ring-2 ring-primary/20"
+            : "border border-muted-foreground/40",
+        )}
+      />
+    </span>
+  );
 }
 
 function TaskSegments({
@@ -40,15 +106,19 @@ function TaskSegments({
       {keyedTaskSteps(steps).map(({ key, step }) => (
         <span
           key={key}
-          className={cn(
-            "h-[3px] min-w-0 flex-1 rounded-full",
-            step.status === "completed"
-              ? "bg-success"
-              : step.status === "inProgress"
-                ? "bg-primary"
-                : "bg-muted-foreground/25",
-          )}
-        />
+          className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-full bg-muted-foreground/25"
+          data-rune-task-segment={step.status}
+        >
+          {step.status !== "pending" ? (
+            <span
+              key={step.status}
+              className={cn(
+                "rune-task-segment-fill absolute inset-0 origin-left rounded-full",
+                step.status === "completed" ? "bg-success" : "bg-primary",
+              )}
+            />
+          ) : null}
+        </span>
       ))}
     </span>
   );
@@ -57,6 +127,7 @@ function TaskSegments({
 export const ComposerTasksBadge = memo(function ComposerTasksBadge({
   expanded,
   hasTrailingShoulder = false,
+  motionState,
   onDismiss,
   onToggle,
   placement = "tab",
@@ -65,6 +136,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
 }: {
   readonly expanded: boolean;
   readonly hasTrailingShoulder?: boolean;
+  readonly motionState?: RunePanelMotionState;
   readonly onDismiss: () => void;
   readonly onToggle: () => void;
   readonly placement?: "inline" | "tab";
@@ -77,7 +149,11 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
   const label = `Tasks: ${progress.completedSteps} of ${progress.totalSteps} complete. Current task: ${progress.step}`;
   if (placement === "inline") {
     return (
-      <span className="inline-flex shrink-0 items-center gap-0.5" data-composer-tasks-badge="true">
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5"
+        data-composer-tasks-badge="true"
+        data-rune-tasks-tab-state={motionState}
+      >
         <Button
           size="micro"
           variant="ghost-muted"
@@ -121,6 +197,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
         allDone && "text-foreground",
       )}
       data-composer-tasks-badge="true"
+      data-rune-tasks-tab-state={motionState}
     >
       <button
         type="button"
@@ -133,7 +210,8 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
         <ListTodoIcon aria-hidden className="size-3.5 shrink-0" />
         <span className="shrink-0">Tasks</span>
         <span
-          className="min-w-0 flex-1 truncate text-left font-medium text-foreground/80"
+          key={progress.step}
+          className="rune-task-step-swap min-w-0 flex-1 truncate text-left font-medium text-foreground/80"
           data-composer-task-current="true"
         >
           {progress.step}
@@ -173,8 +251,14 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
   readonly progress: ComposerTasksProgress;
   readonly steps: readonly ComposerTaskStep[];
 }) {
+  const allDone = progress.completedSteps >= progress.totalSteps;
+
   return (
-    <div className="chat-composer-top-drawer" data-chat-composer-tasks-drawer="true">
+    <div
+      className="chat-composer-top-drawer"
+      data-chat-composer-tasks-drawer="true"
+      data-variant={allDone ? "success" : undefined}
+    >
       <div className="flex items-center gap-1 px-3 py-1.5 sm:px-4">
         <button
           type="button"
@@ -185,7 +269,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         >
           <ListTodoIcon aria-hidden className="size-3.5 shrink-0" />
           <span className="font-medium text-foreground">Tasks</span>
-          <span className="tabular-nums">
+          <span className={cn("tabular-nums", allDone && "text-success")}>
             {progress.completedSteps}/{progress.totalSteps}
           </span>
         </button>
@@ -200,22 +284,29 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           <XIcon aria-hidden className="size-3" />
         </Button>
       </div>
-      <div className="space-y-px px-3 pb-4 sm:px-4" role="list">
-        {keyedTaskSteps(steps).map(({ key, step }) => (
-          <div key={key} className="flex items-baseline gap-2 text-xs leading-5" role="listitem">
-            <span
-              aria-hidden
-              className={cn(
-                "w-3 shrink-0 text-center font-mono text-[10px]",
-                step.status === "completed"
-                  ? "text-success"
-                  : step.status === "inProgress"
-                    ? "text-primary"
-                    : "text-muted-foreground/40",
-              )}
-            >
-              {step.status === "completed" ? "✓" : step.status === "inProgress" ? "●" : "○"}
-            </span>
+      <div
+        aria-label="Task progress"
+        aria-valuemax={progress.totalSteps}
+        aria-valuemin={0}
+        aria-valuenow={progress.completedSteps}
+        className="rune-tasks-progress mx-3 sm:mx-4"
+        data-rune-tasks-progress={allDone ? "done" : "running"}
+        role="progressbar"
+      >
+        <span
+          className="rune-tasks-progress-fill"
+          style={{ width: `${tasksProgressPercent(progress.completedSteps, progress.totalSteps)}%` }}
+        />
+      </div>
+      <div className="space-y-1 px-3 pb-4 pt-2 sm:px-4" role="list">
+        {keyedTaskSteps(steps).map(({ index, key, step }) => (
+          <div
+            key={key}
+            className="rune-task-row flex items-center gap-2 text-xs leading-5"
+            role="listitem"
+            style={taskRowMotionStyle(index)}
+          >
+            <TaskStatusIcon key={`${key}:${step.status}`} status={step.status} />
             <span
               className={cn(
                 "min-w-0 flex-1",
@@ -228,6 +319,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
             >
               {step.step}
             </span>
+            <span className="sr-only">{TASK_STATUS_LABEL[step.status]}</span>
             <span
               className="ml-auto w-10 shrink-0 text-right text-[10px] text-muted-foreground/45 tabular-nums"
               data-composer-task-duration="true"

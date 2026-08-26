@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import { connectionStatusText } from "@t3tools/client-runtime/connection";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import { connectionStatusText } from "@rune/client-runtime/connection";
+import { safeErrorLogAttributes } from "@rune/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@rune/client-runtime/state/runtime";
 import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
@@ -13,15 +13,15 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   resolveProviderInstanceEnabled,
-} from "@t3tools/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+} from "@rune/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
 import {
   getBackgroundActivityPresetSettings,
   resolveServerBackgroundActivitySettings,
-} from "@t3tools/shared/backgroundActivitySettings";
+} from "@rune/shared/backgroundActivitySettings";
+import { useNavigate } from "@tanstack/react-router";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
-import * as Equal from "effect/Equal";
 import * as Result from "effect/Result";
 import {
   CloudIcon,
@@ -31,15 +31,18 @@ import {
   PlusIcon,
   RefreshCwIcon,
   TerminalIcon,
+  BookOpenIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { openClaudeServiceSetup } from "../../claudeServiceSetupBus";
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { isElectron } from "../../env";
 import { usePrimarySessionState } from "../../environments/primary";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
+import { listProviderInstanceSlots, type ResolvedInstanceSlot } from "../../providerInstanceSlots";
 import {
   useEnvironments,
   usePrimaryEnvironmentId,
@@ -71,10 +74,20 @@ import {
 } from "../ui/number-field";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
+import { AddServiceTile } from "./ClaudeSubscriptionCard";
+import { HarnessesSection } from "./HarnessesSection";
+import { ModelServicesSection } from "./ModelServicesSection";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
-import { ProviderWorkspace } from "./ProviderWorkspace";
-import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
+import { DRIVER_OPTIONS, getDriverOption, getProviderSetupGuide } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
@@ -215,7 +228,6 @@ export function ProviderSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {effectiveEnvironmentId ? <ProviderWorkspace environmentId={effectiveEnvironmentId} /> : null}
       {!onlyPrimaryDevice ? (
         <SettingsSection title="Devices">
           {options.length === 0 ? (
@@ -372,6 +384,7 @@ export function EnvironmentProviderSettings({
 }) {
   const settings = useEnvironmentSettings(environmentId);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const navigate = useNavigate();
   const serverProviders =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
   const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -382,6 +395,7 @@ export function EnvironmentProviderSettings({
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
+  const [isDocsOpen, setIsDocsOpen] = useState(false);
   const [updatingProviderDrivers, setUpdatingProviderDrivers] = useState<
     ReadonlySet<ProviderDriverKind>
   >(() => new Set());
@@ -487,100 +501,18 @@ export function EnvironmentProviderSettings({
     [environmentId, updateProvider],
   );
 
-  interface InstanceRow {
-    readonly instanceId: ProviderInstanceId;
-    readonly instance: ProviderInstanceConfig;
-    readonly driver: ProviderDriverKind;
-    readonly isDefault: boolean;
-    readonly isDirty?: boolean;
-  }
-
-  const instancesByDriver = new Map<
-    ProviderDriverKind,
-    Array<[ProviderInstanceId, ProviderInstanceConfig]>
-  >();
-  for (const [rawId, instance] of Object.entries(settings.providerInstances ?? {})) {
-    const driver = instance.driver;
-    const list = instancesByDriver.get(driver) ?? [];
-    list.push([rawId as ProviderInstanceId, instance]);
-    instancesByDriver.set(driver, list);
-  }
-
-  const defaultSlotIdsBySource = new Set<string>(
-    visibleProviderSettings.map((providerSettings) =>
-      String(defaultInstanceIdForDriver(providerSettings.provider)),
-    ),
-  );
-
-  const rows: InstanceRow[] = [];
-  const visibleDriverKinds = new Set<ProviderDriverKind>(
+  const slots = listProviderInstanceSlots(
+    settings,
     visibleProviderSettings.map((providerSettings) => providerSettings.provider),
   );
-
-  for (const providerSettings of visibleProviderSettings) {
-    type LegacyProviderSettings = (typeof settings.providers)[keyof typeof settings.providers];
-    const legacyProviders = settings.providers as Record<string, LegacyProviderSettings>;
-    const defaultLegacyProviders = DEFAULT_UNIFIED_SETTINGS.providers as Record<
-      string,
-      LegacyProviderSettings
-    >;
-    const driver = providerSettings.provider;
-    const defaultInstanceId = defaultInstanceIdForDriver(driver);
-    const explicitInstance = settings.providerInstances?.[defaultInstanceId];
-    // A remote device may run a server version whose settings predate this
-    // driver, so the legacy mirror can be absent. Without either an explicit
-    // instance or a legacy blob there is nothing to render for the slot.
-    const legacyConfig = legacyProviders[providerSettings.provider];
-    const defaultLegacyConfig = defaultLegacyProviders[providerSettings.provider];
-    // The envelope is the single enabled flag: keep the legacy in-config
-    // flag out of the synthesized blob, or an explicit `enabled: false`
-    // would keep winning over the envelope and the Switch could never
-    // turn a default-off provider on.
-    const synthesizedInstance = (): ProviderInstanceConfig | undefined => {
-      if (legacyConfig === undefined) {
-        return undefined;
-      }
-      const { enabled: legacyEnabled, ...legacyConfigRest } = legacyConfig;
-      return {
-        driver,
-        enabled: legacyEnabled,
-        config: legacyConfigRest,
-      } satisfies ProviderInstanceConfig;
-    };
-    const effectiveInstance: ProviderInstanceConfig | undefined =
-      explicitInstance ?? synthesizedInstance();
-    // Only the default slot depends on the legacy blob; custom instances for
-    // the driver must still render even when the slot has nothing to show.
-    if (effectiveInstance !== undefined) {
-      const isDirty =
-        explicitInstance !== undefined || !Equal.equals(legacyConfig, defaultLegacyConfig);
-      rows.push({
-        instanceId: defaultInstanceId,
-        instance: effectiveInstance,
-        driver,
-        isDefault: true,
-        isDirty,
-      });
-    }
-    for (const [id, instance] of instancesByDriver.get(providerSettings.provider) ?? []) {
-      if (id === defaultInstanceId) continue;
-      rows.push({ instanceId: id, instance, driver: instance.driver, isDefault: false });
-    }
-  }
-  for (const [driver, list] of instancesByDriver) {
-    if (visibleDriverKinds.has(driver)) continue;
-    for (const [id, instance] of list) {
-      rows.push({
-        instanceId: id,
-        instance,
-        driver: instance.driver,
-        isDefault: defaultSlotIdsBySource.has(String(id)),
-      });
-    }
-  }
+  // Every configured instance is a first-class provider card. Claude services
+  // use the same editor as Codex, Cursor, and the other drivers so models,
+  // credentials, enablement, and account identity are all discoverable in one
+  // place.
+  const rows = slots;
 
   const updateProviderInstance = (
-    row: InstanceRow,
+    row: ResolvedInstanceSlot,
     next: ProviderInstanceConfig,
     options?: {
       readonly textGenerationModelSelection?: Parameters<
@@ -674,6 +606,16 @@ export function EnvironmentProviderSettings({
         {...searchableSetting("providers")}
         headerAction={
           <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost-muted"
+              className="gap-1.5"
+              onClick={() => setIsDocsOpen(true)}
+            >
+              <BookOpenIcon className="size-3.5" />
+              <span className="hidden sm:inline">Sign-in guide</span>
+              <span className="sm:hidden">Docs</span>
+            </Button>
             <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
             {!readOnly ? (
               <>
@@ -729,174 +671,188 @@ export function EnvironmentProviderSettings({
           // threading a disabled flag through every control.
           inert={readOnly}
           aria-disabled={readOnly || undefined}
-          className={readOnly ? "space-y-1 opacity-50 select-none" : "space-y-1"}
+          className={
+            readOnly ? "flex flex-col gap-6 opacity-50 select-none" : "flex flex-col gap-6"
+          }
         >
-          <SettingsRow
-            title={
-              <span className="inline-flex items-center gap-1.5">
-                Health check interval
-                <PolicyTooltip>
-                  This interval is configured here, then the shared Background activity policy
-                  decides whether provider probes may run when the timer fires. Custom intervals
-                  appear as Advanced in General settings.
-                </PolicyTooltip>
-              </span>
+          <HarnessesSection
+            settings={settings}
+            serverProviders={serverProviders}
+            onUpdateSettings={updateSettings}
+            onOpenInstance={(instanceId) =>
+              void navigate({
+                to: "/settings/providers/$instanceId",
+                params: { instanceId },
+                search: { env: String(environmentId) },
+              })
             }
-            description="Refresh provider availability, versions, auth state, and model metadata in the background. Set this to 0 seconds to rely on manual refreshes."
-            resetAction={
-              providerHealthRefreshIntervalSeconds !==
-              defaultProviderHealthRefreshIntervalSeconds ? (
-                <SettingResetButton
-                  label="provider health check interval"
-                  onClick={() =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        {
-                          providerHealthRefreshInterval: undefined,
-                        },
-                      ),
-                    )
-                  }
-                />
-              ) : null
+            onDeleteInstance={(instanceId) =>
+              deleteProviderInstance(instanceId as any)
             }
-            control={
-              <div className="flex shrink-0 items-center gap-2">
-                <NumberField
-                  value={providerHealthRefreshIntervalSeconds}
-                  min={0}
-                  step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
-                  size="sm"
-                  className="w-32"
-                  onValueChange={(value) =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        {
-                          providerHealthRefreshInterval: Duration.seconds(
-                            normalizeIntervalSeconds(value),
-                          ),
-                        },
-                      ),
-                    )
-                  }
-                >
-                  <NumberFieldGroup>
-                    <NumberFieldDecrement aria-label="Decrease provider health check interval" />
-                    <NumberFieldInput aria-label="Provider health check interval in seconds" />
-                    <NumberFieldIncrement aria-label="Increase provider health check interval" />
-                  </NumberFieldGroup>
-                </NumberField>
-                <span className="text-xs text-muted-foreground">seconds</span>
-              </div>
-            }
+            onRunUpdate={(driver) => {
+              const candidate = Array.from(providerUpdateCandidateByInstanceId.values()).find(
+                (c) => c.driver === driver,
+              );
+              if (candidate) {
+                void runProviderUpdate(candidate);
+              }
+            }}
+            environmentId={String(environmentId)}
+            readOnly={readOnly}
           />
 
-          {rows.map((row) => {
-            const driverOption = getDriverOption(row.driver);
-            const liveProvider = serverProviders.find(
-              (candidate) => candidate.instanceId === row.instanceId,
-            );
-            const updateCandidate = liveProvider
-              ? providerUpdateCandidateByInstanceId.get(liveProvider.instanceId)
-              : undefined;
-            const isDriverUpdateRunning =
-              updateCandidate !== undefined &&
-              (updatingProviderDrivers.has(updateCandidate.driver) ||
-                serverProviders.some(
-                  (provider) =>
-                    provider.driver === updateCandidate.driver && isProviderUpdateActive(provider),
-                ));
-            const showInlineUpdateButton =
-              updateCandidate !== undefined &&
-              hasOneClickUpdateProviderCandidate(updateCandidate, serverProviders);
-            const canRunInlineUpdate =
-              updateCandidate !== undefined &&
-              canOneClickUpdateProviderCandidate(updateCandidate, serverProviders) &&
-              !updatingProviderDrivers.has(updateCandidate.driver);
-            const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
-              hiddenModels: [],
-              modelOrder: [],
-            };
-            const favoriteModels = Arr.filterMap(settings.favorites ?? [], (favorite) =>
-              favorite.provider === row.instanceId
-                ? Result.succeed(favorite.model)
-                : Result.failVoid,
-            );
-            const resetLabel = driverOption?.label ?? String(row.driver);
-            const headerAction =
-              row.isDefault && row.isDirty ? (
-                <SettingResetButton
-                  label={`${resetLabel} provider settings`}
-                  onClick={() => resetDefaultInstance(row.driver)}
-                />
-              ) : null;
-            return (
-              <ProviderInstanceCard
-                key={row.instanceId}
-                instanceId={row.instanceId}
-                instance={row.instance}
-                driverOption={driverOption}
-                liveProvider={liveProvider}
-                isExpanded={openInstanceDetails[row.instanceId] ?? false}
-                onExpandedChange={(open) =>
-                  setOpenInstanceDetails((existing) => ({
-                    ...existing,
-                    [row.instanceId]: open,
-                  }))
-                }
-                onUpdate={(next) => {
-                  const wasEnabled = resolveProviderInstanceEnabled(row.instance);
-                  const isDisabling = next.enabled === false && wasEnabled;
-                  const shouldClearTextGen = isDisabling && textGenInstanceId === row.instanceId;
-                  if (shouldClearTextGen) {
-                    updateProviderInstance(row, next, {
-                      textGenerationModelSelection:
-                        DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                    });
-                  } else {
-                    updateProviderInstance(row, next);
-                  }
-                }}
-                onDelete={row.isDefault ? undefined : () => deleteProviderInstance(row.instanceId)}
-                headerAction={headerAction}
-                hiddenModels={modelPreferences.hiddenModels}
-                favoriteModels={favoriteModels}
-                modelOrder={modelPreferences.modelOrder}
-                onHiddenModelsChange={(hiddenModels) =>
-                  updateProviderModelPreferences(row.instanceId, {
-                    ...modelPreferences,
-                    hiddenModels,
-                  })
-                }
-                onFavoriteModelsChange={(favoriteModels) =>
-                  updateProviderFavoriteModels(row.instanceId, favoriteModels)
-                }
-                onModelOrderChange={(modelOrder) =>
-                  updateProviderModelPreferences(row.instanceId, {
-                    ...modelPreferences,
-                    modelOrder,
-                  })
-                }
-                onRunUpdate={
-                  showInlineUpdateButton && updateCandidate
-                    ? () => {
-                        if (!canRunInlineUpdate) {
-                          return;
-                        }
-                        void runProviderUpdate(updateCandidate);
-                      }
-                    : undefined
-                }
-                isUpdating={showInlineUpdateButton ? isDriverUpdateRunning : undefined}
-              />
-            );
-          })}
+          <ModelServicesSection
+            settings={settings}
+            onUpdateSettings={updateSettings}
+          />
+
+          <div className="border-t pt-4">
+            <SettingsRow
+              title={
+                <span className="inline-flex items-center gap-1.5">
+                  Health check interval
+                  <PolicyTooltip>
+                    This interval is configured here, then the shared Background activity policy
+                    decides whether provider probes may run when the timer fires. Custom intervals
+                    appear as Advanced in General settings.
+                  </PolicyTooltip>
+                </span>
+              }
+              description="Refresh provider availability, versions, auth state, and model metadata in the background. Set this to 0 seconds to rely on manual refreshes."
+              resetAction={
+                providerHealthRefreshIntervalSeconds !==
+                defaultProviderHealthRefreshIntervalSeconds ? (
+                  <SettingResetButton
+                    label="provider health check interval"
+                    onClick={() =>
+                      updateSettings(
+                        backgroundActivityOverrideSettings(
+                          settings.backgroundActivity,
+                          resolvedBackgroundActivity,
+                          {
+                            providerHealthRefreshInterval: undefined,
+                          },
+                        ),
+                      )
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex shrink-0 items-center gap-2">
+                  <NumberField
+                    value={providerHealthRefreshIntervalSeconds}
+                    min={0}
+                    step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
+                    size="sm"
+                    className="w-32"
+                    onValueChange={(value) =>
+                      updateSettings(
+                        backgroundActivityOverrideSettings(
+                          settings.backgroundActivity,
+                          resolvedBackgroundActivity,
+                          {
+                            providerHealthRefreshInterval: Duration.seconds(
+                              normalizeIntervalSeconds(value),
+                            ),
+                          },
+                        ),
+                      )
+                    }
+                  >
+                    <NumberFieldGroup>
+                      <NumberFieldDecrement aria-label="Decrease provider health check interval" />
+                      <NumberFieldInput aria-label="Provider health check interval in seconds" />
+                      <NumberFieldIncrement aria-label="Increase provider health check interval" />
+                    </NumberFieldGroup>
+                  </NumberField>
+                  <span className="text-xs text-muted-foreground">seconds</span>
+                </div>
+              }
+            />
+          </div>
         </div>
       </SettingsSection>
+
+      <Dialog open={isDocsOpen} onOpenChange={setIsDocsOpen}>
+        <DialogPopup className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Provider sign-in guide</DialogTitle>
+            <DialogDescription>
+              Each card is one independent account or service. Add multiple instances when you use
+              more than one account for the same provider.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-4 text-sm">
+            <div className="rounded-lg border border-warning/30 bg-warning/8 p-3">
+              <p className="font-medium text-foreground">What “Needs attention” means</p>
+              <p className="mt-1 text-muted-foreground">
+                The provider was found, but it is not ready to use. Expand its card to see the exact
+                reason. If it says “Sign in required”, authenticate that specific instance.
+              </p>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <p className="font-medium">1. Add an account</p>
+                <p className="text-muted-foreground">
+                  Choose Add provider instance, select a provider, and give the account a
+                  recognizable name.
+                </p>
+              </div>
+              <div>
+                <p className="font-medium">2. Finish setup on the host device</p>
+                <p className="text-muted-foreground">
+                  RUNE runs provider CLIs on the machine hosting the server. The add-instance wizard
+                  gives you copyable commands and the exact provider docs for each one.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {DRIVER_OPTIONS.map((option) => {
+                  const guide = getProviderSetupGuide(option.value);
+                  if (!guide) return null;
+                  const IconComponent = option.icon;
+                  return (
+                    <div
+                      key={option.value}
+                      className="grid gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5"
+                    >
+                      <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                        <IconComponent className="size-3.5 shrink-0" aria-hidden />
+                        {option.label}
+                      </div>
+                      {guide.installCommand ? (
+                        <code className="truncate text-[10px] text-muted-foreground">
+                          Install: {guide.installCommand}
+                        </code>
+                      ) : null}
+                      {guide.signInCommand ? (
+                        <code className="truncate text-[10px] text-muted-foreground">
+                          Sign in: {guide.signInCommand}
+                        </code>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">
+                          API key in instance settings
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div>
+                <p className="font-medium">3. Verify and choose it</p>
+                <p className="text-muted-foreground">
+                  Refresh status. The account and its customized models then appear as a separate
+                  option in the chat model chooser.
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Tip: model IDs such as <code className="rounded bg-muted px-1">stealth/ox-alpha</code>{" "}
+              can be added in the Models section of the selected provider instance.
+            </p>
+          </DialogPanel>
+        </DialogPopup>
+      </Dialog>
 
       {isAddInstanceDialogOpen ? (
         <AddProviderInstanceDialog

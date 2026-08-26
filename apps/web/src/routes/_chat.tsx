@@ -20,6 +20,8 @@ import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
+import { ClaudeServiceDialogHost } from "~/components/settings/ClaudeServiceDialogHost";
+import { RuneLoader } from "~/components/RuneLoader";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { APP_BASE_NAME } from "~/branding";
 
@@ -179,8 +181,17 @@ function ChatRouteLayout() {
   return (
     <>
       <ChatRouteGlobalShortcuts />
+      <ClaudeServiceDialogHost />
       <Outlet />
     </>
+  );
+}
+
+function PendingChatRoute() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <RuneLoader />
+    </div>
   );
 }
 
@@ -194,4 +205,5 @@ export const Route = createFileRoute("/_chat")({
     }
   },
   component: ChatRouteLayout,
+  pendingComponent: PendingChatRoute,
 });

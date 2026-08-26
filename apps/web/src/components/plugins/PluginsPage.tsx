@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { FolderIcon, PuzzleIcon, UserRoundIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@rune/contracts";
 
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";

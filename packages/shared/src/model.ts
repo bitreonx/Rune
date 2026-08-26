@@ -3,14 +3,44 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
   type ModelCapabilities,
+  type ModelMetadata,
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("codex");
+
+/**
+ * Which input media kinds a model accepts natively. When a catalog does not
+ * report modalities we assume images (the long-standing baseline) but nothing
+ * else, so unknown models keep today's behavior without inventing audio/video
+ * support.
+ */
+export interface ModelMediaSupport {
+  readonly image: boolean;
+  readonly audio: boolean;
+  readonly video: boolean;
+}
+
+const MEDIA_MODALITY_KEYS = ["image", "audio", "video"] as const;
+
+export function resolveModelMediaSupport(
+  metadata: Pick<ModelMetadata, "inputModalities"> | null | undefined,
+): ModelMediaSupport {
+  const listed = metadata?.inputModalities;
+  if (!listed || listed.length === 0) {
+    return { image: true, audio: false, video: false };
+  }
+  const normalized = new Set(listed.map((modality) => modality.trim().toLowerCase()));
+  const support = {} as Record<(typeof MEDIA_MODALITY_KEYS)[number], boolean>;
+  for (const key of MEDIA_MODALITY_KEYS) {
+    support[key] = normalized.has(key);
+  }
+  return support;
+}
 
 export interface SelectableModelOption {
   slug: string;

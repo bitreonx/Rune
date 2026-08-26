@@ -1,6 +1,6 @@
 # OpenAI-compatible API providers
 
-T3 Code can connect directly to OpenRouter or an OpenAI-compatible API. This is a bring-your-own-key connection: Rune uses the key you enter for that provider instance and does not require a separate Rune model subscription.
+RUNE can connect directly to OpenRouter or an OpenAI-compatible API. This is a bring-your-own-key connection: Rune uses the key you enter for that provider instance and does not require a separate Rune model subscription.
 
 ## Add OpenRouter
 

@@ -1,10 +1,10 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@rune/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -23,6 +23,7 @@ import {
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadTemporarySetPayload,
+  ThreadTemporaryDeletionSnoozedPayload,
   ThreadSettledPayload,
   ThreadPinnedPayload,
   ThreadPinReorderedPayload,
@@ -307,6 +308,7 @@ export function projectEvent(
             snoozedUntil: null,
             snoozedAt: null,
             temporaryAt: payload.temporary === true ? payload.createdAt : null,
+            temporaryDeletionSnoozedUntil: null,
             deletedAt: null,
             messages: [],
             activities: [],
@@ -496,6 +498,22 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             temporaryAt: payload.temporaryAt,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.temporary-deletion-snoozed":
+      return decodeForEvent(
+        ThreadTemporaryDeletionSnoozedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            temporaryDeletionSnoozedUntil: payload.temporaryDeletionSnoozedUntil,
             updatedAt: payload.updatedAt,
           }),
         })),

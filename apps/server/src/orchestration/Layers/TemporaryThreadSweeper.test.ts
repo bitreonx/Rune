@@ -5,7 +5,7 @@ import {
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationThreadShell,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 import { expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";

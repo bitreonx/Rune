@@ -3,6 +3,7 @@
 import {
   ArrowUpCircleIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
   LoaderIcon,
@@ -22,9 +23,10 @@ import {
   type ProviderDriverKind,
   type ServerProvider,
   type ServerProviderModel,
-} from "@t3tools/contracts";
+} from "@rune/contracts";
 
 import { cn } from "../../lib/utils";
+import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeServices";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Badge } from "../ui/badge";
@@ -39,6 +41,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { DriverOption } from "./providerDriverMeta";
+import { ProviderEnvironmentSection } from "./ProviderEnvironmentSection";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import {
@@ -56,39 +59,13 @@ import {
   type ProviderStatusKey,
 } from "./providerStatus";
 
-const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-let environmentVariableDraftId = 0;
-const nextEnvironmentVariableDraftId = () => `provider-env-${environmentVariableDraftId++}`;
-
-type EnvironmentDraftRow = {
-  readonly id: string;
-  readonly name: string;
-  readonly value: string;
-  readonly sensitive: boolean;
-  readonly valueRedacted?: boolean;
-};
-
-function makeEnvironmentDraftRow(
-  variable: ProviderInstanceEnvironmentVariable,
-  index: number,
-): EnvironmentDraftRow {
-  return {
-    id: `${index}:${variable.name}`,
-    name: variable.name,
-    value: variable.value,
-    sensitive: variable.sensitive,
-    ...(variable.valueRedacted !== undefined ? { valueRedacted: variable.valueRedacted } : {}),
-  };
-}
-
 /**
  * Read a string[] at `key` from the opaque config blob, filtering out
  * non-string entries. Used for `customModels`, which is always typed as
  * `string[]` by the concrete driver schemas but arrives here as
  * `Schema.Unknown`.
  */
-function readConfigStringArray(config: unknown, key: string): ReadonlyArray<string> {
+export function readConfigStringArray(config: unknown, key: string): ReadonlyArray<string> {
   if (config === null || typeof config !== "object") return [];
   const value = (config as Record<string, unknown>)[key];
   if (!Array.isArray(value)) return [];
@@ -103,7 +80,7 @@ function readConfigStringArray(config: unknown, key: string): ReadonlyArray<stri
  * meaningful "user cleared their custom list" state distinct from
  * "driver default").
  */
-function nextConfigBlobWithValue(
+export function nextConfigBlobWithValue(
   config: unknown,
   key: string,
   value: unknown,
@@ -158,183 +135,6 @@ function ProviderAuthEmail(props: {
   );
 }
 
-function ProviderEnvironmentSection(props: {
-  readonly environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>;
-  readonly onChange: (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void;
-  readonly hiddenVariableNames?: ReadonlyArray<string>;
-  readonly title?: string;
-  readonly description?: string;
-}) {
-  const hiddenVariableNames = new Set(props.hiddenVariableNames ?? []);
-  const [rows, setRows] = useState<ReadonlyArray<EnvironmentDraftRow>>(() =>
-    props.environment
-      .filter((variable) => !hiddenVariableNames.has(variable.name))
-      .map(makeEnvironmentDraftRow),
-  );
-
-  const publishRows = (nextRows: ReadonlyArray<EnvironmentDraftRow>) => {
-    const published: ProviderInstanceEnvironmentVariable[] = [];
-    for (const row of nextRows) {
-      const name = row.name.trim();
-      if (!ENVIRONMENT_VARIABLE_NAME_PATTERN.test(name)) {
-        if (
-          name.length > 0 ||
-          row.value.length > 0 ||
-          row.sensitive !== true ||
-          row.valueRedacted !== undefined
-        ) {
-          return;
-        }
-        continue;
-      }
-      const { id: _id, ...rest } = row;
-      published.push({ ...rest, name });
-    }
-    const managedVariables = props.environment.filter((variable) =>
-      hiddenVariableNames.has(variable.name),
-    );
-    props.onChange([...managedVariables, ...published]);
-  };
-
-  const updateVariable = (id: string, patch: Partial<Omit<EnvironmentDraftRow, "id">>) => {
-    const nextRows = rows.map((row) =>
-      row.id === id
-        ? {
-            ...row,
-            ...patch,
-            ...(patch.value !== undefined ? { valueRedacted: false } : {}),
-          }
-        : row,
-    );
-    setRows(nextRows);
-    publishRows(nextRows);
-  };
-
-  const removeVariable = (id: string) => {
-    const nextRows = rows.filter((row) => row.id !== id);
-    setRows(nextRows);
-    publishRows(nextRows);
-  };
-
-  return (
-    <div className="grid gap-2">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-foreground">
-          {props.title ?? "Environment variables"}
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1.5 px-2 text-xs"
-          onClick={() =>
-            setRows([
-              ...rows,
-              {
-                id: nextEnvironmentVariableDraftId(),
-                name: "",
-                value: "",
-                sensitive: true,
-              },
-            ])
-          }
-        >
-          <PlusIcon className="size-3" />
-          Add
-        </Button>
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {props.description ??
-            "Add variables to pass API keys, base URLs, or other per-instance CLI settings."}
-        </p>
-      ) : (
-        <div className="overflow-hidden rounded-md border border-border/70">
-          <Table>
-            <TableHeader className="bg-muted/25 text-[11px] text-muted-foreground">
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Variable</TableHead>
-                <TableHead>Value</TableHead>
-                <TableHead className="w-20">Sensitive</TableHead>
-                <TableHead className="w-12 text-right">
-                  <span className="sr-only">Options</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((variable, index) => (
-                <TableRow
-                  key={variable.id}
-                  className="border-border/60 odd:bg-muted/20 even:bg-background/20"
-                >
-                  <TableCell>
-                    <DraftInput
-                      value={variable.name}
-                      onCommit={(name) => updateVariable(variable.id, { name: name.trim() })}
-                      placeholder="VARIABLE_NAME"
-                      spellCheck={false}
-                      aria-label={`Environment variable name ${index + 1}`}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <DraftInput
-                      value={variable.valueRedacted ? "" : variable.value}
-                      onCommit={(value) => updateVariable(variable.id, { value })}
-                      type={variable.sensitive ? "password" : undefined}
-                      autoComplete="off"
-                      placeholder={
-                        variable.valueRedacted
-                          ? "Stored secret - enter a new value to replace"
-                          : "Value"
-                      }
-                      spellCheck={false}
-                      aria-label={`Environment variable value ${index + 1}`}
-                    />
-                  </TableCell>
-                  <TableCell className="w-20">
-                    <div className="flex h-8 items-center justify-center">
-                      <Checkbox
-                        checked={variable.sensitive}
-                        onCheckedChange={(checked) => {
-                          const sensitive = Boolean(checked);
-                          updateVariable(variable.id, {
-                            sensitive,
-                            ...(sensitive && variable.valueRedacted === undefined
-                              ? {}
-                              : { valueRedacted: sensitive ? variable.valueRedacted : false }),
-                          });
-                        }}
-                        aria-label={`Mark environment variable ${variable.name || index + 1} as sensitive`}
-                      />
-                    </div>
-                  </TableCell>
-                  <TableCell className="w-12">
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        className="size-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeVariable(variable.id)}
-                        aria-label={`Remove environment variable ${variable.name || index + 1}`}
-                      >
-                        <XIcon className="size-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-      <span className="text-xs text-muted-foreground">
-        Sensitive values are stored separately and are not returned to the app after saving.
-      </span>
-    </div>
-  );
-}
-
 interface ProviderInstanceCardProps {
   readonly instanceId: ProviderInstanceId;
   readonly instance: ProviderInstanceConfig;
@@ -342,6 +142,8 @@ interface ProviderInstanceCardProps {
   readonly liveProvider: ServerProvider | undefined;
   readonly isExpanded: boolean;
   readonly onExpandedChange: (open: boolean) => void;
+  /** Navigate to the dedicated instance editor instead of expanding inline. */
+  readonly onOpen?: (() => void) | undefined;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   /**
    * Pass `undefined` to hide the delete button entirely. Built-in default
@@ -397,6 +199,7 @@ export function ProviderInstanceCard({
   liveProvider,
   isExpanded,
   onExpandedChange,
+  onOpen,
   onUpdate,
   onDelete,
   headerAction,
@@ -431,6 +234,7 @@ export function ProviderInstanceCard({
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
+  const serviceBadge = resolveClaudeInstanceService(instance);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
       toastManager.add({
@@ -519,11 +323,13 @@ export function ProviderInstanceCard({
   const isClaudeProvider = String(driverKind) === "claudeAgent";
 
   const titleIconNode = driverKind ? (
-    <ProviderInstanceIcon
+      <ProviderInstanceIcon
       driverKind={driverKind}
       displayName={displayName}
       accentColor={accentColor}
-      showBadge={Boolean(accentColor)}
+      showBadge={Boolean(accentColor) || serviceBadge === "openrouter"}
+      badgeContent={serviceBadge === "openrouter" ? "logo" : "initials"}
+      {...(serviceBadge === "openrouter" ? { badgeLogoUrl: OPENROUTER_LOGO_URL } : {})}
       statusDotClassName={statusStyle.dot}
       indicatorBackground="var(--card)"
       className="size-5"
@@ -617,8 +423,19 @@ export function ProviderInstanceCard({
   ) : null;
 
   return (
-    <div className="rounded-xl transition-colors hover:bg-muted/20">
-      <div className="px-3 py-3 sm:px-4">
+    <div className="h-full rounded-2xl border border-border/60 bg-card transition-colors hover:border-border hover:bg-muted/20">
+      <div
+        className="cursor-pointer px-3 py-3 sm:px-4"
+        onClick={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest("button, input, textarea, select, a, [role='switch']")) return;
+          if (onOpen) {
+            onOpen();
+          } else {
+            onExpandedChange(!isExpanded);
+          }
+        }}
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -727,12 +544,16 @@ export function ProviderInstanceCard({
             <Button
               size="compact"
               variant="ghost-muted"
-              onClick={() => onExpandedChange(!isExpanded)}
-              aria-label={`Toggle ${displayName} details`}
+              onClick={() => (onOpen ? onOpen() : onExpandedChange(!isExpanded))}
+              aria-label={onOpen ? `Open ${displayName} settings` : `Toggle ${displayName} details`}
             >
-              <ChevronDownIcon
-                className={cn("size-3.5 transition-transform", isExpanded && "rotate-180")}
-              />
+              {onOpen ? (
+                <ChevronRightIcon className="size-3.5" />
+              ) : (
+                <ChevronDownIcon
+                  className={cn("size-3.5 transition-transform", isExpanded && "rotate-180")}
+                />
+              )}
             </Button>
             <Switch
               checked={enabled}

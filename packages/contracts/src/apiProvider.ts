@@ -7,6 +7,17 @@ export const OPENROUTER_DRIVER = ProviderDriverKind.make("openrouter");
 export const API_PROVIDER_DRIVER_KINDS = [OPENAI_API_DRIVER, OPENROUTER_DRIVER] as const;
 export type ApiProviderDriverKind = (typeof API_PROVIDER_DRIVER_KINDS)[number];
 
+export type ApiReasoningMode = "none" | "optional" | "required";
+
+/** Optional protocol features an OpenAI-compatible API instance advertises. */
+export interface ApiModelCapabilities {
+  readonly parallelToolCalls: boolean;
+  readonly strictToolSchemas: boolean;
+  readonly reasoningMode: ApiReasoningMode;
+  readonly reportsCachedTokens: boolean;
+  readonly supportsFim: boolean;
+}
+
 export const OPENAI_API_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 export const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 

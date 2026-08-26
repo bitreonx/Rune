@@ -4,7 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { ProjectEntry, ProjectListEntriesResult } from "@t3tools/contracts";
+import type { ProjectEntry, ProjectListEntriesResult } from "@rune/contracts";
 
 export const WORKSPACE_TREE_MAX_ENTRIES = 25_000;
 

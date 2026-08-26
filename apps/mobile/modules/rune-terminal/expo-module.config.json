@@ -1,10 +1,10 @@
 {
   "platforms": ["apple", "android"],
   "apple": {
-    "modules": ["RuneTerminalModule"],
-    "podspecPath": "RuneTerminalNative.podspec"
+    "modules": ["RUNETerminalModule"],
+    "podspecPath": "RUNETerminalNative.podspec"
   },
   "android": {
-    "modules": ["expo.modules.runeterminal.RuneTerminalModule"]
+    "modules": ["expo.modules.runeterminal.RUNETerminalModule"]
   }
 }

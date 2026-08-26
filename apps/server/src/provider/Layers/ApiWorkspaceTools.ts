@@ -23,8 +23,10 @@ const positiveIntArg = (value: unknown): number | undefined =>
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const safe = <A>(effect: Effect.Effect<A>): Effect.Effect<A | string> =>
-  effect.pipe(Effect.catch((error) => Effect.succeed(`Error: ${describeError(error)}`)));
+const safe = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A | string, never, R> =>
+  effect.pipe(
+    Effect.catch((error) => Effect.succeed(`Error: ${describeError(error)}`)),
+  ) as Effect.Effect<A | string, never, R>;
 
 const mutationFiles = (args: Record<string, unknown>): Array<Record<string, unknown>> =>
   Array.isArray(args.files) ? args.files.map(asRecord).slice(0, MAX_BATCH_ITEMS) : [];
@@ -37,22 +39,23 @@ export const workspaceSnapshotTool: NativeToolDef = {
   requiresApproval: false,
   execute: (_args, ctx) =>
     safe(
-      ctx.workspaceEntries.list({ cwd: ctx.cwd }).pipe(
-        Effect.map((result) =>
-          clamp(
-            result.entries
-              .map((entry) => `${entry.path}${entry.kind === "directory" ? "/" : ""}`)
-              .join("\n") || "(empty workspace)",
+      ctx.workspaceEntries
+        .list({ cwd: ctx.cwd })
+        .pipe(
+          Effect.map((result) =>
+            clamp(
+              result.entries
+                .map((entry) => `${entry.path}${entry.kind === "directory" ? "/" : ""}`)
+                .join("\n") || "(empty workspace)",
+            ),
           ),
         ),
-      ),
     ).pipe(Effect.map(String)),
 };
 
 export const searchManyTool: NativeToolDef = {
   name: "search_many",
-  description:
-    "Search multiple content queries concurrently and return bounded labeled results.",
+  description: "Search multiple content queries concurrently and return bounded labeled results.",
   parametersJsonSchema: {
     type: "object",
     properties: {
@@ -64,7 +67,9 @@ export const searchManyTool: NativeToolDef = {
   requiresApproval: false,
   execute: (args, ctx) => {
     const queries = Array.isArray(args.queries)
-      ? args.queries.filter((query): query is string => typeof query === "string").slice(0, MAX_BATCH_ITEMS)
+      ? args.queries
+          .filter((query): query is string => typeof query === "string")
+          .slice(0, MAX_BATCH_ITEMS)
       : [];
     const limit = positiveIntArg(args.limit) ?? 20;
     return Effect.all(
@@ -95,8 +100,7 @@ export const searchManyTool: NativeToolDef = {
 
 export const readManyTool: NativeToolDef = {
   name: "read_many",
-  description:
-    "Read bounded windows from multiple UTF-8 workspace files concurrently.",
+  description: "Read bounded windows from multiple UTF-8 workspace files concurrently.",
   parametersJsonSchema: {
     type: "object",
     properties: {
@@ -126,9 +130,7 @@ export const readManyTool: NativeToolDef = {
         const path = stringArg(file.path);
         const offset = positiveIntArg(file.offset);
         const limit = positiveIntArg(file.limit);
-        return safe(
-          ctx.workspaceFileSystem.readFile({ cwd: ctx.cwd, relativePath: path }),
-        ).pipe(
+        return safe(ctx.workspaceFileSystem.readFile({ cwd: ctx.cwd, relativePath: path })).pipe(
           Effect.map((result) => {
             if (typeof result === "string") return `${path}\n${result}`;
             const lines = result.contents.split("\n");
@@ -167,6 +169,7 @@ export const applyPatchTool: NativeToolDef = {
     required: ["files"],
   },
   requiresApproval: true,
+  invalidatesVerification: true,
   execute: (args, ctx) => {
     const files = mutationFiles(args);
     return Effect.gen(function* () {
@@ -182,7 +185,10 @@ export const applyPatchTool: NativeToolDef = {
               if (oldText.length === 0 || occurrences !== 1) {
                 return { error: `${path}: precondition matched ${occurrences} locations` };
               }
-              return { relativePath: result.relativePath, contents: result.contents.replace(oldText, newText) };
+              return {
+                relativePath: result.relativePath,
+                contents: result.contents.replace(oldText, newText),
+              };
             }),
           );
         }),
@@ -201,8 +207,7 @@ export const applyPatchTool: NativeToolDef = {
 
 export const generateFilesTool: NativeToolDef = {
   name: "generate_files",
-  description:
-    "Generate repetitive files locally from a bounded deterministic template manifest.",
+  description: "Generate repetitive files locally from a bounded deterministic template manifest.",
   parametersJsonSchema: {
     type: "object",
     properties: {
@@ -223,6 +228,7 @@ export const generateFilesTool: NativeToolDef = {
     required: ["files"],
   },
   requiresApproval: true,
+  invalidatesVerification: true,
   execute: (args, ctx) =>
     Effect.gen(function* () {
       const files = mutationFiles(args);
@@ -256,7 +262,10 @@ export const runChecksTool: NativeToolDef = {
         maxItems: 8,
         items: {
           type: "object",
-          properties: { command: { type: "string" }, args: { type: "array", items: { type: "string" } } },
+          properties: {
+            command: { type: "string" },
+            args: { type: "array", items: { type: "string" } },
+          },
           required: ["command"],
         },
       },
@@ -264,9 +273,11 @@ export const runChecksTool: NativeToolDef = {
     required: ["checks"],
   },
   requiresApproval: true,
+  verificationTool: true,
   execute: (args, ctx) => {
     const checks = Array.isArray(args.checks) ? args.checks.map(asRecord).slice(0, 8) : [];
-    if (!ctx.processRunner) return Effect.succeed("Error: focused checks are unavailable");
+    const processRunner = ctx.processRunner;
+    if (!processRunner) return Effect.succeed("Error: focused checks are unavailable");
     return Effect.gen(function* () {
       const output: string[] = [];
       for (const check of checks) {
@@ -274,7 +285,7 @@ export const runChecksTool: NativeToolDef = {
         const args = Array.isArray(check.args)
           ? check.args.filter((arg): arg is string => typeof arg === "string").slice(0, 32)
           : [];
-        const result = yield* ctx.processRunner.run({
+        const result = yield* processRunner.run({
           command,
           args,
           cwd: ctx.cwd,

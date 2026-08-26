@@ -4,7 +4,7 @@ import { requireNativeView, requireOptionalNativeModule } from "expo";
 
 import { NativeViewResolutionError } from "../../native/nativeViewResolutionError";
 
-const NATIVE_TERMINAL_MODULE_NAME = "RuneTerminalSurface";
+const NATIVE_TERMINAL_MODULE_NAME = "RUNETerminalSurface";
 
 interface ExpoGlobalWithViewConfig {
   readonly expo?: {

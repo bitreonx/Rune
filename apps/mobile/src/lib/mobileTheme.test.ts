@@ -129,11 +129,11 @@ describe("mobile themes", () => {
   });
 
   it("changes either theme without switching the active appearance", () => {
-    const themeIds = { light: "rune", dark: "grove" } as const;
+    const themeIds = { light: "rune-chat", dark: "grove" } as const;
     expect(createMobileThemeSelectionPatch(themeIds, "light", "dark", "ocean")).toEqual({
-      lightThemeId: "rune",
+      lightThemeId: "rune-chat",
       darkThemeId: "ocean",
-      themeId: "rune",
+      themeId: "rune-chat",
     });
     expect(createMobileThemeSelectionPatch(themeIds, "light", "light", "iris")).toEqual({
       lightThemeId: "iris",

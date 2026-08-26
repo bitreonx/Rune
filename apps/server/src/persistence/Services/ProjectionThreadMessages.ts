@@ -92,4 +92,4 @@ export interface ProjectionThreadMessageRepositoryShape {
 export class ProjectionThreadMessageRepository extends Context.Service<
   ProjectionThreadMessageRepository,
   ProjectionThreadMessageRepositoryShape
->()("@rune/server/persistence/Services/ProjectionThreadMessages/ProjectionThreadMessageRepository") {}
+>()("rune/persistence/Services/ProjectionThreadMessages/ProjectionThreadMessageRepository") {}

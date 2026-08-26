@@ -7,30 +7,30 @@ the task commands.
 
 ## apps
 
-- `apps/server` (`t3`): the execution runtime and the published CLI. Owns orchestration, provider
+- `apps/server` (`rune`): the execution runtime and the published CLI. Owns orchestration, provider
   drivers, checkpointing, VCS, terminals, filesystem access, auth, and the HTTP + WebSocket surface.
   Also serves the built web app.
-- `apps/web` (`@rune/web`): React + Vite UI. Consumes the shared client runtime and adds routing,
+- `apps/web` (`@runetools/web`): React + Vite UI. Consumes the shared client runtime and adds routing,
   components, and web-specific platform layers.
-- `apps/desktop` (`@rune/desktop`): Electron shell. Supervises a desktop-scoped `t3` backend,
+- `apps/desktop` (`@runetools/desktop`): Electron shell. Supervises a desktop-scoped `rune` backend,
   loads the web bundle over the `rune://` protocol, and owns SSH-managed remote environments.
-- `apps/mobile` (`@rune/mobile`): Expo/React Native client. Same client runtime composition as
+- `apps/mobile` (`@runetools/mobile`): Expo/React Native client. Same client runtime composition as
   web, different platform layer and UI.
-- `apps/marketing` (`@rune/marketing`): Astro marketing site.
+- `apps/marketing` (`@runetools/marketing`): Astro marketing site.
 
 ## packages
 
-- `packages/contracts` (`@rune/contracts`): shared Effect Schema definitions. RPC group,
+- `packages/contracts` (`@runetools/contracts`): shared Effect Schema definitions. RPC group,
   orchestration commands/events/read model, auth scopes, environment descriptors, settings.
-- `packages/shared` (`@rune/shared`): framework-agnostic utilities used by server and clients
+- `packages/shared` (`@runetools/shared`): framework-agnostic utilities used by server and clients
   (`DrainableWorker`, git and source-control helpers, relay auth and signing, DPoP, semver, logging,
   observability, and more).
-- `packages/client-runtime` (`@rune/client-runtime`): connection lifecycle, authorization, RPC
+- `packages/client-runtime` (`@runetools/client-runtime`): connection lifecycle, authorization, RPC
   session, environment registry, and Atom-based domain state shared by web and mobile. See its
   [README](../../packages/client-runtime/README.md).
-- `packages/ssh` (`@rune/ssh`): SSH config parsing, auth prompts, command execution, and the
+- `packages/ssh` (`@runetools/ssh`): SSH config parsing, auth prompts, command execution, and the
   tunnel/environment manager behind desktop-managed SSH environments.
-- `packages/tailscale` (`@rune/tailscale`): Tailscale CLI wrapper, including the
+- `packages/tailscale` (`@runetools/tailscale`): Tailscale CLI wrapper, including the
   `ensureTailscaleServe` / `disableTailscaleServe` serve lifecycle the server drives.
 - `packages/effect-acp` (`effect-acp`): Effect client and agent implementation of the Agent Client
   Protocol, used by ACP-speaking provider drivers.
@@ -56,8 +56,8 @@ the task commands.
 
 ## Import conventions
 
-`@rune/shared` and `@rune/client-runtime` use explicit subpath exports with no barrel index and
-no root export. Import the narrow path (`@rune/shared/DrainableWorker`,
-`@rune/client-runtime/state/threads`) rather than the package root. Files that are not exported
-are implementation details. `@rune/contracts` does export a root alongside `./settings` and
+`@runetools/shared` and `@runetools/client-runtime` use explicit subpath exports with no barrel index and
+no root export. Import the narrow path (`@runetools/shared/DrainableWorker`,
+`@runetools/client-runtime/state/threads`) rather than the package root. Files that are not exported
+are implementation details. `@runetools/contracts` does export a root alongside `./settings` and
 `./relay`.

@@ -127,10 +127,7 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import { SkillInlineText } from "./SkillInlineText";
-import {
-  formatWorkspaceRelativePath,
-  resolveWorkspaceRelativePath,
-} from "../../filePathDisplay";
+import { formatWorkspaceRelativePath, resolveWorkspaceRelativePath } from "../../filePathDisplay";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import {
   buildReviewCommentRenderablePatch,
@@ -1213,6 +1210,12 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
           skills={ctx.skills}
         />
+        {row.message.streaming && messageText.trim().length > 0 ? (
+          <span
+            aria-hidden="true"
+            className="assistant-live-caret ms-0.5 inline-block h-[1.1em] w-[2px] translate-y-[0.18em] rounded-full bg-current align-baseline"
+          />
+        ) : null}
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
@@ -1318,10 +1321,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
           </span>
         ) : null}
         {allDone ? (
-          <span
-            aria-hidden
-            className="shrink-0 font-mono text-[11px] text-success"
-          >
+          <span aria-hidden className="shrink-0 font-mono text-[11px] text-success">
             ✓
           </span>
         ) : null}
@@ -1337,9 +1337,7 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
           <span
             className={cn(
               "shrink-0 rounded-full px-1.5 py-px tabular-nums",
-              allDone
-                ? "bg-success/10 text-success"
-                : "text-muted-foreground/50",
+              allDone ? "bg-success/10 text-success" : "text-muted-foreground/50",
             )}
           >
             {completedCount}/{steps.length}
@@ -1386,22 +1384,13 @@ const TurnPlanTimelineRow = memo(function TurnPlanTimelineRow({
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
   const { workingStepLabel } = use(TimelineRowActivityCtx);
   return (
-    <div>
-      <div className="border-b border-border/60 pb-2 pt-1">
+    <div className="response-status-enter">
+      <div className="pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1.5 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
           <CircleDashedIcon aria-hidden className="size-3.5 shrink-0 working-spin" />
-          {row.createdAt ? (
-            <span>
-              Working for <WorkingTimer createdAt={row.createdAt} />
-            </span>
-          ) : (
-            "Working..."
-          )}
-          {workingStepLabel ? (
-            <span className="ml-2 min-w-0 truncate text-muted-foreground/55">
-              · {workingStepLabel}
-            </span>
-          ) : null}
+          <span role="status" aria-live="polite">
+            {workingStepLabel ?? <WorkingLabel createdAt={row.createdAt} />}
+          </span>
         </div>
       </div>
       {row.showThinking ? (
@@ -1410,6 +1399,16 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         </div>
       ) : null}
     </div>
+  );
+}
+
+function WorkingLabel({ createdAt }: { createdAt: string | null }) {
+  return (
+    <span className="inline-flex items-baseline">
+      {createdAt ? "Working for " : "Working"}
+      {createdAt ? <WorkingTimer createdAt={createdAt} /> : null}
+      <span aria-hidden="true" className="working-dots ms-0.5 inline-block w-3 text-left" />
+    </span>
   );
 }
 
@@ -1830,9 +1829,7 @@ function AssistantChangedFilesSectionInner({
       environmentId={threadRef.environmentId}
       threadId={threadRef.threadId}
       checkpointTurnCount={turnSummary.checkpointTurnCount}
-      {...(revertTurn
-        ? { onRevertTurn: () => revertTurn(turnSummary.checkpointTurnCount) }
-        : {})}
+      {...(revertTurn ? { onRevertTurn: () => revertTurn(turnSummary.checkpointTurnCount) } : {})}
       revertDisabled={activity.isWorking || activity.isRevertingCheckpoint}
     />
   );
@@ -2707,7 +2704,7 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   // One steady in-flight presentation (monitoring-pill rule): waiting and
   // stalled agents read as working; only settled states differentiate.
   const singleAgent = agents.length === 1 ? agents[0] : undefined;
-  const singleAgentName = singleAgent ? (singleAgent.generatedName || singleAgent.title) : undefined;
+  const singleAgentName = singleAgent ? singleAgent.generatedName || singleAgent.title : undefined;
   const lead = singleAgentName
     ? live
       ? `Dispatched ${singleAgentName}`
@@ -2724,11 +2721,7 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
     : failed > 0
       ? `${failed} failed`
       : "✓ completed";
-  const dotClass = live
-    ? "bg-sky-500"
-    : failed > 0
-      ? "bg-destructive"
-      : "bg-muted-foreground/60";
+  const dotClass = live ? "bg-sky-500" : failed > 0 ? "bg-destructive" : "bg-muted-foreground/60";
 
   return (
     <button

@@ -5,7 +5,7 @@ import type {
   OrchestrationThreadShell,
   ProviderInteractionMode,
   RuntimeMode,
-  ServerConfig as RuneServerConfig,
+  ServerConfig as RUNEServerConfig,
 } from "@rune/contracts";
 import {
   detectComposerTrigger,
@@ -105,7 +105,7 @@ export interface ThreadComposerProps {
    */
   readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: OrchestrationThreadShell;
-  readonly serverConfig: RuneServerConfig | null;
+  readonly serverConfig: RUNEServerConfig | null;
   readonly queueCount: number;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <react/renderer/components/RuneMarkdownTextSpec/EventEmitters.h>
-#include <react/renderer/components/RuneMarkdownTextSpec/Props.h>
+#include <react/renderer/components/RUNEMarkdownTextSpec/EventEmitters.h>
+#include <react/renderer/components/RUNEMarkdownTextSpec/Props.h>
 #include <react/renderer/components/view/ConcreteViewShadowNode.h>
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
 #include <react/renderer/core/LayoutContext.h>
@@ -12,9 +12,9 @@
 
 namespace facebook::react {
 
-extern const char RuneMarkdownTextComponentName[];
+extern const char RUNEMarkdownTextComponentName[];
 
-struct RuneMarkdownTextParagraphStyleRange {
+struct RUNEMarkdownTextParagraphStyleRange {
   size_t location;
   size_t length;
   Float firstLineHeadIndent;
@@ -22,37 +22,37 @@ struct RuneMarkdownTextParagraphStyleRange {
   Float paragraphSpacing;
 };
 
-struct RuneMarkdownTextAttachmentRange {
+struct RUNEMarkdownTextAttachmentRange {
   size_t location;
   size_t length;
   std::string imageUri;
 };
 
-inline Float RuneMarkdownTextAttachmentSize(const RuneMarkdownTextAttachmentRange &) {
+inline Float RUNEMarkdownTextAttachmentSize(const RUNEMarkdownTextAttachmentRange &) {
   return 14;
 }
 
-inline Float RuneMarkdownTextAttachmentBaselineOffset(
-    const RuneMarkdownTextAttachmentRange &) {
+inline Float RUNEMarkdownTextAttachmentBaselineOffset(
+    const RUNEMarkdownTextAttachmentRange &) {
   return -2;
 }
 
-class RuneMarkdownTextStateReal final {
+class RUNEMarkdownTextStateReal final {
  public:
   AttributedString attributedString;
-  std::vector<RuneMarkdownTextParagraphStyleRange> paragraphStyleRanges;
-  std::vector<RuneMarkdownTextAttachmentRange> attachmentRanges;
+  std::vector<RUNEMarkdownTextParagraphStyleRange> paragraphStyleRanges;
+  std::vector<RUNEMarkdownTextAttachmentRange> attachmentRanges;
 };
 
-class RuneMarkdownTextShadowNode final : public ConcreteViewShadowNode<
-RuneMarkdownTextComponentName,
-RuneMarkdownTextProps,
-RuneMarkdownTextEventEmitter,
-RuneMarkdownTextStateReal> {
+class RUNEMarkdownTextShadowNode final : public ConcreteViewShadowNode<
+RUNEMarkdownTextComponentName,
+RUNEMarkdownTextProps,
+RUNEMarkdownTextEventEmitter,
+RUNEMarkdownTextStateReal> {
 public:
   using ConcreteViewShadowNode::ConcreteViewShadowNode;
 
-  RuneMarkdownTextShadowNode(
+  RUNEMarkdownTextShadowNode(
    const ShadowNode& sourceShadowNode,
    const ShadowNodeFragment& fragment
   );
@@ -72,7 +72,7 @@ public:
 
 private:
   mutable AttributedString _attributedString;
-  mutable std::vector<RuneMarkdownTextParagraphStyleRange> _paragraphStyleRanges;
-  mutable std::vector<RuneMarkdownTextAttachmentRange> _attachmentRanges;
+  mutable std::vector<RUNEMarkdownTextParagraphStyleRange> _paragraphStyleRanges;
+  mutable std::vector<RUNEMarkdownTextAttachmentRange> _attachmentRanges;
 };
 } // namespace facebook::React

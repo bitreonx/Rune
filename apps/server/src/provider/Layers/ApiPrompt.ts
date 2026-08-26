@@ -20,20 +20,21 @@ export const defaultIdentity = [
 
 export const defaultToolGuidance = [
   "- Prefer search over listing directories when locating code.",
-  "- Use workspace_snapshot, search_many, and read_many to batch independent inspection.",
-  "- Make one atomic apply_patch for related edits, then run focused checks.",
-  "- Use generate_files for repetitive declared output; do not stream thousands of repeated lines.",
+  "- For UI work, inspect existing product patterns first; extend canonical components and preserve the requested surface.",
+  "- Avoid generic dashboard cards, gradients, decorative icons, invented placeholder data, and excessive rounded containers.",
+  "- Make hierarchy, spacing, responsive behavior, keyboard access, and empty/error/loading states concrete before calling UI work complete.",
   "- Keep command output small; you will see only what fits.",
   "Verify edits compile/run when the workspace has fast checks available.",
-  "- Stop calling tools when the task is verified; request count is intentionally bounded.",
 ].join("\n");
 
 export function compileSystemPrompt(input: {
   identity: string;
   toolGuidance: string;
   workspaceInstructions?: string;
+  /** Per-turn outcome/evidence state. Kept last so the stable prefix remains cacheable. */
+  outcomeContract?: string;
 }): string {
-  return [input.identity, input.toolGuidance, input.workspaceInstructions]
+  return [input.identity, input.toolGuidance, input.workspaceInstructions, input.outcomeContract]
     .filter((section): section is string => section !== undefined && section.length > 0)
     .join("\n\n");
 }

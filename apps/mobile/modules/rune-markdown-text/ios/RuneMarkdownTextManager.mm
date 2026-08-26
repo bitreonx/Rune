@@ -3,12 +3,12 @@
 #import "RCTBridge.h"
 #import "Utils.h"
 
-@interface RuneMarkdownTextManager : RCTViewManager
+@interface RUNEMarkdownTextManager : RCTViewManager
 @end
 
-@implementation RuneMarkdownTextManager
+@implementation RUNEMarkdownTextManager
 
-RCT_EXPORT_MODULE(RuneMarkdownText)
+RCT_EXPORT_MODULE(RUNEMarkdownText)
 
 - (UIView *)view
 {
@@ -21,12 +21,12 @@ RCT_CUSTOM_VIEW_PROPERTY(color, NSString, UIView)
 
 @end
 
-@interface RuneMarkdownTextRunManager : RCTViewManager
+@interface RUNEMarkdownTextRunManager : RCTViewManager
 @end
 
-@implementation RuneMarkdownTextRunManager
+@implementation RUNEMarkdownTextRunManager
 
-RCT_EXPORT_MODULE(RuneMarkdownTextRun)
+RCT_EXPORT_MODULE(RUNEMarkdownTextRun)
 
 - (UIView *)view
 {

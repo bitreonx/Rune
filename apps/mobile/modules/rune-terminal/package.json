@@ -5,12 +5,12 @@
   "expo-module": {
     "ios": {
       "modules": [
-        "RuneTerminalModule"
+        "RUNETerminalModule"
       ]
     },
     "android": {
       "modules": [
-        "expo.modules.runeterminal.RuneTerminalModule"
+        "expo.modules.runeterminal.RUNETerminalModule"
       ]
     }
   }

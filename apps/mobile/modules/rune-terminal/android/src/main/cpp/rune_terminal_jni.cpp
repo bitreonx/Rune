@@ -10,7 +10,7 @@
 
 namespace {
 
-constexpr uint32_t kSnapshotMagic = 0x54563354;  // "T3VT" in little endian.
+constexpr uint32_t kSnapshotMagic = 0x54563354;  // "RUNEVT" in little endian.
 constexpr uint16_t kSnapshotVersion = 1;
 constexpr size_t kMaxScrollbackRows = 10000;
 

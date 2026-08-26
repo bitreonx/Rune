@@ -10,7 +10,7 @@
     "index.ts",
     "LICENSE",
     "UPSTREAM.md",
-    "RuneMarkdownText.podspec",
+    "RUNEMarkdownText.podspec",
     "react-native.config.js"
   ],
   "main": "./index.ts",
@@ -35,13 +35,13 @@
     "react-native-nitro-markdown": "*"
   },
   "codegenConfig": {
-    "name": "RuneMarkdownTextSpec",
+    "name": "RUNEMarkdownTextSpec",
     "type": "all",
     "jsSrcsDir": "src",
     "ios": {
       "componentProvider": {
-        "RuneMarkdownText": "RuneMarkdownText",
-        "RuneMarkdownTextRun": "RuneMarkdownTextRun"
+        "RUNEMarkdownText": "RUNEMarkdownText",
+        "RUNEMarkdownTextRun": "RUNEMarkdownTextRun"
       }
     },
     "outputDir": {

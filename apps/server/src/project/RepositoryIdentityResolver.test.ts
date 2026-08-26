@@ -43,7 +43,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       });
 
       yield* git(cwd, ["init"]);
-      yield* git(cwd, ["remote", "add", "origin", "git@github.com:T3Tools/rune.git"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@github.com:RUNETools/rune.git"]);
 
       const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const identity = yield* resolver.resolve(cwd);
@@ -52,11 +52,11 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       const resolvedCwd = yield* fileSystem.realPath(cwd);
 
       expect(identity).not.toBeNull();
-      expect(identity?.canonicalKey).toBe("github.com/rune-dev/rune");
+      expect(identity?.canonicalKey).toBe("github.com/runetools/rune");
       expect(normalizeResolvedPath(resolvedIdentityRoot)).toBe(normalizeResolvedPath(resolvedCwd));
-      expect(identity?.displayName).toBe("rune-dev/rune");
+      expect(identity?.displayName).toBe("runetools/rune");
       expect(identity?.provider).toBe("github");
-      expect(identity?.owner).toBe("rune-dev");
+      expect(identity?.owner).toBe("runetools");
       expect(identity?.name).toBe("rune");
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
@@ -72,7 +72,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
 
       yield* fileSystem.makeDirectory(nestedWorkspace, { recursive: true });
       yield* git(repoRoot, ["init"]);
-      yield* git(repoRoot, ["remote", "add", "origin", "git@github.com:T3Tools/rune.git"]);
+      yield* git(repoRoot, ["remote", "add", "origin", "git@github.com:RUNETools/rune.git"]);
 
       const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const identity = yield* resolver.resolve(nestedWorkspace);
@@ -81,7 +81,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       const resolvedRepoRoot = yield* fileSystem.realPath(repoRoot);
 
       expect(identity).not.toBeNull();
-      expect(identity?.canonicalKey).toBe("github.com/rune-dev/rune");
+      expect(identity?.canonicalKey).toBe("github.com/runetools/rune");
       expect(normalizeResolvedPath(resolvedIdentityRoot)).toBe(
         normalizeResolvedPath(resolvedRepoRoot),
       );
@@ -118,15 +118,15 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
 
       yield* git(cwd, ["init"]);
       yield* git(cwd, ["remote", "add", "origin", "git@github.com:julius/rune.git"]);
-      yield* git(cwd, ["remote", "add", "upstream", "git@github.com:T3Tools/rune.git"]);
+      yield* git(cwd, ["remote", "add", "upstream", "git@github.com:RUNETools/rune.git"]);
 
       const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const identity = yield* resolver.resolve(cwd);
 
       expect(identity).not.toBeNull();
       expect(identity?.locator.remoteName).toBe("upstream");
-      expect(identity?.canonicalKey).toBe("github.com/rune-dev/rune");
-      expect(identity?.displayName).toBe("rune-dev/rune");
+      expect(identity?.canonicalKey).toBe("github.com/runetools/rune");
+      expect(identity?.displayName).toBe("runetools/rune");
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
@@ -138,15 +138,15 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       });
 
       yield* git(cwd, ["init"]);
-      yield* git(cwd, ["remote", "add", "origin", "git@gitlab.com:T3Tools/platform/rune.git"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@gitlab.com:RUNETools/platform/rune.git"]);
 
       const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const identity = yield* resolver.resolve(cwd);
 
       expect(identity).not.toBeNull();
-      expect(identity?.canonicalKey).toBe("gitlab.com/rune-dev/platform/rune");
-      expect(identity?.displayName).toBe("rune-dev/platform/rune");
-      expect(identity?.owner).toBe("rune-dev");
+      expect(identity?.canonicalKey).toBe("gitlab.com/runetools/platform/rune");
+      expect(identity?.displayName).toBe("runetools/platform/rune");
+      expect(identity?.owner).toBe("runetools");
       expect(identity?.name).toBe("rune");
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
@@ -166,7 +166,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
         const initialIdentity = yield* resolver.resolve(cwd);
         expect(initialIdentity).toBeNull();
 
-        yield* git(cwd, ["remote", "add", "origin", "git@github.com:T3Tools/rune.git"]);
+        yield* git(cwd, ["remote", "add", "origin", "git@github.com:RUNETools/rune.git"]);
 
         for (const _attempt of [1, 2, 3]) {
           const cachedIdentity = yield* resolver.resolve(cwd);
@@ -177,7 +177,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
 
         const refreshedIdentity = yield* resolver.resolve(cwd);
         expect(refreshedIdentity).not.toBeNull();
-        expect(refreshedIdentity?.canonicalKey).toBe("github.com/rune-dev/rune");
+        expect(refreshedIdentity?.canonicalKey).toBe("github.com/runetools/rune");
         expect(refreshedIdentity?.name).toBe("rune");
       }).pipe(
         Effect.provide(
@@ -200,25 +200,25 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       });
 
       yield* git(cwd, ["init"]);
-      yield* git(cwd, ["remote", "add", "origin", "git@github.com:T3Tools/rune.git"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@github.com:RUNETools/rune.git"]);
 
       const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const initialIdentity = yield* resolver.resolve(cwd);
       expect(initialIdentity).not.toBeNull();
-      expect(initialIdentity?.canonicalKey).toBe("github.com/rune-dev/rune");
+      expect(initialIdentity?.canonicalKey).toBe("github.com/runetools/rune");
 
-      yield* git(cwd, ["remote", "set-url", "origin", "git@github.com:T3Tools/rune-next.git"]);
+      yield* git(cwd, ["remote", "set-url", "origin", "git@github.com:RUNETools/rune-next.git"]);
 
       const cachedIdentity = yield* resolver.resolve(cwd);
       expect(cachedIdentity).not.toBeNull();
-      expect(cachedIdentity?.canonicalKey).toBe("github.com/rune-dev/rune");
+      expect(cachedIdentity?.canonicalKey).toBe("github.com/runetools/rune");
 
       yield* TestClock.adjust(Duration.millis(180));
 
       const refreshedIdentity = yield* resolver.resolve(cwd);
       expect(refreshedIdentity).not.toBeNull();
-      expect(refreshedIdentity?.canonicalKey).toBe("github.com/rune-dev/rune-next");
-      expect(refreshedIdentity?.displayName).toBe("rune-dev/rune-next");
+      expect(refreshedIdentity?.canonicalKey).toBe("github.com/runetools/rune-next");
+      expect(refreshedIdentity?.displayName).toBe("runetools/rune-next");
       expect(refreshedIdentity?.name).toBe("rune-next");
     }).pipe(
       Effect.provide(

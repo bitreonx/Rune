@@ -68,7 +68,7 @@
         // Keep this small boot-time copy in sync with the built-in palettes so
         // the selected theme is visible before the app has mounted.
         const BUILT_IN_THEME_PALETTES = {
-          "rune": {
+          rune: {
             light: {
               background: "oklch(0.969049 0.005397 297.726)",
               foreground: "oklch(0.222003 0.03479 328.979)",
@@ -156,11 +156,11 @@
           "ocean",
           "ember",
           "iris",
-          "t3-chat-dark",
-          "t3-grove",
-          "t3-ocean",
-          "t3-ember",
-          "t3-iris",
+          "rune-chat-dark",
+          "rune-grove",
+          "rune-ocean",
+          "rune-ember",
+          "rune-iris",
         ];
         // Update every theme-color meta so any element another layer added
         // carries the resolved color too.
@@ -237,20 +237,20 @@
           const storedTheme = window.localStorage.getItem("rune:theme");
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           // Older builds stored the dark RUNE Core palette as its own theme id
-          // and every maintainer theme under a t3- prefix; keep those
+          // and every maintainer theme under a rune- prefix; keep those
           // preferences readable. Mirrors the runtime's legacy alias table.
           const LEGACY_THEME_IDS = {
-            "t3-chat-dark": "rune",
-            "t3-chat": "rune",
-            "t3-grove": "grove",
-            "t3-ocean": "ocean",
-            "t3-ember": "ember",
-            "t3-iris": "iris",
+            "rune-chat-dark": "rune",
+            "rune-chat": "rune",
+            "rune-grove": "grove",
+            "rune-ocean": "ocean",
+            "rune-ember": "ember",
+            "rune-iris": "iris",
           };
-          const isLegacyT3ChatDark = storedTheme === "t3-chat-dark";
+          const isLegacyRUNEChatDark = storedTheme === "rune-chat-dark";
           const themeId =
             storedTheme === null ? "" : (LEGACY_THEME_IDS[storedTheme] ?? storedTheme);
-          const legacyMode = isLegacyT3ChatDark ? "dark" : null;
+          const legacyMode = isLegacyRUNEChatDark ? "dark" : null;
           const builtInModes = BUILT_IN_THEME_MODES[themeId] ?? null;
           const customTheme = builtInModes ? null : findCustomTheme(themeId);
           const themeModes =
@@ -585,13 +585,18 @@
         }
       }
     </style>
-    <title>RUNE (Alpha)</title>
+    <title>RUNE</title>
   </head>
   <body>
     <div id="root">
       <div id="boot-shell">
         <div id="boot-shell-card">
-          <div class="rune-loader" role="status" aria-label="Loading RUNE" style="width: 72px; height: 72px">
+          <div
+            class="rune-loader"
+            role="status"
+            aria-label="Loading RUNE"
+            style="width: 72px; height: 72px"
+          >
             <div class="rune-loader-glow" aria-hidden="true"></div>
             <svg aria-hidden="true" class="rune-loader-mark" viewBox="0 0 1254 1254">
               <defs>
@@ -621,44 +626,104 @@
               <g
                 class="rune-loader-facet"
                 clip-path="url(#boot-rune-loader-facet-0)"
-                style="--rune-facet-dx: 41.3px; --rune-facet-dy: -79.9px; --rune-facet-tilt: 4deg; --rune-facet-stagger: 0ms; transform-origin: 750.9px 382.2px"
+                style="
+                  --rune-facet-dx: 41.3px;
+                  --rune-facet-dy: -79.9px;
+                  --rune-facet-tilt: 4deg;
+                  --rune-facet-stagger: 0ms;
+                  transform-origin: 750.9px 382.2px;
+                "
               >
-                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+                <path
+                  d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z"
+                  fill="url(#boot-rune-loader-gradient)"
+                  fill-rule="evenodd"
+                />
               </g>
               <g
                 class="rune-loader-facet"
                 clip-path="url(#boot-rune-loader-facet-1)"
-                style="--rune-facet-dx: 90px; --rune-facet-dy: -1.6px; --rune-facet-tilt: -4deg; --rune-facet-stagger: 60ms; transform-origin: 873.9px 616.2px"
+                style="
+                  --rune-facet-dx: 90px;
+                  --rune-facet-dy: -1.6px;
+                  --rune-facet-tilt: -4deg;
+                  --rune-facet-stagger: 60ms;
+                  transform-origin: 873.9px 616.2px;
+                "
               >
-                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+                <path
+                  d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z"
+                  fill="url(#boot-rune-loader-gradient)"
+                  fill-rule="evenodd"
+                />
               </g>
               <g
                 class="rune-loader-facet"
                 clip-path="url(#boot-rune-loader-facet-2)"
-                style="--rune-facet-dx: 40.8px; --rune-facet-dy: 80.2px; --rune-facet-tilt: 4deg; --rune-facet-stagger: 120ms; transform-origin: 750.6px 862.2px"
+                style="
+                  --rune-facet-dx: 40.8px;
+                  --rune-facet-dy: 80.2px;
+                  --rune-facet-tilt: 4deg;
+                  --rune-facet-stagger: 120ms;
+                  transform-origin: 750.6px 862.2px;
+                "
               >
-                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+                <path
+                  d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z"
+                  fill="url(#boot-rune-loader-gradient)"
+                  fill-rule="evenodd"
+                />
               </g>
               <g
                 class="rune-loader-facet"
                 clip-path="url(#boot-rune-loader-facet-3)"
-                style="--rune-facet-dx: -40.9px; --rune-facet-dy: 80.1px; --rune-facet-tilt: -4deg; --rune-facet-stagger: 180ms; transform-origin: 504.2px 862.2px"
+                style="
+                  --rune-facet-dx: -40.9px;
+                  --rune-facet-dy: 80.1px;
+                  --rune-facet-tilt: -4deg;
+                  --rune-facet-stagger: 180ms;
+                  transform-origin: 504.2px 862.2px;
+                "
               >
-                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+                <path
+                  d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z"
+                  fill="url(#boot-rune-loader-gradient)"
+                  fill-rule="evenodd"
+                />
               </g>
               <g
                 class="rune-loader-facet"
                 clip-path="url(#boot-rune-loader-facet-4)"
-                style="--rune-facet-dx: -90px; --rune-facet-dy: -1.2px; --rune-facet-tilt: 4deg; --rune-facet-stagger: 240ms; transform-origin: 381.6px 617.2px"
+                style="
+                  --rune-facet-dx: -90px;
+                  --rune-facet-dy: -1.2px;
+                  --rune-facet-tilt: 4deg;
+                  --rune-facet-stagger: 240ms;
+                  transform-origin: 381.6px 617.2px;
+                "
               >
-                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+                <path
+                  d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z"
+                  fill="url(#boot-rune-loader-gradient)"
+                  fill-rule="evenodd"
+                />
               </g>
               <g
                 class="rune-loader-facet"
                 clip-path="url(#boot-rune-loader-facet-5)"
-                style="--rune-facet-dx: -41.4px; --rune-facet-dy: -79.9px; --rune-facet-tilt: -4deg; --rune-facet-stagger: 300ms; transform-origin: 504.9px 383.2px"
+                style="
+                  --rune-facet-dx: -41.4px;
+                  --rune-facet-dy: -79.9px;
+                  --rune-facet-tilt: -4deg;
+                  --rune-facet-stagger: 300ms;
+                  transform-origin: 504.9px 383.2px;
+                "
               >
-                <path d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z" fill="url(#boot-rune-loader-gradient)" fill-rule="evenodd" />
+                <path
+                  d="M628 156L997 370L997 858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373ZM629 156L259 373L749 373L913 537L749 709L927 905L997 858L997 370ZM259 373L439 491L438 983L258 858ZM758 511L541 511L541 1050L627 1108L858 952L544 736Z"
+                  fill="url(#boot-rune-loader-gradient)"
+                  fill-rule="evenodd"
+                />
               </g>
             </svg>
           </div>

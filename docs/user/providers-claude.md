@@ -104,30 +104,9 @@ instead of trying to share part of the state.
 
 ## Configure A Claude-Compatible Service
 
-Use a Claude-compatible service when you want Claude Code to talk to Anthropic, OpenRouter, or
-another Anthropic-compatible gateway. Services live under **Settings → Subscription (IDE)
-Providers**, where each Claude subscription appears as a card. The setting belongs to the provider
-instance, so it applies to every project using that provider on the same RUNE server.
-
-### Add A Service
-
-Select **Add service** next to the subscription cards and follow the guided steps:
-
-1. **Service** — pick OpenRouter (RUNE fills in `https://openrouter.ai/api`) or a custom
-   compatible service (enter the gateway's base URL).
-2. **API key** — paste the service's key. It is stored securely and never displayed after saving.
-3. **Models** — RUNE loads the service's model catalog; tick the models you want, or type any
-   model ID the gateway accepts.
-4. **Roles** — optionally pin Opus, Sonnet, and Haiku role models (see below). You can skip this.
-5. **Finish** — name the service and pick an accent color.
-
-After saving, the service appears as its own card in Subscription (IDE) Providers and as an entry
-in every project's model picker rail, where the Claude icon carries the service's logo badge.
-Enabling the service for a project is simply picking it in that project's model picker.
-
-To change an existing service later, select its card to open its dedicated page with the same
-sections: identity, service connection, models, model roles, connection settings, and advanced
-environment variables.
+Use the **Claude Code service** section on any Claude provider card when you want Claude Code to
+talk to Anthropic, OpenRouter, or another Anthropic-compatible gateway. The setting belongs to the
+provider instance, so it applies to every project using that provider on the same RUNE server.
 
 Choose one of these services:
 
@@ -143,13 +122,14 @@ advanced environment editor so they cannot accidentally conflict with the select
 
 ### Configure OpenRouter
 
-Run the guided flow above and choose OpenRouter:
+Add or edit a Claude provider in RUNE Settings, then expand its card:
 
 ```text
-Service: OpenRouter
-API key: sk-or-...
-Models: the OpenRouter model IDs you use
 Display name: Claude OpenRouter
+Binary path: claude
+CLAUDE_CONFIG_DIR path: ~/.claude_openrouter_home
+Claude Code service: OpenRouter
+API key: sk-or-...
 ```
 
 If you prefer to inspect the generated environment, the OpenRouter selection is equivalent to:
@@ -160,9 +140,7 @@ ANTHROPIC_AUTH_TOKEN sk-or-...                Sensitive
 ANTHROPIC_API_KEY                              Empty value
 ```
 
-If you want this setup isolated from your normal Claude account, give the provider its own config
-directory in its connection settings (for example `~/.claude_openrouter_home`) and create that home
-first:
+If you want this setup isolated from your normal Claude account, create that home first:
 
 ```bash
 mkdir -p ~/.claude_openrouter_home
@@ -174,25 +152,25 @@ Anthropic credentials instead of the OpenRouter token.
 
 ### Pick OpenRouter Models
 
-The **Models** section on the service's page shows models reported by the service's catalog plus
-any model IDs you added. Use the visibility control to hide or show a model in the composer for
-every project using that service. Favorites and ordering are global to that service too.
+The **Models** section on the same provider card shows models reported by the provider. Use **Add
+custom model** to add any model ID the gateway accepts, and use the visibility control to hide or
+show a model in the composer for every project using that provider. Favorites and ordering are
+global to that provider instance too.
 
-OpenRouter can also route Claude Code's default model roles to OpenRouter model IDs. Use the
-**Model roles** section on the service's page to choose which model handles each of Claude Code's
-Opus, Sonnet, and Haiku roles:
+OpenRouter can also route Claude Code's default model roles to OpenRouter model IDs. Add these in
+the provider's **Advanced environment variables** section if you want stable role-specific choices:
 
 Example:
 
 ```text
-Opus role:    anthropic/claude-opus-4.6
-Sonnet role:  anthropic/claude-sonnet-4.6
-Haiku role:   anthropic/claude-haiku-4.5
+ANTHROPIC_DEFAULT_OPUS_MODEL    anthropic/claude-opus-4.6
+ANTHROPIC_DEFAULT_SONNET_MODEL  anthropic/claude-sonnet-4.6
+ANTHROPIC_DEFAULT_HAIKU_MODEL   anthropic/claude-haiku-4.5
+CLAUDE_CODE_SUBAGENT_MODEL      anthropic/claude-sonnet-4.6
 ```
 
-These correspond to the `ANTHROPIC_DEFAULT_*_MODEL` environment variables. If you need full control,
-you can still set those variables — including the legacy `CLAUDE_CODE_SUBAGENT_MODEL` — in the
-service's **Advanced environment variables** section.
+Add those to the same provider's **Advanced environment variables** section if you want stable model
+choices.
 
 When the selected model is a custom model, RUNE pins Claude Code's `opus`, `sonnet`, and `haiku`
 roles to that model for you. Gateways do not necessarily serve the first-party Anthropic models

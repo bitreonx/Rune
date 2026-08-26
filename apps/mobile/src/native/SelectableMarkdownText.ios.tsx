@@ -1,5 +1,5 @@
 import {
-  SelectableMarkdownText as RuneSelectableMarkdownText,
+  SelectableMarkdownText as RUNESelectableMarkdownText,
   type SelectableMarkdownTextProps,
 } from "@rune/mobile-markdown-text/renderer";
 
@@ -19,5 +19,5 @@ export function hasNativeSelectableMarkdownText(): boolean {
 }
 
 export function SelectableMarkdownText(props: MobileSelectableMarkdownTextProps) {
-  return <RuneSelectableMarkdownText {...props} highlightCode={highlightCodeSnippet} />;
+  return <RUNESelectableMarkdownText {...props} highlightCode={highlightCodeSnippet} />;
 }

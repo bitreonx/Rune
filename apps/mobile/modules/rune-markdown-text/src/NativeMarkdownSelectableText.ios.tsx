@@ -158,7 +158,7 @@ export function NativeMarkdownSelectableText(props: {
 
     return { key: `${signature}:${occurrence}`, run, text };
   });
-  // RuneMarkdownText only rebuilds its attributed string during native layout. A
+  // RUNEMarkdownText only rebuilds its attributed string during native layout. A
   // color-only child update can otherwise leave the previous appearance cached.
   const appearanceKey = [
     colorScheme ?? "unspecified",

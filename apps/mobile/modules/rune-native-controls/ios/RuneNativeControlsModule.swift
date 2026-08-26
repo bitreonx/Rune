@@ -2,9 +2,9 @@ import ExpoModulesCore
 import Security
 import UIKit
 
-public final class RuneNativeControlsModule: Module {
+public final class RUNENativeControlsModule: Module {
   public func definition() -> ModuleDefinition {
-    Name("RuneNativeControls")
+    Name("RUNENativeControls")
 
     Function("getShowcasePairingUrl") {
       let arguments = ProcessInfo.processInfo.arguments
@@ -18,7 +18,7 @@ public final class RuneNativeControlsModule: Module {
     }
 
     Function("getShowcaseScene") { () -> String? in
-      let scenePath = NSHomeDirectory() + "/Library/Caches/RuneShowcaseScene"
+      let scenePath = NSHomeDirectory() + "/Library/Caches/RUNEShowcaseScene"
       if let storedScene = try? String(contentsOfFile: scenePath, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines), !storedScene.isEmpty {
         return storedScene
@@ -64,7 +64,7 @@ public final class RuneNativeControlsModule: Module {
       let mask: UIInterfaceOrientationMask = orientation == "landscape" ? .landscapeRight : .portrait
       for case let windowScene as UIWindowScene in UIApplication.shared.connectedScenes {
         windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
-          NSLog("RuneNativeControls applyShowcaseOrientation(\(orientation)) failed: \(error)")
+          NSLog("RUNENativeControls applyShowcaseOrientation(\(orientation)) failed: \(error)")
         }
         for window in windowScene.windows {
           window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
@@ -97,7 +97,7 @@ public final class RuneNativeControlsModule: Module {
     }
 
     Function("markShowcaseReady") { (scene: String) in
-      let readyPath = NSHomeDirectory() + "/Library/Caches/RuneShowcaseReadyScene"
+      let readyPath = NSHomeDirectory() + "/Library/Caches/RUNEShowcaseReadyScene"
       try? scene.write(toFile: readyPath, atomically: true, encoding: .utf8)
     }
   }

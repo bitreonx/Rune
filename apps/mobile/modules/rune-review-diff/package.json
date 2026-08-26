@@ -5,12 +5,12 @@
   "expo-module": {
     "ios": {
       "modules": [
-        "RuneReviewDiffModule"
+        "RUNEReviewDiffModule"
       ]
     },
     "android": {
       "modules": [
-        "expo.modules.runereviewdiff.RuneReviewDiffModule"
+        "expo.modules.runereviewdiff.RUNEReviewDiffModule"
       ]
     }
   }

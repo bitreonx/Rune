@@ -1,10 +1,10 @@
 Pod::Spec.new do |s|
-  s.name           = 'RuneNativeControls'
+  s.name           = 'RUNENativeControls'
   s.version        = '1.0.0'
   s.summary        = 'Native UIKit controls for RUNE mobile.'
   s.description    = 'UIKit-backed controls that match native iOS navigation chrome.'
-  s.author         = 'T3 Tools'
-  s.homepage       = 'https://t3tools.com'
+  s.author         = 'RUNE Tools'
+  s.homepage       = 'https://runetools.com'
   s.platforms      = {
     :ios => '18.0',
   }

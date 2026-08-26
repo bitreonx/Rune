@@ -556,22 +556,6 @@ export function projectThreadDetailSnapshot(
   };
 }
 
-// Strips role-"reasoning" messages from a thread detail snapshot for clients
-// that did not declare reasoning support (subscribeThread capability flag and
-// the threadSnapshot HTTP query param). A stale decoder rejects the unknown
-// role value, so the content must never reach it.
-export function withoutReasoningMessages(
-  snapshot: OrchestrationThreadDetailSnapshot,
-): OrchestrationThreadDetailSnapshot {
-  return {
-    ...snapshot,
-    thread: {
-      ...snapshot.thread,
-      messages: snapshot.thread.messages.filter((message) => message.role !== "reasoning"),
-    },
-  };
-}
-
 export function projectActivityEvent(event: OrchestrationEvent): OrchestrationEvent {
   if (event.type !== "thread.activity-appended") {
     return event;

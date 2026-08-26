@@ -75,28 +75,28 @@ typedef struct {
   size_t size;
 
   /** Full screen width in pixels. */
-  uint32_t screen_width;
+  uinrune2_t screen_width;
 
   /** Full screen height in pixels. */
-  uint32_t screen_height;
+  uinrune2_t screen_height;
 
   /** Cell width in pixels. Must be non-zero. */
-  uint32_t cell_width;
+  uinrune2_t cell_width;
 
   /** Cell height in pixels. Must be non-zero. */
-  uint32_t cell_height;
+  uinrune2_t cell_height;
 
   /** Top padding in pixels. */
-  uint32_t padding_top;
+  uinrune2_t padding_top;
 
   /** Bottom padding in pixels. */
-  uint32_t padding_bottom;
+  uinrune2_t padding_bottom;
 
   /** Right padding in pixels. */
-  uint32_t padding_right;
+  uinrune2_t padding_right;
 
   /** Left padding in pixels. */
-  uint32_t padding_left;
+  uinrune2_t padding_left;
 } GhosttyMouseEncoderSize;
 
 /**

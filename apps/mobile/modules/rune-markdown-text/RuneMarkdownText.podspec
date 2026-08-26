@@ -4,13 +4,13 @@ package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 new_arch_enabled = ENV["RCT_NEW_ARCH_ENABLED"] == "1"
 
 Pod::Spec.new do |s|
-  s.name = "RuneMarkdownText"
+  s.name = "RUNEMarkdownText"
   s.version = package["version"]
   s.summary = "Native selectable markdown renderer for RUNE mobile."
   s.description = "Fabric-backed attributed text and markdown rendering primitives owned by RUNE."
-  s.homepage = "https://t3tools.com"
+  s.homepage = "https://runetools.com"
   s.license = { :type => "MIT", :file => "LICENSE" }
-  s.author = { "T3 Tools" => "hello@t3tools.com" }
+  s.author = { "RUNE Tools" => "hello@rune.com" }
   s.platforms = { :ios => min_ios_version_supported }
   s.source = { :path => "." }
   s.source_files = "ios/**/*.{h,m,mm,cpp}"

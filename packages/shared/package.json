@@ -111,10 +111,6 @@
       "types": "./src/runeProjectFile.ts",
       "import": "./src/runeProjectFile.ts"
     },
-    "./runeProjectFile": {
-      "types": "./src/runeProjectFile.ts",
-      "import": "./src/runeProjectFile.ts"
-    },
     "./orchestrationTiming": {
       "types": "./src/orchestrationTiming.ts",
       "import": "./src/orchestrationTiming.ts"

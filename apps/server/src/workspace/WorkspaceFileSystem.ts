@@ -141,10 +141,7 @@ export class WorkspaceFileSystem extends Context.Service<
       ProjectWriteFileResult,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
-    /**
-     * Validate and write a bounded set of files through one workspace service
-     * operation. All paths are resolved before the first write.
-     */
+    /** Validate every target before writing a batch of related files. */
     readonly writeFiles: (input: {
       readonly cwd: string;
       readonly files: ReadonlyArray<{ readonly relativePath: string; readonly contents: string }>;
@@ -165,7 +162,7 @@ export class WorkspaceFileSystem extends Context.Service<
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
   }
->()("@rune/server/workspace/WorkspaceFileSystem") {}
+>()("rune/workspace/WorkspaceFileSystem") {}
 
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -456,8 +453,32 @@ export const make = Effect.gen(function* () {
     for (const [index, target] of targets.entries()) {
       const file = input.files[index];
       if (!file) continue;
-      yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true });
-      yield* fileSystem.writeFileString(target.absolutePath, file.contents);
+      yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: file.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: path.dirname(target.absolutePath),
+              operation: "make-directory",
+              cause,
+            }),
+        ),
+      );
+      yield* fileSystem.writeFileString(target.absolutePath, file.contents).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: file.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: target.absolutePath,
+              operation: "write-file",
+              cause,
+            }),
+        ),
+      );
       results.push({ relativePath: target.relativePath });
     }
     yield* workspaceEntries.refresh(input.cwd);

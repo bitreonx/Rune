@@ -92,7 +92,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           "run",
           "--filter=@rune/contracts",
           "--filter=@rune/web",
-          "--filter=@rune/server",
+          "--filter=rune",
           "--parallel",
           "dev",
         ]);
@@ -207,7 +207,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          runeHome: "/tmp/custom-t3",
+          runeHome: "/tmp/custom-rune",
           browser: false,
           autoBootstrapProjectFromCwd: false,
           logWebSocketEvents: true,
@@ -216,7 +216,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: new URL("http://localhost:7331"),
         });
 
-        assert.equal(env.RUNE_HOME, path.resolve("/tmp/custom-t3"));
+        assert.equal(env.RUNE_HOME, path.resolve("/tmp/custom-rune"));
         assert.equal(env.RUNE_PORT, "4222");
         assert.equal(env.VITE_HTTP_URL, "http://localhost:4222");
         assert.equal(env.VITE_WS_URL, "ws://localhost:4222");
@@ -233,8 +233,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {
-            T3_SERVICE_LAUNCHER_CONTEXT: '{"childVersion":"9.9.9"}',
-            T3_BOOT_SERVICE_UNIT: "rune.service",
+            RUNE_SERVICE_LAUNCHER_CONTEXT: '{"childVersion":"9.9.9"}',
+            RUNE_BOOT_SERVICE_UNIT: "rune.service",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -247,8 +247,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3_SERVICE_LAUNCHER_CONTEXT, undefined);
-        assert.equal(env.T3_BOOT_SERVICE_UNIT, undefined);
+        assert.equal(env.RUNE_SERVICE_LAUNCHER_CONTEXT, undefined);
+        assert.equal(env.RUNE_BOOT_SERVICE_UNIT, undefined);
       }),
     );
 
@@ -305,7 +305,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          runeHome: "/tmp/my-t3",
+          runeHome: "/tmp/my-rune",
           browser: undefined,
           autoBootstrapProjectFromCwd: undefined,
           logWebSocketEvents: undefined,
@@ -314,7 +314,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.RUNE_HOME, path.resolve("/tmp/my-t3"));
+        assert.equal(env.RUNE_HOME, path.resolve("/tmp/my-rune"));
       }),
     );
 
@@ -333,7 +333,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           },
           serverOffset: 0,
           webOffset: 0,
-          runeHome: "/tmp/my-t3",
+          runeHome: "/tmp/my-rune",
           browser: true,
           autoBootstrapProjectFromCwd: undefined,
           logWebSocketEvents: undefined,
@@ -342,7 +342,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.RUNE_HOME, path.resolve("/tmp/my-t3"));
+        assert.equal(env.RUNE_HOME, path.resolve("/tmp/my-rune"));
         assert.equal(env.PORT, "5733");
         assert.equal(env.VITE_DEV_SERVER_URL, "http://127.0.0.1:5733");
         assert.equal(env.HOST, "127.0.0.1");
@@ -883,7 +883,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
-          baseEnv: { RUNE_HOME: "/home/user/.t3" },
+          baseEnv: { RUNE_HOME: "/home/user/.rune" },
           serverOffset: 0,
           webOffset: 0,
           runeHome: undefined,
@@ -1207,7 +1207,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       });
     });
 
-    describe("t3 home precedence", () => {
+    describe("rune home precedence", () => {
       const makeWorktree = Effect.acquireRelease(
         Effect.sync(() => {
           const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "rune-devrunner-"));
@@ -1259,7 +1259,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const home = yield* spawnedHome({
             runeHome: "/tmp/explicit-home",
             cwd: root,
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.rune",
           });
           assert.equal(home, path.resolve("/tmp/explicit-home"));
         }).pipe(Effect.scoped),
@@ -1272,7 +1272,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const home = yield* spawnedHome({
             runeHome: "   ",
             cwd: root,
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.rune",
           });
           assert.equal(home, path.join(path.resolve(root), ".rune"));
         }).pipe(Effect.scoped),
@@ -1285,7 +1285,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const home = yield* spawnedHome({
             runeHome: undefined,
             cwd: root,
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.rune",
           });
           assert.equal(home, path.join(path.resolve(root), ".rune"));
         }).pipe(Effect.scoped),
@@ -1297,9 +1297,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const home = yield* spawnedHome({
             runeHome: undefined,
             cwd: NodeOS.tmpdir(),
-            ambientHome: "/home/user/.t3",
+            ambientHome: "/home/user/.rune",
           });
-          assert.equal(home, path.resolve("/home/user/.t3"));
+          assert.equal(home, path.resolve("/home/user/.rune"));
         }),
       );
 

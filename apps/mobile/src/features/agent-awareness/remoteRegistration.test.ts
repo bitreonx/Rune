@@ -294,13 +294,13 @@ describe("makeRelayDeviceRegistrationRequest", () => {
         label: "Julius's iPhone",
         iosMajorVersion: 18,
         appVersion: "1.0.0",
-        bundleId: "dev.rune.mobile.preview",
+        bundleId: "com.runetools.rune.preview",
         apsEnvironment: resolveApsEnvironment("preview"),
         notificationsEnabled: true,
         preferences: {},
       }),
     ).toMatchObject({
-      bundleId: "dev.rune.mobile.preview",
+      bundleId: "com.runetools.rune.preview",
       apsEnvironment: "production",
     });
   });

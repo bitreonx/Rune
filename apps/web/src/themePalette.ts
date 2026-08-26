@@ -34,9 +34,9 @@ export const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "rune:theme-follow-system";
 export const THEME_APPEARANCE_MODE_STORAGE_KEY = "rune:theme-appearance-mode";
 export const THEME_HALVES_STORAGE_KEY = "rune:theme-halves:v1";
 
-// Pre-rebrand builds stored the core palette under T3 ids; keep those
+// Pre-rebrand builds stored the core palette under RUNE ids; keep those
 // preferences readable through the alias table below.
-const LEGACY_T3_CHAT_DARK_THEME_ID = "rune-chat-dark";
+const LEGACY_RUNE_CHAT_DARK_THEME_ID = "rune-chat-dark";
 const LEGACY_CORE_THEME_ID = "rune-chat";
 
 export const ThemePreference = Schema.String;
@@ -67,7 +67,7 @@ const RESERVED_THEME_IDS = new Set([
   OCEAN_THEME_ID,
   EMBER_THEME_ID,
   IRIS_THEME_ID,
-  LEGACY_T3_CHAT_DARK_THEME_ID,
+  LEGACY_RUNE_CHAT_DARK_THEME_ID,
   LEGACY_CORE_THEME_ID,
   "rune-grove",
   "rune-ocean",
@@ -273,11 +273,11 @@ export function subscribeToCustomThemes(listener: () => void): () => void {
   };
 }
 
-// Earlier builds shipped every maintainer theme under a t3- prefix; only the
-// genuinely T3-branded palette keeps it. Stored preferences and mixes with the
+// Earlier builds shipped every maintainer theme under a rune- prefix; only the
+// genuinely RUNE-branded palette keeps it. Stored preferences and mixes with the
 // old ids stay readable through this alias table.
 const LEGACY_THEME_ID_ALIASES: Readonly<Record<string, string>> = {
-  [LEGACY_T3_CHAT_DARK_THEME_ID]: CORE_THEME_ID,
+  [LEGACY_RUNE_CHAT_DARK_THEME_ID]: CORE_THEME_ID,
   [LEGACY_CORE_THEME_ID]: CORE_THEME_ID,
   "rune-grove": GROVE_THEME_ID,
   "rune-ocean": OCEAN_THEME_ID,
@@ -295,7 +295,7 @@ function normalizeThemeId(themeId: string): string {
  * still carries the appearance hint getThemePreferenceMode reads.
  */
 export function canonicalThemePreference(theme: string): string {
-  return theme === LEGACY_T3_CHAT_DARK_THEME_ID ? theme : normalizeThemeId(theme);
+  return theme === LEGACY_RUNE_CHAT_DARK_THEME_ID ? theme : normalizeThemeId(theme);
 }
 
 function themeIdFromPreference(theme: ThemePreference): string {
@@ -305,7 +305,7 @@ function themeIdFromPreference(theme: ThemePreference): string {
 // Older builds stored the dark RUNE Core palette as a separate theme. Keep
 // those preferences readable while mapping them to the dark variant.
 function legacyThemeMode(theme: ThemePreference): ThemeAppearance | null {
-  return theme === LEGACY_T3_CHAT_DARK_THEME_ID ? "dark" : null;
+  return theme === LEGACY_RUNE_CHAT_DARK_THEME_ID ? "dark" : null;
 }
 
 /**
@@ -1226,7 +1226,7 @@ export function createManagedThemeColors(
   };
 }
 
-// The shared package keeps the legacy T3 palette available for compatibility
+// The shared package keeps the legacy RUNE palette available for compatibility
 // and mobile consumers. Web and desktop render the RUNE palette at this seam,
 // so the visible product identity can move forward without invalidating stored
 // theme ids or changing the mobile surface.
@@ -1256,7 +1256,7 @@ export { RUNE_CORE_THEME as CORE_THEME };
 export function getDefaultThemeColors(appearance: ThemeAppearance): ThemeColors {
   const theme = runeCoreTheme;
   if (!theme) return {} as ThemeColors;
-  return appearance === "dark" ? theme.variants?.dark ?? theme.colors : theme.colors;
+  return appearance === "dark" ? (theme.variants?.dark ?? theme.colors) : theme.colors;
 }
 
 /**

@@ -20,19 +20,19 @@ This starts the RUNE server on your machine and opens the local web app. Use
 ## Desktop App
 
 Download the latest release from
-[GitHub Releases](https://github.com/rune-dev/rune/releases), or install from a package
+[GitHub Releases](https://github.com/pingdotgg/rune/releases), or install from a package
 registry.
 
 Windows:
 
 ```bash
-winget install T3Tools.RUNE
+winget install RUNETools.Rune
 ```
 
 macOS:
 
 ```bash
-brew install --cask t3-code
+brew install --cask rune
 ```
 
 Arch Linux:
@@ -54,14 +54,14 @@ yay -S rune-nightly-bin
 RUNE drives provider CLIs; it does not ship them. Install the CLI for each provider you want
 to use, then authenticate it.
 
-| Provider    | CLI                                                            | Default binary | Log in with                  |
-| ----------- | -------------------------------------------------------------- | -------------- | ---------------------------- |
-| Codex       | [Codex CLI](https://developers.openai.com/codex/cli)           | `codex`        | `codex login`                |
-| Claude      | [Claude Code](https://claude.com/product/claude-code)          | `claude`       | `claude auth login`          |
-| Antigravity | [Antigravity CLI](https://antigravity.google/docs/cli/install/) | `agy`          | run `agy` once and sign in    |
-| Cursor      | [Cursor CLI](https://cursor.com/cli)                           | `cursor-agent` | `agent login`                |
-| Grok Build  | [Grok Build CLI](https://x.ai/cli)                             | `grok`         | `grok login`                 |
-| OpenCode    | [OpenCode](https://opencode.ai)                                | `opencode`     | `opencode auth login`        |
+| Provider    | CLI                                                             | Default binary | Log in with                |
+| ----------- | --------------------------------------------------------------- | -------------- | -------------------------- |
+| Codex       | [Codex CLI](https://developers.openai.com/codex/cli)            | `codex`        | `codex login`              |
+| Claude      | [Claude Code](https://claude.com/product/claude-code)           | `claude`       | `claude auth login`        |
+| Antigravity | [Antigravity CLI](https://antigravity.google/docs/cli/install/) | `agy`          | run `agy` once and sign in |
+| Cursor      | [Cursor CLI](https://cursor.com/cli)                            | `cursor-agent` | `agent login`              |
+| Grok Build  | [Grok Build CLI](https://x.ai/cli)                              | `grok`         | `grok login`               |
+| OpenCode    | [OpenCode](https://opencode.ai)                                 | `opencode`     | `opencode auth login`      |
 
 Codex, Claude, and Antigravity are on by default. Cursor, Grok Build, and OpenCode are off by
 default; turn them on in **Settings** → the provider's card when you want to use them.

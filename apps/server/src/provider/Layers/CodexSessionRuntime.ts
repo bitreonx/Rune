@@ -435,7 +435,7 @@ export function describeMcpElicitation(
   };
 }
 
-/** Converts a T3 approval decision into the MCP elicitation wire response. */
+/** Converts a RUNE approval decision into the MCP elicitation wire response. */
 export function toMcpElicitationResponse(
   payload: EffectCodexSchema.McpServerElicitationRequestParams,
   decision: ProviderApprovalDecision,
@@ -1399,9 +1399,7 @@ export const makeCodexSessionRuntime = (
               role: existing?.role,
               agentPath: existing?.agentPath ?? item.agentPath,
               depth: existing?.depth,
-              parentThreadId:
-                existing?.parentThreadId ??
-                rootProviderThreadId,
+              parentThreadId: existing?.parentThreadId ?? rootProviderThreadId,
               spawnTurnId: existing ? existing.spawnTurnId : activitySpawnTurnId,
             });
             return next;
@@ -2123,25 +2121,25 @@ export const makeCodexSessionRuntime = (
       return providerThreadId;
     });
 
-    const readRegisteredChild = Effect.fn("CodexSessionRuntime.readRegisteredChild")(
-      function* (agentThreadId: string) {
-        const parentThreadId = yield* readProviderThreadId;
-        const child = (yield* Ref.get(collabChildAgentsRef)).get(agentThreadId);
-        if (!child) {
-          return yield* new CodexSessionRuntimeChildAgentNotFoundError({ agentThreadId });
-        }
-        if (
-          !isCodexChildAgentOwnedByParent({
-            agentThreadId,
-            parentThreadId,
-            child,
-          })
-        ) {
-          return yield* new CodexSessionRuntimeChildAgentParentMismatchError({ agentThreadId });
-        }
-        return child;
-      },
-    );
+    const readRegisteredChild = Effect.fn("CodexSessionRuntime.readRegisteredChild")(function* (
+      agentThreadId: string,
+    ) {
+      const parentThreadId = yield* readProviderThreadId;
+      const child = (yield* Ref.get(collabChildAgentsRef)).get(agentThreadId);
+      if (!child) {
+        return yield* new CodexSessionRuntimeChildAgentNotFoundError({ agentThreadId });
+      }
+      if (
+        !isCodexChildAgentOwnedByParent({
+          agentThreadId,
+          parentThreadId,
+          child,
+        })
+      ) {
+        return yield* new CodexSessionRuntimeChildAgentParentMismatchError({ agentThreadId });
+      }
+      return child;
+    });
 
     const readChildThread = (agentThreadId: string) =>
       Effect.gen(function* () {

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-repo='rune-dev/rune'
+repo='pingdotgg/rune'
 tag="${RELEASE_TAG:?RELEASE_TAG is required}"
 pkgrel="${PKGREL:-1}"
 
@@ -17,7 +17,7 @@ fi
 
 version="${tag#v}"
 pkgver="${version//-/_}"
-asset_name="RUNE-${version}-x86_64.AppImage"
+asset_name="RUNE-Code-${version}-x86_64.AppImage"
 release_json="$(gh api "repos/$repo/releases/tags/$tag")"
 asset_digest="$(jq -r --arg name "$asset_name" \
   '.assets[] | select(.name == $name) | .digest' <<<"$release_json")"

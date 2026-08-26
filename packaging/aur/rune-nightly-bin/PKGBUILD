@@ -5,7 +5,7 @@ pkgver=0.0.34_nightly.20260814.1095
 pkgrel=1
 pkgdesc='Nightly desktop control surface for local coding agents'
 arch=('x86_64')
-url='https://github.com/rune-dev/rune'
+url='https://github.com/pingdotgg/rune'
 license=('MIT')
 depends=(
   'alsa-lib'
@@ -44,10 +44,10 @@ conflicts=('rune-nightly' 'rune')
 options=('!debug' '!strip')
 
 _upstream_version="${pkgver/_nightly./-nightly.}"
-_appimage="RUNE-${_upstream_version}-x86_64.AppImage"
+_appimage="RUNE-Code-${_upstream_version}-x86_64.AppImage"
 source=(
-  "$_appimage::https://github.com/rune-dev/rune/releases/download/v${_upstream_version}/$_appimage"
-  "${pkgname}-${pkgver}-LICENSE::https://raw.githubusercontent.com/rune-dev/rune/v${_upstream_version}/LICENSE"
+  "$_appimage::https://github.com/pingdotgg/rune/releases/download/v${_upstream_version}/$_appimage"
+  "${pkgname}-${pkgver}-LICENSE::https://raw.githubusercontent.com/pingdotgg/rune/v${_upstream_version}/LICENSE"
 )
 sha256sums=(
   'c4dea5bba9ed0b51b2f60f2d4a4867e61d62b57c50ea66f2792a73112e054566' # AppImage
@@ -86,7 +86,7 @@ EOF
       "$pkgdir/usr/share/icons/hicolor/${size_dir##*/}/apps/rune-nightly.png"
   done
 
-  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/rune-nightly.desktop" <<'EOF'
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/rune.desktop" <<'EOF'
 [Desktop Entry]
 Name=RUNE Nightly
 Comment=Nightly desktop control surface for local coding agents
@@ -97,7 +97,7 @@ Type=Application
 Icon=rune-nightly
 StartupWMClass=rune
 Categories=Development;
-MimeType=x-scheme-handler/rune;x-scheme-handler/rune-dev;
+MimeType=x-scheme-handler/rune;
 EOF
 
   install -Dm644 "$srcdir/${pkgname}-${pkgver}-LICENSE" \

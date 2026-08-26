@@ -3,8 +3,8 @@
 > For maintainers. Using RUNE? See [docs/user](../user/).
 
 RUNE Connect uses one Clerk application for web, desktop, and mobile authentication. The relay verifies
-two kinds of bearer credential: template JWTs generated from the `t3-relay` template with the shared
-`t3-code-relay` audience, and Clerk OAuth tokens issued to the CLI. `verifyRelayClientBearerToken` in
+two kinds of bearer credential: template JWTs generated from the `rune-relay` template with the shared
+`rune-relay` audience, and Clerk OAuth tokens issued to the CLI. `verifyRelayClientBearerToken` in
 `infra/relay/src/http/Api.ts` tries the template/session path first and falls back to OAuth
 verification (`acceptsToken: "oauth_token"`), so the CLI's OAuth credential works without a JWT
 template.
@@ -78,11 +78,11 @@ This uses an OAuth public client with PKCE, so the CLI stores no client secret.
 
 In **Clerk Dashboard > OAuth applications**:
 
-1. Create an OAuth application for the T3 CLI.
+1. Create an OAuth application for the RUNE CLI.
 2. Enable the **Public** option so authorization-code exchange uses PKCE.
 3. Add **both** allowed redirect URIs:
    - `http://127.0.0.1:34338/callback` for the loopback listener;
-   - `https://app.rune.dev/connect/callback` for the hosted out-of-band flow. This is
+   - `https://app.rune.codes/connect/callback` for the hosted out-of-band flow. This is
      `connectCallbackUrl(DEFAULT_HOSTED_APP_URL)` from `packages/shared/src/connectAuth.ts`, so a
      custom `RUNE_HOSTED_APP_URL` means `$RUNE_HOSTED_APP_URL/connect/callback` instead.
      Omitting it breaks headless and SSH authorization.
@@ -105,13 +105,13 @@ environment link.
 The connect command group is:
 
 ```sh
-t3 connect            # default: onboarding
-t3 connect login
-t3 connect link       # --publish-only
-t3 connect status     # --json
-t3 connect publish    # --disable
-t3 connect unlink
-t3 connect logout
+rune connect            # default: onboarding
+rune connect login
+rune connect link       # --publish-only
+rune connect status     # --json
+rune connect publish    # --disable
+rune connect unlink
+rune connect logout
 ```
 
 `rune serve` is a separate top-level command, not a connect subcommand.
@@ -119,7 +119,7 @@ t3 connect logout
 `rune connect login` opens the Clerk authorization flow and stores the CLI credential without enabling
 cloud exposure. `rune connect link` installs the pinned managed `cloudflared` binary when needed,
 authorizes when needed, and records durable intent to expose the environment. It works without a
-running T3 server. The next `rune serve` or `rune start` reconciles the relay link and launches the
+running RUNE server. The next `rune serve` or `rune start` reconciles the relay link and launches the
 managed tunnel. `rune connect unlink` records disabled intent immediately, stops a reachable running
 connector, and attempts to revoke the relay-side environment record. It retains the stored CLI
 authorization so `rune connect link` can re-enable exposure without another browser flow. `rune connect
@@ -147,13 +147,13 @@ ssh -L 34338:127.0.0.1:34338 <host>
 
 In **Clerk Dashboard > JWT templates**, create a template with:
 
-| Setting | Value                        |
-| ------- | ---------------------------- |
-| Name    | `t3-relay`                   |
-| Claims  | `{ "aud": "t3-code-relay" }` |
+| Setting | Value                     |
+| ------- | ------------------------- |
+| Name    | `rune-relay`              |
+| Claims  | `{ "aud": "rune-relay" }` |
 
-Set `RUNE_CLERK_JWT_TEMPLATE=t3-relay` in the repository-root `.env`, and set
-`CLERK_JWT_AUDIENCE=t3-code-relay` in `infra/relay/.env`. Define `CLERK_JWT_TEMPLATE` and
+Set `RUNE_CLERK_JWT_TEMPLATE=rune-relay` in the repository-root `.env`, and set
+`CLERK_JWT_AUDIENCE=rune-relay` in `infra/relay/.env`. Define `CLERK_JWT_TEMPLATE` and
 `CLERK_JWT_AUDIENCE` in the production relay deployment environment as well. The stable `aud` value
 is shared by production and non-production relay stages. The client-facing `RUNE_RELAY_URL` still
 selects the concrete relay deployment, but changing that URL does not require a JWT template change.
@@ -190,16 +190,16 @@ artifact.
 
 ## Desktop Passkeys
 
-The production macOS bundle ID is `dev.rune.desktop`. To enable native passkeys:
+The production macOS bundle ID is `com.runetools.rune`. To enable native passkeys:
 
-1. Create an explicit macOS App ID for `dev.rune.desktop` in the Apple Developer portal and enable
+1. Create an explicit macOS App ID for `com.runetools.rune` in the Apple Developer portal and enable
    **Associated Domains**.
 2. Create a compatible macOS provisioning profile for that App ID and the certificate used to sign
    the distributed app.
 3. In Clerk's Native API settings, add an iOS app with the same Apple Team ID and bundle ID. This is
    also the configuration point for Electron/macOS passkeys.
 4. Confirm Clerk serves `https://<frontend-api>/.well-known/apple-app-site-association` and that
-   `webcredentials.apps` contains `<TEAM_ID>.dev.rune.desktop`.
+   `webcredentials.apps` contains `<TEAM_ID>.com.runetools.rune`.
 5. Set the local or CI signing configuration described below.
 
 For a local signed build, add these values to `.env.local` or export them before invoking the
@@ -248,8 +248,8 @@ flow uses a custom redirect URI, add that exact URI to the same allowlist.
 ## Sign-in Surfaces
 
 Signed-in users manage RUNE Connect under **Connections**. The settings sidebar also has dedicated
-controls, rendered by `SettingsSidebarNav.tsx`: `RuneConnectSidebarSignIn` in the footer shows a
-**Sign in to RUNE Connect** button while signed out, and `RuneConnectSidebarAvatar` shows a Clerk
+controls, rendered by `SettingsSidebarNav.tsx`: `RUNEConnectSidebarSignIn` in the footer shows a
+**Sign in to RUNE Connect** button while signed out, and `RUNEConnectSidebarAvatar` shows a Clerk
 `UserButton` account control while signed in. Both are gated on cloud public configuration.
 Desktop renders the same web bundle, so it has them too. The waitlist enrollment flow from the
 private beta was removed when Connect went GA; sign-up is open unless a Clerk restriction below is

@@ -1003,7 +1003,7 @@ describe("stored theme preferences", () => {
     }
   });
 
-  it("resolves the legacy t3-chat-dark preference to dark T3 Chat", () => {
+  it("resolves the legacy rune-chat-dark preference to dark RUNE Chat", () => {
     expect(getThemeDefinition("rune-chat-dark")).toBe(CORE_THEME);
     expect(getThemePreferenceMode("rune-chat-dark")).toBe("dark");
     expect(resolveThemeAppearance("rune-chat-dark", true, false)).toBe("dark");
@@ -1011,7 +1011,7 @@ describe("stored theme preferences", () => {
     expect(isKnownThemePreference("rune-chat-dark")).toBe(true);
   });
 
-  it("resolves legacy t3-prefixed ids onto the renamed themes", () => {
+  it("resolves legacy rune-prefixed ids onto the renamed themes", () => {
     for (const [legacy, theme] of [
       ["rune-grove", GROVE_THEME],
       ["rune-ocean", OCEAN_THEME],

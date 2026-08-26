@@ -74,7 +74,6 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
   projectActivityEvent,
   projectThreadDetailSnapshot,
-  withoutReasoningMessages,
 } from "./orchestration/ActivityPayloadProjection.ts";
 import {
   cleanupFailedUploadedAttachments,
@@ -140,7 +139,10 @@ import * as RelayClient from "@rune/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 const isOrchestrationAgentChatError = Schema.is(OrchestrationAgentChatError);
 
-function toOrchestrationAgentChatError(cause: unknown, message: string): OrchestrationAgentChatError {
+function toOrchestrationAgentChatError(
+  cause: unknown,
+  message: string,
+): OrchestrationAgentChatError {
   if (isOrchestrationAgentChatError(cause)) {
     return cause;
   }
@@ -225,9 +227,7 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
       return {
         failure: "workspace_tree_walk_failed",
         normalizedCwd: error.rootPath,
-        ...(error.directoryPath === undefined
-          ? {}
-          : { detail: error.directoryPath }),
+        ...(error.directoryPath === undefined ? {} : { detail: error.directoryPath }),
       };
     default:
       return unexpectedCompatibilityError(error);
@@ -1493,18 +1493,10 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
             Effect.gen(function* () {
-              // Reasoning messages ride thread.message-sent with a role value
-              // stale decoders reject — and an rpc decode failure kills the
-              // whole subscription, not just the item. Clients opt in via the
-              // capability flag; everyone else gets reasoning stripped.
-              const supportsReasoningMessages = input.supportsReasoningMessages === true;
-              const isReasoningMessageEvent = (event: OrchestrationEvent) =>
-                event.type === "thread.message-sent" && event.payload.role === "reasoning";
               const isThisThreadDetailEvent = (event: OrchestrationEvent) =>
                 event.aggregateKind === "thread" &&
                 event.aggregateId === input.threadId &&
-                isThreadDetailEvent(event) &&
-                (supportsReasoningMessages || !isReasoningMessageEvent(event));
+                isThreadDetailEvent(event);
 
               const liveStream = orchestrationEngine.streamDomainEvents.pipe(
                 Stream.filter(isThisThreadDetailEvent),
@@ -1619,9 +1611,7 @@ const makeWsRpcLayer = (
               return Stream.concat(
                 Stream.make({
                   kind: "snapshot" as const,
-                  snapshot: supportsReasoningMessages
-                    ? projectThreadDetailSnapshot(snapshot.value)
-                    : withoutReasoningMessages(projectThreadDetailSnapshot(snapshot.value)),
+                  snapshot: projectThreadDetailSnapshot(snapshot.value),
                 }),
                 afterSnapshot,
               );

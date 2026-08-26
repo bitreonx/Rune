@@ -231,11 +231,11 @@ index e6509355275596c451f9d082223cc16bfe504e1a..c783cdaf73f5635cf9835824ca85fba3
 +type SubSubAction = {
 +	id?: string;
 +	title: string;
-+	titleColor?: Int32;
++	titleColor?: Inrune2;
 +	subtitle?: string;
 +	state?: string;
 +	image?: string;
-+	imageColor?: Int32;
++	imageColor?: Inrune2;
 +	displayInline?: boolean;
 +	attributes?: {
 +		destructive?: boolean;

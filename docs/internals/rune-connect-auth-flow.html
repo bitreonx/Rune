@@ -255,10 +255,10 @@
         <div class="eyebrow">Implemented architecture</div>
         <h1>RUNE Connect Control Plane and Managed Endpoint Flow</h1>
         <p class="lede">
-          RUNE Connect links a locally authorized T3 environment to a signed-in cloud user, provisions
-          a managed HTTPS/WSS endpoint for that environment, and brokers proof-bound remote
-          connections. The local environment remains the authority that issues environment access
-          credentials. The hosted relay stores links, reconciles managed endpoint resources,
+          RUNE Connect links a locally authorized RUNE environment to a signed-in cloud user,
+          provisions a managed HTTPS/WSS endpoint for that environment, and brokers proof-bound
+          remote connections. The local environment remains the authority that issues environment
+          access credentials. The hosted relay stores links, reconciles managed endpoint resources,
           validates signed proofs, and delivers agent-activity notifications.
         </p>
         <div class="badge-row">
@@ -364,7 +364,7 @@ flowchart LR
   APNs["Apple Push Notification service"]
   Traces["Axiom OTLP traces"]
 
-  subgraph Local["Linked T3 environment"]
+  subgraph Local["Linked RUNE environment"]
     Env["Environment server<br/>local auth authority"]
     RelayClient["Relay client<br/>cloudflared implementation"]
     Secrets["Server secret store<br/>keys + relay config"]
@@ -585,13 +585,13 @@ sequenceDiagram
           <pre class="diagram mermaid">
 sequenceDiagram
   participant U as Operator
-  participant CLI as t3 connect CLI
+  participant CLI as rune connect CLI
   participant Clerk as Clerk OAuth
   participant S as Environment server on next start
   participant R as Relay Worker
   participant RC as Local relay client
 
-  U->>CLI: t3 connect link
+  U->>CLI: rune connect link
   CLI->>CLI: Resolve relay client
   alt relay client is missing
     CLI->>U: Confirm managed relay-client install
@@ -601,15 +601,15 @@ sequenceDiagram
   CLI->>Clerk: Browser PKCE authorization-code flow
   Clerk-->>CLI: OAuth access and refresh tokens
   CLI->>CLI: Persist desired cloud-link state
-  U->>S: Start T3 environment server
+  U->>S: Start RUNE environment server
   S->>R: Create challenge and submit local signed proof
   R-->>S: Managed endpoint config and connector token
   S->>RC: Start relay client
           </pre>
           <p>
-            <code>t3 connect login</code> stores authorization without enabling exposure.
-            <code>t3 connect unlink</code> disables exposure while retaining authorization.
-            <code>t3 connect logout</code> also removes the stored CLI authorization.
+            <code>rune connect login</code> stores authorization without enabling exposure.
+            <code>rune connect unlink</code> disables exposure while retaining authorization.
+            <code>rune connect logout</code> also removes the stored CLI authorization.
           </p>
         </article>
 
@@ -626,7 +626,7 @@ sequenceDiagram
   C->>R: POST /v1/client/dpop-token (Clerk JWT + DPoP proof)
   R-->>C: Relay DPoP access token
   C->>R: POST /v1/environments/:id/connect (relay DPoP)
-  R->>E: POST /api/t3-connect/mint-credential (relay-signed proof)
+  R->>E: POST /api/rune-connect/mint-credential (relay-signed proof)
   E->>E: Verify relay signer, linked user, scope, lifetime, cnf, and replay guards
   E-->>R: Bootstrap credential + environment-signed proof
   R->>R: Verify environment signature, nonce, endpoint, and DPoP binding
@@ -966,12 +966,12 @@ sequenceDiagram
               <td>Stop the relay client and clear local RUNE Connect configuration.</td>
             </tr>
             <tr>
-              <td><code>POST /api/t3-connect/health</code></td>
+              <td><code>POST /api/rune-connect/health</code></td>
               <td>Relay-signed proof</td>
               <td>Return a signed environment health response.</td>
             </tr>
             <tr>
-              <td><code>POST /api/t3-connect/mint-credential</code></td>
+              <td><code>POST /api/rune-connect/mint-credential</code></td>
               <td>Relay-signed proof</td>
               <td>Mint a DPoP-bound one-time bootstrap credential for a remote client.</td>
             </tr>
@@ -1047,9 +1047,9 @@ sequenceDiagram
             <tr>
               <td>Source-built desktop/server cloud features</td>
               <td>
-                Optional <code>RUNE_RELAY_URL</code>, <code>RUNE_CLERK_PUBLISHABLE_KEY</code>,
-                and <code>RUNE_CLERK_CLI_OAUTH_CLIENT_ID</code>. Release builds inject public
-                values at build time.
+                Optional <code>RUNE_RELAY_URL</code>, <code>RUNE_CLERK_PUBLISHABLE_KEY</code>, and
+                <code>RUNE_CLERK_CLI_OAUTH_CLIENT_ID</code>. Release builds inject public values at
+                build time.
               </td>
             </tr>
             <tr>

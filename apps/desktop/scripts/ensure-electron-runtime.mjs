@@ -116,7 +116,7 @@ function runChecked(command, args) {
 }
 
 function installElectronRuntime(electronDir, version) {
-  const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-electron-"));
+  const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "rune-electron-"));
   const zipPath = NodePath.join(tempDir, `electron-v${version}-${hostPlatform}-${hostArch}.zip`);
 
   try {
@@ -132,8 +132,8 @@ function installElectronRuntime(electronDir, version) {
       const destinationDir = NodePath.join(electronDir, "dist");
       const environment = {
         ...process.env,
-        T3_ELECTRON_ZIP_PATH: zipPath,
-        T3_ELECTRON_DESTINATION: destinationDir,
+        RUNE_ELECTRON_ZIP_PATH: zipPath,
+        RUNE_ELECTRON_DESTINATION: destinationDir,
       };
       const result = NodeChildProcess.spawnSync(
         "powershell.exe",
@@ -141,7 +141,7 @@ function installElectronRuntime(electronDir, version) {
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:T3_ELECTRON_ZIP_PATH -DestinationPath $env:T3_ELECTRON_DESTINATION -Force",
+          "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:RUNE_ELECTRON_ZIP_PATH -DestinationPath $env:RUNE_ELECTRON_DESTINATION -Force",
         ],
         { encoding: "utf8", stdio: "inherit", env: environment },
       );

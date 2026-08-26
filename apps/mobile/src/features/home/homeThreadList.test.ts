@@ -1,7 +1,4 @@
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@rune/client-runtime/state/shell";
+import type { EnvironmentProject, EnvironmentThreadShell } from "@rune/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@rune/client-runtime/state/thread-search";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -78,11 +75,11 @@ describe("buildHomeThreadGroups", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");
     const repositoryIdentity = {
-      canonicalKey: "github.com/rune-dev/rune",
+      canonicalKey: "github.com/pingdotgg/rune",
       locator: {
         source: "git-remote" as const,
         remoteName: "origin",
-        remoteUrl: "git@github.com:rune-dev/rune.git",
+        remoteUrl: "git@github.com:pingdotgg/rune.git",
       },
     };
     const projects = [
@@ -121,11 +118,11 @@ describe("buildHomeThreadGroups", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");
     const repositoryIdentity = {
-      canonicalKey: "github.com/rune-dev/rune",
+      canonicalKey: "github.com/pingdotgg/rune",
       locator: {
         source: "git-remote" as const,
         remoteName: "origin",
-        remoteUrl: "git@github.com:rune-dev/rune.git",
+        remoteUrl: "git@github.com:pingdotgg/rune.git",
       },
     };
     const local = makeProject({
@@ -185,11 +182,11 @@ describe("buildHomeThreadGroups", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");
     const repositoryIdentity = {
-      canonicalKey: "github.com/rune-dev/rune",
+      canonicalKey: "github.com/pingdotgg/rune",
       locator: {
         source: "git-remote" as const,
         remoteName: "origin",
-        remoteUrl: "git@github.com:rune-dev/rune.git",
+        remoteUrl: "git@github.com:pingdotgg/rune.git",
       },
     };
     const projects = [
@@ -307,11 +304,11 @@ describe("buildHomeThreadGroups", () => {
     const localEnvironmentId = EnvironmentId.make("environment-local");
     const remoteEnvironmentId = EnvironmentId.make("environment-remote");
     const repositoryIdentity = {
-      canonicalKey: "github.com/rune-dev/rune",
+      canonicalKey: "github.com/pingdotgg/rune",
       locator: {
         source: "git-remote" as const,
         remoteName: "origin",
-        remoteUrl: "git@github.com:rune-dev/rune.git",
+        remoteUrl: "git@github.com:pingdotgg/rune.git",
       },
     };
     const olderMember = makeProject({
@@ -383,12 +380,12 @@ describe("buildHomeThreadGroups", () => {
       id: ProjectId.make("project-1"),
       title: "local-worktree-name",
       repositoryIdentity: {
-        canonicalKey: "github.com/rune-dev/rune",
+        canonicalKey: "github.com/pingdotgg/rune",
         displayName: "codething-mvp",
         locator: {
           source: "git-remote" as const,
           remoteName: "origin",
-          remoteUrl: "git@github.com:rune-dev/rune.git",
+          remoteUrl: "git@github.com:pingdotgg/rune.git",
         },
       },
     });
@@ -529,14 +526,14 @@ describe("buildHomeThreadGroups", () => {
   it("matches web repository, repository-path, and separate grouping modes", () => {
     const environmentId = EnvironmentId.make("environment-1");
     const repositoryIdentity = {
-      canonicalKey: "github.com/rune-dev/rune",
+      canonicalKey: "github.com/runetools/rune",
       locator: {
         source: "git-remote" as const,
         remoteName: "origin",
-        remoteUrl: "git@github.com:rune-dev/rune.git",
+        remoteUrl: "git@github.com:runetools/rune.git",
       },
       provider: "github",
-      owner: "rune-dev",
+      owner: "runetools",
       name: "rune",
       displayName: "RUNE",
       rootPath: "/workspaces/rune",
@@ -701,11 +698,11 @@ describe("buildHomeThreadGroups", () => {
     const laptopEnv = EnvironmentId.make("environment-laptop");
     const desktopEnv = EnvironmentId.make("environment-desktop");
     const repositoryIdentity = {
-      canonicalKey: "github.com/rune-dev/rune",
+      canonicalKey: "github.com/pingdotgg/rune",
       locator: {
         source: "git-remote" as const,
         remoteName: "origin",
-        remoteUrl: "git@github.com:rune-dev/rune.git",
+        remoteUrl: "git@github.com:pingdotgg/rune.git",
       },
     };
     const laptopProject = makeProject({
@@ -757,8 +754,7 @@ describe("temporary threads on home", () => {
   });
 
   function makeTemporaryThread(
-    input: Partial<EnvironmentThreadShell> &
-      Pick<EnvironmentThreadShell, "id" | "title">,
+    input: Partial<EnvironmentThreadShell> & Pick<EnvironmentThreadShell, "id" | "title">,
   ): EnvironmentThreadShell {
     return makeThread({
       environmentId: localEnvironmentId,
@@ -776,10 +772,10 @@ describe("temporary threads on home", () => {
       id: ThreadId.make("thread-permanent"),
       title: "Permanent thread",
     });
-    const groups = buildGroups([project], [
-      permanent,
-      makeTemporaryThread({ id: ThreadId.make("thread-temp"), title: "Temp thread" }),
-    ]);
+    const groups = buildGroups(
+      [project],
+      [permanent, makeTemporaryThread({ id: ThreadId.make("thread-temp"), title: "Temp thread" })],
+    );
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.threads.map((thread) => thread.id)).toEqual([permanent.id]);

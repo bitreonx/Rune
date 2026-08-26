@@ -193,7 +193,7 @@ private extension UIColor {
   }
 }
 
-public final class RuneTerminalView: ExpoView, UITextFieldDelegate {
+public final class RUNETerminalView: ExpoView, UITextFieldDelegate {
   private static let minimumVerticalScrollStepPoints: CGFloat = 18
   private static let verticalScrollStepMultiplier: CGFloat = 1.15
 
@@ -577,7 +577,7 @@ public final class RuneTerminalView: ExpoView, UITextFieldDelegate {
     let userdata = Unmanaged.passUnretained(self).toOpaque()
     ghostty_surface_set_write_callback(surface, { userdata, data, len in
       guard let userdata, let data, len > 0 else { return }
-      let view = Unmanaged<RuneTerminalView>.fromOpaque(userdata).takeUnretainedValue()
+      let view = Unmanaged<RUNETerminalView>.fromOpaque(userdata).takeUnretainedValue()
       let bytes = Data(bytes: data, count: len)
       guard let input = String(data: bytes, encoding: .utf8), !input.isEmpty else { return }
 

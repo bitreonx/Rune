@@ -3624,7 +3624,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       case "rate_limit_event":
         yield* handleSdkTelemetryMessage(context, message);
         return;
-      // Composer prompt suggestions have no T3 surface; consumed deliberately.
+      // Composer prompt suggestions have no RUNE surface; consumed deliberately.
       case "prompt_suggestion":
         return;
       default: {
@@ -3908,7 +3908,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         // `id` MUST equal the full question text — Claude SDK >= 2.1.121 looks
         // up answers by question text in `mapToolResultToToolResultBlockParam`,
         // so the key the UI uses to keep its draft answer must match the SDK's
-        // expected lookup key. See https://github.com/rune-dev/rune/issues/2388
+        // expected lookup key. See https://github.com/pingdotgg/rune/issues/2388
         const rawQuestions = Array.isArray(toolInput.questions) ? toolInput.questions : [];
         const questions: Array<UserInputQuestion> = rawQuestions.map(
           (q: Record<string, unknown>, idx: number) => ({
@@ -4234,22 +4234,27 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         serverConfig.attachmentsDir,
       ];
       // Custom models route through gateways (OpenRouter etc.) where the CLI's
-      // built-in "haiku"/"sonnet"/"opus" aliases resolve to paid first-party
-      // Anthropic models the gateway account may not serve — subagent spawns
-      // and background tasks then die with a 402 on their first request. Pin
-      // every alias to the selected custom model, or to the instance's first
-      // configured custom model when startup has no usable custom selection.
+      // built-in aliases may resolve to first-party models the gateway cannot
+      // serve. Keep the safe fallback, but preserve explicitly configured
+      // role aliases so fast/background calls do not accidentally become full
+      // ox-alpha requests. The environment is spread last below, so manual
+      // Advanced settings remain authoritative.
       const subagentModel = resolveClaudeSubagentModel(
         claudeSettings.customModels,
         modelSelection?.model,
       );
+      const configuredFastModel =
+        claudeEnvironment.ANTHROPIC_DEFAULT_HAIKU_MODEL?.trim() ||
+        claudeEnvironment.ANTHROPIC_SMALL_FAST_MODEL?.trim();
+      const fastModel = configuredFastModel || subagentModel;
+      const configuredSubagentModel = claudeEnvironment.CLAUDE_CODE_SUBAGENT_MODEL?.trim();
       const customModelAliasEnv = subagentModel
         ? {
-            ANTHROPIC_DEFAULT_HAIKU_MODEL: subagentModel,
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: fastModel,
             ANTHROPIC_DEFAULT_SONNET_MODEL: subagentModel,
             ANTHROPIC_DEFAULT_OPUS_MODEL: subagentModel,
-            ANTHROPIC_SMALL_FAST_MODEL: subagentModel,
-            CLAUDE_CODE_SUBAGENT_MODEL: subagentModel,
+            ANTHROPIC_SMALL_FAST_MODEL: fastModel,
+            CLAUDE_CODE_SUBAGENT_MODEL: configuredSubagentModel || subagentModel,
           }
         : {};
       const queryOptions: ClaudeQueryOptions = {
@@ -4282,7 +4287,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(mcpSession
           ? {
               mcpServers: {
-                "rune": {
+                rune: {
                   type: "http",
                   url: mcpSession.endpoint,
                   headers: {

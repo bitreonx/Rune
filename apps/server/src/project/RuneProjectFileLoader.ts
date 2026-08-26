@@ -1,4 +1,13 @@
-/** Effect service that loads the checked-in `rune.json` project file. */
+/**
+ * RUNEProjectFileLoader - Effect service that loads the checked-in `rune.json`
+ * project file from a workspace root.
+ *
+ * Loading is best-effort: a missing file resolves to `Option.none`, and
+ * unreadable or invalid files are logged and treated as absent so callers
+ * can fall back to their defaults.
+ *
+ * @module RUNEProjectFileLoader
+ */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -8,12 +17,12 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { RUNE_PROJECT_FILE_NAME, type RuneProjectFile } from "@rune/contracts";
-import { RuneProjectFileFromJson } from "@rune/shared/runeProjectFile";
+import { RUNEProjectFileFromJson } from "@rune/shared/runeProjectFile";
 
-const decodeRuneProjectFileJson = Schema.decodeEffect(RuneProjectFileFromJson);
+const decodeRUNEProjectFileJson = Schema.decodeEffect(RUNEProjectFileFromJson);
 
-export class RuneProjectFileLoadError extends Schema.TaggedErrorClass<RuneProjectFileLoadError>()(
-  "RuneProjectFileLoadError",
+export class RUNEProjectFileLoadError extends Schema.TaggedErrorClass<RUNEProjectFileLoadError>()(
+  "RUNEProjectFileLoadError",
   {
     operation: Schema.Literals(["read", "decode"]),
     workspaceRoot: Schema.String,
@@ -26,15 +35,21 @@ export class RuneProjectFileLoadError extends Schema.TaggedErrorClass<RuneProjec
   }
 }
 
-export class RuneProjectFileLoader extends Context.Service<
-  RuneProjectFileLoader,
+/** Service tag for rune.json project file loading. */
+export class RUNEProjectFileLoader extends Context.Service<
+  RUNEProjectFileLoader,
   {
-    /** Load and decode `rune.json` at the workspace root. */
+    /**
+     * Load and decode `rune.json` at the workspace root.
+     *
+     * Never fails: missing, unreadable, or invalid files resolve to
+     * `Option.none` (invalid files are logged as warnings).
+     */
     readonly load: (workspaceRoot: string) => Effect.Effect<Option.Option<RuneProjectFile>>;
   }
->()("rune/project/RuneProjectFileLoader") {}
+>()("rune/project/RUNEProjectFileLoader") {}
 
-const logRuneProjectFileLoadError = (error: RuneProjectFileLoadError) =>
+const logRUNEProjectFileLoadError = (error: RUNEProjectFileLoadError) =>
   Effect.logWarning(error).pipe(
     Effect.annotateLogs({
       operation: error.operation,
@@ -48,7 +63,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const load: RuneProjectFileLoader["Service"]["load"] = Effect.fn("RuneProjectFileLoader.load")(
+  const load: RUNEProjectFileLoader["Service"]["load"] = Effect.fn("RUNEProjectFileLoader.load")(
     function* (workspaceRoot) {
       const filePath = path.join(workspaceRoot, RUNE_PROJECT_FILE_NAME);
       const raw = yield* fileSystem.readFileString(filePath).pipe(
@@ -57,8 +72,8 @@ export const make = Effect.gen(function* () {
           PlatformError: (error) =>
             error.reason._tag === "NotFound"
               ? Effect.succeed(Option.none<string>())
-              : logRuneProjectFileLoadError(
-                  new RuneProjectFileLoadError({
+              : logRUNEProjectFileLoadError(
+                  new RUNEProjectFileLoadError({
                     operation: "read",
                     workspaceRoot,
                     filePath,
@@ -70,12 +85,12 @@ export const make = Effect.gen(function* () {
       if (Option.isNone(raw)) {
         return Option.none<RuneProjectFile>();
       }
-      return yield* decodeRuneProjectFileJson(raw.value).pipe(
+      return yield* decodeRUNEProjectFileJson(raw.value).pipe(
         Effect.map(Option.some),
         Effect.catchTags({
           SchemaError: (error) =>
-            logRuneProjectFileLoadError(
-              new RuneProjectFileLoadError({
+            logRUNEProjectFileLoadError(
+              new RUNEProjectFileLoadError({
                 operation: "decode",
                 workspaceRoot,
                 filePath,
@@ -87,7 +102,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return RuneProjectFileLoader.of({ load });
+  return RUNEProjectFileLoader.of({ load });
 });
 
-export const layer = Layer.effect(RuneProjectFileLoader, make);
+export const layer = Layer.effect(RUNEProjectFileLoader, make);

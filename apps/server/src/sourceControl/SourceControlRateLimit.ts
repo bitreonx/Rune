@@ -57,7 +57,7 @@ export class SourceControlRateLimit extends Context.Service<
     ) => Effect.Effect<void>;
     readonly recordSuccess: (input: RateLimitLease) => Effect.Effect<void>;
   }
->()("@rune/server/sourceControl/SourceControlRateLimit") {}
+>()("rune/sourceControl/SourceControlRateLimit") {}
 
 function normalizedKey(key: RateLimitKey): string {
   return `${key.provider}\0${key.host.trim().toLowerCase()}`;

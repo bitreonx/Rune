@@ -1,8 +1,8 @@
 import ExpoModulesCore
 
-public class RuneTerminalModule: Module {
+public class RUNETerminalModule: Module {
   public func definition() -> ModuleDefinition {
-    Name("RuneTerminalSurface")
+    Name("RUNETerminalSurface")
 
     // Bumped when native hardware-keyboard handling changes; surfaced in the JS debug
     // logs so a stale native binary is distinguishable from a broken key pipeline.
@@ -10,44 +10,44 @@ public class RuneTerminalModule: Module {
       "hardwareKeyRevision": 3,
     ])
 
-    View(RuneTerminalView.self) {
-      Prop("terminalKey") { (view: RuneTerminalView, terminalKey: String) in
+    View(RUNETerminalView.self) {
+      Prop("terminalKey") { (view: RUNETerminalView, terminalKey: String) in
         view.terminalKey = terminalKey
       }
 
-      Prop("initialBuffer") { (view: RuneTerminalView, initialBuffer: String) in
+      Prop("initialBuffer") { (view: RUNETerminalView, initialBuffer: String) in
         view.initialBuffer = initialBuffer
       }
 
-      Prop("fontSize") { (view: RuneTerminalView, fontSize: Double) in
+      Prop("fontSize") { (view: RUNETerminalView, fontSize: Double) in
         view.fontSize = CGFloat(fontSize)
       }
 
-      Prop("focusRequest") { (view: RuneTerminalView, focusRequest: Double) in
+      Prop("focusRequest") { (view: RUNETerminalView, focusRequest: Double) in
         view.focusRequest = focusRequest
       }
 
-      Prop("autoFocus") { (view: RuneTerminalView, autoFocus: Bool) in
+      Prop("autoFocus") { (view: RUNETerminalView, autoFocus: Bool) in
         view.autoFocus = autoFocus
       }
 
-      Prop("appearanceScheme") { (view: RuneTerminalView, appearanceScheme: String) in
+      Prop("appearanceScheme") { (view: RUNETerminalView, appearanceScheme: String) in
         view.appearanceScheme = appearanceScheme
       }
 
-      Prop("themeConfig") { (view: RuneTerminalView, themeConfig: String) in
+      Prop("themeConfig") { (view: RUNETerminalView, themeConfig: String) in
         view.themeConfig = themeConfig
       }
 
-      Prop("backgroundColor") { (view: RuneTerminalView, backgroundColor: String) in
+      Prop("backgroundColor") { (view: RUNETerminalView, backgroundColor: String) in
         view.backgroundColorHex = backgroundColor
       }
 
-      Prop("foregroundColor") { (view: RuneTerminalView, foregroundColor: String) in
+      Prop("foregroundColor") { (view: RUNETerminalView, foregroundColor: String) in
         view.foregroundColorHex = foregroundColor
       }
 
-      Prop("mutedForegroundColor") { (view: RuneTerminalView, mutedForegroundColor: String) in
+      Prop("mutedForegroundColor") { (view: RUNETerminalView, mutedForegroundColor: String) in
         view.mutedForegroundColorHex = mutedForegroundColor
       }
 

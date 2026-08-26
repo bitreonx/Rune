@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@rune/contracts";
 import { isWindowsAbsolutePath } from "@rune/shared/path";
+import { ImageIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { primaryServerKeybindingsAtom } from "~/state/server";
@@ -17,6 +18,7 @@ import {
 import { useProjectFilePickerQuery } from "../files/projectFilesQueryState";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "../ui/command";
 import { toastManager } from "../ui/toast";
+import { ProjectFavicon } from "../ProjectFavicon";
 
 function emptyMessage(query: string, error: string | null, isPending: boolean): string {
   if (error) return error;
@@ -65,6 +67,9 @@ export function ProjectFaviconPickerDialog(props: {
       })),
     [props.onSelect, resolvedTheme, result.entries, result.matchedQuery],
   );
+  const highlightedPath = highlightedItemValue?.startsWith("project-favicon:")
+    ? highlightedItemValue.slice("project-favicon:".length)
+    : null;
 
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -74,6 +79,23 @@ export function ProjectFaviconPickerDialog(props: {
           className="overflow-hidden p-0"
           onBackdropPointerDown={() => props.onOpenChange(false)}
         >
+          <div className="flex items-center gap-3 border-b border-border/60 bg-muted/20 px-4 py-3">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background shadow-sm">
+              <ProjectFavicon
+                environmentId={props.environmentId}
+                cwd={props.cwd}
+                faviconPath={highlightedPath}
+                fallbackIcon={ImageIcon}
+                className="size-7 rounded-lg"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">Choose project icon</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {highlightedPath ?? "Select an image from this project"}
+              </div>
+            </div>
+          </div>
           <CommandPaletteContent
             aria-label="Choose project icon"
             autoHighlight="always"

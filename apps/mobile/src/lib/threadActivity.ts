@@ -13,6 +13,7 @@ import type {
   UserInputQuestion,
 } from "@rune/contracts";
 import { formatDuration } from "@rune/shared/orchestrationTiming";
+import { deriveAgentActivityJob } from "@rune/shared/agentActivity";
 
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
@@ -86,6 +87,8 @@ interface WorkLogEntry {
   requestKind?: PendingApproval["requestKind"];
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
   toolData?: unknown;
+  developerTrace?: unknown;
+  activityKind?: OrchestrationThreadActivity["kind"] | "activity";
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -343,6 +346,42 @@ function deriveWorkLogEntries(
     entries.push(toDerivedWorkLogEntry(activity));
   }
   return collapseDerivedWorkLogEntries(entries);
+}
+
+function deriveSimplifiedWorkLogEntries(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  showDeveloperTrace = false,
+): WorkLogEntry[] {
+  return deriveAgentActivityJob(activities).activities.map((activity) => {
+    const count = activity.operations.length;
+    return {
+      id: activity.id,
+      createdAt: activity.createdAt,
+      turnId: activity.operations[0]?.rawTrace.turnId ?? null,
+      label: activity.label,
+      ...(activity.reasoningSummary || count > 1
+        ? { detail: activity.reasoningSummary ?? `${count} operations` }
+        : {}),
+      ...(showDeveloperTrace
+        ? { developerTrace: activity.operations.map((entry) => entry.rawTrace) }
+        : {}),
+      tone:
+        activity.status === "failed"
+          ? "error"
+          : activity.status === "working"
+            ? "thinking"
+            : "info",
+      activityKind: activity.operations.at(-1)?.rawTrace.kind ?? "activity",
+      toolLifecycleStatus:
+        activity.status === "working"
+          ? "inProgress"
+          : activity.status === "failed"
+            ? "failed"
+            : activity.status === "done"
+              ? "completed"
+              : undefined,
+    };
+  });
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -634,7 +673,7 @@ function workEntryStatus(entry: WorkLogEntry): ThreadFeedActivity["status"] {
   return "neutral";
 }
 
-function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
+function workEntryIcon(entry: WorkLogEntry): ThreadFeedActivity["icon"] {
   if (
     entry.activityKind === "user-input.requested" ||
     entry.activityKind === "user-input.resolved"
@@ -661,6 +700,9 @@ function workEntryIcon(entry: DerivedWorkLogEntry): ThreadFeedActivity["icon"] {
 
 function buildWorkEntryExpandedBody(entry: WorkLogEntry): string | null {
   const blocks: string[] = [];
+  if (entry.developerTrace !== undefined) {
+    blocks.push(`Developer Trace\n${JSON.stringify(entry.developerTrace, null, 2)}`);
+  }
   const appendUniqueBlock = (value: string | null | undefined) => {
     const trimmed = value?.trim();
     if (trimmed && !blocks.includes(trimmed)) {
@@ -1543,6 +1585,8 @@ export function buildThreadFeed(
   options?: {
     readonly loadedMessages?: ReadonlyArray<OrchestrationThread["messages"][number]>;
     readonly localMessages?: ReadonlyArray<OrchestrationThread["messages"][number]>;
+    readonly simplifiedActivity?: boolean;
+    readonly showDeveloperTrace?: boolean;
   },
 ): ThreadFeedEntry[] {
   const loadedMessages = options?.loadedMessages ?? thread.messages;
@@ -1554,7 +1598,10 @@ export function buildThreadFeed(
   const messages = allMessages.filter((message) => message.hidden !== true);
   const oldestLoadedMessageCreatedAt =
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
-  const workLogEntries = deriveWorkLogEntries(thread.activities);
+  const workLogEntries =
+    options?.simplifiedActivity === false
+      ? deriveWorkLogEntries(thread.activities)
+      : deriveSimplifiedWorkLogEntries(thread.activities, options?.showDeveloperTrace);
   const entries = Arr.sortWith(
     [
       ...messages.map<RawThreadFeedEntry>((message) => ({

@@ -129,7 +129,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * The codepoint of the cell (0 if empty or bg-color-only).
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_CELL_DATA_CODEPOINT = 1,
 

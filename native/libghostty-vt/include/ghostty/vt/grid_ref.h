@@ -150,8 +150,8 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_row(const GhosttyGridRef *ref,
  * out_len. The caller can then retry with a sufficiently sized buffer.
  *
  * @param ref Pointer to the grid reference
- * @param buf Output buffer of uint32_t codepoints (may be NULL)
- * @param buf_len Number of uint32_t elements in the buffer
+ * @param buf Output buffer of uinrune2_t codepoints (may be NULL)
+ * @param buf_len Number of uinrune2_t elements in the buffer
  * @param[out] out_len On success, the number of codepoints written. On
  *             GHOSTTY_OUT_OF_SPACE, the required buffer size in codepoints.
  * @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the ref's
@@ -160,7 +160,7 @@ GHOSTTY_API GhosttyResult ghostty_grid_ref_row(const GhosttyGridRef *ref,
  * @ingroup grid_ref
  */
 GHOSTTY_API GhosttyResult ghostty_grid_ref_graphemes(const GhosttyGridRef *ref,
-                                         uint32_t *buf,
+                                         uinrune2_t *buf,
                                          size_t buf_len,
                                          size_t *out_len);
 

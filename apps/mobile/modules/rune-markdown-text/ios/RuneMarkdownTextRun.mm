@@ -1,19 +1,19 @@
-#import "RuneMarkdownTextRun.h"
-#import "RuneMarkdownText.h"
-#import "RuneMarkdownTextRunComponentDescriptor.h"
-#import <react/renderer/components/RuneMarkdownTextSpec/EventEmitters.h>
-#import <react/renderer/components/RuneMarkdownTextSpec/Props.h>
-#import <react/renderer/components/RuneMarkdownTextSpec/RCTComponentViewHelpers.h>
+#import "RUNEMarkdownTextRun.h"
+#import "RUNEMarkdownText.h"
+#import "RUNEMarkdownTextRunComponentDescriptor.h"
+#import <react/renderer/components/RUNEMarkdownTextSpec/EventEmitters.h>
+#import <react/renderer/components/RUNEMarkdownTextSpec/Props.h>
+#import <react/renderer/components/RUNEMarkdownTextSpec/RCTComponentViewHelpers.h>
 #import "RCTFabricComponentsPlugins.h"
 #import "Utils.h"
 
 using namespace facebook::react;
 
-@interface RuneMarkdownTextRun () <RCTRuneMarkdownTextRunViewProtocol>
+@interface RUNEMarkdownTextRun () <RCTRUNEMarkdownTextRunViewProtocol>
 
 @end
 
-@implementation RuneMarkdownTextRun {
+@implementation RUNEMarkdownTextRun {
   NSString * _text;
   RCTBubblingEventBlock _onPress;
   RCTBubblingEventBlock _onLongPress;
@@ -21,13 +21,13 @@ using namespace facebook::react;
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
 {
-    return concreteComponentDescriptorProvider<RuneMarkdownTextRunComponentDescriptor>();
+    return concreteComponentDescriptorProvider<RUNEMarkdownTextRunComponentDescriptor>();
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
 {
   if (self = [super initWithFrame:frame]) {
-    static const auto defaultProps = std::make_shared<const RuneMarkdownTextRunProps>();
+    static const auto defaultProps = std::make_shared<const RUNEMarkdownTextRunProps>();
     _props = defaultProps;
   }
   return self;
@@ -35,8 +35,8 @@ using namespace facebook::react;
 
 - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &)oldProps
 {
-  const auto &oldViewProps = *std::static_pointer_cast<RuneMarkdownTextRunProps const>(_props);
-  const auto &newViewProps = *std::static_pointer_cast<RuneMarkdownTextRunProps const>(props);
+  const auto &oldViewProps = *std::static_pointer_cast<RUNEMarkdownTextRunProps const>(_props);
+  const auto &newViewProps = *std::static_pointer_cast<RUNEMarkdownTextRunProps const>(props);
 
   if (newViewProps.text != oldViewProps.text) {
     NSString *text = [NSString stringWithUTF8String:newViewProps.text.c_str()];
@@ -48,15 +48,15 @@ using namespace facebook::react;
 
 - (void)onPress {
   if (_eventEmitter != nullptr) {
-    std::dynamic_pointer_cast<const facebook::react::RuneMarkdownTextRunEventEmitter>(_eventEmitter)
-    ->onPress(facebook::react::RuneMarkdownTextRunEventEmitter::OnPress{});
+    std::dynamic_pointer_cast<const facebook::react::RUNEMarkdownTextRunEventEmitter>(_eventEmitter)
+    ->onPress(facebook::react::RUNEMarkdownTextRunEventEmitter::OnPress{});
   }
 }
 
 - (void)onLongPress {
   if (_eventEmitter != nullptr) {
-    std::dynamic_pointer_cast<const facebook::react::RuneMarkdownTextRunEventEmitter>(_eventEmitter)
-    ->onLongPress(facebook::react::RuneMarkdownTextRunEventEmitter::OnLongPress{});
+    std::dynamic_pointer_cast<const facebook::react::RUNEMarkdownTextRunEventEmitter>(_eventEmitter)
+    ->onLongPress(facebook::react::RUNEMarkdownTextRunEventEmitter::OnLongPress{});
   }
 }
 
@@ -64,9 +64,9 @@ using namespace facebook::react;
   return NO;
 }
 
-Class<RCTComponentViewProtocol> RuneMarkdownTextRunCls(void)
+Class<RCTComponentViewProtocol> RUNEMarkdownTextRunCls(void)
 {
-    return RuneMarkdownTextRun.class;
+    return RUNEMarkdownTextRun.class;
 }
 
 @end

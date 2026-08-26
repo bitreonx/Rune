@@ -1,7 +1,7 @@
 /**
  * Debug logging for the mobile terminal pipeline. Prefix: `[rune-terminal]`.
  *
- * Enabled when `__DEV__` is true, or set `globalThis.__T3_TERMINAL_DEBUG__ = true` in a JS
+ * Enabled when `__DEV__` is true, or set `globalThis.__RUNE_TERMINAL_DEBUG__ = true` in a JS
  * debugger / Metro console to trace release/TestFlight builds.
  */
 export function isTerminalDebugEnabled(): boolean {

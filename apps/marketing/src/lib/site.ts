@@ -1,10 +1,10 @@
-export const GITHUB_REPOSITORY_URL = "https://github.com/rune-dev/rune";
+export const GITHUB_REPOSITORY_URL = "https://github.com/pingdotgg/rune";
 
 export const IOS_APP_STORE_URL =
-  "https://apps.apple.com/us/app/rune/id6787819824";
+  "https://apps.apple.com/us/app/rune-remote-claude-more/id6787819824";
 
 export const ANDROID_PLAY_STORE_URL =
-  "https://play.google.com/store/apps/details?id=dev.rune.mobile";
+  "https://play.google.com/store/apps/details?id=com.runetools.rune";
 
 export const MARKETING_STATS = {
   githubStars: "14k+",

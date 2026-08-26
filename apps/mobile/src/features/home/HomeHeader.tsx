@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ControlPillMenu } from "../../components/ControlPill";
 import { SymbolView } from "../../components/AppSymbol";
-import { RuneWordmark } from "../../components/RuneWordmark";
+import { RUNEWordmark } from "../../components/RUNEWordmark";
 import { HOME_HORIZONTAL_INSET } from "../../lib/layoutMetrics";
 import { resolveMobileStageLabel } from "../../lib/mobileBranding";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -217,8 +217,8 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
               onPress={props.onOpenEnvironments}
               brand={
                 <View className="flex-row items-center gap-2">
-                  {/* Mirrors the desktop RUNE brand mark. */}
-                  <RuneWordmark color={iconColor} height={15} />
+                  {/* Mirrors the desktop SidebarBrand: RUNE mark + muted "Code". */}
+                  <RUNEWordmark color={iconColor} height={15} />
                   <RNText className="-ml-0.5 text-[21px] font-rune-medium tracking-[-0.5px] text-foreground-muted">
                     Code
                   </RNText>

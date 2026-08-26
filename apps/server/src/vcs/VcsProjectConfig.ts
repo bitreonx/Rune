@@ -48,7 +48,7 @@ export class VcsProjectConfig extends Context.Service<
       input: VcsProjectConfigResolveInput,
     ) => Effect.Effect<VcsDriverKindType | "auto">;
   }
->()("@rune/server/vcs/VcsProjectConfig") {}
+>()("rune/vcs/VcsProjectConfig") {}
 
 function configuredKind(config: ProjectVcsConfigFile): VcsDriverKindType | "auto" {
   return config.vcs?.kind ?? config.vcsKind ?? "auto";
@@ -71,25 +71,23 @@ export const make = Effect.gen(function* () {
   const findConfigPath = Effect.fn("VcsProjectConfig.findConfigPath")(function* (cwd: string) {
     let current = cwd;
     while (true) {
-      for (const directoryName of [".rune", ".rune"] as const) {
-        const candidate = path.join(current, directoryName, "vcs.json");
-        const exists = yield* fileSystem.exists(candidate).pipe(
-          Effect.mapError(
-            (cause) =>
-              new VcsProjectConfigError({
-                operation: "inspect",
-                cwd,
-                configPath: candidate,
-                cause,
-              }),
-          ),
-          Effect.catchTags({
-            VcsProjectConfigError: (error) => logVcsProjectConfigError(error).pipe(Effect.as(false)),
-          }),
-        );
-        if (exists) {
-          return Option.some(candidate);
-        }
+      const candidate = path.join(current, ".rune", "vcs.json");
+      const exists = yield* fileSystem.exists(candidate).pipe(
+        Effect.mapError(
+          (cause) =>
+            new VcsProjectConfigError({
+              operation: "inspect",
+              cwd,
+              configPath: candidate,
+              cause,
+            }),
+        ),
+        Effect.catchTags({
+          VcsProjectConfigError: (error) => logVcsProjectConfigError(error).pipe(Effect.as(false)),
+        }),
+      );
+      if (exists) {
+        return Option.some(candidate);
       }
 
       const parent = path.dirname(current);

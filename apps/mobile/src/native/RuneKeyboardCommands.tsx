@@ -3,7 +3,7 @@ import { View } from "react-native";
 
 import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeyboardCommands";
 
-export function RuneKeyboardCommands(
+export function RUNEKeyboardCommands(
   props: PropsWithChildren<{
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;

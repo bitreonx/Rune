@@ -11,9 +11,10 @@ interface NativeKeyboardCommandsProps extends ViewProps, PropsWithChildren {
   ) => void;
 }
 
-const NativeKeyboardCommands = requireNativeView<NativeKeyboardCommandsProps>("RuneKeyboardCommands");
+const NativeKeyboardCommands =
+  requireNativeView<NativeKeyboardCommandsProps>("RUNEKeyboardCommands");
 
-export function RuneKeyboardCommands(
+export function RUNEKeyboardCommands(
   props: PropsWithChildren<{
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;

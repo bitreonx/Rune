@@ -54,7 +54,7 @@ const macPlan = {
   launcherPath: "/Users/theo/.rune/runtime/service-launcher.mjs",
   baseDir: "/Users/theo/.rune",
   logPath: "/Users/theo/.rune/userdata/logs/boot-service.log",
-  unitPath: "/Users/theo/Library/LaunchAgents/dev.rune.rune.service.plist",
+  unitPath: "/Users/theo/Library/LaunchAgents/com.runetools.rune.service.plist",
 };
 
 it("keeps launchd pinned to the stable launcher rather than a versioned server", () => {
@@ -87,11 +87,11 @@ it("appends both stdio streams to the boot service log", () => {
 
 it("escapes XML in host paths", () => {
   const plist = BootService.renderBootServicePlist(
-    { ...macPlan, baseDir: "/Users/theo/T3 & <Co>" },
+    { ...macPlan, baseDir: "/Users/theo/RUNE & <Co>" },
     { homeDir: "/Users/theo" },
   );
 
-  expect(plist).toContain("<string>/Users/theo/T3 &amp; &lt;Co&gt;</string>");
+  expect(plist).toContain("<string>/Users/theo/RUNE &amp; &lt;Co&gt;</string>");
 });
 
 const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
@@ -263,7 +263,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       const { service, fs, statePath, commands, timeouts } = yield* makeHarness("darwin");
       const plan = yield* service.install;
 
-      expect(plan.unitPath.endsWith("Library/LaunchAgents/dev.rune.rune.service.plist")).toBe(
+      expect(plan.unitPath.endsWith("Library/LaunchAgents/com.runetools.rune.service.plist")).toBe(
         true,
       );
       expect(parseServiceState(yield* fs.readFileString(statePath))).toEqual({
@@ -278,7 +278,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       expect(commands.some((command) => command.startsWith("systemctl "))).toBe(false);
       // A bootout can block up to the plist's 90s ExitTimeOut; the runner's
       // 60s default would cancel it and let bootstrap race a loaded job.
-      expect(timeouts.get("launchctl bootout --wait gui/501/dev.rune.rune.service")).toEqual(
+      expect(timeouts.get("launchctl bootout --wait gui/501/com.runetools.rune.service")).toEqual(
         Duration.seconds(120),
       );
     }),
@@ -295,8 +295,8 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       const error = yield* service.install.pipe(Effect.flip);
       expect(error._tag).toBe("BootServiceCommandError");
       expect(commands.filter((command) => command.startsWith("launchctl "))).toEqual([
-        "launchctl bootout --wait gui/501/dev.rune.rune.service",
-        "launchctl enable gui/501/dev.rune.rune.service",
+        "launchctl bootout --wait gui/501/com.runetools.rune.service",
+        "launchctl enable gui/501/com.runetools.rune.service",
         `launchctl bootstrap gui/501 ${plistPath}`,
         `launchctl bootstrap gui/501 ${plistPath}`,
       ]);
@@ -307,7 +307,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
     Effect.gen(function* () {
       const { service, control } = yield* makeHarness("darwin");
       yield* service.install;
-      control.failCommand = "launchctl bootout --wait gui/501/dev.rune.rune.service";
+      control.failCommand = "launchctl bootout --wait gui/501/com.runetools.rune.service";
 
       yield* service.install;
       expect((yield* service.status).current).toBe(true);
@@ -336,7 +336,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       expect((yield* service.install.pipe(Effect.flip))._tag).toBe("BootServiceUpdatePendingError");
       expect(serviceStateHasPendingUpdate(yield* fs.readFileString(statePath))).toBe(true);
       expect(commands.filter((command) => command.startsWith("launchctl "))).toEqual([
-        "launchctl bootout --wait gui/501/dev.rune.rune.service",
+        "launchctl bootout --wait gui/501/com.runetools.rune.service",
         `launchctl bootstrap gui/501 ${plistPath}`,
       ]);
     }),

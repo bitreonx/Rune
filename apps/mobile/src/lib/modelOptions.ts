@@ -1,7 +1,7 @@
 import type {
   ModelCapabilities,
   ModelSelection,
-  ServerConfig as RuneServerConfig,
+  ServerConfig as RUNEServerConfig,
 } from "@rune/contracts";
 import {
   buildProviderOptionSelectionsFromDescriptors,
@@ -68,7 +68,7 @@ function normalizeSelectionOptions(
  * validated, so stored selections pass through untouched.
  */
 export function resolveSelectableModelSelection(
-  config: RuneServerConfig | null | undefined,
+  config: RUNEServerConfig | null | undefined,
   selection: ModelSelection | null,
 ): ModelSelection | null {
   if (!selection || !config) {
@@ -93,7 +93,7 @@ export function resolveSelectableModelSelection(
  * sheet are unaffected.
  */
 export function resolveDefaultableModelSelection(
-  config: RuneServerConfig | null | undefined,
+  config: RUNEServerConfig | null | undefined,
   selection: ModelSelection | null,
 ): ModelSelection | null {
   const usable = resolveSelectableModelSelection(config, selection);
@@ -106,7 +106,7 @@ export function resolveDefaultableModelSelection(
 }
 
 export function buildModelOptions(
-  config: RuneServerConfig | null | undefined,
+  config: RUNEServerConfig | null | undefined,
   fallbackModelSelection: ModelSelection | null,
 ): ReadonlyArray<ModelOption> {
   const options = new Map<string, ModelOption>();

@@ -1149,6 +1149,68 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect(
+    "persists provider resume state learned after asynchronous session initialization",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+        const threadId = asThreadId("thread-resume-after-init");
+        const initial = yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: "/tmp/project-resume-after-init",
+          runtimeMode: "full-access",
+        });
+        const learnedResumeCursor = { opaque: "resume-learned-after-init" };
+
+        // Model Antigravity's lifecycle: startSession returns before its init
+        // event, then the adapter learns the durable provider cursor.
+        routing.codex.updateSession(threadId, (session) => ({
+          ...session,
+          resumeCursor: learnedResumeCursor,
+        }));
+        yield* directory.upsert({
+          threadId,
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          runtimeMode: initial.runtimeMode,
+          resumeCursor: null,
+          runtimePayload: { cwd: "/tmp/project-resume-after-init" },
+        });
+        yield* advanceTestClock(10);
+        routing.codex.emit({
+          eventId: asEventId("evt-resume-after-init"),
+          provider: CODEX_DRIVER,
+          threadId,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          type: "session.state.changed",
+          payload: { state: "ready" },
+        });
+        yield* advanceTestClock(10);
+
+        const binding = yield* directory.getBinding(threadId);
+        assert.equal(Option.isSome(binding), true);
+        if (Option.isSome(binding)) {
+          assert.deepEqual(binding.value.resumeCursor, learnedResumeCursor);
+        }
+
+        yield* routing.codex.stopAll();
+        routing.codex.startSession.mockClear();
+        yield* provider.sendTurn({ threadId, input: "resume after restart", attachments: [] });
+
+        const resumedInput = routing.codex.startSession.mock.calls[0]?.[0];
+        assert.equal(typeof resumedInput === "object" && resumedInput !== null, true);
+        if (resumedInput && typeof resumedInput === "object") {
+          assert.deepEqual(
+            (resumedInput as { readonly resumeCursor?: unknown }).resumeCursor,
+            learnedResumeCursor,
+          );
+        }
+      }),
+  );
+
   it.effect("recovers stale persisted sessions for rollback by resuming thread identity", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
@@ -1187,6 +1249,44 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(routing.codex.rollbackThread.mock.calls.length, 1);
       const rollbackCall = routing.codex.rollbackThread.mock.calls[0];
       assert.equal(rollbackCall?.[1], 1);
+    }),
+  );
+
+  it.effect("starts a fresh send session when a persisted thread has no resume cursor", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-fresh-recovery");
+      const initial = yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        cwd: "/tmp/project-fresh-recovery",
+        runtimeMode: "full-access",
+      });
+
+      yield* routing.codex.stopAll();
+      yield* directory.upsert({
+        threadId,
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        runtimeMode: initial.runtimeMode,
+        resumeCursor: null,
+        runtimePayload: { cwd: "/tmp/project-fresh-recovery" },
+      });
+      routing.codex.startSession.mockClear();
+      routing.codex.sendTurn.mockClear();
+
+      yield* provider.sendTurn({ threadId, input: "continue this task", attachments: [] });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      const startInput = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof startInput === "object" && startInput !== null, true);
+      if (startInput && typeof startInput === "object") {
+        assert.equal((startInput as { readonly resumeCursor?: unknown }).resumeCursor, undefined);
+        assert.equal((startInput as { readonly threadId?: string }).threadId, threadId);
+      }
+      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
     }),
   );
 

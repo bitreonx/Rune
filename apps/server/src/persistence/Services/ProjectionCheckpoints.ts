@@ -92,4 +92,4 @@ export interface ProjectionCheckpointRepositoryShape {
 export class ProjectionCheckpointRepository extends Context.Service<
   ProjectionCheckpointRepository,
   ProjectionCheckpointRepositoryShape
->()("@rune/server/persistence/Services/ProjectionCheckpoints/ProjectionCheckpointRepository") {}
+>()("rune/persistence/Services/ProjectionCheckpoints/ProjectionCheckpointRepository") {}

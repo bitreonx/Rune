@@ -997,13 +997,11 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
 
     // First visible chunk lands immediately; the message is still streaming.
-    const partialThread = await waitForThread(
-      harness.readModel,
-      (entry) =>
-        entry.messages.some(
-          (message: ProviderRuntimeTestMessage) =>
-            message.id === "assistant:item-cadence" && message.text === "hello",
-        ),
+    const partialThread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cadence" && message.text === "hello",
+      ),
     );
     const partialMessage = partialThread.messages.find(
       (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-cadence",
@@ -1022,13 +1020,11 @@ describe("ProviderRuntimeIngestion", () => {
     // Past the window the accumulated text flushes.
     emitDelta("evt-cadence-3", "!", 600);
     await harness.drain();
-    const grownThread = await waitForThread(
-      harness.readModel,
-      (entry) =>
-        entry.messages.some(
-          (message: ProviderRuntimeTestMessage) =>
-            message.id === "assistant:item-cadence" && message.text === "hello world!",
-        ),
+    const grownThread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cadence" && message.text === "hello world!",
+      ),
     );
     expect(
       grownThread.messages.find(
@@ -1061,150 +1057,6 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(finalMessage?.text).toBe("hello world!");
     expect(finalMessage?.streaming).toBe(false);
-  });
-
-  it("streams reasoning deltas as role-reasoning messages and splits segments when assistant text starts", async () => {
-    const harness = await createHarness();
-    const t0Ms = Date.parse("2026-01-01T00:00:00.000Z");
-    const at = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(t0Ms + offsetMs));
-    const emitDelta = (
-      eventId: string,
-      streamKind: "reasoning_text" | "reasoning_summary_text" | "assistant_text",
-      delta: string,
-      offsetMs: number,
-    ) =>
-      harness.emit({
-        type: "content.delta",
-        eventId: asEventId(eventId),
-        provider: ProviderDriverKind.make("codex"),
-        createdAt: at(offsetMs),
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-reasoning"),
-        itemId: asItemId("item-reasoning"),
-        payload: { streamKind, delta },
-      });
-
-    // First reasoning chunk lands immediately as a streaming reasoning message.
-    emitDelta("evt-reasoning-1", "reasoning_text", "pondering", 0);
-    await harness.drain();
-    const liveThread = await waitForThread(harness.readModel, (entry) =>
-      entry.messages.some((message: ProviderRuntimeTestMessage) => message.role === "reasoning"),
-    );
-    const liveMessage = liveThread.messages.find(
-      (entry: ProviderRuntimeTestMessage) => entry.id === "reasoning:item-reasoning",
-    );
-    expect(liveMessage?.role).toBe("reasoning");
-    expect(liveMessage?.text).toBe("pondering");
-    expect(liveMessage?.streaming).toBe(true);
-
-    // Inside the throttle window nothing new dispatches.
-    emitDelta("evt-reasoning-2", "reasoning_text", " harder", 100);
-    await harness.drain();
-    const heldThread = await harness.readModel();
-    expect(
-      heldThread.threads
-        .find((entry) => entry.id === asThreadId("thread-1"))
-        ?.messages.find(
-          (entry: ProviderRuntimeTestMessage) => entry.id === "reasoning:item-reasoning",
-        )?.text,
-    ).toBe("pondering");
-
-    // Past the window the accumulated text flushes.
-    emitDelta("evt-reasoning-3", "reasoning_summary_text", " and deeply", 600);
-    await harness.drain();
-    await waitForThread(harness.readModel, (entry) =>
-      entry.messages.some(
-        (message: ProviderRuntimeTestMessage) =>
-          message.id === "reasoning:item-reasoning" && message.text === "pondering harder and deeply",
-      ),
-    );
-
-    // Assistant text closes the thinking segment.
-    emitDelta("evt-answer-1", "assistant_text", "Here is my answer.", 700);
-    await harness.drain();
-    const settledThread = await waitForThread(harness.readModel, (entry) =>
-      entry.messages.some(
-        (message: ProviderRuntimeTestMessage) =>
-          message.id === "reasoning:item-reasoning" && !message.streaming,
-      ),
-    );
-    // The assistant message itself is untouched by reasoning bookkeeping.
-    expect(
-      settledThread.messages.find(
-        (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-reasoning",
-      )?.streaming,
-    ).toBe(true);
-
-    // Reasoning after the answer opens a fresh segment, not a append to the
-    // finished block.
-    emitDelta("evt-reasoning-4", "reasoning_text", "second thought", 800);
-    await harness.drain();
-    const secondSegmentThread = await waitForThread(harness.readModel, (entry) =>
-      entry.messages.some(
-        (message: ProviderRuntimeTestMessage) =>
-          message.id === "reasoning:item-reasoning:segment:1",
-      ),
-    );
-    expect(
-      secondSegmentThread.messages.find(
-        (entry: ProviderRuntimeTestMessage) => entry.id === "reasoning:item-reasoning:segment:1",
-      )?.text,
-    ).toBe("second thought");
-
-    // Turn completion flushes the still-open second segment.
-    harness.emit({
-      type: "turn.completed",
-      eventId: asEventId("evt-turn-completed-reasoning"),
-      provider: ProviderDriverKind.make("codex"),
-      createdAt: at(900),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-reasoning"),
-      status: "completed",
-    });
-    await waitForThread(harness.readModel, (entry) =>
-      entry.messages.some(
-        (message: ProviderRuntimeTestMessage) =>
-          message.id === "reasoning:item-reasoning:segment:1" && !message.streaming,
-      ),
-    );
-  });
-
-  it("drops whitespace-only reasoning segments instead of materializing empty blocks", async () => {
-    const harness = await createHarness();
-    const t0Ms = Date.parse("2026-01-01T00:00:00.000Z");
-    const at = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(t0Ms + offsetMs));
-
-    // Whitespace-only reasoning that never renders a visible chunk must not
-    // leave a reasoning message behind once the turn completes.
-    harness.emit({
-      type: "content.delta",
-      eventId: asEventId("evt-reasoning-ws-1"),
-      provider: ProviderDriverKind.make("codex"),
-      createdAt: at(0),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-reasoning-ws"),
-      itemId: asItemId("item-reasoning-ws"),
-      payload: { streamKind: "reasoning_text", delta: "  \n\t" },
-    });
-    await harness.drain();
-
-    harness.emit({
-      type: "turn.completed",
-      eventId: asEventId("evt-turn-completed-reasoning-ws"),
-      provider: ProviderDriverKind.make("codex"),
-      createdAt: at(600),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-reasoning-ws"),
-      status: "completed",
-    });
-    await harness.drain();
-
-    const thread = await harness.readModel();
-    expect(
-      thread.threads
-        .find((entry) => entry.id === asThreadId("thread-1"))
-        ?.messages.filter((message: ProviderRuntimeTestMessage) => message.role === "reasoning"),
-    ).toHaveLength(0);
   });
 
   it("maps canonical content delta/item completed into finalized assistant messages", async () => {
@@ -2156,13 +2008,11 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await harness.drain();
-    const midThread = await waitForThread(
-      harness.readModel,
-      (entry) =>
-        entry.messages.some(
-          (message: ProviderRuntimeTestMessage) =>
-            message.id === "assistant:item-buffered" && message.text === "buffer me",
-        ),
+    const midThread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-buffered" && message.text === "buffer me",
+      ),
     );
     const midMessage = midThread.messages.find(
       (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-buffered",

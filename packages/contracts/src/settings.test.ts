@@ -36,6 +36,18 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings interrupted task continuation", () => {
+  it("defaults to enabled and preserves an explicit opt-out", () => {
+    expect(decodeClientSettings({}).autoContinueAfterRestart).toBe(true);
+    expect(decodeClientSettings({ autoContinueAfterRestart: false }).autoContinueAfterRestart).toBe(
+      false,
+    );
+    expect(
+      decodeClientSettingsPatch({ autoContinueAfterRestart: false }).autoContinueAfterRestart,
+    ).toBe(false);
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

@@ -5,7 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@rune/shared/Net";
-import { resolveGitWorktreePath, resolveWorktreeRuneHome } from "@rune/shared/devHome";
+import { resolveGitWorktreePath, resolveWorktreeRUNEHome } from "@rune/shared/devHome";
 import { HostProcessEnvironment, HostProcessWorkingDirectory } from "@rune/shared/hostProcess";
 import { resolveSpawnCommand } from "@rune/shared/shell";
 import * as Config from "effect/Config";
@@ -76,11 +76,11 @@ const MODE_ARGS = {
     "run",
     "--filter=@rune/contracts",
     "--filter=@rune/web",
-    "--filter=@rune/server",
+    "--filter=rune",
     "--parallel",
     "dev",
   ],
-  "dev:server": ["run", "--filter=@rune/server", "dev"],
+  "dev:server": ["run", "--filter=rune", "dev"],
   "dev:web": ["run", "--filter=@rune/web", "dev"],
   "dev:desktop": ["run", "--filter=@rune/desktop", "--filter=@rune/web", "dev"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
@@ -341,12 +341,12 @@ export function createDevRunnerEnv({
     }
 
     // A dev-runner server is never launcher-managed. When the shell that runs
-    // this script was itself spawned by the machine's managed t3 service (an
+    // this script was itself spawned by the machine's managed rune service (an
     // agent working inside RUNE), these leak through and the child server
-    // fails startup with "The service launcher started a different t3 version"
+    // fails startup with "The service launcher started a different rune version"
     // (serviceLauncherClient.ts resolveStartup).
-    delete output.T3_SERVICE_LAUNCHER_CONTEXT;
-    delete output.T3_BOOT_SERVICE_UNIT;
+    delete output.RUNE_SERVICE_LAUNCHER_CONTEXT;
+    delete output.RUNE_BOOT_SERVICE_UNIT;
 
     if (!isDesktopMode) {
       output.RUNE_PORT = String(serverPort);
@@ -677,11 +677,11 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     // A dev server started inside a worktree defaults to that worktree's own
     // (gitignored) `.rune` — see @rune/shared/devHome for why this must
     // outrank an ambient RUNE_HOME. `--home-dir` still wins.
-    const worktreeHome = yield* resolveWorktreeRuneHome(yield* HostProcessWorkingDirectory);
+    const worktreeHome = yield* resolveWorktreeRUNEHome(yield* HostProcessWorkingDirectory);
     // Trim before choosing: `--home-dir ""` is not a selection, and treating it
     // as one would skip the worktree default and land on the shared home —
     // exactly the outcome this precedence exists to prevent.
-    const resolvedT3Home =
+    const resolvedRUNEHome =
       (input.runeHome?.trim() || undefined) ??
       worktreeHome ??
       (hostEnvironment.RUNE_HOME?.trim() || undefined);
@@ -690,7 +690,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       baseEnv: hostEnvironment,
       serverOffset,
       webOffset,
-      runeHome: resolvedT3Home,
+      runeHome: resolvedRUNEHome,
       browser: input.browser,
       autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
       logWebSocketEvents: input.logWebSocketEvents,
@@ -776,10 +776,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
           // The app is reached from the tailnet origin. Vite already allows
           // *.ts.net hosts; the backend needs the origin for credentialed
           // requests that bypass the proxy (desktop renderer, direct calls).
-          env.RUNE_DEV_ALLOWED_ORIGINS = [
-            env.RUNE_DEV_ALLOWED_ORIGINS,
-            new URL(shared.url).origin,
-          ]
+          env.RUNE_DEV_ALLOWED_ORIGINS = [env.RUNE_DEV_ALLOWED_ORIGINS, new URL(shared.url).origin]
             .filter((entry) => entry && entry.length > 0)
             .join(",");
           // The server builds its pairing URL from this, so the URL printed at
@@ -801,10 +798,8 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       }
     }
 
-    const vpExecutable =
-      process.platform === "win32" ? ".\\node_modules\\.bin\\vp.cmd" : "vp";
     const spawnCommand = yield* resolveSpawnCommand(
-      vpExecutable,
+      "vp",
       [...MODE_ARGS[input.mode], ...input.runArgs],
       { env },
     );

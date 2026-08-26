@@ -188,20 +188,6 @@ export function applyServerSettingsPatch(
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
       : {}),
-    ...(patch.harnesses !== undefined
-      ? {
-          harnesses: {
-            profiles:
-              patch.harnesses.profiles !== undefined
-                ? patch.harnesses.profiles
-                : (current.harnesses?.profiles ?? {}),
-            services:
-              patch.harnesses.services !== undefined
-                ? patch.harnesses.services
-                : (current.harnesses?.services ?? {}),
-          },
-        }
-      : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
       : {}),

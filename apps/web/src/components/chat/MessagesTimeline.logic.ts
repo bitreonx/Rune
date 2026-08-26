@@ -325,21 +325,22 @@ export function humanizeToolSummaryLabel(label: string): string | null {
 
   switch (toolName.toLowerCase()) {
     case "taskupdate": {
-      const taskId = typeof record.taskId === "string" || typeof record.taskId === "number"
-        ? String(record.taskId)
-        : null;
+      const taskId =
+        typeof record.taskId === "string" || typeof record.taskId === "number"
+          ? String(record.taskId)
+          : null;
       if (taskId === null) return null;
       const subject = quoteJsonString(record.subject);
-      const statusPhrase =
-        TASK_STATUS_PHRASES[String(record.status ?? "")] ?? null;
+      const statusPhrase = TASK_STATUS_PHRASES[String(record.status ?? "")] ?? null;
       const phrase = subject ? [`task #${taskId} “${subject}”`] : [`task #${taskId}`];
       if (statusPhrase) phrase.push(statusPhrase);
       return `Updated ${phrase.join(" · ")}`;
     }
     case "taskcreate": {
-      const verb = typeof record.activeForm === "string" && record.activeForm.trim().length > 0
-        ? `for ${record.activeForm.trim()}`
-        : null;
+      const verb =
+        typeof record.activeForm === "string" && record.activeForm.trim().length > 0
+          ? `for ${record.activeForm.trim()}`
+          : null;
       const subject = quoteJsonString(record.subject);
       return subject ? `Created task “${subject}”` : verb ? `Created task ${verb}` : "Created task";
     }
@@ -849,6 +850,13 @@ export function deriveMessagesTimelineRows(input: {
     if (entry.kind === "proposed-plan" || entry.kind === "turn-plan") return true;
     return false;
   });
+  const activeTurnHasAssistantText = activeEntries.some(
+    (entry) =>
+      entry.kind === "message" &&
+      entry.message.role === "assistant" &&
+      entry.message.streaming &&
+      (entry.message.text?.trim().length ?? 0) > 0,
+  );
 
   const activeToolEntries: Array<Extract<TimelineEntry, { kind: "work" }>> = [];
   for (let index = input.timelineEntries.length - 1; index >= activeTurnHeaderIndex; index -= 1) {
@@ -888,6 +896,10 @@ export function deriveMessagesTimelineRows(input: {
         })()
       : null;
   const appendWorkingRow = () => {
+    // Once user-facing assistant text exists, the message itself owns the
+    // live state. Keeping a second Working row here makes the answer feel
+    // delayed and causes a visible remove/insert transition on every turn.
+    if (activeTurnHasAssistantText) return;
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",

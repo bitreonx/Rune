@@ -343,6 +343,31 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       });
     });
 
+  const refreshSessionBindingFromAdapter = (
+    source: {
+      readonly instanceId: ProviderInstanceId;
+      readonly provider: ProviderDriverKind;
+    },
+    threadId: ThreadId,
+    extra?: {
+      readonly lastRuntimeEvent?: string;
+      readonly lastRuntimeEventAt?: string;
+    },
+  ) =>
+    registry.getByInstance(source.instanceId).pipe(
+      Effect.flatMap((adapter) => adapter.listSessions()),
+      Effect.flatMap((sessions) => {
+        const session = sessions.find((candidate) => candidate.threadId === threadId);
+        return session
+          ? upsertSessionBinding(
+              { ...session, providerInstanceId: source.instanceId },
+              threadId,
+              extra,
+            )
+          : Effect.void;
+      }),
+    );
+
   const processRuntimeEvent = (
     source: {
       readonly instanceId: ProviderInstanceId;
@@ -355,7 +380,33 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         increment(providerRuntimeEventsTotal, {
           provider: canonicalEvent.provider,
           eventType: canonicalEvent.type,
-        }).pipe(Effect.andThen(publishRuntimeEvent(canonicalEvent))),
+        }).pipe(
+          Effect.andThen(publishRuntimeEvent(canonicalEvent)),
+          Effect.andThen(
+            canonicalEvent.type === "session.state.changed" ||
+              canonicalEvent.type === "thread.started" ||
+              canonicalEvent.type === "turn.completed"
+              ? refreshSessionBindingFromAdapter(source, canonicalEvent.threadId, {
+                  lastRuntimeEvent:
+                    canonicalEvent.type === "turn.completed"
+                      ? "provider.turn.completed"
+                      : `provider.${canonicalEvent.type}`,
+                  lastRuntimeEventAt: canonicalEvent.createdAt,
+                }).pipe(
+                  Effect.catch((cause) =>
+                    Effect.logWarning(
+                      "Could not refresh provider session state after a runtime event.",
+                      {
+                        cause,
+                        threadId: canonicalEvent.threadId,
+                        eventType: canonicalEvent.type,
+                      },
+                    ).pipe(Effect.asVoid),
+                  ),
+                )
+              : Effect.void,
+          ),
+        ),
       ),
     );
 
@@ -449,7 +500,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
       }
 
-      if (!hasResumeCursor) {
+      // A persisted binding can legitimately outlive its provider cursor (for
+      // example after an older provider adapter was upgraded). A send is able
+      // to recover safely by creating a new provider session with the same
+      // RUNE thread identity; destructive operations still refuse to pretend
+      // that a missing cursor can restore the old conversation.
+      const canStartFreshForSend = input.operation === "ProviderService.sendTurn";
+      if (!hasResumeCursor && !canStartFreshForSend) {
         return yield* toValidationError(
           input.operation,
           `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
@@ -485,7 +542,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
       yield* analytics.record("provider.session.recovered", {
         provider: resumed.provider,
-        strategy: "resume-thread",
+        strategy: hasResumeCursor ? "resume-thread" : "fresh-session",
         hasResumeCursor: resumed.resumeCursor !== undefined,
       });
       return { adapter, session: resumed } as const;
@@ -872,10 +929,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const readAgentThread: NonNullable<ProviderServiceMethod<"readAgentThread">> = Effect.fn(
     "ProviderService.readAgentThread",
-  )(function* (input: {
-    readonly parentThreadId: ThreadId;
-    readonly agentId: RuntimeTaskId;
-  }) {
+  )(function* (input: { readonly parentThreadId: ThreadId; readonly agentId: RuntimeTaskId }) {
     const routed = yield* resolveRoutableSession({
       threadId: input.parentThreadId,
       operation: "ProviderService.readAgentThread",

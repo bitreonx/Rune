@@ -19,7 +19,7 @@ interface NativeShowcaseControls {
 }
 
 function nativeShowcaseControls(): NativeShowcaseControls | null {
-  return requireOptionalNativeModule<NativeShowcaseControls>("RuneNativeControls");
+  return requireOptionalNativeModule<NativeShowcaseControls>("RUNENativeControls");
 }
 
 export function getNativeShowcasePairingUrls(): ReadonlyArray<string> {

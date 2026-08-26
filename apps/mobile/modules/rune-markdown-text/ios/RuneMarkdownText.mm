@@ -1,21 +1,21 @@
-#import "RuneMarkdownText.h"
-#import "RuneMarkdownTextShadowNode.h"
-#import "RuneMarkdownTextComponentDescriptor.h"
-#import "RuneMarkdownTextRun.h"
+#import "RUNEMarkdownText.h"
+#import "RUNEMarkdownTextShadowNode.h"
+#import "RUNEMarkdownTextComponentDescriptor.h"
+#import "RUNEMarkdownTextRun.h"
 #import <React/RCTConversions.h>
 #import <objc/runtime.h>
 
 #import <react/renderer/textlayoutmanager/RCTAttributedTextUtils.h>
-#import <react/renderer/components/RuneMarkdownTextSpec/EventEmitters.h>
-#import <react/renderer/components/RuneMarkdownTextSpec/Props.h>
-#import <react/renderer/components/RuneMarkdownTextSpec/RCTComponentViewHelpers.h>
+#import <react/renderer/components/RUNEMarkdownTextSpec/EventEmitters.h>
+#import <react/renderer/components/RUNEMarkdownTextSpec/Props.h>
+#import <react/renderer/components/RUNEMarkdownTextSpec/RCTComponentViewHelpers.h>
 #import "RCTFabricComponentsPlugins.h"
 
 using namespace facebook::react;
 
-static void RuneMarkdownTextApplyParagraphStyles(
+static void RUNEMarkdownTextApplyParagraphStyles(
     NSMutableAttributedString *attributedString,
-    const std::vector<RuneMarkdownTextParagraphStyleRange> &styleRanges)
+    const std::vector<RUNEMarkdownTextParagraphStyleRange> &styleRanges)
 {
   for (const auto &styleRange : styleRanges) {
     if (styleRange.length == 0 || styleRange.location >= attributedString.length) {
@@ -47,9 +47,9 @@ static void RuneMarkdownTextApplyParagraphStyles(
   }
 }
 
-static void RuneMarkdownTextApplyAttachments(
+static void RUNEMarkdownTextApplyAttachments(
     NSMutableAttributedString *attributedString,
-    const std::vector<RuneMarkdownTextAttachmentRange> &attachmentRanges,
+    const std::vector<RUNEMarkdownTextAttachmentRange> &attachmentRanges,
     NSDictionary<NSString *, UIImage *> *images)
 {
   for (const auto &attachmentRange : attachmentRanges) {
@@ -70,10 +70,10 @@ static void RuneMarkdownTextApplyAttachments(
                                                           renderingMode:UIImageRenderingModeAlwaysOriginal];
     }
     attachment.image = image ?: [[UIImage alloc] init];
-    const CGFloat attachmentSize = RuneMarkdownTextAttachmentSize(attachmentRange);
+    const CGFloat attachmentSize = RUNEMarkdownTextAttachmentSize(attachmentRange);
     attachment.bounds = CGRectMake(
         0,
-        RuneMarkdownTextAttachmentBaselineOffset(attachmentRange),
+        RUNEMarkdownTextAttachmentBaselineOffset(attachmentRange),
         attachmentSize,
         attachmentSize);
     const NSRange range = NSMakeRange(
@@ -85,25 +85,25 @@ static void RuneMarkdownTextApplyAttachments(
   }
 }
 
-@protocol T3MarkdownOutsideTapTarget <NSObject>
+@protocol RUNEMarkdownOutsideTapTarget <NSObject>
 - (void)clearSelectionForOutsideTapWithHitView:(UIView *)hitView;
 @end
 
-@interface T3MarkdownOutsideTapCoordinator : NSObject <UIGestureRecognizerDelegate>
+@interface RUNEMarkdownOutsideTapCoordinator : NSObject <UIGestureRecognizerDelegate>
 
 - (instancetype)initWithWindow:(UIWindow *)window;
-- (void)addTarget:(id<T3MarkdownOutsideTapTarget>)target;
-- (void)removeTarget:(id<T3MarkdownOutsideTapTarget>)target;
+- (void)addTarget:(id<RUNEMarkdownOutsideTapTarget>)target;
+- (void)removeTarget:(id<RUNEMarkdownOutsideTapTarget>)target;
 
 @end
 
-static const void *T3MarkdownOutsideTapCoordinatorKey =
-    &T3MarkdownOutsideTapCoordinatorKey;
+static const void *RUNEMarkdownOutsideTapCoordinatorKey =
+    &RUNEMarkdownOutsideTapCoordinatorKey;
 
-@implementation T3MarkdownOutsideTapCoordinator {
+@implementation RUNEMarkdownOutsideTapCoordinator {
   __weak UIWindow *_window;
   UITapGestureRecognizer *_recognizer;
-  NSHashTable<id<T3MarkdownOutsideTapTarget>> *_targets;
+  NSHashTable<id<RUNEMarkdownOutsideTapTarget>> *_targets;
 }
 
 - (instancetype)initWithWindow:(UIWindow *)window
@@ -120,12 +120,12 @@ static const void *T3MarkdownOutsideTapCoordinatorKey =
   return self;
 }
 
-- (void)addTarget:(id<T3MarkdownOutsideTapTarget>)target
+- (void)addTarget:(id<RUNEMarkdownOutsideTapTarget>)target
 {
   [_targets addObject:target];
 }
 
-- (void)removeTarget:(id<T3MarkdownOutsideTapTarget>)target
+- (void)removeTarget:(id<RUNEMarkdownOutsideTapTarget>)target
 {
   [_targets removeObject:target];
   if (_targets.count > 0) {
@@ -134,10 +134,10 @@ static const void *T3MarkdownOutsideTapCoordinatorKey =
 
   UIWindow *window = _window;
   [window removeGestureRecognizer:_recognizer];
-  if (objc_getAssociatedObject(window, T3MarkdownOutsideTapCoordinatorKey) == self) {
+  if (objc_getAssociatedObject(window, RUNEMarkdownOutsideTapCoordinatorKey) == self) {
     objc_setAssociatedObject(
         window,
-        T3MarkdownOutsideTapCoordinatorKey,
+        RUNEMarkdownOutsideTapCoordinatorKey,
         nil,
         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
@@ -154,7 +154,7 @@ static const void *T3MarkdownOutsideTapCoordinatorKey =
   if (hitView == nil) {
     return;
   }
-  for (id<T3MarkdownOutsideTapTarget> target in _targets.allObjects) {
+  for (id<RUNEMarkdownOutsideTapTarget> target in _targets.allObjects) {
     [target clearSelectionForOutsideTapWithHitView:hitView];
   }
 }
@@ -167,33 +167,33 @@ static const void *T3MarkdownOutsideTapCoordinatorKey =
 
 @end
 
-static T3MarkdownOutsideTapCoordinator *
-T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
+static RUNEMarkdownOutsideTapCoordinator *
+RUNEMarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 {
-  T3MarkdownOutsideTapCoordinator *coordinator =
-      objc_getAssociatedObject(window, T3MarkdownOutsideTapCoordinatorKey);
+  RUNEMarkdownOutsideTapCoordinator *coordinator =
+      objc_getAssociatedObject(window, RUNEMarkdownOutsideTapCoordinatorKey);
   if (coordinator == nil) {
-    coordinator = [[T3MarkdownOutsideTapCoordinator alloc] initWithWindow:window];
+    coordinator = [[RUNEMarkdownOutsideTapCoordinator alloc] initWithWindow:window];
     objc_setAssociatedObject(
         window,
-        T3MarkdownOutsideTapCoordinatorKey,
+        RUNEMarkdownOutsideTapCoordinatorKey,
         coordinator,
         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
   return coordinator;
 }
 
-@interface RuneMarkdownText () <RCTRuneMarkdownTextViewProtocol, UIGestureRecognizerDelegate, UITextViewDelegate>
+@interface RUNEMarkdownText () <RCTRUNEMarkdownTextViewProtocol, UIGestureRecognizerDelegate, UITextViewDelegate>
 
 @end
 
-@interface RuneMarkdownText () <T3MarkdownOutsideTapTarget>
+@interface RUNEMarkdownText () <RUNEMarkdownOutsideTapTarget>
 @end
 
-@implementation RuneMarkdownText {
+@implementation RUNEMarkdownText {
   UIView * _view;
   UITextView * _textView;
-  RuneMarkdownTextShadowNode::ConcreteState::Shared _state;
+  RUNEMarkdownTextShadowNode::ConcreteState::Shared _state;
   __weak UIWindow * _outsideTapWindow;
   BOOL _suppressSelectionChange;
   NSMutableDictionary<NSString *, UIImage *> * _attachmentImages;
@@ -202,13 +202,13 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
 {
-  return concreteComponentDescriptorProvider<RuneMarkdownTextComponentDescriptor>();
+  return concreteComponentDescriptorProvider<RUNEMarkdownTextComponentDescriptor>();
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
 {
   if (self = [super initWithFrame:frame]) {
-    static const auto defaultProps = std::make_shared<const RuneMarkdownTextProps>();
+    static const auto defaultProps = std::make_shared<const RUNEMarkdownTextProps>();
     _props = defaultProps;
 
     _view = [[UIView alloc] init];
@@ -250,20 +250,20 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
     return;
   }
   if (_outsideTapWindow != nil) {
-    T3MarkdownOutsideTapCoordinator *coordinator =
-        objc_getAssociatedObject(_outsideTapWindow, T3MarkdownOutsideTapCoordinatorKey);
+    RUNEMarkdownOutsideTapCoordinator *coordinator =
+        objc_getAssociatedObject(_outsideTapWindow, RUNEMarkdownOutsideTapCoordinatorKey);
     [coordinator removeTarget:self];
   }
   _outsideTapWindow = self.window;
   if (_outsideTapWindow != nil) {
-    [T3MarkdownOutsideTapCoordinatorForWindow(_outsideTapWindow) addTarget:self];
+    [RUNEMarkdownOutsideTapCoordinatorForWindow(_outsideTapWindow) addTarget:self];
   }
 }
 
 - (void)dealloc
 {
-  T3MarkdownOutsideTapCoordinator *coordinator =
-      objc_getAssociatedObject(_outsideTapWindow, T3MarkdownOutsideTapCoordinatorKey);
+  RUNEMarkdownOutsideTapCoordinator *coordinator =
+      objc_getAssociatedObject(_outsideTapWindow, RUNEMarkdownOutsideTapCoordinatorKey);
   [coordinator removeTarget:self];
 }
 
@@ -271,8 +271,8 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 - (void)prepareForRecycle
 {
   [super prepareForRecycle];
-  T3MarkdownOutsideTapCoordinator *coordinator =
-      objc_getAssociatedObject(_outsideTapWindow, T3MarkdownOutsideTapCoordinatorKey);
+  RUNEMarkdownOutsideTapCoordinator *coordinator =
+      objc_getAssociatedObject(_outsideTapWindow, RUNEMarkdownOutsideTapCoordinatorKey);
   [coordinator removeTarget:self];
   _outsideTapWindow = nil;
   _state.reset();
@@ -300,15 +300,15 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
     return;
   }
 
-  const auto &props = *std::static_pointer_cast<RuneMarkdownTextProps const>(_props);
+  const auto &props = *std::static_pointer_cast<RUNEMarkdownTextProps const>(_props);
 
   const auto attrString = _state->getData().attributedString;
   NSMutableAttributedString *convertedAttrString =
       [RCTNSAttributedStringFromAttributedString(attrString) mutableCopy];
-  RuneMarkdownTextApplyParagraphStyles(
+  RUNEMarkdownTextApplyParagraphStyles(
       convertedAttrString,
       _state->getData().paragraphStyleRanges);
-  RuneMarkdownTextApplyAttachments(
+  RUNEMarkdownTextApplyAttachments(
       convertedAttrString,
       _state->getData().attachmentRanges,
       _attachmentImages);
@@ -358,12 +358,12 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
   }];
 
   if (_eventEmitter != nullptr) {
-    std::dynamic_pointer_cast<const facebook::react::RuneMarkdownTextEventEmitter>(_eventEmitter)
-    ->onTextLayout(facebook::react::RuneMarkdownTextEventEmitter::OnTextLayout{static_cast<int>(self.tag), lines});
+    std::dynamic_pointer_cast<const facebook::react::RUNEMarkdownTextEventEmitter>(_eventEmitter)
+    ->onTextLayout(facebook::react::RUNEMarkdownTextEventEmitter::OnTextLayout{static_cast<int>(self.tag), lines});
   };
 }
 
-- (void)loadAttachmentImages:(const std::vector<RuneMarkdownTextAttachmentRange> &)attachmentRanges
+- (void)loadAttachmentImages:(const std::vector<RUNEMarkdownTextAttachmentRange> &)attachmentRanges
 {
   for (const auto &attachmentRange : attachmentRanges) {
     NSString *imageUri = [NSString stringWithUTF8String:attachmentRange.imageUri.c_str()];
@@ -411,7 +411,7 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
   }
 
   NSMutableAttributedString *attributedText = [_textView.attributedText mutableCopy];
-  RuneMarkdownTextApplyAttachments(
+  RUNEMarkdownTextApplyAttachments(
       attributedText,
       _state->getData().attachmentRanges,
       _attachmentImages);
@@ -429,8 +429,8 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 
 - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &)oldProps
 {
-  const auto &oldViewProps = *std::static_pointer_cast<RuneMarkdownTextProps const>(_props);
-  const auto &newViewProps = *std::static_pointer_cast<RuneMarkdownTextProps const>(props);
+  const auto &oldViewProps = *std::static_pointer_cast<RUNEMarkdownTextProps const>(_props);
+  const auto &newViewProps = *std::static_pointer_cast<RUNEMarkdownTextProps const>(props);
 
   if (oldViewProps.numberOfLines != newViewProps.numberOfLines) {
     _textView.textContainer.maximumNumberOfLines = newViewProps.numberOfLines;
@@ -447,13 +447,13 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
   }
 
   if (oldViewProps.ellipsizeMode != newViewProps.ellipsizeMode) {
-    if (newViewProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Head) {
+    if (newViewProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Head) {
       _textView.textContainer.lineBreakMode = NSLineBreakMode::NSLineBreakByTruncatingHead;
-    } else if (newViewProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Middle) {
+    } else if (newViewProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Middle) {
       _textView.textContainer.lineBreakMode = NSLineBreakMode::NSLineBreakByTruncatingMiddle;
-    } else if (newViewProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Tail) {
+    } else if (newViewProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Tail) {
       _textView.textContainer.lineBreakMode = NSLineBreakMode::NSLineBreakByTruncatingTail;
-    } else if (newViewProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Clip) {
+    } else if (newViewProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Clip) {
       _textView.textContainer.lineBreakMode = NSLineBreakMode::NSLineBreakByClipping;
     }
   }
@@ -473,7 +473,7 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 // See RCTParagraphComponentView
 - (void)updateState:(const facebook::react::State::Shared &)state oldState:(const facebook::react::State::Shared &)oldState
 {
-  _state = std::static_pointer_cast<const RuneMarkdownTextShadowNode::ConcreteState>(state);
+  _state = std::static_pointer_cast<const RUNEMarkdownTextShadowNode::ConcreteState>(state);
   [self setNeedsDisplay];
 }
 
@@ -512,7 +512,7 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
   return [sender locationInView:_textView];
 }
 
-- (RuneMarkdownTextRun*)getTouchChild:(CGPoint)location
+- (RUNEMarkdownTextRun*)getTouchChild:(CGPoint)location
 {
   const auto charIndex = [_textView.layoutManager characterIndexForPoint:location
                                                          inTextContainer:_textView.textContainer
@@ -521,11 +521,11 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 
   int currIndex = -1;
   for (UIView* child in self.subviews) {
-    if (![child isKindOfClass:[RuneMarkdownTextRun class]]) {
+    if (![child isKindOfClass:[RUNEMarkdownTextRun class]]) {
       continue;
     }
 
-    RuneMarkdownTextRun* textChild = (RuneMarkdownTextRun*)child;
+    RUNEMarkdownTextRun* textChild = (RUNEMarkdownTextRun*)child;
 
     // This is UTF16 code units!!
     currIndex += textChild.text.length;
@@ -576,17 +576,17 @@ T3MarkdownOutsideTapCoordinatorForWindow(UIWindow *window)
 
   // Fires on programmatic selection changes too (e.g. the outside-tap clear
   // in handleOutsideTap:), so JS will see a synthetic empty-range event then.
-  std::dynamic_pointer_cast<const facebook::react::RuneMarkdownTextEventEmitter>(_eventEmitter)
-    ->onSelectionChange(facebook::react::RuneMarkdownTextEventEmitter::OnSelectionChange{
+  std::dynamic_pointer_cast<const facebook::react::RUNEMarkdownTextEventEmitter>(_eventEmitter)
+    ->onSelectionChange(facebook::react::RUNEMarkdownTextEventEmitter::OnSelectionChange{
       static_cast<int>(self.tag),
       static_cast<int>(selectedRange.location),
       static_cast<int>(selectedRange.location + selectedRange.length),
     });
 }
 
-Class<RCTComponentViewProtocol> RuneMarkdownTextCls(void)
+Class<RCTComponentViewProtocol> RUNEMarkdownTextCls(void)
 {
-  return RuneMarkdownText.class;
+  return RUNEMarkdownText.class;
 }
 
 @end

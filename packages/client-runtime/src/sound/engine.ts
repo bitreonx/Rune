@@ -111,16 +111,115 @@ function fillReverbImpulse(channel: Float32Array, seed: number): void {
 // spacing and the long top note, clarity from thin octave partials.
 const DONE_CHIME_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 261.63, frequencyTo: 257, startAt: 0, duration: 0.7, gain: 0.1, lowpassFrom: 1200, lowpassTo: 500 },
-    { type: "sine", frequency: 783.99, frequencyTo: 772.2, startAt: 0, duration: 0.38, gain: 0.34, pan: -0.14, lowpassFrom: 6400, lowpassTo: 1600 },
-    { type: "sine", frequency: 1568, frequencyTo: 1542, startAt: 0, duration: 0.15, gain: 0.07, pan: -0.14, lowpassFrom: 8000, lowpassTo: 3000 },
-    { type: "sine", frequency: 1046.5, frequencyTo: 1030.8, startAt: 0.13, duration: 0.55, gain: 0.38, pan: 0.15, lowpassFrom: 7000, lowpassTo: 1700 },
-    { type: "sine", frequency: 2093, frequencyTo: 2062, startAt: 0.13, duration: 0.2, gain: 0.075, pan: 0.15, lowpassFrom: 8800, lowpassTo: 3200 },
-    { type: "sine", frequency: 1318.51, frequencyTo: 1298.7, startAt: 0.26, duration: 0.7, gain: 0.27, pan: -0.05, lowpassFrom: 7800, lowpassTo: 2000 },
-    { type: "sine", frequency: 2637.02, frequencyTo: 2597, startAt: 0.26, duration: 0.22, gain: 0.06, pan: -0.05, lowpassFrom: 10000, lowpassTo: 3600 },
-    { type: "sine", frequency: 1568, frequencyTo: 1544.5, startAt: 0.42, duration: 0.95, gain: 0.3, pan: 0.08, lowpassFrom: 8600, lowpassTo: 2100 },
-    { type: "sine", frequency: 3136, frequencyTo: 3089, startAt: 0.42, duration: 0.28, gain: 0.06, pan: 0.08, lowpassFrom: 11000, lowpassTo: 3800 },
-    { type: "sine", frequency: 2093, frequencyTo: 2071, startAt: 0.42, duration: 0.35, gain: 0.045, pan: -0.09, lowpassFrom: 12000, lowpassTo: 5000 },
+    {
+      type: "sine",
+      frequency: 261.63,
+      frequencyTo: 257,
+      startAt: 0,
+      duration: 0.7,
+      gain: 0.1,
+      lowpassFrom: 1200,
+      lowpassTo: 500,
+    },
+    {
+      type: "sine",
+      frequency: 783.99,
+      frequencyTo: 772.2,
+      startAt: 0,
+      duration: 0.38,
+      gain: 0.34,
+      pan: -0.14,
+      lowpassFrom: 6400,
+      lowpassTo: 1600,
+    },
+    {
+      type: "sine",
+      frequency: 1568,
+      frequencyTo: 1542,
+      startAt: 0,
+      duration: 0.15,
+      gain: 0.07,
+      pan: -0.14,
+      lowpassFrom: 8000,
+      lowpassTo: 3000,
+    },
+    {
+      type: "sine",
+      frequency: 1046.5,
+      frequencyTo: 1030.8,
+      startAt: 0.13,
+      duration: 0.55,
+      gain: 0.38,
+      pan: 0.15,
+      lowpassFrom: 7000,
+      lowpassTo: 1700,
+    },
+    {
+      type: "sine",
+      frequency: 2093,
+      frequencyTo: 2062,
+      startAt: 0.13,
+      duration: 0.2,
+      gain: 0.075,
+      pan: 0.15,
+      lowpassFrom: 8800,
+      lowpassTo: 3200,
+    },
+    {
+      type: "sine",
+      frequency: 1318.51,
+      frequencyTo: 1298.7,
+      startAt: 0.26,
+      duration: 0.7,
+      gain: 0.27,
+      pan: -0.05,
+      lowpassFrom: 7800,
+      lowpassTo: 2000,
+    },
+    {
+      type: "sine",
+      frequency: 2637.02,
+      frequencyTo: 2597,
+      startAt: 0.26,
+      duration: 0.22,
+      gain: 0.06,
+      pan: -0.05,
+      lowpassFrom: 10000,
+      lowpassTo: 3600,
+    },
+    {
+      type: "sine",
+      frequency: 1568,
+      frequencyTo: 1544.5,
+      startAt: 0.42,
+      duration: 0.95,
+      gain: 0.3,
+      pan: 0.08,
+      lowpassFrom: 8600,
+      lowpassTo: 2100,
+    },
+    {
+      type: "sine",
+      frequency: 3136,
+      frequencyTo: 3089,
+      startAt: 0.42,
+      duration: 0.28,
+      gain: 0.06,
+      pan: 0.08,
+      lowpassFrom: 11000,
+      lowpassTo: 3800,
+    },
+    {
+      type: "sine",
+      frequency: 2093,
+      frequencyTo: 2071,
+      startAt: 0.42,
+      duration: 0.35,
+      gain: 0.045,
+      pan: -0.09,
+      lowpassFrom: 12000,
+      lowpassTo: 5000,
+    },
   ],
 };
 
@@ -129,13 +228,42 @@ const DONE_CHIME_SCORE: SoundScore = {
 // strike rings longest of all — this is the ceremonial option.
 const DONE_BELLS_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 523.25, frequencyTo: 520.6, startAt: 0, duration: 0.85, gain: 0.3, lowpassFrom: 8500, lowpassTo: 2000 },
+    {
+      type: "sine",
+      frequency: 523.25,
+      frequencyTo: 520.6,
+      startAt: 0,
+      duration: 0.85,
+      gain: 0.3,
+      lowpassFrom: 8500,
+      lowpassTo: 2000,
+    },
     { type: "sine", frequency: 1046.5, startAt: 0, duration: 0.4, gain: 0.09 },
     { type: "sine", frequency: 1444, startAt: 0, duration: 0.22, gain: 0.045 },
-    { type: "sine", frequency: 659.26, frequencyTo: 656, startAt: 0.24, duration: 1, gain: 0.3, pan: 0.12, lowpassFrom: 8800, lowpassTo: 2100 },
+    {
+      type: "sine",
+      frequency: 659.26,
+      frequencyTo: 656,
+      startAt: 0.24,
+      duration: 1,
+      gain: 0.3,
+      pan: 0.12,
+      lowpassFrom: 8800,
+      lowpassTo: 2100,
+    },
     { type: "sine", frequency: 1318.51, startAt: 0.24, duration: 0.45, gain: 0.08, pan: 0.12 },
     { type: "sine", frequency: 1820, startAt: 0.24, duration: 0.24, gain: 0.04, pan: 0.12 },
-    { type: "sine", frequency: 783.99, frequencyTo: 781, startAt: 0.48, duration: 1.35, gain: 0.28, pan: -0.06, lowpassFrom: 9000, lowpassTo: 2300 },
+    {
+      type: "sine",
+      frequency: 783.99,
+      frequencyTo: 781,
+      startAt: 0.48,
+      duration: 1.35,
+      gain: 0.28,
+      pan: -0.06,
+      lowpassFrom: 9000,
+      lowpassTo: 2300,
+    },
     { type: "sine", frequency: 1568, startAt: 0.48, duration: 0.6, gain: 0.07, pan: -0.06 },
     { type: "sine", frequency: 2164, startAt: 0.48, duration: 0.3, gain: 0.035, pan: -0.06 },
   ],
@@ -146,15 +274,98 @@ const DONE_BELLS_SCORE: SoundScore = {
 // filling all the way.
 const DONE_LEVEL_UP_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 783.99, frequencyTo: 776, startAt: 0, duration: 0.1, gain: 0.3, lowpassFrom: 7000, lowpassTo: 2600 },
-    { type: "sine", frequency: 1046.5, frequencyTo: 1037, startAt: 0.08, duration: 0.1, gain: 0.3, lowpassFrom: 7200, lowpassTo: 2800 },
-    { type: "sine", frequency: 1318.51, frequencyTo: 1306, startAt: 0.16, duration: 0.1, gain: 0.28, lowpassFrom: 7400, lowpassTo: 3000 },
-    { type: "sine", frequency: 1568, frequencyTo: 1553, startAt: 0.24, duration: 0.14, gain: 0.3, lowpassFrom: 7600, lowpassTo: 3200 },
-    { type: "sine", frequency: 261.63, frequencyTo: 258, startAt: 0.4, duration: 0.7, gain: 0.1, lowpassFrom: 1400, lowpassTo: 600 },
-    { type: "sine", frequency: 1046.5, frequencyTo: 1041, startAt: 0.4, duration: 0.75, gain: 0.17, lowpassFrom: 8000, lowpassTo: 2400 },
-    { type: "sine", frequency: 1318.51, frequencyTo: 1312, startAt: 0.4, duration: 0.75, gain: 0.15, pan: 0.1, lowpassFrom: 8200, lowpassTo: 2600 },
-    { type: "sine", frequency: 1568, frequencyTo: 1560, startAt: 0.4, duration: 0.8, gain: 0.17, pan: -0.08, lowpassFrom: 8400, lowpassTo: 2800 },
-    { type: "sine", frequency: 2093, frequencyTo: 2082, startAt: 0.4, duration: 0.5, gain: 0.05, lowpassFrom: 11000, lowpassTo: 4200 },
+    {
+      type: "sine",
+      frequency: 783.99,
+      frequencyTo: 776,
+      startAt: 0,
+      duration: 0.1,
+      gain: 0.3,
+      lowpassFrom: 7000,
+      lowpassTo: 2600,
+    },
+    {
+      type: "sine",
+      frequency: 1046.5,
+      frequencyTo: 1037,
+      startAt: 0.08,
+      duration: 0.1,
+      gain: 0.3,
+      lowpassFrom: 7200,
+      lowpassTo: 2800,
+    },
+    {
+      type: "sine",
+      frequency: 1318.51,
+      frequencyTo: 1306,
+      startAt: 0.16,
+      duration: 0.1,
+      gain: 0.28,
+      lowpassFrom: 7400,
+      lowpassTo: 3000,
+    },
+    {
+      type: "sine",
+      frequency: 1568,
+      frequencyTo: 1553,
+      startAt: 0.24,
+      duration: 0.14,
+      gain: 0.3,
+      lowpassFrom: 7600,
+      lowpassTo: 3200,
+    },
+    {
+      type: "sine",
+      frequency: 261.63,
+      frequencyTo: 258,
+      startAt: 0.4,
+      duration: 0.7,
+      gain: 0.1,
+      lowpassFrom: 1400,
+      lowpassTo: 600,
+    },
+    {
+      type: "sine",
+      frequency: 1046.5,
+      frequencyTo: 1041,
+      startAt: 0.4,
+      duration: 0.75,
+      gain: 0.17,
+      lowpassFrom: 8000,
+      lowpassTo: 2400,
+    },
+    {
+      type: "sine",
+      frequency: 1318.51,
+      frequencyTo: 1312,
+      startAt: 0.4,
+      duration: 0.75,
+      gain: 0.15,
+      pan: 0.1,
+      lowpassFrom: 8200,
+      lowpassTo: 2600,
+    },
+    {
+      type: "sine",
+      frequency: 1568,
+      frequencyTo: 1560,
+      startAt: 0.4,
+      duration: 0.8,
+      gain: 0.17,
+      pan: -0.08,
+      lowpassFrom: 8400,
+      lowpassTo: 2800,
+    },
+    {
+      type: "sine",
+      frequency: 2093,
+      frequencyTo: 2082,
+      startAt: 0.4,
+      duration: 0.5,
+      gain: 0.05,
+      lowpassFrom: 11000,
+      lowpassTo: 4200,
+    },
   ],
 };
 
@@ -162,10 +373,48 @@ const DONE_LEVEL_UP_SCORE: SoundScore = {
 // swelling in over a third of a second and fading like a warm light coming up.
 const DONE_GLOW_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 261.63, attack: 0.12, startAt: 0, duration: 0.95, gain: 0.16, lowpassFrom: 1600, lowpassTo: 700 },
-    { type: "sine", frequency: 392, attack: 0.12, startAt: 0, duration: 0.95, gain: 0.12, lowpassFrom: 2200, lowpassTo: 900 },
-    { type: "sine", frequency: 659.26, attack: 0.25, startAt: 0, duration: 0.8, gain: 0.08, pan: 0.1, lowpassFrom: 3200, lowpassTo: 1300 },
-    { type: "sine", frequency: 523.25, attack: 0.3, startAt: 0, duration: 0.75, gain: 0.07, pan: -0.08, lowpassFrom: 2800, lowpassTo: 1100 },
+    {
+      type: "sine",
+      frequency: 261.63,
+      attack: 0.12,
+      startAt: 0,
+      duration: 0.95,
+      gain: 0.16,
+      lowpassFrom: 1600,
+      lowpassTo: 700,
+    },
+    {
+      type: "sine",
+      frequency: 392,
+      attack: 0.12,
+      startAt: 0,
+      duration: 0.95,
+      gain: 0.12,
+      lowpassFrom: 2200,
+      lowpassTo: 900,
+    },
+    {
+      type: "sine",
+      frequency: 659.26,
+      attack: 0.25,
+      startAt: 0,
+      duration: 0.8,
+      gain: 0.08,
+      pan: 0.1,
+      lowpassFrom: 3200,
+      lowpassTo: 1300,
+    },
+    {
+      type: "sine",
+      frequency: 523.25,
+      attack: 0.3,
+      startAt: 0,
+      duration: 0.75,
+      gain: 0.07,
+      pan: -0.08,
+      lowpassFrom: 2800,
+      lowpassTo: 1100,
+    },
   ],
 };
 
@@ -175,10 +424,46 @@ const DONE_GLOW_SCORE: SoundScore = {
 // session never confuses them — contour alone tells you which happened.
 const NEEDS_INPUT_POPS_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 880, frequencyTo: 868.6, startAt: 0, duration: 0.085, gain: 0.4, pan: -0.1, lowpassFrom: 5200, lowpassTo: 2400 },
-    { type: "sine", frequency: 1760, frequencyTo: 1737, startAt: 0, duration: 0.05, gain: 0.075, pan: -0.1 },
-    { type: "sine", frequency: 1174.66, frequencyTo: 1159.4, startAt: 0.125, duration: 0.16, gain: 0.44, pan: 0.12, lowpassFrom: 5600, lowpassTo: 2600 },
-    { type: "sine", frequency: 2349.32, frequencyTo: 2319, startAt: 0.125, duration: 0.06, gain: 0.07, pan: 0.12 },
+    {
+      type: "sine",
+      frequency: 880,
+      frequencyTo: 868.6,
+      startAt: 0,
+      duration: 0.085,
+      gain: 0.4,
+      pan: -0.1,
+      lowpassFrom: 5200,
+      lowpassTo: 2400,
+    },
+    {
+      type: "sine",
+      frequency: 1760,
+      frequencyTo: 1737,
+      startAt: 0,
+      duration: 0.05,
+      gain: 0.075,
+      pan: -0.1,
+    },
+    {
+      type: "sine",
+      frequency: 1174.66,
+      frequencyTo: 1159.4,
+      startAt: 0.125,
+      duration: 0.16,
+      gain: 0.44,
+      pan: 0.12,
+      lowpassFrom: 5600,
+      lowpassTo: 2600,
+    },
+    {
+      type: "sine",
+      frequency: 2349.32,
+      frequencyTo: 2319,
+      startAt: 0.125,
+      duration: 0.06,
+      gain: 0.07,
+      pan: 0.12,
+    },
   ],
 };
 
@@ -186,9 +471,27 @@ const NEEDS_INPUT_POPS_SCORE: SoundScore = {
 // but lower, warmer, unmistakably "come look at this".
 const NEEDS_INPUT_KNOCK_SCORE: SoundScore = {
   tones: [
-    { type: "triangle", frequency: 392, frequencyTo: 386, startAt: 0, duration: 0.11, gain: 0.36, lowpassFrom: 1800, lowpassTo: 650 },
+    {
+      type: "triangle",
+      frequency: 392,
+      frequencyTo: 386,
+      startAt: 0,
+      duration: 0.11,
+      gain: 0.36,
+      lowpassFrom: 1800,
+      lowpassTo: 650,
+    },
     { type: "sine", frequency: 196, frequencyTo: 192, startAt: 0, duration: 0.1, gain: 0.16 },
-    { type: "triangle", frequency: 392, frequencyTo: 385, startAt: 0.15, duration: 0.16, gain: 0.44, lowpassFrom: 1700, lowpassTo: 550 },
+    {
+      type: "triangle",
+      frequency: 392,
+      frequencyTo: 385,
+      startAt: 0.15,
+      duration: 0.16,
+      gain: 0.44,
+      lowpassFrom: 1700,
+      lowpassTo: 550,
+    },
     { type: "sine", frequency: 196, frequencyTo: 190, startAt: 0.15, duration: 0.15, gain: 0.18 },
   ],
 };
@@ -197,9 +500,29 @@ const NEEDS_INPUT_KNOCK_SCORE: SoundScore = {
 // option; it asks without knocking.
 const NEEDS_INPUT_PING_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 1318.51, frequencyTo: 1305, startAt: 0, duration: 0.3, gain: 0.34, pan: -0.08, lowpassFrom: 8000, lowpassTo: 2600 },
+    {
+      type: "sine",
+      frequency: 1318.51,
+      frequencyTo: 1305,
+      startAt: 0,
+      duration: 0.3,
+      gain: 0.34,
+      pan: -0.08,
+      lowpassFrom: 8000,
+      lowpassTo: 2600,
+    },
     { type: "sine", frequency: 2637.02, startAt: 0, duration: 0.12, gain: 0.06, pan: -0.08 },
-    { type: "sine", frequency: 1318.51, frequencyTo: 1307, startAt: 0.18, duration: 0.4, gain: 0.14, pan: 0.1, lowpassFrom: 7000, lowpassTo: 2400 },
+    {
+      type: "sine",
+      frequency: 1318.51,
+      frequencyTo: 1307,
+      startAt: 0.18,
+      duration: 0.4,
+      gain: 0.14,
+      pan: 0.1,
+      lowpassFrom: 7000,
+      lowpassTo: 2400,
+    },
   ],
 };
 
@@ -210,10 +533,35 @@ const NEEDS_INPUT_PING_SCORE: SoundScore = {
 // without raising volume, and each strike sags flat like real wood does.
 const ERROR_WOOD_SCORE: SoundScore = {
   tones: [
-    { type: "triangle", frequency: 329.63, frequencyTo: 314.8, startAt: 0, duration: 0.18, gain: 0.38, lowpassFrom: 1100, lowpassTo: 430 },
+    {
+      type: "triangle",
+      frequency: 329.63,
+      frequencyTo: 314.8,
+      startAt: 0,
+      duration: 0.18,
+      gain: 0.38,
+      lowpassFrom: 1100,
+      lowpassTo: 430,
+    },
     { type: "sine", frequency: 164.81, frequencyTo: 158.2, startAt: 0, duration: 0.17, gain: 0.2 },
-    { type: "triangle", frequency: 261.63, frequencyTo: 248.5, startAt: 0.13, duration: 0.32, gain: 0.4, lowpassFrom: 1000, lowpassTo: 380 },
-    { type: "sine", frequency: 130.81, frequencyTo: 124.3, startAt: 0.13, duration: 0.3, gain: 0.22 },
+    {
+      type: "triangle",
+      frequency: 261.63,
+      frequencyTo: 248.5,
+      startAt: 0.13,
+      duration: 0.32,
+      gain: 0.4,
+      lowpassFrom: 1000,
+      lowpassTo: 380,
+    },
+    {
+      type: "sine",
+      frequency: 130.81,
+      frequencyTo: 124.3,
+      startAt: 0.13,
+      duration: 0.3,
+      gain: 0.22,
+    },
   ],
 };
 
@@ -221,7 +569,18 @@ const ERROR_WOOD_SCORE: SoundScore = {
 // the problem once, without drama.
 const ERROR_THUD_SCORE: SoundScore = {
   space: 0.5,
-  tones: [{ type: "sine", frequency: 164.81, frequencyTo: 150, startAt: 0, duration: 0.28, gain: 0.42, lowpassFrom: 500, lowpassTo: 180 }],
+  tones: [
+    {
+      type: "sine",
+      frequency: 164.81,
+      frequencyTo: 150,
+      startAt: 0,
+      duration: 0.28,
+      gain: 0.42,
+      lowpassFrom: 500,
+      lowpassTo: 180,
+    },
+  ],
   noise: { startAt: 0, duration: 0.03, gain: 0.18, lowpassFrom: 900, lowpassTo: 250 },
 };
 
@@ -229,12 +588,53 @@ const ERROR_THUD_SCORE: SoundScore = {
 // as "something went wrong" in a calm voice rather than a scolding.
 const ERROR_DESCEND_SCORE: SoundScore = {
   tones: [
-    { type: "triangle", frequency: 440, frequencyTo: 433, startAt: 0, duration: 0.14, gain: 0.34, lowpassFrom: 1600, lowpassTo: 700 },
+    {
+      type: "triangle",
+      frequency: 440,
+      frequencyTo: 433,
+      startAt: 0,
+      duration: 0.14,
+      gain: 0.34,
+      lowpassFrom: 1600,
+      lowpassTo: 700,
+    },
     { type: "sine", frequency: 220, frequencyTo: 217, startAt: 0, duration: 0.13, gain: 0.12 },
-    { type: "triangle", frequency: 349.23, frequencyTo: 343, startAt: 0.14, duration: 0.14, gain: 0.36, lowpassFrom: 1400, lowpassTo: 600 },
-    { type: "sine", frequency: 174.61, frequencyTo: 171, startAt: 0.14, duration: 0.13, gain: 0.12 },
-    { type: "triangle", frequency: 293.66, frequencyTo: 286, startAt: 0.28, duration: 0.3, gain: 0.4, lowpassFrom: 1200, lowpassTo: 450 },
-    { type: "sine", frequency: 146.83, frequencyTo: 142, startAt: 0.28, duration: 0.28, gain: 0.14 },
+    {
+      type: "triangle",
+      frequency: 349.23,
+      frequencyTo: 343,
+      startAt: 0.14,
+      duration: 0.14,
+      gain: 0.36,
+      lowpassFrom: 1400,
+      lowpassTo: 600,
+    },
+    {
+      type: "sine",
+      frequency: 174.61,
+      frequencyTo: 171,
+      startAt: 0.14,
+      duration: 0.13,
+      gain: 0.12,
+    },
+    {
+      type: "triangle",
+      frequency: 293.66,
+      frequencyTo: 286,
+      startAt: 0.28,
+      duration: 0.3,
+      gain: 0.4,
+      lowpassFrom: 1200,
+      lowpassTo: 450,
+    },
+    {
+      type: "sine",
+      frequency: 146.83,
+      frequencyTo: 142,
+      startAt: 0.28,
+      duration: 0.28,
+      gain: 0.14,
+    },
   ],
 };
 
@@ -245,14 +645,25 @@ const ERROR_DESCEND_SCORE: SoundScore = {
 // felt more than heard, closer to a key travel than a beep.
 const CLICK_TICK_SCORE: SoundScore = {
   space: 0.25,
-  tones: [{ type: "sine", frequency: 2300, frequencyTo: 1850, startAt: 0, duration: 0.006, gain: 0.18 }],
+  tones: [
+    { type: "sine", frequency: 2300, frequencyTo: 1850, startAt: 0, duration: 0.006, gain: 0.18 },
+  ],
   noise: { startAt: 0, duration: 0.01, gain: 0.33, lowpassFrom: 4200, lowpassTo: 900 },
 };
 
 // Lower and woodier than the tick — a fingertip tap on a desk edge.
 const CLICK_TAP_SCORE: SoundScore = {
   space: 0.25,
-  tones: [{ type: "triangle", frequency: 1150, frequencyTo: 980, startAt: 0, duration: 0.007, gain: 0.16 }],
+  tones: [
+    {
+      type: "triangle",
+      frequency: 1150,
+      frequencyTo: 980,
+      startAt: 0,
+      duration: 0.007,
+      gain: 0.16,
+    },
+  ],
   noise: { startAt: 0, duration: 0.01, gain: 0.3, lowpassFrom: 2600, lowpassTo: 700 },
 };
 
@@ -260,7 +671,9 @@ const CLICK_TAP_SCORE: SoundScore = {
 // reads as cute rather than mechanical.
 const CLICK_POP_SCORE: SoundScore = {
   space: 0.25,
-  tones: [{ type: "sine", frequency: 620, frequencyTo: 940, startAt: 0, duration: 0.018, gain: 0.2 }],
+  tones: [
+    { type: "sine", frequency: 620, frequencyTo: 940, startAt: 0, duration: 0.018, gain: 0.2 },
+  ],
   noise: { startAt: 0, duration: 0.006, gain: 0.15, lowpassFrom: 3000, lowpassTo: 1200 },
 };
 
@@ -270,25 +683,33 @@ const CLICK_POP_SCORE: SoundScore = {
 
 const SWITCH_CRISP_ON_SCORE: SoundScore = {
   space: 0.3,
-  tones: [{ type: "sine", frequency: 2600, frequencyTo: 2150, startAt: 0, duration: 0.005, gain: 0.15 }],
+  tones: [
+    { type: "sine", frequency: 2600, frequencyTo: 2150, startAt: 0, duration: 0.005, gain: 0.15 },
+  ],
   noise: { startAt: 0, duration: 0.009, gain: 0.3, lowpassFrom: 4800, lowpassTo: 1400 },
 };
 
 const SWITCH_CRISP_OFF_SCORE: SoundScore = {
   space: 0.3,
-  tones: [{ type: "sine", frequency: 1400, frequencyTo: 1170, startAt: 0, duration: 0.006, gain: 0.15 }],
+  tones: [
+    { type: "sine", frequency: 1400, frequencyTo: 1170, startAt: 0, duration: 0.006, gain: 0.15 },
+  ],
   noise: { startAt: 0, duration: 0.01, gain: 0.3, lowpassFrom: 3000, lowpassTo: 800 },
 };
 
 const SWITCH_SOFT_ON_SCORE: SoundScore = {
   space: 0.3,
-  tones: [{ type: "sine", frequency: 1900, frequencyTo: 1650, startAt: 0, duration: 0.006, gain: 0.12 }],
+  tones: [
+    { type: "sine", frequency: 1900, frequencyTo: 1650, startAt: 0, duration: 0.006, gain: 0.12 },
+  ],
   noise: { startAt: 0, duration: 0.008, gain: 0.22, lowpassFrom: 3200, lowpassTo: 1100 },
 };
 
 const SWITCH_SOFT_OFF_SCORE: SoundScore = {
   space: 0.3,
-  tones: [{ type: "sine", frequency: 1100, frequencyTo: 950, startAt: 0, duration: 0.007, gain: 0.12 }],
+  tones: [
+    { type: "sine", frequency: 1100, frequencyTo: 950, startAt: 0, duration: 0.007, gain: 0.12 },
+  ],
   noise: { startAt: 0, duration: 0.009, gain: 0.22, lowpassFrom: 2400, lowpassTo: 700 },
 };
 
@@ -296,13 +717,24 @@ const SWITCH_SOFT_OFF_SCORE: SoundScore = {
 // sound of a keycap bottoming out.
 const SWITCH_CHUNKY_ON_SCORE: SoundScore = {
   space: 0.3,
-  tones: [{ type: "triangle", frequency: 1450, frequencyTo: 1250, startAt: 0, duration: 0.01, gain: 0.18 }],
+  tones: [
+    {
+      type: "triangle",
+      frequency: 1450,
+      frequencyTo: 1250,
+      startAt: 0,
+      duration: 0.01,
+      gain: 0.18,
+    },
+  ],
   noise: { startAt: 0, duration: 0.014, gain: 0.38, lowpassFrom: 3600, lowpassTo: 800 },
 };
 
 const SWITCH_CHUNKY_OFF_SCORE: SoundScore = {
   space: 0.3,
-  tones: [{ type: "triangle", frequency: 900, frequencyTo: 760, startAt: 0, duration: 0.012, gain: 0.18 }],
+  tones: [
+    { type: "triangle", frequency: 900, frequencyTo: 760, startAt: 0, duration: 0.012, gain: 0.18 },
+  ],
   noise: { startAt: 0, duration: 0.015, gain: 0.38, lowpassFrom: 2600, lowpassTo: 600 },
 };
 
@@ -312,7 +744,16 @@ const SWITCH_CHUNKY_OFF_SCORE: SoundScore = {
 // competes with the two-note attention sounds.
 const COPY_BLIP_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 659.26, frequencyTo: 648, startAt: 0, duration: 0.08, gain: 0.32, lowpassFrom: 5000, lowpassTo: 2000 },
+    {
+      type: "sine",
+      frequency: 659.26,
+      frequencyTo: 648,
+      startAt: 0,
+      duration: 0.08,
+      gain: 0.32,
+      lowpassFrom: 5000,
+      lowpassTo: 2000,
+    },
     { type: "sine", frequency: 987.77, frequencyTo: 972, startAt: 0, duration: 0.05, gain: 0.075 },
   ],
 };
@@ -321,16 +762,54 @@ const COPY_BLIP_SCORE: SoundScore = {
 // instantly recognizable as "picked something up".
 const COPY_DROP_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 660, frequencyTo: 1320, startAt: 0, duration: 0.09, gain: 0.3, lowpassFrom: 6000, lowpassTo: 3500 },
-    { type: "sine", frequency: 880, frequencyTo: 1760, startAt: 0.1, duration: 0.08, gain: 0.16, lowpassFrom: 6500, lowpassTo: 4000 },
+    {
+      type: "sine",
+      frequency: 660,
+      frequencyTo: 1320,
+      startAt: 0,
+      duration: 0.09,
+      gain: 0.3,
+      lowpassFrom: 6000,
+      lowpassTo: 3500,
+    },
+    {
+      type: "sine",
+      frequency: 880,
+      frequencyTo: 1760,
+      startAt: 0.1,
+      duration: 0.08,
+      gain: 0.16,
+      lowpassFrom: 6500,
+      lowpassTo: 4000,
+    },
   ],
 };
 
 // Two bird-quick notes a third apart, E6 then G6 — bright and weightless.
 const COPY_CHIRP_SCORE: SoundScore = {
   tones: [
-    { type: "sine", frequency: 1318.51, frequencyTo: 1305, startAt: 0, duration: 0.06, gain: 0.26, pan: -0.06, lowpassFrom: 8000, lowpassTo: 3200 },
-    { type: "sine", frequency: 1568, frequencyTo: 1552, startAt: 0.08, duration: 0.09, gain: 0.28, pan: 0.07, lowpassFrom: 8200, lowpassTo: 3400 },
+    {
+      type: "sine",
+      frequency: 1318.51,
+      frequencyTo: 1305,
+      startAt: 0,
+      duration: 0.06,
+      gain: 0.26,
+      pan: -0.06,
+      lowpassFrom: 8000,
+      lowpassTo: 3200,
+    },
+    {
+      type: "sine",
+      frequency: 1568,
+      frequencyTo: 1552,
+      startAt: 0.08,
+      duration: 0.09,
+      gain: 0.28,
+      pan: 0.07,
+      lowpassFrom: 8200,
+      lowpassTo: 3400,
+    },
   ],
 };
 
@@ -340,7 +819,9 @@ const COPY_CHIRP_SCORE: SoundScore = {
 // a soft G4 body inflecting up a whole step — an upward lilt, not a slide.
 const SENT_WHOOSH_SCORE: SoundScore = {
   space: 0.55,
-  tones: [{ type: "sine", frequency: 392, frequencyTo: 440, startAt: 0, duration: 0.1, gain: 0.15 }],
+  tones: [
+    { type: "sine", frequency: 392, frequencyTo: 440, startAt: 0, duration: 0.1, gain: 0.15 },
+  ],
   noise: { startAt: 0, duration: 0.09, gain: 0.24, lowpassFrom: 700, lowpassTo: 2900 },
 };
 
@@ -349,7 +830,16 @@ const SENT_WHOOSH_SCORE: SoundScore = {
 const SENT_PLUCK_SCORE: SoundScore = {
   space: 0.5,
   tones: [
-    { type: "sine", frequency: 392, frequencyTo: 386, startAt: 0, duration: 0.3, gain: 0.3, lowpassFrom: 4000, lowpassTo: 1000 },
+    {
+      type: "sine",
+      frequency: 392,
+      frequencyTo: 386,
+      startAt: 0,
+      duration: 0.3,
+      gain: 0.3,
+      lowpassFrom: 4000,
+      lowpassTo: 1000,
+    },
     { type: "sine", frequency: 784, frequencyTo: 772, startAt: 0, duration: 0.18, gain: 0.08 },
     { type: "sine", frequency: 587.33, frequencyTo: 578, startAt: 0, duration: 0.15, gain: 0.07 },
   ],
@@ -359,8 +849,28 @@ const SENT_PLUCK_SCORE: SoundScore = {
 const SENT_ASCEND_SCORE: SoundScore = {
   space: 0.5,
   tones: [
-    { type: "sine", frequency: 440, frequencyTo: 435, startAt: 0, duration: 0.1, gain: 0.26, pan: -0.06, lowpassFrom: 5000, lowpassTo: 2400 },
-    { type: "sine", frequency: 587.33, frequencyTo: 580, startAt: 0.1, duration: 0.22, gain: 0.3, pan: 0.07, lowpassFrom: 5200, lowpassTo: 2600 },
+    {
+      type: "sine",
+      frequency: 440,
+      frequencyTo: 435,
+      startAt: 0,
+      duration: 0.1,
+      gain: 0.26,
+      pan: -0.06,
+      lowpassFrom: 5000,
+      lowpassTo: 2400,
+    },
+    {
+      type: "sine",
+      frequency: 587.33,
+      frequencyTo: 580,
+      startAt: 0.1,
+      duration: 0.22,
+      gain: 0.3,
+      pan: 0.07,
+      lowpassFrom: 5200,
+      lowpassTo: 2600,
+    },
   ],
 };
 
@@ -429,7 +939,7 @@ export function resolveSoundScore(event: SoundEventId, variantId: string | undef
   return (
     variants.find((variant) => variant.id === variantId)?.score ??
     variants[0]?.score ??
-    SOUND_SCORES.chime
+    DONE_CHIME_SCORE
   );
 }
 
@@ -573,8 +1083,7 @@ export class SoundPlayer {
     oscillator.type = tone.type;
     const start = now + tone.startAt;
     const end = start + tone.duration;
-    const frequency =
-      detuneCents === 0 ? tone.frequency : applyDetune(tone.frequency, detuneCents);
+    const frequency = detuneCents === 0 ? tone.frequency : applyDetune(tone.frequency, detuneCents);
     oscillator.frequency.setValueAtTime(frequency, start);
     if (tone.frequencyTo !== undefined) {
       oscillator.frequency.exponentialRampToValueAtTime(
@@ -605,7 +1114,11 @@ export class SoundPlayer {
     node.connect(envelope);
 
     let sink: AudioNode = bus;
-    if (tone.pan !== undefined && tone.pan !== 0 && typeof context.createStereoPanner === "function") {
+    if (
+      tone.pan !== undefined &&
+      tone.pan !== 0 &&
+      typeof context.createStereoPanner === "function"
+    ) {
       const panner = context.createStereoPanner();
       panner.pan.value = tone.pan;
       sink = panner;

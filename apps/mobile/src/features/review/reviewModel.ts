@@ -1,5 +1,4 @@
-import { parsePatchFiles } from "@pierre/diffs";
-import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
+import { parsePatchFiles, type ChangeTypes, type FileDiffMetadata } from "@pierre/diffs";
 import type { OrchestrationCheckpointSummary, ReviewDiffPreviewSource } from "@rune/contracts";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
@@ -318,7 +317,7 @@ export function getReviewFilePreviewState(file: ReviewRenderableFile): ReviewFil
 
 // The flattened review list item model is inspired by pierre/diffs' iterator-first
 // virtualization architecture, adapted here for React Native virtualization.
-// Original project: https://github.com/rune-dev/pierre/tree/main/packages/diffs
+// Original project: https://github.com/pingdotgg/pierre/tree/main/packages/diffs
 // Reference files:
 // - src/utils/iterateOverDiff.ts
 // - src/components/VirtualizedFileDiff.ts

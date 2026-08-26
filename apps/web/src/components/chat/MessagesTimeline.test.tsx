@@ -793,15 +793,15 @@ describe("MessagesTimeline", () => {
         {...buildProps()}
         timelineEntries={[
           buildUserTimelineEntry(
-            '<script>globalThis.__t3Xss = 1</script><img src="x" onerror="globalThis.__t3Xss = 2">',
+            '<script>globalThis.__runeXss = 1</script><img src="x" onerror="globalThis.__runeXss = 2">',
           ),
         ]}
       />,
     );
 
-    expect(markup).toContain("&lt;script&gt;globalThis.__t3Xss = 1&lt;/script&gt;");
+    expect(markup).toContain("&lt;script&gt;globalThis.__runeXss = 1&lt;/script&gt;");
     expect(markup).toContain(
-      "&lt;img src=&quot;x&quot; onerror=&quot;globalThis.__t3Xss = 2&quot;&gt;",
+      "&lt;img src=&quot;x&quot; onerror=&quot;globalThis.__runeXss = 2&quot;&gt;",
     );
     expect(markup).not.toMatch(/<script(?:\s|>)/i);
     expect(markup).not.toMatch(/<img(?:\s|>)/i);
@@ -831,11 +831,11 @@ describe("MessagesTimeline", () => {
         timelineEntries={[
           buildAssistantTimelineEntry(
             [
-              '<details open onclick="globalThis.__t3Xss = 1">',
+              '<details open onclick="globalThis.__runeXss = 1">',
               "<summary>Safe details</summary>",
-              "<script>globalThis.__t3Xss = 2</script>",
-              '<img src="x" onerror="globalThis.__t3Xss = 3">',
-              '<a href="javascript:globalThis.__t3Xss = 4">Unsafe link</a>',
+              "<script>globalThis.__runeXss = 2</script>",
+              '<img src="x" onerror="globalThis.__runeXss = 3">',
+              '<a href="javascript:globalThis.__runeXss = 4">Unsafe link</a>',
               "</details>",
             ].join(""),
           ),
@@ -849,7 +849,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("onclick=");
     expect(markup).not.toContain("onerror=");
     expect(markup).not.toContain("javascript:");
-    expect(markup).not.toContain("globalThis.__t3Xss");
+    expect(markup).not.toContain("globalThis.__runeXss");
   });
 
   it("renders inline terminal labels with the composer chip UI", async () => {

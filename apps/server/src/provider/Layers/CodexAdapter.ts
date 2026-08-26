@@ -150,27 +150,9 @@ function trimText(value: string | undefined | null): string | undefined {
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-const FATAL_CODEX_STDERR_SNIPPETS = [
-  "failed to connect to websocket",
-  "connection refused",
-  "rate limit",
-  "rate_limit",
-  "429",
-  "request rejected (429)",
-  "free-models-per-day",
-  "add 10 credits",
-  "add credits",
-  "quota exceeded",
-  "insufficient quota",
-  "out of credits",
-  "invalid api key",
-  "unauthorized",
-  "authentication failed",
-  "forbidden (403)",
-  "payment required (402)",
-];
+const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
 
-export function isFatalCodexProcessStderrMessage(message: string): boolean {
+function isFatalCodexProcessStderrMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return FATAL_CODEX_STDERR_SNIPPETS.some((snippet) => normalized.includes(snippet));
 }
@@ -1562,8 +1544,7 @@ function mapToRuntimeEvents(
   if (event.method === "error") {
     const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
     const message = payload?.error.message ?? event.message ?? "Provider runtime error";
-    const fatal = isFatalCodexProcessStderrMessage(message);
-    const willRetry = !fatal && payload?.willRetry === true;
+    const willRetry = payload?.willRetry === true;
     return [
       {
         type: willRetry ? "runtime.warning" : "runtime.error",

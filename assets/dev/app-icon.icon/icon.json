@@ -1,31 +1,8 @@
 {
-  "fill": {
-    "solid": "display-p3:0.06667,0.06667,0.07451,1.00000"
-  },
-  "groups": [
-    {
-      "layers": [
-        {
-          "image-name": "text.svg",
-          "name": "Text",
-          "position": {
-            "scale": 8.5,
-            "translation-in-points": [0, 0]
-          }
-        }
-      ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.5
-      },
-      "translucency": {
-        "enabled": false,
-        "value": 0
-      }
-    }
-  ],
-  "supported-platforms": {
-    "circles": ["watchOS"],
-    "squares": "shared"
-  }
+  "name": "RUNE dev icon set",
+  "variant": "dev",
+  "source_master": "rune-blueprint-universal-1024.png",
+  "generated_sizes": ["1024x1024", "180x180", "32x32", "16x16", "favicon.ico", "windows.ico"],
+  "transparent_outside_tile": true,
+  "note": "Latest packaged RUNE asset set."
 }

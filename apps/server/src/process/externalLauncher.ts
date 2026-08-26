@@ -338,7 +338,7 @@ export class ExternalLauncher extends Context.Service<
      */
     readonly launchEditor: (input: LaunchEditorInput) => Effect.Effect<void, ExternalLauncherError>;
   }
->()("@rune/server/process/externalLauncher") {}
+>()("rune/process/externalLauncher") {}
 
 // ==============================
 // Implementations

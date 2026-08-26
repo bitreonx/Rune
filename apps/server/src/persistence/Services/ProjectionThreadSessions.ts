@@ -75,4 +75,4 @@ export interface ProjectionThreadSessionRepositoryShape {
 export class ProjectionThreadSessionRepository extends Context.Service<
   ProjectionThreadSessionRepository,
   ProjectionThreadSessionRepositoryShape
->()("@rune/server/persistence/Services/ProjectionThreadSessions/ProjectionThreadSessionRepository") {}
+>()("rune/persistence/Services/ProjectionThreadSessions/ProjectionThreadSessionRepository") {}

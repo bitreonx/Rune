@@ -1511,12 +1511,12 @@ it.layer(
 
   it.effect("strips AppImage runtime env from terminal sessions", () =>
     Effect.gen(function* () {
-      const appDir = "/tmp/.mount_RuneAppabc123";
+      const appDir = "/tmp/.mount_Runeabc123";
       const { manager, ptyAdapter } = yield* createManager(5, {
         env: {
-          APPIMAGE: "/home/user/RUNE.AppImage",
+          APPIMAGE: "/home/user/RUNE-Code.AppImage",
           APPDIR: appDir,
-          ARGV0: "/home/user/RUNE.AppImage",
+          ARGV0: "/home/user/RUNE-Code.AppImage",
           OWD: "/home/user/project",
           PATH: `${appDir}/usr/bin:${appDir}:/usr/local/bin:/usr/bin:/bin`,
           LD_LIBRARY_PATH: `${appDir}/usr/lib:/home/user/.local/lib`,

@@ -1,10 +1,10 @@
 {
-  "name": "@rune/server",
+  "name": "rune",
   "version": "0.0.33",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rune-dev/rune",
+    "url": "https://github.com/pingdotgg/rune",
     "directory": "apps/server"
   },
   "bin": {

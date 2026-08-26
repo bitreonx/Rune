@@ -110,6 +110,8 @@ export function generateSubagentName(agentId: string): string {
   const seed = hashString(agentId);
   const random = createSeededRandom(seed);
 
+  const prefixIndex = Math.floor(random() * NAME_PREFIXES.length);
+  const suffixIndex = Math.floor(random() * NAME_SUFFIXES.length);
   const prefix = NAME_PREFIXES[prefixIndex] ?? "Rune";
   const suffix = NAME_SUFFIXES[suffixIndex] ?? "bot";
 

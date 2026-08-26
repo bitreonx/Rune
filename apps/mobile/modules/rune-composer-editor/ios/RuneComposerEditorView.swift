@@ -282,7 +282,7 @@ private final class ComposerTextView: UITextView {
   }
 }
 
-public final class RuneComposerEditorView: ExpoView, UITextViewDelegate, UITextDropDelegate {
+public final class RUNEComposerEditorView: ExpoView, UITextViewDelegate, UITextDropDelegate {
   private let textView = ComposerTextView()
   private let placeholderLabel = UILabel()
   private var value = ""

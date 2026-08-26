@@ -1,4 +1,4 @@
-const DEFAULT_MARKETING_SITE_URL = "https://rune.dev";
+const DEFAULT_MARKETING_SITE_URL = "https://rune.codes";
 
 function resolveMarketingSiteUrl(override: string | undefined): URL {
   try {

@@ -68,4 +68,4 @@ export interface OrchestrationEventStoreShape {
 export class OrchestrationEventStore extends Context.Service<
   OrchestrationEventStore,
   OrchestrationEventStoreShape
->()("@rune/server/persistence/Services/OrchestrationEventStore") {}
+>()("rune/persistence/Services/OrchestrationEventStore") {}

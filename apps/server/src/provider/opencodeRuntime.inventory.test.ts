@@ -118,8 +118,8 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
         [
           ...(isWindows ? ["@echo off"] : ["#!/bin/sh"]),
           isWindows
-            ? '"%T3_TEST_NODE_BINARY%" "%T3_TEST_OPENCODE_SCRIPT%" %*'
-            : 'exec "$T3_TEST_NODE_BINARY" "$T3_TEST_OPENCODE_SCRIPT" "$@"',
+            ? '"%RUNE_TEST_NODE_BINARY%" "%RUNE_TEST_OPENCODE_SCRIPT%" %*'
+            : 'exec "$RUNE_TEST_NODE_BINARY" "$RUNE_TEST_OPENCODE_SCRIPT" "$@"',
           "",
         ].join("\n"),
       );
@@ -133,8 +133,8 @@ it.layer(testLayer)("OpenCodeRuntime inventory", (it) => {
         cwd: tempDir,
         environment: {
           ...hostEnvironment,
-          T3_TEST_NODE_BINARY: executablePath,
-          T3_TEST_OPENCODE_SCRIPT: scriptPath,
+          RUNE_TEST_NODE_BINARY: executablePath,
+          RUNE_TEST_OPENCODE_SCRIPT: scriptPath,
         },
       });
 

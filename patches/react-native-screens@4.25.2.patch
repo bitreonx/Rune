@@ -6,7 +6,7 @@ index 03d8d9f3a5c403c93282d53cbacf1a339e877e85..54d5eabc6c8a408e711a5be97286fdbb
          config.setTitle(title)
      }
  
-+    // The t3 patch adds these iOS glass-chrome props to the native spec; they have
++    // The rune patch adds these iOS glass-chrome props to the native spec; they have
 +    // no Android implementation, but the codegen-generated interface requires the
 +    // setters to exist. No-ops keep the Android build compiling.
 +    override fun setSubtitle(
@@ -1283,7 +1283,7 @@ index b7568ecfebd4f4420f2a8d3fec5184d7fc728dd1..41ca1f273f0175929e73105faa463978
 +    subtitle?: string | undefined;
 +    largeSubtitle?: string | undefined;
      titleFontFamily?: string | undefined;
-     titleFontSize?: CT.Int32 | undefined;
+     titleFontSize?: CT.Inrune2 | undefined;
      titleFontWeight?: string | undefined;
      titleColor?: ColorValue | undefined;
      disableBackButtonMenu?: boolean | undefined;
@@ -1623,7 +1623,7 @@ index ba2479de0f49c112470f78c5084059ddd9e2f3e8..8677583a8f8daa4839340467466bfab8
 +  subtitle?: string | undefined;
 +  largeSubtitle?: string | undefined;
    titleFontFamily?: string | undefined;
-   titleFontSize?: CT.Int32 | undefined;
+   titleFontSize?: CT.Inrune2 | undefined;
    titleFontWeight?: string | undefined;
    titleColor?: ColorValue | undefined;
    disableBackButtonMenu?: boolean | undefined;

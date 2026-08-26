@@ -36,6 +36,10 @@ export interface NativeToolDef {
    * gated tool actually waits lives in the adapter.
    */
   readonly requiresApproval: boolean;
+  /** Marks a tool whose successful output is usable as completion evidence. */
+  readonly verificationTool?: boolean;
+  /** Marks a tool that can make prior verification stale. */
+  readonly invalidatesVerification?: boolean;
   readonly execute: (
     args: Record<string, unknown>,
     ctx: NativeToolContext,
@@ -199,6 +203,7 @@ export const editFileTool: NativeToolDef = {
     required: ["path", "oldText", "newText"],
   },
   requiresApproval: true,
+  invalidatesVerification: true,
   execute: (args, ctx) => {
     const relativePath = stringArg(args.path);
     const oldText = stringArg(args.oldText);
@@ -234,6 +239,7 @@ export const bashTool: NativeToolDef = {
     required: ["command"],
   },
   requiresApproval: true,
+  invalidatesVerification: true,
   execute: (args, ctx) => {
     const runner = ctx.processRunner;
     if (!runner) {

@@ -203,7 +203,7 @@ export class NativeTelemetryClient extends Context.Service<
       Scope.Scope
     >;
   }
->()("@rune/server/resourceTelemetry/NativeTelemetryClient") {}
+>()("rune/resourceTelemetry/NativeTelemetryClient") {}
 
 interface ClientState {
   readonly status: ResourceTelemetrySourceStatus;

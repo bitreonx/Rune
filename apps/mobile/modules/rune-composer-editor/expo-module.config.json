@@ -1,9 +1,9 @@
 {
   "platforms": ["apple", "android"],
   "apple": {
-    "modules": ["RuneComposerEditorModule"]
+    "modules": ["RUNEComposerEditorModule"]
   },
   "android": {
-    "modules": ["expo.modules.runecomposereditor.RuneComposerEditorModule"]
+    "modules": ["expo.modules.runecomposereditor.RUNEComposerEditorModule"]
   }
 }

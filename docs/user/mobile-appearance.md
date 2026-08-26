@@ -1,6 +1,6 @@
 # Mobile appearance
 
-RUNE Mobile includes the RUNE, T3 Chat, Grove, Ocean, Ember, and Iris themes. Each theme has
+RUNE Mobile includes the RUNE, RUNE Chat, Grove, Ocean, Ember, and Iris themes. Each theme has
 light and dark colors that apply throughout the app, including code reviews, file previews, the
 terminal, native headers, and sheets.
 

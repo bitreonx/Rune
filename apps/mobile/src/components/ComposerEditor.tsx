@@ -1,6 +1,6 @@
-export { ComposerEditor } from "../native/RuneComposerEditor";
+export { ComposerEditor } from "../native/RUNEComposerEditor";
 export type {
   ComposerEditorHandle,
   ComposerEditorProps,
   ComposerEditorSelection,
-} from "../native/RuneComposerEditor";
+} from "../native/RUNEComposerEditor";

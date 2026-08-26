@@ -1,13 +1,13 @@
 #pragma once
 
-#include "RuneMarkdownTextRunShadowNode.h"
+#include "RUNEMarkdownTextRunShadowNode.h"
 
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 
 namespace facebook::react {
-using RuneMarkdownTextRunComponentDescriptor = ConcreteComponentDescriptor<RuneMarkdownTextRunShadowNode>;
+using RUNEMarkdownTextRunComponentDescriptor = ConcreteComponentDescriptor<RUNEMarkdownTextRunShadowNode>;
 
-void RuneMarkdownTextRunSpec_registerComponentDescriptorsFromCodegen(
+void RUNEMarkdownTextRunSpec_registerComponentDescriptorsFromCodegen(
   std::shared_ptr<const ComponentDescriptorProviderRegistry> registry);
 }

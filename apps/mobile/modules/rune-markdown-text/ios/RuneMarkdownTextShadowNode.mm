@@ -1,5 +1,5 @@
-#include "RuneMarkdownTextShadowNode.h"
-#include "RuneMarkdownTextRunShadowNode.h"
+#include "RUNEMarkdownTextShadowNode.h"
+#include "RUNEMarkdownTextRunShadowNode.h"
 #include <react/renderer/components/view/ViewShadowNode.h>
 #import <react/renderer/textlayoutmanager/RCTAttributedTextUtils.h>
 
@@ -14,7 +14,7 @@ static constexpr auto SkillAttachmentNativeIdPrefix = "rune-skill:";
 
 static void applyParagraphStyles(
     NSMutableAttributedString *attributedString,
-    const std::vector<RuneMarkdownTextParagraphStyleRange> &styleRanges)
+    const std::vector<RUNEMarkdownTextParagraphStyleRange> &styleRanges)
 {
   for (const auto &styleRange : styleRanges) {
     if (styleRange.length == 0 || styleRange.location >= attributedString.length) {
@@ -48,7 +48,7 @@ static void applyParagraphStyles(
 
 static void applyAttachments(
     NSMutableAttributedString *attributedString,
-    const std::vector<RuneMarkdownTextAttachmentRange> &attachmentRanges)
+    const std::vector<RUNEMarkdownTextAttachmentRange> &attachmentRanges)
 {
   for (const auto &attachmentRange : attachmentRanges) {
     if (attachmentRange.length == 0 || attachmentRange.location >= attributedString.length) {
@@ -57,10 +57,10 @@ static void applyAttachments(
 
     NSTextAttachment *attachment = [[NSTextAttachment alloc] init];
     attachment.image = [[UIImage alloc] init];
-    const CGFloat attachmentSize = RuneMarkdownTextAttachmentSize(attachmentRange);
+    const CGFloat attachmentSize = RUNEMarkdownTextAttachmentSize(attachmentRange);
     attachment.bounds = CGRectMake(
         0,
-        RuneMarkdownTextAttachmentBaselineOffset(attachmentRange),
+        RUNEMarkdownTextAttachmentBaselineOffset(attachmentRange),
         attachmentSize,
         attachmentSize);
     const NSRange range = NSMakeRange(
@@ -72,13 +72,13 @@ static void applyAttachments(
   }
 }
 
-RuneMarkdownTextShadowNode::RuneMarkdownTextShadowNode(
+RUNEMarkdownTextShadowNode::RUNEMarkdownTextShadowNode(
    const ShadowNode& sourceShadowNode,
    const ShadowNodeFragment& fragment
 ) : ConcreteViewShadowNode(sourceShadowNode, fragment) {
 };
 
-Size RuneMarkdownTextShadowNode::measureContent(
+Size RUNEMarkdownTextShadowNode::measureContent(
   const LayoutContext& layoutContext,
   const LayoutConstraints& layoutConstraints) const {
     const auto &baseProps = getConcreteProps();
@@ -93,13 +93,13 @@ Size RuneMarkdownTextShadowNode::measureContent(
     }
 
     auto baseAttributedString = AttributedString{};
-    auto paragraphStyleRanges = std::vector<RuneMarkdownTextParagraphStyleRange>{};
-    auto attachmentRanges = std::vector<RuneMarkdownTextAttachmentRange>{};
+    auto paragraphStyleRanges = std::vector<RUNEMarkdownTextParagraphStyleRange>{};
+    auto attachmentRanges = std::vector<RUNEMarkdownTextAttachmentRange>{};
     size_t utf16Offset = 0;
     const auto &children = getChildren();
     for (size_t i = 0; i < children.size(); i++) {
       const auto child = children[i].get();
-      if (auto textViewChild = dynamic_cast<const RuneMarkdownTextRunShadowNode *>(child)) {
+      if (auto textViewChild = dynamic_cast<const RUNEMarkdownTextRunShadowNode *>(child)) {
         auto &props = textViewChild->getConcreteProps();
         auto fragment = AttributedString::Fragment{};
         auto textAttributes = TextAttributes::defaultTextAttributes();
@@ -119,55 +119,55 @@ Size RuneMarkdownTextShadowNode::measureContent(
         textAttributes.textDecorationColor = props.textDecorationColor;
         textAttributes.fontFamily = props.fontFamily;
 
-        if (props.fontStyle == RuneMarkdownTextRunFontStyle::Italic) {
+        if (props.fontStyle == RUNEMarkdownTextRunFontStyle::Italic) {
           textAttributes.fontStyle = FontStyle::Italic;
         } else {
           textAttributes.fontStyle = FontStyle::Normal;
         }
 
-        if (props.fontWeight == RuneMarkdownTextRunFontWeight::Bold) {
+        if (props.fontWeight == RUNEMarkdownTextRunFontWeight::Bold) {
           textAttributes.fontWeight = FontWeight::Bold;
-        } else if (props.fontWeight == RuneMarkdownTextRunFontWeight::UltraLight) {
+        } else if (props.fontWeight == RUNEMarkdownTextRunFontWeight::UltraLight) {
           textAttributes.fontWeight = FontWeight::UltraLight;
-        } else if (props.fontWeight == RuneMarkdownTextRunFontWeight::Light) {
+        } else if (props.fontWeight == RUNEMarkdownTextRunFontWeight::Light) {
           textAttributes.fontWeight = FontWeight::Light;
-        } else if (props.fontWeight == RuneMarkdownTextRunFontWeight::Medium) {
+        } else if (props.fontWeight == RUNEMarkdownTextRunFontWeight::Medium) {
           textAttributes.fontWeight = FontWeight::Medium;
-        } else if (props.fontWeight == RuneMarkdownTextRunFontWeight::Semibold) {
+        } else if (props.fontWeight == RUNEMarkdownTextRunFontWeight::Semibold) {
           textAttributes.fontWeight = FontWeight::Semibold;
-        } else if (props.fontWeight == RuneMarkdownTextRunFontWeight::Heavy) {
+        } else if (props.fontWeight == RUNEMarkdownTextRunFontWeight::Heavy) {
           textAttributes.fontWeight = FontWeight::Heavy;
         } else {
           textAttributes.fontWeight = FontWeight::Regular;
         }
 
-        if (props.textDecorationLine == RuneMarkdownTextRunTextDecorationLine::LineThrough) {
+        if (props.textDecorationLine == RUNEMarkdownTextRunTextDecorationLine::LineThrough) {
           textAttributes.textDecorationLineType = TextDecorationLineType::Strikethrough;
-        } else if (props.textDecorationLine == RuneMarkdownTextRunTextDecorationLine::Underline) {
+        } else if (props.textDecorationLine == RUNEMarkdownTextRunTextDecorationLine::Underline) {
           textAttributes.textDecorationLineType = TextDecorationLineType::Underline;
         } else {
           textAttributes.textDecorationLineType = TextDecorationLineType::None;
         }
 
-        if (props.textDecorationStyle == RuneMarkdownTextRunTextDecorationStyle::Solid) {
+        if (props.textDecorationStyle == RUNEMarkdownTextRunTextDecorationStyle::Solid) {
           textAttributes.textDecorationStyle = TextDecorationStyle::Solid;
-        } else if (props.textDecorationStyle == RuneMarkdownTextRunTextDecorationStyle::Dotted) {
+        } else if (props.textDecorationStyle == RUNEMarkdownTextRunTextDecorationStyle::Dotted) {
           textAttributes.textDecorationStyle = TextDecorationStyle::Dotted;
-        } else if (props.textDecorationStyle == RuneMarkdownTextRunTextDecorationStyle::Dashed) {
+        } else if (props.textDecorationStyle == RUNEMarkdownTextRunTextDecorationStyle::Dashed) {
           textAttributes.textDecorationStyle = TextDecorationStyle::Dashed;
-        } else if (props.textDecorationStyle == RuneMarkdownTextRunTextDecorationStyle::Double) {
+        } else if (props.textDecorationStyle == RUNEMarkdownTextRunTextDecorationStyle::Double) {
           textAttributes.textDecorationStyle = TextDecorationStyle::Double;
         }
 
-        if (props.textAlign == RuneMarkdownTextRunTextAlign::Left) {
+        if (props.textAlign == RUNEMarkdownTextRunTextAlign::Left) {
           textAttributes.alignment = TextAlignment::Left;
-        } else if (props.textAlign == RuneMarkdownTextRunTextAlign::Right) {
+        } else if (props.textAlign == RUNEMarkdownTextRunTextAlign::Right) {
           textAttributes.alignment = TextAlignment::Right;
-        } else if (props.textAlign == RuneMarkdownTextRunTextAlign::Center) {
+        } else if (props.textAlign == RUNEMarkdownTextRunTextAlign::Center) {
           textAttributes.alignment = TextAlignment::Center;
-        } else if (props.textAlign == RuneMarkdownTextRunTextAlign::Justify) {
+        } else if (props.textAlign == RUNEMarkdownTextRunTextAlign::Justify) {
           textAttributes.alignment = TextAlignment::Justified;
-        } else if (props.textAlign == RuneMarkdownTextRunTextAlign::Auto) {
+        } else if (props.textAlign == RUNEMarkdownTextRunTextAlign::Auto) {
           textAttributes.alignment = TextAlignment::Natural;
         }
 
@@ -179,7 +179,7 @@ Size RuneMarkdownTextShadowNode::measureContent(
         NSString *fragmentText = [NSString stringWithUTF8String:props.text.c_str()];
         const size_t fragmentLength = fragmentText.length;
         if (hasParagraphStyle) {
-          paragraphStyleRanges.push_back(RuneMarkdownTextParagraphStyleRange{
+          paragraphStyleRanges.push_back(RUNEMarkdownTextParagraphStyleRange{
               utf16Offset,
               fragmentLength,
               props.shadowOffset.width,
@@ -188,14 +188,14 @@ Size RuneMarkdownTextShadowNode::measureContent(
           });
         }
         if (props.nativeId.rfind(FileAttachmentNativeIdPrefix, 0) == 0 && fragmentLength > 0) {
-          attachmentRanges.push_back(RuneMarkdownTextAttachmentRange{
+          attachmentRanges.push_back(RUNEMarkdownTextAttachmentRange{
               utf16Offset,
               1,
               props.nativeId.substr(std::char_traits<char>::length(FileAttachmentNativeIdPrefix)),
           });
         } else if (
             props.nativeId.rfind(SkillAttachmentNativeIdPrefix, 0) == 0 && fragmentLength > 0) {
-          attachmentRanges.push_back(RuneMarkdownTextAttachmentRange{
+          attachmentRanges.push_back(RUNEMarkdownTextAttachmentRange{
               utf16Offset,
               1,
               props.nativeId.substr(
@@ -227,11 +227,11 @@ Size RuneMarkdownTextShadowNode::measureContent(
         [[NSTextContainer alloc] initWithSize:CGSizeMake(maximumWidth, CGFLOAT_MAX)];
     textContainer.lineFragmentPadding = 0;
     textContainer.maximumNumberOfLines = baseProps.numberOfLines;
-    if (baseProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Head) {
+    if (baseProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Head) {
       textContainer.lineBreakMode = NSLineBreakByTruncatingHead;
-    } else if (baseProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Middle) {
+    } else if (baseProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Middle) {
       textContainer.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    } else if (baseProps.ellipsizeMode == RuneMarkdownTextEllipsizeMode::Tail) {
+    } else if (baseProps.ellipsizeMode == RUNEMarkdownTextEllipsizeMode::Tail) {
       textContainer.lineBreakMode = NSLineBreakByTruncatingTail;
     } else {
       textContainer.lineBreakMode = NSLineBreakByClipping;
@@ -253,9 +253,9 @@ Size RuneMarkdownTextShadowNode::measureContent(
     };
 }
 
-void RuneMarkdownTextShadowNode::layout(LayoutContext layoutContext) {
+void RUNEMarkdownTextShadowNode::layout(LayoutContext layoutContext) {
   ensureUnsealed();
-  setStateData(RuneMarkdownTextStateReal{
+  setStateData(RUNEMarkdownTextStateReal{
     _attributedString,
     _paragraphStyleRanges,
     _attachmentRanges,

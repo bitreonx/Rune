@@ -86,4 +86,4 @@ export interface OrchestrationEngineShape {
 export class OrchestrationEngineService extends Context.Service<
   OrchestrationEngineService,
   OrchestrationEngineShape
->()("@rune/server/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}
+>()("rune/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}

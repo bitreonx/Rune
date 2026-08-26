@@ -134,14 +134,14 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * The image ID this placement belongs to.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID = 1,
 
   /**
    * The placement ID.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PLACEMENT_ID = 2,
 
@@ -155,63 +155,63 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * Pixel offset from the left edge of the cell.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET = 4,
 
   /**
    * Pixel offset from the top edge of the cell.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET = 5,
 
   /**
    * Source rectangle x origin in pixels.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_X = 6,
 
   /**
    * Source rectangle y origin in pixels.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_Y = 7,
 
   /**
    * Source rectangle width in pixels (0 = full image width).
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_WIDTH = 8,
 
   /**
    * Source rectangle height in pixels (0 = full image height).
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_SOURCE_HEIGHT = 9,
 
   /**
    * Number of columns this placement occupies.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS = 10,
 
   /**
    * Number of rows this placement occupies.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS = 11,
 
   /**
    * Z-index for this placement.
    *
-   * Output type: int32_t *
+   * Output type: inrune2_t *
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z = 12,
 
@@ -222,8 +222,8 @@ typedef enum GHOSTTY_ENUM_TYPED {
  * Z-layer classification for kitty graphics placements.
  *
  * Based on the kitty protocol z-index conventions:
- * - BELOW_BG:   z < INT32_MIN/2  (drawn below cell background)
- * - BELOW_TEXT:  INT32_MIN/2 <= z < 0  (above background, below text)
+ * - BELOW_BG:   z < INRUNE2_MIN/2  (drawn below cell background)
+ * - BELOW_TEXT:  INRUNE2_MIN/2 <= z < 0  (above background, below text)
  * - ABOVE_TEXT:  z >= 0  (above text)
  * - ALL:         no filtering (current behavior)
  *
@@ -289,28 +289,28 @@ typedef enum GHOSTTY_ENUM_TYPED {
   /**
    * The image ID.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_IMAGE_DATA_ID = 1,
 
   /**
    * The image number.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_IMAGE_DATA_NUMBER = 2,
 
   /**
    * Image width in pixels.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_IMAGE_DATA_WIDTH = 3,
 
   /**
    * Image height in pixels.
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_KITTY_IMAGE_DATA_HEIGHT = 4,
 
@@ -367,27 +367,27 @@ typedef struct {
   /** Size of this struct in bytes. Must be set to sizeof(GhosttyKittyGraphicsPlacementRenderInfo). */
   size_t size;
   /** Rendered width in pixels. */
-  uint32_t pixel_width;
+  uinrune2_t pixel_width;
   /** Rendered height in pixels. */
-  uint32_t pixel_height;
+  uinrune2_t pixel_height;
   /** Number of grid columns the placement occupies. */
-  uint32_t grid_cols;
+  uinrune2_t grid_cols;
   /** Number of grid rows the placement occupies. */
-  uint32_t grid_rows;
+  uinrune2_t grid_rows;
   /** Viewport-relative column (may be negative for partially visible placements). */
-  int32_t viewport_col;
+  inrune2_t viewport_col;
   /** Viewport-relative row (may be negative for partially visible placements). */
-  int32_t viewport_row;
+  inrune2_t viewport_row;
   /** False when the placement is fully off-screen or virtual. */
   bool viewport_visible;
   /** Resolved source rectangle x origin in pixels. */
-  uint32_t source_x;
+  uinrune2_t source_x;
   /** Resolved source rectangle y origin in pixels. */
-  uint32_t source_y;
+  uinrune2_t source_y;
   /** Resolved source rectangle width in pixels. */
-  uint32_t source_width;
+  uinrune2_t source_width;
   /** Resolved source rectangle height in pixels. */
-  uint32_t source_height;
+  uinrune2_t source_height;
 } GhosttyKittyGraphicsPlacementRenderInfo;
 
 /**
@@ -424,7 +424,7 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_get(
  */
 GHOSTTY_API GhosttyKittyGraphicsImage ghostty_kitty_graphics_image(
     GhosttyKittyGraphics graphics,
-    uint32_t image_id);
+    uinrune2_t image_id);
 
 /**
  * Get data from a Kitty graphics image.
@@ -643,8 +643,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_pixel_size(
     GhosttyKittyGraphicsPlacementIterator iterator,
     GhosttyKittyGraphicsImage image,
     GhosttyTerminal terminal,
-    uint32_t* out_width,
-    uint32_t* out_height);
+    uinrune2_t* out_width,
+    uinrune2_t* out_height);
 
 /**
  * Compute the grid cell size of the current placement.
@@ -669,8 +669,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_grid_size(
     GhosttyKittyGraphicsPlacementIterator iterator,
     GhosttyKittyGraphicsImage image,
     GhosttyTerminal terminal,
-    uint32_t* out_cols,
-    uint32_t* out_rows);
+    uinrune2_t* out_cols,
+    uinrune2_t* out_rows);
 
 /**
  * Get the viewport-relative grid position of the current placement.
@@ -711,8 +711,8 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_viewport_pos(
     GhosttyKittyGraphicsPlacementIterator iterator,
     GhosttyKittyGraphicsImage image,
     GhosttyTerminal terminal,
-    int32_t* out_col,
-    int32_t* out_row);
+    inrune2_t* out_col,
+    inrune2_t* out_row);
 
 /**
  * Get the resolved source rectangle for the current placement.
@@ -736,10 +736,10 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_viewport_pos(
 GHOSTTY_API GhosttyResult ghostty_kitty_graphics_placement_source_rect(
     GhosttyKittyGraphicsPlacementIterator iterator,
     GhosttyKittyGraphicsImage image,
-    uint32_t* out_x,
-    uint32_t* out_y,
-    uint32_t* out_width,
-    uint32_t* out_height);
+    uinrune2_t* out_x,
+    uinrune2_t* out_y,
+    uinrune2_t* out_width,
+    uinrune2_t* out_height);
 
 /**
  * Get all rendering geometry for a placement in a single call.

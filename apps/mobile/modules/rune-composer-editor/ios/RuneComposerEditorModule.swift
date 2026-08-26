@@ -1,44 +1,44 @@
 import ExpoModulesCore
 
-public class RuneComposerEditorModule: Module {
+public class RUNEComposerEditorModule: Module {
   public func definition() -> ModuleDefinition {
-    Name("RuneComposerEditor")
+    Name("RUNEComposerEditor")
 
-    View(RuneComposerEditorView.self) {
-      Prop("controlledDocumentJson") { (view: RuneComposerEditorView, documentJson: String) in
+    View(RUNEComposerEditorView.self) {
+      Prop("controlledDocumentJson") { (view: RUNEComposerEditorView, documentJson: String) in
         view.setControlledDocumentJson(documentJson)
       }
-      Prop("themeJson") { (view: RuneComposerEditorView, themeJson: String) in
+      Prop("themeJson") { (view: RUNEComposerEditorView, themeJson: String) in
         view.setThemeJson(themeJson)
       }
-      Prop("placeholder") { (view: RuneComposerEditorView, placeholder: String) in
+      Prop("placeholder") { (view: RUNEComposerEditorView, placeholder: String) in
         view.setPlaceholder(placeholder)
       }
-      Prop("fontFamily") { (view: RuneComposerEditorView, fontFamily: String) in
+      Prop("fontFamily") { (view: RUNEComposerEditorView, fontFamily: String) in
         view.setFontFamily(fontFamily)
       }
-      Prop("fontSize") { (view: RuneComposerEditorView, fontSize: Double) in
+      Prop("fontSize") { (view: RUNEComposerEditorView, fontSize: Double) in
         view.setFontSize(CGFloat(fontSize))
       }
-      Prop("lineHeight") { (view: RuneComposerEditorView, lineHeight: Double) in
+      Prop("lineHeight") { (view: RUNEComposerEditorView, lineHeight: Double) in
         view.setLineHeight(CGFloat(lineHeight))
       }
-      Prop("contentInsetVertical") { (view: RuneComposerEditorView, contentInsetVertical: Double) in
+      Prop("contentInsetVertical") { (view: RUNEComposerEditorView, contentInsetVertical: Double) in
         view.setContentInsetVertical(CGFloat(contentInsetVertical))
       }
-      Prop("editable") { (view: RuneComposerEditorView, editable: Bool) in
+      Prop("editable") { (view: RUNEComposerEditorView, editable: Bool) in
         view.setEditable(editable)
       }
-      Prop("scrollEnabled") { (view: RuneComposerEditorView, scrollEnabled: Bool) in
+      Prop("scrollEnabled") { (view: RUNEComposerEditorView, scrollEnabled: Bool) in
         view.setScrollEnabled(scrollEnabled)
       }
-      Prop("autoFocus") { (view: RuneComposerEditorView, autoFocus: Bool) in
+      Prop("autoFocus") { (view: RUNEComposerEditorView, autoFocus: Bool) in
         view.setAutoFocus(autoFocus)
       }
-      Prop("autoCorrect") { (view: RuneComposerEditorView, autoCorrect: Bool) in
+      Prop("autoCorrect") { (view: RUNEComposerEditorView, autoCorrect: Bool) in
         view.setAutoCorrect(autoCorrect)
       }
-      Prop("spellCheck") { (view: RuneComposerEditorView, spellCheck: Bool) in
+      Prop("spellCheck") { (view: RUNEComposerEditorView, spellCheck: Bool) in
         view.setSpellCheck(spellCheck)
       }
 
@@ -52,13 +52,13 @@ public class RuneComposerEditorModule: Module {
         "onComposerContentSizeChange"
       )
 
-      AsyncFunction("focus") { (view: RuneComposerEditorView) in
+      AsyncFunction("focus") { (view: RUNEComposerEditorView) in
         view.focusEditor()
       }
-      AsyncFunction("blur") { (view: RuneComposerEditorView) in
+      AsyncFunction("blur") { (view: RUNEComposerEditorView) in
         view.blurEditor()
       }
-      AsyncFunction("setSelection") { (view: RuneComposerEditorView, start: Int, end: Int) in
+      AsyncFunction("setSelection") { (view: RUNEComposerEditorView, start: Int, end: Int) in
         view.setSelection(start: start, end: end)
       }
     }

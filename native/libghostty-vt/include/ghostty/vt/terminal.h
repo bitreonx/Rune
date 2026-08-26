@@ -836,7 +836,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * This is cols * cell_width_px as set by ghostty_terminal_resize().
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_TERMINAL_DATA_WIDTH_PX = 16,
 
@@ -845,7 +845,7 @@ typedef enum GHOSTTY_ENUM_TYPED {
    *
    * This is rows * cell_height_px as set by ghostty_terminal_resize().
    *
-   * Output type: uint32_t *
+   * Output type: uinrune2_t *
    */
   GHOSTTY_TERMINAL_DATA_HEIGHT_PX = 17,
 
@@ -1062,8 +1062,8 @@ GHOSTTY_API void ghostty_terminal_reset(GhosttyTerminal terminal);
 GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
                                       uint16_t cols,
                                       uint16_t rows,
-                                      uint32_t cell_width_px,
-                                      uint32_t cell_height_px);
+                                      uinrune2_t cell_width_px,
+                                      uinrune2_t cell_height_px);
 
 /**
  * Set an option on the terminal.

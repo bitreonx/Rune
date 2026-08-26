@@ -1,11 +1,11 @@
 #import <React/RCTViewComponentView.h>
 #import <UIKit/UIKit.h>
 
-#ifndef RuneMarkdownTextNativeComponent_h
-#define RuneMarkdownTextNativeComponent_h
+#ifndef RUNEMarkdownTextNativeComponent_h
+#define RUNEMarkdownTextNativeComponent_h
 
 NS_ASSUME_NONNULL_BEGIN
-@interface RuneMarkdownText : RCTViewComponentView
+@interface RUNEMarkdownText : RCTViewComponentView
 @end
 
 NS_ASSUME_NONNULL_END

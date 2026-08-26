@@ -49,9 +49,9 @@ describe("mobile remote connection records", () => {
   it("removes hosted pairing credentials while keeping the advertised host", () => {
     expect(
       redactPairingCredential(
-        "https://app.rune.dev/pair?host=https%3A%2F%2Fdesktop.example&token=bootstrap-token&label=Desktop",
+        "https://app.rune.codes/pair?host=https%3A%2F%2Fdesktop.example&token=bootstrap-token&label=Desktop",
       ),
-    ).toBe("https://app.rune.dev/pair?host=https%3A%2F%2Fdesktop.example&label=Desktop");
+    ).toBe("https://app.rune.codes/pair?host=https%3A%2F%2Fdesktop.example&label=Desktop");
   });
 
   it("recognizes explicitly managed relay connections", () => {

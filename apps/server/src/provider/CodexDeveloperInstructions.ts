@@ -1,6 +1,6 @@
 import type { ProviderInteractionMode } from "@rune/contracts";
 
-const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
+const RUNE_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## RUNE collaborative browser
 
@@ -19,7 +19,7 @@ Do not switch to global browser skills, Chrome, Node REPL browser automation, st
  * the only browser automation it still has.
  */
 const browserToolInstructions = (browserToolsAvailable: boolean): string =>
-  browserToolsAvailable ? T3_CODE_BROWSER_TOOL_INSTRUCTIONS : "";
+  browserToolsAvailable ? RUNE_CODE_BROWSER_TOOL_INSTRUCTIONS : "";
 
 export const codexPlanModeDeveloperInstructions = (
   browserToolsAvailable: boolean,

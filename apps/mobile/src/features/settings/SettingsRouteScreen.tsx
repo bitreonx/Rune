@@ -538,6 +538,26 @@ function GeneralSettingsSection() {
     <SettingsSection title="General">
       <SettingsRow icon="folder" label="Project Grouping" target="SettingsProjectGrouping" />
       <SettingsSwitchRow
+        icon="sparkles"
+        label="Simplified Activity"
+        subtitle="Group agent work into readable activities instead of raw tool calls."
+        value={
+          !AsyncResult.isSuccess(preferencesResult) ||
+          preferencesResult.value.simplifiedActivity !== false
+        }
+        onValueChange={(value) => savePreferences({ simplifiedActivity: value })}
+      />
+      <SettingsSwitchRow
+        icon="wrench.and.screwdriver"
+        label="Show Developer Trace"
+        subtitle="Keep raw execution details available when expanding an activity."
+        value={
+          AsyncResult.isSuccess(preferencesResult) &&
+          preferencesResult.value.showDeveloperTrace === true
+        }
+        onValueChange={(value) => savePreferences({ showDeveloperTrace: value })}
+      />
+      <SettingsSwitchRow
         icon="arrow.triangle.branch"
         label="Auto-settle merged threads"
         value={autoSettleOnMerge}

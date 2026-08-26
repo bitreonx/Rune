@@ -42,7 +42,7 @@ const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* ClaudeAdapter`.
 class ClaudeAdapter extends Context.Service<ClaudeAdapter, ClaudeAdapterShape>()(
-  "@rune/server/provider/Layers/ClaudeAdapter.test/ClaudeAdapter",
+  "rune/provider/Layers/ClaudeAdapter.test/ClaudeAdapter",
 ) {}
 
 class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
@@ -515,26 +515,29 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("pins gateway aliases even when the session starts before model selection arrives", () => {
-    const harness = makeHarness({ claudeConfig: { customModels: ["stealth/ox-alpha"] } });
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: ProviderDriverKind.make("claudeAgent"),
-        runtimeMode: "full-access",
-      });
+  it.effect(
+    "pins gateway aliases even when the session starts before model selection arrives",
+    () => {
+      const harness = makeHarness({ claudeConfig: { customModels: ["stealth/ox-alpha"] } });
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
 
-      const env = harness.getLastCreateQueryInput()?.options.env;
-      assert.equal(env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, "stealth/ox-alpha");
-      assert.equal(env?.ANTHROPIC_DEFAULT_SONNET_MODEL, "stealth/ox-alpha");
-      assert.equal(env?.ANTHROPIC_DEFAULT_OPUS_MODEL, "stealth/ox-alpha");
-      assert.equal(env?.ANTHROPIC_SMALL_FAST_MODEL, "stealth/ox-alpha");
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
+        const env = harness.getLastCreateQueryInput()?.options.env;
+        assert.equal(env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, "stealth/ox-alpha");
+        assert.equal(env?.ANTHROPIC_DEFAULT_SONNET_MODEL, "stealth/ox-alpha");
+        assert.equal(env?.ANTHROPIC_DEFAULT_OPUS_MODEL, "stealth/ox-alpha");
+        assert.equal(env?.ANTHROPIC_SMALL_FAST_MODEL, "stealth/ox-alpha");
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
 
   it.effect("leaves aliases alone for a built-in Claude instance without custom models", () => {
     const harness = makeHarness();
@@ -2546,8 +2549,8 @@ describe("ClaudeAdapterLive", () => {
           type: "system",
           subtype: "code_change_published",
           provider: "github",
-          url: "https://github.com/rune-dev/rune/pull/1",
-          repo: "rune-dev/rune",
+          url: "https://github.com/pingdotgg/rune/pull/1",
+          repo: "pingdotgg/rune",
           identifier: "1",
           session_id: "session",
           uuid: "ccp",

@@ -574,10 +574,10 @@ typedef enum GHOSTTY_ENUM_TYPED {
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE = 2,
 
   /** The total number of grapheme codepoints including the base codepoint
-   *  (uint32_t). Returns 0 if the cell has no text. */
+   *  (uinrune2_t). Returns 0 if the cell has no text. */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN = 3,
 
-  /** Write grapheme codepoints into a caller-provided buffer (uint32_t*).
+  /** Write grapheme codepoints into a caller-provided buffer (uinrune2_t*).
    *  The buffer must be at least graphemes_len elements. The base codepoint
    *  is written first, followed by any extra codepoints. */
   GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF = 4,

@@ -6,7 +6,7 @@ import { useThemeColor } from "../lib/useThemeColor";
 import { useFontFamily } from "../lib/useFontFamily";
 import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
 import { useNativePaste } from "../lib/useNativePaste";
-import type { ComposerEditorProps } from "./RuneComposerEditor.types";
+import type { ComposerEditorProps } from "./RUNEComposerEditor.types";
 
 export function ComposerEditor({
   ref,
@@ -66,4 +66,4 @@ export type {
   ComposerEditorHandle,
   ComposerEditorProps,
   ComposerEditorSelection,
-} from "./RuneComposerEditor.types";
+} from "./RUNEComposerEditor.types";

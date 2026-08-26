@@ -36,6 +36,8 @@ import {
   scheduleEnvironmentReconnectWarning,
   startNewThreadForProject,
   shouldDockDraftHeroForSubmission,
+  shouldInterruptRunningTurnBeforeSend,
+  shouldRewindBeforeEditedUserMessageSend,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -480,6 +482,47 @@ describe("buildUserMessageRewindConfirmation", () => {
       ].join("\n"),
       options: { variant: "destructive" },
     });
+  });
+});
+
+describe("composer send lifecycle", () => {
+  it("interrupts an acknowledged running turn before sending a new prompt", () => {
+    expect(
+      shouldInterruptRunningTurnBeforeSend({
+        phase: "running",
+        isSendBusy: false,
+        sendInFlight: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not interrupt while the send is already in flight or the turn is idle", () => {
+    expect(
+      shouldInterruptRunningTurnBeforeSend({
+        phase: "running",
+        isSendBusy: true,
+        sendInFlight: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldInterruptRunningTurnBeforeSend({
+        phase: "ready",
+        isSendBusy: false,
+        sendInFlight: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("rewinds only after an edited prompt is explicitly confirmed at send time", () => {
+    expect(shouldRewindBeforeEditedUserMessageSend({ hasPendingEdit: true, confirmed: true })).toBe(
+      true,
+    );
+    expect(
+      shouldRewindBeforeEditedUserMessageSend({ hasPendingEdit: true, confirmed: false }),
+    ).toBe(false);
+    expect(
+      shouldRewindBeforeEditedUserMessageSend({ hasPendingEdit: false, confirmed: true }),
+    ).toBe(false);
   });
 });
 

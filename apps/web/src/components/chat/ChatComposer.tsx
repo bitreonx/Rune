@@ -443,7 +443,9 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <ComposerControlIcon icon={GhostIcon} opticalSize="large" />
           <span className="sr-only sm:not-sr-only">Temp</span>
         </TooltipTrigger>
-        <TooltipPopup side="top">Temporary chat — auto-deletes 24 hours after your last message</TooltipPopup>
+        <TooltipPopup side="top">
+          Temporary chat — auto-deletes 24 hours after your last message
+        </TooltipPopup>
       </Tooltip>
     </>
   ) : null;
@@ -718,6 +720,9 @@ export interface ChatComposerProps {
   scheduleComposerFocus: () => void;
   setThreadError: (threadId: ThreadId | null, error: string | null) => void;
   onExpandImage: (preview: ExpandedImagePreview) => void;
+  recovery: {
+    readonly onContinue: () => void;
+  } | null;
 }
 
 // --------------------------------------------------------------------------
@@ -798,6 +803,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     scheduleComposerFocus,
     setThreadError,
     onExpandImage,
+    recovery,
   } = props;
   // ------------------------------------------------------------------
   // Store subscriptions (prompt / images / terminal contexts)
@@ -1143,8 +1149,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   });
   const tasksDrawerMounted = tasksDrawerMotionState !== "closed";
   const [dismissedTasksTurnId, setDismissedTasksTurnId] = useState<TurnId | null>(null);
-  const [pendingTasksDismissalTurnId, setPendingTasksDismissalTurnId] =
-    useState<TurnId | null>(null);
+  const [pendingTasksDismissalTurnId, setPendingTasksDismissalTurnId] = useState<TurnId | null>(
+    null,
+  );
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
     active: false,
@@ -1477,7 +1484,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!pendingSkill) return;
     const skillPrompt = `$${pendingSkill}`;
     const currentPrompt = promptRef.current.trimEnd();
-    const nextPrompt = currentPrompt.length > 0 ? `${currentPrompt} ${skillPrompt} ` : `${skillPrompt} `;
+    const nextPrompt =
+      currentPrompt.length > 0 ? `${currentPrompt} ${skillPrompt} ` : `${skillPrompt} `;
     promptRef.current = nextPrompt;
     setPrompt(nextPrompt);
     setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
@@ -1545,7 +1553,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (skill: NonNullable<typeof selectedProviderStatus>["skills"][number]) => {
       const skillPrompt = `$${skill.name}`;
       const currentPrompt = promptRef.current.trimEnd();
-      const nextPrompt = currentPrompt.length > 0 ? `${currentPrompt} ${skillPrompt} ` : `${skillPrompt} `;
+      const nextPrompt =
+        currentPrompt.length > 0 ? `${currentPrompt} ${skillPrompt} ` : `${skillPrompt} `;
       promptRef.current = nextPrompt;
       setPrompt(nextPrompt);
       setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
@@ -3200,6 +3209,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       )}
       data-chat-composer-form="true"
     >
+      {recovery ? (
+        <div
+          className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-warning/30 bg-warning-surface px-3 py-2 text-xs text-warning-foreground shadow-sm sm:px-4"
+          role="status"
+          aria-live="polite"
+          data-chat-composer-recovery="true"
+        >
+          <CircleAlertIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
+          <span className="min-w-0 flex-1">This task was interrupted while RUNE restarted.</span>
+          <Button type="button" size="xs" variant="outline" onClick={recovery.onContinue}>
+            Continue
+          </Button>
+        </div>
+      ) : null}
       {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
         <div
           className="chat-composer-top-drawer"
@@ -3619,7 +3642,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 )}
 
               <div className="relative">
-                {queueState && onEditQueuedPrompt && onRemoveQueuedPrompt && onMoveQueuedPrompt && onSteerQueuedPrompt ? (
+                {queueState &&
+                onEditQueuedPrompt &&
+                onRemoveQueuedPrompt &&
+                onMoveQueuedPrompt &&
+                onSteerQueuedPrompt ? (
                   <ComposerPromptQueue
                     items={queueState.queue}
                     onEdit={onEditQueuedPrompt}
@@ -3757,7 +3784,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       <div className="border-border border-t px-2 pb-1 pt-1.5 text-muted-foreground text-xs leading-4">
                         <span className="font-medium text-foreground">
                           {attachCapabilitySummary.modelName}
-                        </span>{" — "}
+                        </span>
+                        {" — "}
                         {attachCapabilitySummary.line}
                       </div>
                     </MenuPopup>
@@ -3880,7 +3908,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={composerSendState.hasSendableContent}
                     preserveComposerFocusOnPointerDown={isMobileViewport}
-                    showSendWhileRunning={isMobileViewport}
+                    showSendWhileRunning
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

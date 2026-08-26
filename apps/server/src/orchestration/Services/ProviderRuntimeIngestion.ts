@@ -38,4 +38,4 @@ export interface ProviderRuntimeIngestionShape {
 export class ProviderRuntimeIngestionService extends Context.Service<
   ProviderRuntimeIngestionService,
   ProviderRuntimeIngestionShape
->()("@rune/server/orchestration/Services/ProviderRuntimeIngestion/ProviderRuntimeIngestionService") {}
+>()("rune/orchestration/Services/ProviderRuntimeIngestion/ProviderRuntimeIngestionService") {}

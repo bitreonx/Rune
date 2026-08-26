@@ -241,7 +241,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
     expect(
       resolveSidebarStageBadgeLabel({
         primaryServerVersion: "0.0.28-nightly.20260616.12",
-        fallbackStageLabel: "Alpha",
+        fallbackStageLabel: "Stable",
       }),
     ).toBe("Nightly");
   });
@@ -250,7 +250,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
     expect(
       resolveSidebarStageBadgeLabel({
         primaryServerVersion: "0.0.27",
-        fallbackStageLabel: "Alpha",
+        fallbackStageLabel: "Stable",
       }),
     ).toBe("Alpha");
   });
@@ -268,7 +268,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
     expect(
       resolveSidebarStageBadgeLabel({
         primaryServerVersion: "0.0.28-nightly.20260616",
-        fallbackStageLabel: "Alpha",
+        fallbackStageLabel: "Stable",
       }),
     ).toBe("Alpha");
   });
@@ -384,7 +384,7 @@ describe("createThreadJumpHintVisibilityController", () => {
 
 describe("getSidebarThreadIdsToPrewarm", () => {
   it("returns only the first visible thread ids up to the prewarm limit", () => {
-    expect(getSidebarThreadIdsToPrewarm(["t1", "t2", "t3"], 2)).toEqual(["t1", "t2"]);
+    expect(getSidebarThreadIdsToPrewarm(["t1", "t2", "rune"], 2)).toEqual(["t1", "t2"]);
   });
 
   it("returns all visible thread ids when they fit within the limit", () => {

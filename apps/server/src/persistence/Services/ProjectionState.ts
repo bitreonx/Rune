@@ -63,4 +63,4 @@ export interface ProjectionStateRepositoryShape {
 export class ProjectionStateRepository extends Context.Service<
   ProjectionStateRepository,
   ProjectionStateRepositoryShape
->()("@rune/server/persistence/Services/ProjectionState/ProjectionStateRepository") {}
+>()("rune/persistence/Services/ProjectionState/ProjectionStateRepository") {}

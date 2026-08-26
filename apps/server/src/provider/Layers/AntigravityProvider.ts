@@ -26,10 +26,7 @@ import {
   enrichProviderSnapshotWithVersionAdvisory,
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
-import {
-  parseAntigravityModelList,
-  type AntigravityModelListEntry,
-} from "../antigravityProtocol.ts";
+import { parseAntigravityModelList } from "../antigravityProtocol.ts";
 
 const ANTIGRAVITY_PRESENTATION = {
   displayName: "Antigravity",
@@ -93,86 +90,6 @@ function modelDisplayName(slug: string, fallbackName: string | undefined): strin
   return fallbackName?.trim() || slug;
 }
 
-function normalizeAntigravityDiscoveredModels(
-  discovered: ReadonlyArray<AntigravityModelListEntry>,
-): ReadonlyArray<ServerProviderModel> {
-  const modelMap = new Map<
-    string,
-    {
-      baseSlug: string;
-      baseName: string;
-      efforts: Set<string>;
-      rawSlugs: string[];
-    }
-  >();
-
-  for (const item of discovered) {
-    const effortMatch = item.slug.match(/^(.*?)-(low|medium|high)$/i);
-    const nameEffortMatch = item.name.match(/^(.*?)\s*\((Low|Medium|High)\)$/i);
-
-    const baseSlug = effortMatch?.[1] ?? item.slug;
-    const rawCleanName = item.name.replace(/\s*\((Low|Medium|High)\)$/i, "").trim();
-    const baseName = nameEffortMatch?.[1]?.trim() ?? (rawCleanName || baseSlug);
-    const effort = effortMatch?.[2]?.toLowerCase() ?? nameEffortMatch?.[2]?.toLowerCase();
-
-    const existing = modelMap.get(baseSlug);
-    if (existing) {
-      if (effort) existing.efforts.add(effort);
-      existing.rawSlugs.push(item.slug);
-    } else {
-      modelMap.set(baseSlug, {
-        baseSlug,
-        baseName,
-        efforts: effort ? new Set([effort]) : new Set(),
-        rawSlugs: [item.slug],
-      });
-    }
-  }
-
-  const result: ServerProviderModel[] = [];
-  for (const entry of modelMap.values()) {
-    const hasEfforts = entry.efforts.size > 0;
-    const effortOptions = hasEfforts
-      ? Array.from(entry.efforts).map((e) => ({
-          value: e,
-          label: e.charAt(0).toUpperCase() + e.slice(1),
-        }))
-      : [
-          { value: "low", label: "Low" },
-          { value: "medium", label: "Medium" },
-          { value: "high", label: "High" },
-        ];
-
-    const capabilities: ModelCapabilities = createModelCapabilities({
-      optionDescriptors: [
-        buildSelectOptionDescriptor({
-          id: "effort",
-          label: "Reasoning",
-          description: "Antigravity headless effort passed to agy at session start.",
-          options: effortOptions,
-        }),
-      ],
-    });
-
-    const isDefault =
-      entry.rawSlugs.includes(DEFAULT_ANTIGRAVITY_MODEL) ||
-      entry.baseSlug === DEFAULT_ANTIGRAVITY_MODEL ||
-      result.length === 0;
-
-    result.push({
-      slug: entry.rawSlugs.includes(DEFAULT_ANTIGRAVITY_MODEL)
-        ? DEFAULT_ANTIGRAVITY_MODEL
-        : (entry.rawSlugs[0] ?? entry.baseSlug),
-      name: entry.baseName,
-      isCustom: false,
-      ...(isDefault ? { isDefault: true } : {}),
-      capabilities,
-    });
-  }
-
-  return result;
-}
-
 function modelsFromDiscovery(
   customModels: ReadonlyArray<string> | undefined,
   output: string,
@@ -182,38 +99,17 @@ function modelsFromDiscovery(
     return antigravityModelsFromSettings(customModels);
   }
 
-  const builtInModels = normalizeAntigravityDiscoveredModels(discovered);
+  const defaultSlug = discovered.some((model) => model.slug === DEFAULT_ANTIGRAVITY_MODEL)
+    ? DEFAULT_ANTIGRAVITY_MODEL
+    : discovered[0]?.slug;
+  const builtInModels = discovered.map((model) => ({
+    slug: model.slug,
+    name: modelDisplayName(model.slug, model.name),
+    isCustom: false,
+    ...(model.slug === defaultSlug ? { isDefault: true } : {}),
+    capabilities: ANTIGRAVITY_MODEL_CAPABILITIES,
+  }));
   return antigravityModelsFromSettings(customModels, builtInModels);
-}
-
-function findAntigravityCandidates(binaryPath?: string): string[] {
-  const candidates: string[] = [];
-  if (binaryPath?.trim()) {
-    candidates.push(binaryPath.trim());
-  }
-  candidates.push("agy");
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) {
-      candidates.push(`${localAppData}\\agy\\bin\\agy.exe`);
-      candidates.push(`${localAppData}\\Programs\\antigravity\\agy.exe`);
-      candidates.push(`${localAppData}\\Programs\\agy\\agy.exe`);
-    }
-    const userProfile = process.env.USERPROFILE;
-    if (userProfile) {
-      candidates.push(`${userProfile}\\.antigravity\\bin\\agy.exe`);
-      candidates.push(`${userProfile}\\.local\\bin\\agy.exe`);
-    }
-  } else {
-    const home = process.env.HOME;
-    if (home) {
-      candidates.push(`${home}/.local/bin/agy`);
-      candidates.push(`${home}/.antigravity/bin/agy`);
-    }
-    candidates.push("/usr/local/bin/agy");
-    candidates.push("/opt/homebrew/bin/agy");
-  }
-  return candidates;
 }
 
 function runAntigravityCommand(
@@ -222,34 +118,15 @@ function runAntigravityCommand(
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   return Effect.gen(function* () {
-    const candidates = findAntigravityCandidates(settings.binaryPath);
-    let lastError: unknown;
-
-    for (const candidate of candidates) {
-      const spawnResult = yield* resolveSpawnCommand(candidate, [...args], { env: environment }).pipe(
-        Effect.result,
-      );
-      if (Result.isSuccess(spawnResult)) {
-        const spawnCommand = spawnResult.success;
-        const result = yield* spawnAndCollect(
-          candidate,
-          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-            env: environment,
-            shell: spawnCommand.shell,
-            stdin: "ignore",
-          }),
-        ).pipe(Effect.result);
-
-        if (Result.isSuccess(result)) {
-          return result.success;
-        }
-        lastError = result.failure;
-      } else {
-        lastError = spawnResult.failure;
-      }
-    }
-
-    return yield* Effect.fail(lastError as never);
+    const binary = settings.binaryPath || "agy";
+    const spawnCommand = yield* resolveSpawnCommand(binary, [...args], { env: environment });
+    return yield* spawnAndCollect(
+      binary,
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        env: environment,
+        shell: spawnCommand.shell,
+      }),
+    );
   });
 }
 
@@ -313,7 +190,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
     );
 
     if (Result.isFailure(versionResult)) {
-      const error = versionResult.failure as unknown as { readonly _tag?: string };
+      const error = versionResult.failure;
       yield* Effect.logWarning("Antigravity CLI health check failed.", { errorTag: error._tag });
       return buildServerProvider({
         presentation: ANTIGRAVITY_PRESENTATION,
@@ -321,7 +198,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         checkedAt,
         models: fallbackModels,
         probe: {
-          installed: !isCommandMissingCause(versionResult.failure as any),
+          installed: !isCommandMissingCause(error),
           version: null,
           status: "error",
           auth: { status: "unknown" },
@@ -375,9 +252,8 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
       Effect.result,
     );
     if (Result.isFailure(modelsResult)) {
-      const error = modelsResult.failure as unknown as { readonly _tag?: string };
       yield* Effect.logWarning("Antigravity model discovery failed.", {
-        errorTag: error._tag,
+        errorTag: modelsResult.failure._tag,
       });
       return buildServerProvider({
         presentation: ANTIGRAVITY_PRESENTATION,

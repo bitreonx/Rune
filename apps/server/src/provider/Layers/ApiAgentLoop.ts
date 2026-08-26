@@ -5,8 +5,8 @@ import { apiProviderEndpoint, RuntimeItemId, RuntimeRequestId } from "@rune/cont
 import type {
   AgentExecutionOutcome,
   AgentExecutionStage,
-  ApiModelCapabilities,
   EventId,
+  ApiModelCapabilities,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderRuntimeEvent,
@@ -30,8 +30,9 @@ import {
   type NativeToolContext,
   type NativeToolDef,
 } from "./ApiTools.ts";
-import { DEFAULT_API_EXECUTION_POLICY, makeRequestBudget } from "./ApiRequestBudget.ts";
+import { ApiHarnessLedger } from "./ApiHarness.ts";
 import { ApiContextLedger, fingerprintToolCall } from "./ApiContextLedger.ts";
+import { DEFAULT_API_EXECUTION_POLICY, makeRequestBudget } from "./ApiRequestBudget.ts";
 import { scheduleToolCalls } from "./ApiToolScheduler.ts";
 import { buildApiRequestBody, resolveApiModelCapabilities } from "./ApiCapabilities.ts";
 
@@ -94,6 +95,7 @@ export interface AgentLoopDeps {
   readonly approvalGate?:
     | ((input: { toolName: string; summary: string }) => Effect.Effect<void, ProviderAdapterError>)
     | undefined;
+  readonly harnessLedger?: ApiHarnessLedger | undefined;
 }
 
 export interface AgentTurnInput {
@@ -110,7 +112,6 @@ export interface AgentTurnInput {
   readonly sandboxReadOnly: boolean;
   /** Explicit tool set after session policy has been applied by the adapter. */
   readonly toolsOverride?: ReadonlyArray<NativeToolDef> | undefined;
-  /** Explicit protocol features advertised by the configured API instance. */
   readonly apiCapabilities?: Partial<ApiModelCapabilities> | undefined;
 }
 
@@ -181,52 +182,27 @@ const parseToolArgs = (raw: string): Record<string, unknown> | undefined => {
 const nonNegativeInt = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
 
-const toUsageSnapshot = (raw: Record<string, unknown>): ThreadTokenUsageSnapshot => {
+const toUsageSnapshot = (raw: Record<string, number>): ThreadTokenUsageSnapshot => {
   const inputTokens = nonNegativeInt(raw.prompt_tokens);
   const outputTokens = nonNegativeInt(raw.completion_tokens);
   const usedTokens = nonNegativeInt(raw.total_tokens) ?? (inputTokens ?? 0) + (outputTokens ?? 0);
-  const promptDetails = isRecord(raw.prompt_tokens_details) ? raw.prompt_tokens_details : undefined;
-  const completionDetails = isRecord(raw.completion_tokens_details)
-    ? raw.completion_tokens_details
-    : undefined;
-  const cachedInputTokens =
-    nonNegativeInt(raw.cached_tokens) ??
-    nonNegativeInt(raw.prompt_cache_hit_tokens) ??
-    nonNegativeInt(promptDetails?.cached_tokens);
-  const reasoningOutputTokens = nonNegativeInt(completionDetails?.reasoning_tokens);
   return {
     usedTokens: usedTokens ?? 0,
     ...(inputTokens !== undefined ? { inputTokens } : {}),
-    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(reasoningOutputTokens !== undefined ? { reasoningOutputTokens } : {}),
   };
 };
-
-const addOptional = (left: number | undefined, right: number | undefined): number | undefined =>
-  left === undefined && right === undefined ? undefined : (left ?? 0) + (right ?? 0);
 
 const addUsage = (
   current: ThreadTokenUsageSnapshot | undefined,
   next: ThreadTokenUsageSnapshot,
 ): ThreadTokenUsageSnapshot => ({
   usedTokens: (current?.usedTokens ?? 0) + next.usedTokens,
-  ...(addOptional(current?.inputTokens, next.inputTokens) !== undefined
-    ? { inputTokens: addOptional(current?.inputTokens, next.inputTokens) }
+  ...(current?.inputTokens !== undefined || next.inputTokens !== undefined
+    ? { inputTokens: (current?.inputTokens ?? 0) + (next.inputTokens ?? 0) }
     : {}),
-  ...(addOptional(current?.outputTokens, next.outputTokens) !== undefined
-    ? { outputTokens: addOptional(current?.outputTokens, next.outputTokens) }
-    : {}),
-  ...(addOptional(current?.cachedInputTokens, next.cachedInputTokens) !== undefined
-    ? { cachedInputTokens: addOptional(current?.cachedInputTokens, next.cachedInputTokens) }
-    : {}),
-  ...(addOptional(current?.reasoningOutputTokens, next.reasoningOutputTokens) !== undefined
-    ? {
-        reasoningOutputTokens: addOptional(
-          current?.reasoningOutputTokens,
-          next.reasoningOutputTokens,
-        ),
-      }
+  ...(current?.outputTokens !== undefined || next.outputTokens !== undefined
+    ? { outputTokens: (current?.outputTokens ?? 0) + (next.outputTokens ?? 0) }
     : {}),
 });
 
@@ -247,27 +223,6 @@ const requestFailed = (
 ): ProviderAdapterRequestError =>
   new ProviderAdapterRequestError({ provider, method: "chat/completions", detail, cause });
 
-const requestUsageFields = (raw: Record<string, unknown> | undefined) => {
-  if (raw === undefined) return {};
-  const promptDetails = isRecord(raw.prompt_tokens_details) ? raw.prompt_tokens_details : undefined;
-  const completionDetails = isRecord(raw.completion_tokens_details)
-    ? raw.completion_tokens_details
-    : undefined;
-  const inputTokens = nonNegativeInt(raw.prompt_tokens);
-  const outputTokens = nonNegativeInt(raw.completion_tokens);
-  const cachedInputTokens =
-    nonNegativeInt(raw.cached_tokens) ??
-    nonNegativeInt(raw.prompt_cache_hit_tokens) ??
-    nonNegativeInt(promptDetails?.cached_tokens);
-  const reasoningTokens = nonNegativeInt(completionDetails?.reasoning_tokens);
-  return {
-    ...(inputTokens !== undefined ? { inputTokens } : {}),
-    ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
-    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
-  };
-};
-
 export const runAgenticTurn = (
   deps: AgentLoopDeps,
   input: AgentTurnInput,
@@ -275,35 +230,31 @@ export const runAgenticTurn = (
   Effect.gen(function* () {
     // Stable prefix first: identity/guidance never change mid-session, so
     // provider prompt caches reuse them across rounds.
-    const systemPrompt = compileSystemPrompt({
-      identity: defaultIdentity,
-      toolGuidance: defaultToolGuidance,
-      ...(input.workspaceInstructions === undefined
-        ? {}
-        : { workspaceInstructions: input.workspaceInstructions }),
-    });
-    const systemPromptHash = hashPrompt(systemPrompt);
     const offered: ReadonlyArray<NativeToolDef> =
       input.toolsOverride ?? (input.sandboxReadOnly ? SAFE_TOOLS : NATIVE_TOOLS);
-    const toolsWire = offered.map((def) => ({
-      type: "function",
-      function: {
-        name: def.name,
-        description: def.description,
-        parameters: def.parametersJsonSchema,
-      },
-    }));
+    const toolsWire: Array<{ type: "function"; function: Record<string, unknown> }> = offered.map(
+      (def) => ({
+        type: "function",
+        function: {
+          name: def.name,
+          description: def.description,
+          parameters: def.parametersJsonSchema,
+        },
+      }),
+    );
+    const url = apiProviderEndpoint(input.baseUrl, "chat/completions");
+    const contextLedger = new ApiContextLedger(input.messages);
+    const messages: Array<AgentLoopMessage> = [...input.messages];
+    const requestBudget = makeRequestBudget(DEFAULT_API_EXECUTION_POLICY);
     const apiCapabilities = resolveApiModelCapabilities({
       driver: deps.provider,
       advertised: input.apiCapabilities,
     });
-    const url = apiProviderEndpoint(input.baseUrl, "chat/completions");
-    const contextLedger = new ApiContextLedger(input.messages);
     const seenToolCalls = new Set<string>();
-    const budget = makeRequestBudget(DEFAULT_API_EXECUTION_POLICY);
-    const executionStartedAt = yield* Clock.currentTimeMillis;
     let lastUsage: ThreadTokenUsageSnapshot | undefined;
     let finalText: string | undefined;
+    let systemPromptHash = "";
+    const executionStartedAt = yield* Clock.currentTimeMillis;
 
     const instanceFields =
       deps.providerInstanceId !== undefined ? { providerInstanceId: deps.providerInstanceId } : {};
@@ -314,26 +265,24 @@ export const runAgenticTurn = (
       readonly toolCalls: number;
       readonly outcome?: AgentExecutionOutcome;
     }) =>
-      Clock.currentTimeMillis.pipe(
-        Effect.flatMap((now) =>
-          Effect.flatMap(deps.stamp, (stamp) =>
-            deps.publish({
-              type: "agent.execution.progress",
-              ...stamp,
-              provider: deps.provider,
-              ...instanceFields,
-              threadId: input.threadId,
-              turnId: input.turnId,
-              payload: {
-                stage: progress.stage,
-                requestNumber: progress.requestNumber,
-                maxRequests: DEFAULT_API_EXECUTION_POLICY.maxProviderRequests,
-                toolCalls: progress.toolCalls,
-                elapsedMs: Math.max(0, now - executionStartedAt),
-                ...(progress.outcome !== undefined ? { outcome: progress.outcome } : {}),
-              },
-            }),
-          ),
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        Effect.flatMap(deps.stamp, (stamp) =>
+          deps.publish({
+            type: "agent.execution.progress",
+            ...stamp,
+            provider: deps.provider,
+            ...instanceFields,
+            threadId: input.threadId,
+            turnId: input.turnId,
+            payload: {
+              stage: progress.stage,
+              requestNumber: progress.requestNumber,
+              maxRequests: DEFAULT_API_EXECUTION_POLICY.maxProviderRequests,
+              toolCalls: progress.toolCalls,
+              elapsedMs: Math.max(0, now - executionStartedAt),
+              ...(progress.outcome !== undefined ? { outcome: progress.outcome } : {}),
+            },
+          }),
         ),
       );
 
@@ -367,37 +316,43 @@ export const runAgenticTurn = (
             );
           if (denied) return `Error: user denied ${def.name}`;
         }
-        return yield* def.execute(args, deps.toolContext);
+        const observation = yield* def.execute(args, deps.toolContext);
+        deps.harnessLedger?.recordToolObservation({
+          toolName: def.name,
+          observation,
+          ...(def.verificationTool ? { verificationTool: true } : {}),
+          ...(def.invalidatesVerification ? { invalidatesVerification: true } : {}),
+        });
+        return observation;
       });
 
     for (let round = 0; ; round += 1) {
-      const requestStart = budget.tryStartRequest();
-      if (requestStart.kind === "budgetExhausted") {
-        yield* publishExecutionProgress({
-          stage: "finalize",
-          requestNumber: requestStart.snapshot.requestsStarted,
-          toolCalls: 0,
-          outcome: "exhausted",
-        });
+      const requestStart = requestBudget.tryStartRequest();
+      if (requestStart.kind !== "allowed") {
+        requestBudget.markOutcome("exhausted");
         return yield* requestFailed(
           deps.provider,
-          `The agent exceeded ${requestStart.snapshot.maxRequests} provider round-trips without completing the task.`,
+          `The agent exceeded the provider request budget (${requestStart.snapshot.maxRequests} requests).`,
         );
       }
+      const systemPrompt = compileSystemPrompt({
+        identity: defaultIdentity,
+        toolGuidance: defaultToolGuidance,
+        ...(input.workspaceInstructions === undefined
+          ? {}
+          : { workspaceInstructions: input.workspaceInstructions }),
+        ...(deps.harnessLedger ? { outcomeContract: deps.harnessLedger.promptSummary() } : {}),
+      });
+      systemPromptHash = hashPrompt(systemPrompt);
+      yield* publishExecutionProgress({
+        stage: round === 0 ? "inspect" : "verify",
+        requestNumber: requestStart.requestNumber,
+        toolCalls: 0,
+      });
       const itemId = RuntimeItemId.make(`${String(input.itemIdPrefix)}-${round}`);
       let assembled = "";
       const accumulator = makeToolCallAccumulator();
-      let roundUsage: Record<string, unknown> | undefined;
-      let firstByteAt: number | undefined;
-      let requestAttempt = 0;
-      let activeAttempt:
-        | {
-            readonly requestId: RuntimeRequestId;
-            readonly requestNumber: number;
-            readonly retry: boolean;
-            readonly startedAt: number;
-          }
-        | undefined;
+      let roundUsage: Record<string, number> | undefined;
       const sink = makeCoalescedDeltaSink({
         flush: (delta) =>
           Effect.flatMap(deps.stamp, (stamp) =>
@@ -418,60 +373,10 @@ export const runAgenticTurn = (
       const body = buildApiRequestBody({
         model: input.model,
         systemPrompt,
-        messages: contextLedger.toMessages() as ReadonlyArray<Record<string, unknown>>,
+        messages: messages as unknown as Array<Record<string, unknown>>,
         tools: toolsWire,
         capabilities: apiCapabilities,
       });
-
-      const publishRequestUsage = (
-        attempt:
-          | {
-              readonly requestId: RuntimeRequestId;
-              readonly requestNumber: number;
-              readonly retry: boolean;
-              readonly startedAt: number;
-            }
-          | undefined,
-        finishedAt: number,
-      ) => {
-        if (attempt === undefined) return Effect.void;
-        return Effect.flatMap(deps.stamp, (stamp) =>
-          deps.publish({
-            type: "api.request.usage",
-            ...stamp,
-            provider: deps.provider,
-            ...instanceFields,
-            threadId: input.threadId,
-            turnId: input.turnId,
-            requestId: attempt.requestId,
-            payload: {
-              requestId: attempt.requestId,
-              requestNumber: attempt.requestNumber,
-              retry: attempt.retry,
-              ...requestUsageFields(roundUsage),
-              ...(firstByteAt !== undefined
-                ? { timeToFirstByteMs: Math.max(0, firstByteAt - attempt.startedAt) }
-                : {}),
-              streamDurationMs: Math.max(0, finishedAt - attempt.startedAt),
-            },
-          }),
-        );
-      };
-
-      const acquireAttempt = (retry: boolean) =>
-        Effect.gen(function* () {
-          requestAttempt += 1;
-          const startedAt = yield* Clock.currentTimeMillis;
-          activeAttempt = {
-            requestId: RuntimeRequestId.make(
-              `${String(input.turnId)}:request:${round + 1}:${requestAttempt}`,
-            ),
-            requestNumber: round + 1,
-            retry,
-            startedAt,
-          };
-          return yield* deps.httpPost(url, body);
-        });
 
       // Transport failures get exactly one retry; the second surfaces. Retries
       // only cover acquiring the stream — once bytes flowed, restarting would
@@ -479,57 +384,33 @@ export const runAgenticTurn = (
       const acquireStream: Effect.Effect<
         Stream.Stream<Uint8Array, ProviderAdapterRequestError>,
         ProviderAdapterRequestError
-      > = acquireAttempt(false).pipe(
+      > = deps.httpPost(url, body).pipe(
         Effect.catch((error) => {
           const classified = classifyTransportError({ status: extractStatus(error) });
           if (!classified.retryable) {
-            return Clock.currentTimeMillis.pipe(
-              Effect.flatMap((finishedAt) =>
-                publishRequestUsage(activeAttempt, finishedAt).pipe(
-                  Effect.flatMap(() =>
-                    Effect.fail(requestFailed(deps.provider, classified.message, error)),
-                  ),
-                ),
-              ),
-            );
+            return Effect.fail(requestFailed(deps.provider, classified.message, error));
           }
-          const retry = budget.tryStartRetry();
+          const retry = requestBudget.tryStartRetry();
           if (retry.kind !== "allowedRetry") {
-            return Clock.currentTimeMillis.pipe(
-              Effect.flatMap((finishedAt) =>
-                publishRequestUsage(activeAttempt, finishedAt).pipe(
-                  Effect.flatMap(() =>
-                    Effect.fail(
-                      requestFailed(
-                        deps.provider,
-                        retry.kind === "retryExhausted"
-                          ? "The provider request failed after the retry limit was reached."
-                          : "The provider request failed after the response had started.",
-                        error,
-                      ),
-                    ),
-                  ),
-                ),
+            return Effect.fail(
+              requestFailed(
+                deps.provider,
+                "The provider request failed and no retry is available.",
               ),
             );
           }
-          return Clock.currentTimeMillis.pipe(
-            Effect.flatMap((finishedAt) =>
-              publishRequestUsage(activeAttempt, finishedAt).pipe(
-                Effect.flatMap(() =>
-                  Effect.sleep("1 seconds").pipe(Effect.flatMap(() => acquireAttempt(true))),
-                ),
+          const retryRequest = requestBudget.tryStartRequest();
+          if (retryRequest.kind !== "allowed") {
+            return Effect.fail(
+              requestFailed(
+                deps.provider,
+                "The provider request budget was exhausted during retry.",
               ),
-            ),
-          );
+            );
+          }
+          return deps.httpPost(url, body);
         }),
       );
-
-      yield* publishExecutionProgress({
-        stage: round === 0 ? "inspect" : "verify",
-        requestNumber: round + 1,
-        toolCalls: 0,
-      });
 
       yield* acquireStream.pipe(
         Effect.flatMap((byteStream) =>
@@ -537,33 +418,23 @@ export const runAgenticTurn = (
             Stream.decodeText(),
             Stream.splitLines,
             Stream.runForEach((line) => {
-              budget.recordResponseBytes();
-              const markFirstByte =
-                firstByteAt === undefined
-                  ? Clock.currentTimeMillis.pipe(
-                      Effect.tap((now) => Effect.sync(() => (firstByteAt = now))),
-                    )
-                  : Effect.void;
+              if (line.trim().length > 0) requestBudget.recordResponseBytes();
               const parsed = resultFromSseLine(line);
-              return markFirstByte.pipe(
-                Effect.flatMap(() => {
-                  switch (parsed.kind) {
-                    case "delta":
-                      assembled += parsed.text;
-                      return sink.add(parsed.text);
-                    case "toolCallDelta":
-                      accumulator.add(parsed);
-                      return Effect.void;
-                    case "finish":
-                      return Effect.void;
-                    case "usage":
-                      roundUsage = parsed.usage;
-                      return Effect.void;
-                    default:
-                      return Effect.void;
-                  }
-                }),
-              );
+              switch (parsed.kind) {
+                case "delta":
+                  assembled += parsed.text;
+                  return sink.add(parsed.text);
+                case "toolCallDelta":
+                  accumulator.add(parsed);
+                  return Effect.void;
+                case "finish":
+                  return Effect.void;
+                case "usage":
+                  roundUsage = parsed.usage;
+                  return Effect.void;
+                default:
+                  return Effect.void;
+              }
             }),
             Effect.flatMap(() => sink.end()),
             Effect.mapError((cause) =>
@@ -571,11 +442,38 @@ export const runAgenticTurn = (
             ),
           ),
         ),
-        Effect.ensuring(
-          Clock.currentTimeMillis.pipe(
-            Effect.flatMap((finishedAt) => publishRequestUsage(activeAttempt, finishedAt)),
-          ),
-        ),
+      );
+
+      const requestId = RuntimeRequestId.make(
+        `${String(input.turnId)}:request:${requestStart.requestNumber}`,
+      );
+      yield* Effect.flatMap(deps.stamp, (stamp) =>
+        deps.publish({
+          type: "api.request.usage",
+          ...stamp,
+          provider: deps.provider,
+          ...instanceFields,
+          threadId: input.threadId,
+          turnId: input.turnId,
+          requestId,
+          payload: {
+            requestId,
+            requestNumber: requestStart.requestNumber,
+            retry: false,
+            ...(roundUsage !== undefined
+              ? {
+                  ...(toUsageSnapshot(roundUsage).inputTokens !== undefined
+                    ? { inputTokens: toUsageSnapshot(roundUsage).inputTokens }
+                    : {}),
+                  ...(toUsageSnapshot(roundUsage).outputTokens !== undefined
+                    ? { outputTokens: toUsageSnapshot(roundUsage).outputTokens }
+                    : {}),
+                }
+              : {}),
+            timeToFirstByteMs: 0,
+            streamDurationMs: 0,
+          },
+        }),
       );
 
       if (roundUsage !== undefined) {
@@ -600,21 +498,20 @@ export const runAgenticTurn = (
         finalText = assembled.trim();
         yield* publishExecutionProgress({
           stage: "finalize",
-          requestNumber: round + 1,
+          requestNumber: requestStart.requestNumber,
           toolCalls: 0,
           outcome: "completed",
         });
         break;
       }
-
       yield* publishExecutionProgress({
         stage: "execute",
-        requestNumber: round + 1,
+        requestNumber: requestStart.requestNumber,
         toolCalls: calls.length,
         outcome: "continued",
       });
 
-      contextLedger.add({
+      messages.push({
         role: "assistant",
         content: assembled.length > 0 ? assembled : null,
         tool_calls: calls.map((call) => ({
@@ -623,6 +520,7 @@ export const runAgenticTurn = (
           function: { name: call.name, arguments: call.arguments },
         })),
       });
+      contextLedger.add(messages[messages.length - 1]!);
       const observations = yield* scheduleToolCalls(
         calls.map((call) => ({
           id: call.id,
@@ -630,37 +528,42 @@ export const runAgenticTurn = (
           arguments: parseToolArgs(call.arguments) ?? {},
           rawArguments: call.arguments,
           mutation:
-            offered.find((candidate) => candidate.name === call.name)?.requiresApproval ?? false,
+            offered.find((tool) => tool.name === call.name)?.invalidatesVerification === true,
         })),
         {
-          maxConcurrentSafeTools: DEFAULT_API_EXECUTION_POLICY.maxConcurrentSafeTools,
+          maxConcurrentSafeTools: 8,
           execute: (call) =>
             executeToolCall({
               id: call.id,
               name: call.name,
               arguments: call.rawArguments ?? JSON.stringify(call.arguments),
-            }),
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.succeed(`Error: ${error instanceof Error ? error.message : String(error)}`),
+              ),
+            ),
         },
       );
       for (const observation of observations) {
-        contextLedger.add(
-          { role: "tool", tool_call_id: observation.id, content: observation.content },
-          { key: observation.id },
-        );
+        messages.push({ role: "tool", tool_call_id: observation.id, content: observation.content });
+        contextLedger.add(messages[messages.length - 1]!);
       }
-      contextLedger.compact(DEFAULT_API_EXECUTION_POLICY.maxObservationChars);
-    }
-
-    // Unreachable today (the loop only exits via completed text, transport
-    // failure, or budget exhaustion), but keeps `finalText` honestly non-empty
-    // if an exit path is ever added.
-    if (finalText === undefined) {
-      return yield* requestFailed(
-        deps.provider,
-        "The agent ended its turn without a final answer.",
+      contextLedger.compact(48_000);
+      messages.splice(
+        0,
+        messages.length,
+        ...(contextLedger.toMessages() as Array<AgentLoopMessage>),
       );
     }
 
+    if (finalText === undefined) {
+      return yield* requestFailed(
+        deps.provider,
+        "The agent completed its provider request budget without producing a final answer.",
+      );
+    }
+
+    requestBudget.markOutcome("completed");
     return {
       finalText,
       ...(lastUsage !== undefined ? { usage: lastUsage } : {}),

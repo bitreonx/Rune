@@ -219,6 +219,21 @@ export function buildThreadTurnInterruptInput(thread: Pick<Thread, "id" | "sessi
   };
 }
 
+export function shouldInterruptRunningTurnBeforeSend(input: {
+  phase: SessionPhase;
+  isSendBusy: boolean;
+  sendInFlight: boolean;
+}): boolean {
+  return input.phase === "running" && !input.isSendBusy && !input.sendInFlight;
+}
+
+export function shouldRewindBeforeEditedUserMessageSend(input: {
+  hasPendingEdit: boolean;
+  confirmed: boolean;
+}): boolean {
+  return input.hasPendingEdit && input.confirmed;
+}
+
 export function reconcileMountedTerminalThreadIds(input: {
   currentThreadIds: ReadonlyArray<string>;
   openThreadIds: ReadonlyArray<string>;

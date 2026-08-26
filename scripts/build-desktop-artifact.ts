@@ -51,7 +51,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "dev.rune.rune";
+const DESKTOP_APP_ID = "com.runetools.rune";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -2059,7 +2059,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
-    artifactName: "RUNE-${version}-${arch}.${ext}",
+    artifactName: "RUNE-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [...DESKTOP_FILE_EXCLUSIONS],
     directories: {
@@ -2158,7 +2158,24 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     // Keep blockmap-based differential downloads enabled while changing the
     // installed file topology. The optimization is in the payload shape, not
     // in trading update bandwidth for install speed.
-    buildConfig.nsis = { differentialPackage: true };
+    buildConfig.nsis = {
+      differentialPackage: true,
+      oneClick: true,
+      perMachine: false,
+      allowElevation: true,
+      installerIcon: "icon.ico",
+      uninstallerIcon: "icon.ico",
+      installerHeaderIcon: "icon.ico",
+      createDesktopShortcut: true,
+      createStartMenuShortcut: true,
+      shortcutName: "RUNE",
+      deleteAppDataOnUninstall: false,
+      displayLanguageSelector: false,
+      installerLanguages: ["en_US"],
+      menuCategory: true,
+      runAfterFinish: true,
+      artifactName: "${productName}-Setup-${version}.${ext}",
+    };
     const winConfig: Record<string, unknown> = {
       target: [target],
       icon: "icon.ico",
@@ -2166,6 +2183,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // of code signing. Disabling it for local unsigned builds leaves the
       // packaged executable with Electron's stock icon.
       signAndEditExecutable: true,
+      verifyUpdateCodeSignature: true,
     };
     if (signed) {
       winConfig.azureSignOptions = yield* AzureTrustedSigningOptionsConfig;
@@ -2930,7 +2948,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "RUNE desktop build",
-    author: "Rune",
+    author: "RUNE Tools",
     main: "apps/desktop/dist-electron/main.cjs",
     build: yield* createBuildConfig(
       options.platform,

@@ -20,7 +20,7 @@ The canonical plan and specification are:
 4. [`D:\Apps\Rune\docs\superpowers\plans\2026-08-25-native-agent-loop-plan.md`](../superpowers/plans/2026-08-25-native-agent-loop-plan.md)
 5. `D:\Apps\Rune\AGENTS.md`
 
-The original harness research/blueprint is in the repository root as `T3CODE-HARNESS-MAXXING-BLUEPRINT (1).md` and the local reference material is under `system-prompts-and-models-of-ai-tools-main\`. Treat those as research input only; current code, current contracts, current tests, and current runtime behavior outrank them.
+The original harness research/blueprint is in the repository root as `RUNE-HARNESS-MAXXING-BLUEPRINT (1).md` and the local reference material is under `system-prompts-and-models-of-ai-tools-main\`. Treat those as research input only; current code, current contracts, current tests, and current runtime behavior outrank them.
 
 ## Important repository state
 
@@ -45,7 +45,7 @@ An older isolated worktree exists at:
 
 Branch: `codex/rune-harness-foundation`
 
-Its implementation is uncommitted and based on the older `@rune/*` snapshot. It contains useful reference work in:
+Its implementation is uncommitted and based on the older `@runetools/*` snapshot. It contains useful reference work in:
 
 - `apps/server/src/provider/Layers/ApiHarness.ts`
 - `apps/server/src/provider/Layers/ApiSessionState.ts`

@@ -39,4 +39,4 @@ export interface OrchestrationProjectionPipelineShape {
 export class OrchestrationProjectionPipeline extends Context.Service<
   OrchestrationProjectionPipeline,
   OrchestrationProjectionPipelineShape
->()("@rune/server/orchestration/Services/ProjectionPipeline/OrchestrationProjectionPipeline") {}
+>()("rune/orchestration/Services/ProjectionPipeline/OrchestrationProjectionPipeline") {}

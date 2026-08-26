@@ -24,7 +24,7 @@ import {
 import type { EnvironmentId, ThreadId } from "@rune/contracts";
 import { Bot, Braces, Check, ChevronDown, ChevronRight, ExternalLink, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 
 import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
@@ -150,16 +150,12 @@ function agentActivityText(agent: RuntimeSubagent): string | null {
 type AgentSelectionProps = {
   focusedAgentId: string | null;
   onFocusAgent?: ((agentId: string) => void) | undefined;
-  environmentId?: string | null;
-  navigate?: ReturnType<typeof useNavigate>;
 };
 
 function AgentRow({
   agent,
   focusedAgentId,
   onFocusAgent,
-  environmentId,
-  navigate,
 }: { agent: RuntimeSubagent } & AgentSelectionProps) {
   const visuals = STATUS_VISUALS[agent.status];
   const activity = agentActivityText(agent);
@@ -181,20 +177,11 @@ function AgentRow({
   const displayName = agent.generatedName || agent.title;
 
   // Check if this agent has a thread ID (Codex v2 sub-agent)
-  const agentThreadId = agent.agentThreadId || agent.chat?.agentThreadId;
-  const canNavigateToThread = agentThreadId && environmentId && navigate;
-
   const handleClick = () => {
-    if (canNavigateToThread) {
-      // Navigate to the sub-agent's thread
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId, threadId: agentThreadId },
-      });
-    } else {
-      // Fall back to opening agent in right panel
-      onFocusAgent?.(agent.id);
-    }
+    // A child is inspected in the parent workspace. Its provider-native
+    // thread id is an implementation detail of the panel's data source, not
+    // a second route that would discard the parent's execution context.
+    onFocusAgent?.(agent.id);
   };
 
   return (
@@ -202,7 +189,7 @@ function AgentRow({
       type="button"
       onClick={handleClick}
       aria-pressed={focused}
-      aria-label={`Open ${displayName} agent${agent.agentPath ? ` at ${agent.agentPath}` : ""}${canNavigateToThread ? " thread" : ""}`}
+      aria-label={`Open ${displayName} agent${agent.agentPath ? ` at ${agent.agentPath}` : ""}`}
       title={agent.agentPath ?? displayName}
       data-rune-agent-row
       data-rune-agent-focused={focused ? "true" : "false"}
@@ -544,8 +531,6 @@ function ExpandedWorkflowSection({
           agent={member}
           focusedAgentId={focusedAgentId}
           onFocusAgent={onFocusAgent}
-          environmentId={environmentId}
-          navigate={navigate}
         />
       ))}
       {group.phases.length === 0 && group.unphasedMembers.length === 0 ? (
@@ -553,8 +538,6 @@ function ExpandedWorkflowSection({
           agent={group.workflow}
           focusedAgentId={focusedAgentId}
           onFocusAgent={onFocusAgent}
-          environmentId={environmentId}
-          navigate={navigate}
         />
       ) : null}
     </section>
@@ -646,6 +629,62 @@ function findAgentById(model: AgentPanelModel, agentId: string): RuntimeSubagent
     if (match) return match;
   }
   return null;
+}
+
+function allAgents(model: AgentPanelModel): RuntimeSubagent[] {
+  return [
+    ...model.directAgents,
+    ...model.workflows.flatMap((group) => [
+      group.workflow,
+      ...group.phases.flatMap((phase) => phase.members),
+      ...group.unphasedMembers,
+    ]),
+  ];
+}
+
+function AgentSwitcher({
+  agents,
+  activeId,
+  onSelect,
+  onBack,
+}: {
+  agents: ReadonlyArray<RuntimeSubagent>;
+  activeId: string;
+  onSelect: (agentId: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <nav
+      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 bg-card/25 px-2 py-1.5"
+      aria-label="Agent threads"
+      data-rune-agent-switcher
+    >
+      <Button size="xs" variant="ghost-muted" onClick={onBack} className="shrink-0 px-1.5">
+        ‹ Agents
+      </Button>
+      <span className="h-4 w-px shrink-0 bg-border/60" aria-hidden />
+      {agents.map((agent) => {
+        const name = agent.generatedName || agent.title;
+        return (
+          <button
+            key={agent.id}
+            type="button"
+            onClick={() => onSelect(agent.id)}
+            aria-current={agent.id === activeId ? "page" : undefined}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] transition-colors hover:bg-accent/60",
+              agent.id === activeId
+                ? "bg-[color-mix(in_srgb,var(--rune-violet-soft)_16%,transparent)] text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            <StatusDot status={agent.status} />
+            <span className="max-w-24 truncate">{name}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
 }
 
 function AgentActivityDetail({
@@ -767,8 +806,6 @@ export function AgentsPanel({
   focusedAgentId?: string | null;
   onFocusAgent?: (agentId: string | null) => void;
 }) {
-  const navigate = useNavigate();
-
   if (!model.hasAgents) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -783,6 +820,7 @@ export function AgentsPanel({
   }
 
   const focusedAgent = focusedAgentId ? findAgentById(model, focusedAgentId) : null;
+  const agents = allAgents(model);
   const canOpenFocusedChat =
     focusedAgent !== null &&
     focusedAgent.chat?.canRead === true &&
@@ -792,13 +830,21 @@ export function AgentsPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {canOpenFocusedChat && focusedAgent && environmentId && threadId ? (
-        <AgentChatPanel
-          environmentId={environmentId}
-          threadId={threadId}
-          agent={focusedAgent}
-          {...(cwd ? { cwd } : {})}
-          onBack={() => onFocusAgent?.(null)}
-        />
+        <>
+          <AgentSwitcher
+            agents={agents}
+            activeId={focusedAgent.id}
+            onSelect={(agentId) => onFocusAgent?.(agentId)}
+            onBack={() => onFocusAgent?.(null)}
+          />
+          <AgentChatPanel
+            environmentId={environmentId}
+            threadId={threadId}
+            agent={focusedAgent}
+            {...(cwd ? { cwd } : {})}
+            onBack={() => onFocusAgent?.(null)}
+          />
+        </>
       ) : focusedAgent ? (
         <AgentActivityDetail
           agent={focusedAgent}
@@ -833,8 +879,6 @@ export function AgentsPanel({
                   agent={agent}
                   focusedAgentId={focusedAgentId}
                   onFocusAgent={onFocusAgent}
-                  environmentId={environmentId}
-                  navigate={navigate}
                 />
               ))}
             </section>

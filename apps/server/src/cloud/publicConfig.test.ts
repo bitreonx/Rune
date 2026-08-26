@@ -52,14 +52,12 @@ it.effect("normalizes the hosted app URL to an absolute origin", () =>
   Effect.gen(function* () {
     assert.equal(
       yield* hostedAppUrlConfig.pipe(
-        provideEnv({ RUNE_HOSTED_APP_URL: "https://nightly.app.rune.dev" }),
+        provideEnv({ RUNE_HOSTED_APP_URL: "https://nightly.app.rune.codes" }),
       ),
-      "https://nightly.app.rune.dev",
+      "https://nightly.app.rune.codes",
     );
     assert.equal(
-      yield* hostedAppUrlConfig.pipe(
-        provideEnv({ RUNE_HOSTED_APP_URL: "http://localhost:5733" }),
-      ),
+      yield* hostedAppUrlConfig.pipe(provideEnv({ RUNE_HOSTED_APP_URL: "http://localhost:5733" })),
       "http://localhost:5733",
     );
   }),
@@ -68,10 +66,10 @@ it.effect("normalizes the hosted app URL to an absolute origin", () =>
 it.effect("rejects malformed or insecure hosted app URLs", () =>
   Effect.gen(function* () {
     for (const value of [
-      "app.rune.dev",
-      "http://app.rune.dev",
-      "https://app.rune.dev/nested",
-      "https://app.rune.dev?alias=true",
+      "app.rune.codes",
+      "http://app.rune.codes",
+      "https://app.rune.codes/nested",
+      "https://app.rune.codes?alias=true",
     ]) {
       const result = yield* hostedAppUrlConfig.pipe(
         provideEnv({ RUNE_HOSTED_APP_URL: value }),

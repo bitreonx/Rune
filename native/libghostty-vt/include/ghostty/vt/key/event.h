@@ -467,7 +467,7 @@ GHOSTTY_API const char *ghostty_key_event_get_utf8(GhosttyKeyEvent event, size_t
  *
  * @ingroup key
  */
-GHOSTTY_API void ghostty_key_event_set_unshifted_codepoint(GhosttyKeyEvent event, uint32_t codepoint);
+GHOSTTY_API void ghostty_key_event_set_unshifted_codepoint(GhosttyKeyEvent event, uinrune2_t codepoint);
 
 /**
  * Get the unshifted Unicode codepoint.
@@ -477,6 +477,6 @@ GHOSTTY_API void ghostty_key_event_set_unshifted_codepoint(GhosttyKeyEvent event
  *
  * @ingroup key
  */
-GHOSTTY_API uint32_t ghostty_key_event_get_unshifted_codepoint(GhosttyKeyEvent event);
+GHOSTTY_API uinrune2_t ghostty_key_event_get_unshifted_codepoint(GhosttyKeyEvent event);
 
 #endif /* GHOSTTY_VT_KEY_EVENT_H */

@@ -24,7 +24,7 @@ This document covers the unified release workflow for stable and nightly desktop
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
-- Publishes the CLI package (`apps/server`, npm package `t3`) with OIDC trusted publishing from the same workflow file:
+- Publishes the CLI package (`apps/server`, npm package `rune`) with OIDC trusted publishing from the same workflow file:
   - stable releases publish npm dist-tag `latest`
   - nightly releases publish npm dist-tag `nightly`
 - Deploys the hosted web app to Vercel only after a release is published:
@@ -118,20 +118,20 @@ Required GitHub Actions secrets:
 Optional GitHub Actions variables:
 
 - `VERCEL_TEAM_SLUG`: overrides the Vercel CLI scope when the team slug is preferred over the `VERCEL_ORG_ID` secret.
-- `RUNE_WEB_ROUTER_URL`: defaults to `https://app.rune.dev`.
-- `RUNE_WEB_LATEST_DOMAIN`: defaults to `latest.app.rune.dev`.
-- `RUNE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.rune.dev`.
+- `RUNE_WEB_ROUTER_URL`: defaults to `https://app.rune.codes`.
+- `RUNE_WEB_LATEST_DOMAIN`: defaults to `latest.app.rune.codes`.
+- `RUNE_WEB_NIGHTLY_DOMAIN`: defaults to `nightly.app.rune.codes`.
 
 Required Vercel domains:
 
-- `app.rune.dev`: the router domain users open, updated by stable releases.
-- `latest.app.rune.dev`: channel alias updated by stable releases.
-- `nightly.app.rune.dev`: channel alias updated by nightly releases.
+- `app.rune.codes`: the router domain users open, updated by stable releases.
+- `latest.app.rune.codes`: channel alias updated by stable releases.
+- `nightly.app.rune.codes`: channel alias updated by nightly releases.
 
 The router domain uses `apps/web/vercel.ts` routes. Users opt into a channel by
 visiting `/__rune/channel?channel=latest` or
 `/__rune/channel?channel=nightly`; the router stores the
-`rune_web_channel` cookie and rewrites future requests on `app.rune.dev` to
+`rune_web_channel` cookie and rewrites future requests on `app.rune.codes` to
 the matching channel alias.
 
 The release deploy job rewrites release package versions before upload so the
@@ -151,7 +151,7 @@ One-time Vercel dashboard setup:
    `vercel.ts` setting is the source-of-truth, but disconnecting Git in the
    dashboard is also safe.
 4. Run one stable release deployment, or manually alias the current stable
-   deployment, so `app.rune.dev` points at a deployment containing the router
+   deployment, so `app.rune.codes` points at a deployment containing the router
    rules in `apps/web/vercel.ts`. Future stable releases keep this alias current.
 
 ## Nightly builds
@@ -168,13 +168,13 @@ One-time Vercel dashboard setup:
   - `make_latest` is always `false`
 - Uses the next stable patch version as the nightly base. For example, `0.0.17` produces nightlies on `0.0.18-nightly.*`.
 - Publishes Electron auto-update metadata to the dedicated `nightly` updater channel, so desktop users can opt into that track independently from stable.
-- Publishes the CLI package (`apps/server`, npm package `t3`) to the `nightly` npm dist-tag using the same nightly version.
+- Publishes the CLI package (`apps/server`, npm package `rune`) to the `nightly` npm dist-tag using the same nightly version.
 - Does not commit version bumps back to `main`.
 
 ## Server self-update release invariant
 
 Connected servers update to the client's exact version, not to an npm dist-tag. Every released
-desktop or hosted client version must therefore have a matching `t3@<version>` package available on
+desktop or hosted client version must therefore have a matching `rune@<version>` package available on
 npm before users can receive that client.
 
 The workflow enforces this ordering:
@@ -186,7 +186,7 @@ The workflow enforces this ordering:
 Preserve these dependencies when changing the release graph. Publishing a client first would leave
 the **Update server** action targeting a package version that does not exist yet.
 
-For a release smoke test, confirm `npm view t3@<version> version` returns the expected version, then
+For a release smoke test, confirm `npm view rune@<version> version` returns the expected version, then
 connect the new client to a server on the previous version and verify that the update action
 reconnects to the matching server. Use releases with identical migration manifests for the
 automatic path. When the manifest changed, verify that the remote action stops before restart and
@@ -248,12 +248,12 @@ blockmaps, with a 60 MB maximum for a representative sidecar-to-sidecar update.
 ## 0) npm OIDC trusted publishing setup (CLI)
 
 The workflow invokes `node apps/server/scripts/cli.ts publish` after aligning package versions. That
-script temporarily prepares the `t3` package, then runs `vp pm publish --filter t3 ...` from the
+script temporarily prepares the `rune` package, then runs `vp pm publish --filter rune ...` from the
 repository root so workspace publish configuration is applied correctly.
 
 Checklist:
 
-1. Confirm npm org/user owns package `t3` (or rename package first if needed).
+1. Confirm npm org/user owns package `rune` (or rename package first if needed).
 2. In npm package settings, configure Trusted Publisher:
    - Provider: GitHub Actions
    - Repository: this repo
@@ -269,9 +269,9 @@ Checklist:
 ## 1) Release validation and unsigned builds
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
-`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `t3` with npm dist-tag
-`latest`, creates a real GitHub Release, aliases the hosted app to `latest.app.rune.dev` and
-`app.rune.dev`, and can commit a version bump to `main` in the finalize job. Do not push a test tag
+`v0.0.0-test.1`, classifies the run as the stable channel. It publishes `rune` with npm dist-tag
+`latest`, creates a real GitHub Release, aliases the hosted app to `latest.app.rune.codes` and
+`app.rune.codes`, and can commit a version bump to `main` in the finalize job. Do not push a test tag
 to validate the workflow.
 
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
@@ -307,7 +307,7 @@ Checklist:
 
 1. Apple Developer account access:
    - Team has rights to create Developer ID certificates.
-2. Create an explicit App ID for `dev.rune.desktop` and enable Associated Domains.
+2. Create an explicit App ID for `com.runetools.rune` and enable Associated Domains.
 3. Create a `Developer ID Application` certificate and a compatible provisioning profile for that
    App ID with Associated Domains enabled.
 4. Export the certificate + private key as `.p12` from Keychain.
@@ -375,7 +375,7 @@ Checklist:
 
 - macOS build unsigned when expected signed:
   - Check all Apple secrets plus `APPLE_TEAM_ID` are populated and non-empty.
-  - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.dev.rune.desktop` and includes
+  - Confirm the provisioning profile belongs to `APPLE_TEAM_ID.com.runetools.rune` and includes
     Associated Domains.
 - Windows build unsigned when expected signed:
   - Check all Azure ATS and auth secrets are populated and non-empty.

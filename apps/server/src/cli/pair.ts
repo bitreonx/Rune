@@ -6,7 +6,7 @@
  * database, then confirms the process is actually answering by fetching its
  * public environment descriptor. Inside a linked git worktree the worktree's
  * own `.rune` is checked first (matching dev-runner precedence); otherwise the
- * shared Rune home. `--tailscale` publishes the server over Tailscale Serve
+ * shared RUNE home. `--tailscale` publishes the server over Tailscale Serve
  * HTTPS and pairs through the tailnet URL instead.
  */
 import {
@@ -14,7 +14,7 @@ import {
   ExecutionEnvironmentDescriptor,
   PortSchema,
 } from "@rune/contracts";
-import { resolveWorktreeRuneHome } from "@rune/shared/devHome";
+import { resolveWorktreeRUNEHome } from "@rune/shared/devHome";
 import {
   buildTailscaleHttpsBaseUrl,
   DEFAULT_TAILSCALE_SERVE_PORT,
@@ -257,7 +257,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     // Same precedence as dev-runner: inside a linked worktree its own `.rune`
     // outranks the shared home, so `rune pair` in a worktree pairs with the dev
     // server under test rather than the daily-driver install.
-    const worktreeHome = yield* resolveWorktreeRuneHome(process.cwd());
+    const worktreeHome = yield* resolveWorktreeRUNEHome(process.cwd());
     if (worktreeHome !== undefined) {
       bases.push(worktreeHome);
     }

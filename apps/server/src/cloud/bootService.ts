@@ -31,9 +31,9 @@ import {
 
 const BOOT_SERVICE_NAME = "rune";
 export const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
-// `.service` suffix keeps the label distinct from the desktop app's bundle id,
-// so launchd and TCC records never collide.
-export const BOOT_SERVICE_LAUNCHD_LABEL = "dev.rune.service";
+// `.service` suffix keeps the label distinct from the desktop app's bundle id
+// (com.runetools.rune), so launchd and TCC records never collide.
+export const BOOT_SERVICE_LAUNCHD_LABEL = "com.runetools.rune.service";
 export const BOOT_SERVICE_PLIST_FILE = `${BOOT_SERVICE_LAUNCHD_LABEL}.plist`;
 export const BOOT_SERVICE_UNIT_ENV = "RUNE_BOOT_SERVICE_UNIT";
 
@@ -424,7 +424,7 @@ export class BootService extends Context.Service<
     readonly uninstall: Effect.Effect<boolean, BootServiceError>;
     readonly status: Effect.Effect<BootServiceStatus, BootServiceError>;
   }
->()("@rune/server/cloud/bootService") {}
+>()("rune/cloud/bootService") {}
 
 export interface BootServiceHost {
   readonly execPath: string;
@@ -553,7 +553,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
             Effect.mapError(
               (cause) =>
                 new PinnedRuntimeInstallError({
-                  step: "verifying the pinned RUNE runtime",
+                  step: "verifying the pinned rune runtime",
                   cause,
                 }),
             ),
@@ -563,7 +563,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
                 ? Effect.void
                 : Effect.fail(
                     new PinnedRuntimeInstallError({
-                      step: "verifying the pinned RUNE runtime",
+                      step: "verifying the pinned rune runtime",
                       exitCode: Number(result.code),
                       stdoutLength: result.stdout.length,
                       stderrLength: result.stderr.length,

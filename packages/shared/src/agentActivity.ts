@@ -1,121 +1,150 @@
 import type { OrchestrationThreadActivity } from "@rune/contracts";
 
 export type AgentActivityStatus = "working" | "waiting" | "done" | "failed" | "paused";
-export type AgentActivityPhase = "explore" | "research" | "implement" | "test" | "fix" | "review" | "other";
-
+export type AgentActivityPhase =
+  | "explore"
+  | "research"
+  | "implement"
+  | "test"
+  | "fix"
+  | "review"
+  | "other";
 export interface AgentActivityOperation {
   readonly id: string;
   readonly kind: string;
   readonly createdAt: string;
   readonly turnId: string | null;
-  readonly toolName?: string;
-  readonly filePath?: string;
-  readonly command?: string;
+  readonly filePath?: string | undefined;
   readonly rawTrace: OrchestrationThreadActivity;
 }
-
 export interface AgentActivity {
   readonly id: string;
   readonly phase: AgentActivityPhase;
   readonly label: string;
   readonly status: AgentActivityStatus;
   readonly createdAt: string;
-  readonly completedAt?: string;
   readonly operations: ReadonlyArray<AgentActivityOperation>;
-  readonly reasoningSummary?: string;
+  readonly reasoningSummary?: string | undefined;
 }
-
 export interface AgentActivityJob {
-  readonly phases: ReadonlyArray<{ readonly phase: AgentActivityPhase; readonly activities: ReadonlyArray<AgentActivity> }>;
   readonly activities: ReadonlyArray<AgentActivity>;
+  readonly phases: ReadonlyArray<{
+    readonly phase: AgentActivityPhase;
+    readonly activities: ReadonlyArray<AgentActivity>;
+  }>;
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
+const record = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+const text = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+const payloadText = (a: OrchestrationThreadActivity, key: string) => text(record(a.payload)?.[key]);
 
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function payloadText(activity: OrchestrationThreadActivity, key: string): string | undefined {
-  return text(record(activity.payload)?.[key]);
-}
-
-function classify(activity: OrchestrationThreadActivity): { phase: AgentActivityPhase; label: string } {
-  const payload = record(activity.payload);
-  const haystack = [activity.kind, activity.summary, payloadText(activity, "title"), payloadText(activity, "command")]
-    .filter(Boolean).join(" ").toLowerCase();
-  if (activity.tone === "error" || /\b(error|fail|exception|fix)\b/u.test(haystack)) return { phase: "fix", label: "Fixing remaining errors" };
-  if (/\b(test|lint|typecheck|build|check|verify)\b/u.test(haystack)) return { phase: "test", label: "Running tests" };
-  if (/\b(review|diff|inspect result|reviewing)\b/u.test(haystack)) return { phase: "review", label: "Reviewing the result" };
-  if (/\b(edit|write|patch|move|delete|implement|change|create)\b/u.test(haystack) || payload?.itemType === "file_change") return { phase: "implement", label: "Implementing the change" };
-  if (/\b(web|fetch|documentation|docs|url|http)\b/u.test(haystack)) return { phase: "research", label: "Researching the repository" };
-  if (/\b(search|grep|find|read|file|repository|project|explore)\b/u.test(haystack)) return { phase: "explore", label: "Exploring the project" };
+function classify(a: OrchestrationThreadActivity): { phase: AgentActivityPhase; label: string } {
+  const payload = record(a.payload);
+  const haystack = [
+    a.kind,
+    a.summary,
+    payloadText(a, "title"),
+    payloadText(a, "toolName"),
+    payloadText(a, "command"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (a.tone === "error" || /\b(error|fail|exception|fix)\b/u.test(haystack))
+    return { phase: "fix", label: "Fixing remaining errors" };
+  if (/\b(test|lint|typecheck|build|check|verify)\b/u.test(haystack))
+    return { phase: "test", label: "Running tests" };
+  if (/\b(review|diff|result)\b/u.test(haystack))
+    return { phase: "review", label: "Reviewing the result" };
+  if (
+    /\b(edit|write|patch|move|delete|implement|change|create)\b/u.test(haystack) ||
+    payload?.itemType === "file_change"
+  )
+    return { phase: "implement", label: "Implementing the change" };
+  if (/\b(webfetch|web|fetch|documentation|docs|url|http)\b/u.test(haystack))
+    return { phase: "research", label: "Researching the repository" };
+  if (/\b(search|grep|find|read|file|repository|project|explore)\b/u.test(haystack))
+    return { phase: "explore", label: "Exploring the project" };
   return { phase: "other", label: "Working on the task" };
 }
-
-function status(activity: OrchestrationThreadActivity): AgentActivityStatus {
-  const value = payloadText(activity, "status")?.toLowerCase();
-  if (activity.tone === "error" || value === "failed") return "failed";
-  if (activity.kind.includes("approval.requested") || activity.kind.includes("user-input.requested")) return "waiting";
-  if (value === "stopped" || value === "paused" || activity.kind.includes("interrupted")) return "paused";
-  if (activity.kind.endsWith(".completed") || activity.kind.endsWith(".resolved") || value === "completed") return "done";
+function status(a: OrchestrationThreadActivity): AgentActivityStatus {
+  const value = payloadText(a, "status")?.toLowerCase();
+  if (a.tone === "error" || value === "failed") return "failed";
+  if (a.kind.includes("approval.requested") || a.kind.includes("user-input.requested"))
+    return "waiting";
+  if (value === "stopped" || value === "paused" || a.kind.includes("interrupted")) return "paused";
+  if (a.kind.endsWith(".completed") || a.kind.endsWith(".resolved") || value === "completed")
+    return "done";
   return "working";
 }
-
-function operation(activity: OrchestrationThreadActivity): AgentActivityOperation {
-  const payload = record(activity.payload);
+function toOperation(a: OrchestrationThreadActivity): AgentActivityOperation {
+  const payload = record(a.payload);
   const data = record(payload?.data) ?? payload;
   return {
-    id: activity.id,
-    kind: activity.kind,
-    createdAt: activity.createdAt,
-    turnId: activity.turnId,
-    ...(text(payload?.toolName) ? { toolName: text(payload?.toolName) } : {}),
+    id: a.id,
+    kind: a.kind,
+    createdAt: a.createdAt,
+    turnId: a.turnId,
     ...(text(data?.path) ? { filePath: text(data?.path) } : {}),
-    ...(text(data?.command) ? { command: text(data?.command) } : {}),
-    rawTrace: activity,
+    rawTrace: a,
   };
 }
-
-function reasoningSummary(activity: OrchestrationThreadActivity): string | undefined {
+function reasoning(a: OrchestrationThreadActivity): string | undefined {
   for (const key of ["reasoningSummary", "decision", "hypothesis", "explanation"]) {
-    const value = payloadText(activity, key);
+    const value = payloadText(a, key);
     if (value && value.length <= 280) return value;
   }
   return undefined;
 }
-
-export function deriveAgentActivityJob(activities: ReadonlyArray<OrchestrationThreadActivity>): AgentActivityJob {
-  const ordered = [...activities].sort((left, right) => (left.sequence ?? 0) - (right.sequence ?? 0) || left.createdAt.localeCompare(right.createdAt));
+export function deriveAgentActivityJob(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): AgentActivityJob {
+  const ordered = [...activities].sort(
+    (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.createdAt.localeCompare(b.createdAt),
+  );
   const result: AgentActivity[] = [];
   for (const source of ordered) {
-    if (["tool.started", "tool.progress", "task.updated", "context-window.updated"].includes(source.kind)) continue;
-    const classified = classify(source);
+    if (
+      ["tool.started", "tool.progress", "task.updated", "context-window.updated"].includes(
+        source.kind,
+      )
+    )
+      continue;
+    const nextStatus = status(source);
+    const nextClass = classify(source);
     const current = result.at(-1);
-    const canMerge = current && current.phase === classified.phase && current.turnId === source.turnId && current.status !== "failed" && status(source) !== "waiting";
-    if (canMerge) {
-      const nextStatus = status(source);
+    if (
+      current &&
+      current.phase === nextClass.phase &&
+      current.status !== "failed" &&
+      nextStatus !== "waiting" &&
+      current.operations[0]?.turnId === source.turnId
+    ) {
       result[result.length - 1] = {
         ...current,
         status: nextStatus === "working" ? current.status : nextStatus,
-        completedAt: nextStatus === "done" ? source.createdAt : current.completedAt,
-        operations: [...current.operations, operation(source)],
-        ...(reasoningSummary(source) ? { reasoningSummary: reasoningSummary(source) } : {}),
+        operations: [...current.operations, toOperation(source)],
+        ...(reasoning(source) ? { reasoningSummary: reasoning(source) } : {}),
       };
-    } else {
+    } else
       result.push({
         id: `agent-activity:${source.id}`,
-        ...classified,
-        status: status(source),
+        ...nextClass,
+        status: nextStatus,
         createdAt: source.createdAt,
-        operations: [operation(source)],
-        ...(reasoningSummary(source) ? { reasoningSummary: reasoningSummary(source) } : {}),
+        operations: [toOperation(source)],
+        ...(reasoning(source) ? { reasoningSummary: reasoning(source) } : {}),
       });
-    }
   }
   const phases = new Map<AgentActivityPhase, AgentActivity[]>();
-  for (const activity of result) phases.set(activity.phase, [...(phases.get(activity.phase) ?? []), activity]);
-  return { activities: result, phases: [...phases].map(([phase, grouped]) => ({ phase, activities: grouped })) };
+  for (const activity of result)
+    phases.set(activity.phase, [...(phases.get(activity.phase) ?? []), activity]);
+  return {
+    activities: result,
+    phases: [...phases].map(([phase, grouped]) => ({ phase, activities: grouped })),
+  };
 }

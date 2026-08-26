@@ -1,10 +1,10 @@
 Pod::Spec.new do |s|
-  s.name           = 'RuneComposerEditor'
+  s.name           = 'RUNEComposerEditor'
   s.version        = '1.0.0'
   s.summary        = 'Native attributed composer editor for RUNE mobile.'
   s.description    = 'UIKit-backed rich text composer with atomic skill and file tokens.'
-  s.author         = 'T3 Tools'
-  s.homepage       = 'https://t3tools.com'
+  s.author         = 'RUNE Tools'
+  s.homepage       = 'https://runetools.com'
   s.platforms      = {
     :ios => '16.4',
   }

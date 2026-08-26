@@ -32,7 +32,7 @@ typedef struct {
   uint16_t x;
 
   /** Row (0-indexed). May exceed page size for screen/history tags. */
-  uint32_t y;
+  uinrune2_t y;
 } GhosttyPointCoordinate;
 
 /**

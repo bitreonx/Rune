@@ -1,6 +1,6 @@
 import type { MobileThemeVariables } from "./mobileTheme";
 
-/** The stock mobile palette: quiet neutrals over the RUNE violet accent ramp. */
+/** The existing RUNE mobile palette, retained as the upgrade-safe default. */
 export const DEFAULT_MOBILE_THEME_VARIABLES = {
   light: {
     "--color-screen": "#f2f2f7",
@@ -48,7 +48,7 @@ export const DEFAULT_MOBILE_THEME_VARIABLES = {
     "--color-status-bar": "#f2f2f7",
     "--color-md-body": "#111111",
     "--color-md-strong": "#000000",
-    "--color-md-link": "#6D28D9",
+    "--color-md-link": "#2563eb",
     "--color-md-blockquote-border": "rgba(0, 0, 0, 0.08)",
     "--color-md-blockquote-bg": "rgba(0, 0, 0, 0.02)",
     "--color-md-code-bg": "rgba(0, 0, 0, 0.04)",
@@ -58,7 +58,7 @@ export const DEFAULT_MOBILE_THEME_VARIABLES = {
     "--color-md-user-fence-bg": "rgba(0, 0, 0, 0.16)",
     "--color-md-user-fence-text": "#ffffff",
     "--color-md-hr": "rgba(0, 0, 0, 0.08)",
-    "--color-user-bubble": "#7C3AED",
+    "--color-user-bubble": "#007aff",
     "--color-user-bubble-foreground": "#ffffff",
     "--color-user-bubble-foreground-muted": "rgba(255, 255, 255, 0.78)",
     "--color-user-bubble-skill-foreground": "#f0abfc",
@@ -115,7 +115,7 @@ export const DEFAULT_MOBILE_THEME_VARIABLES = {
     "--color-status-bar": "#0a0a0a",
     "--color-md-body": "#e5e5e5",
     "--color-md-strong": "#f5f5f5",
-    "--color-md-link": "#A78BFA",
+    "--color-md-link": "#60a5fa",
     "--color-md-blockquote-border": "rgba(255, 255, 255, 0.1)",
     "--color-md-blockquote-bg": "rgba(255, 255, 255, 0.03)",
     "--color-md-code-bg": "rgba(255, 255, 255, 0.06)",
@@ -125,9 +125,9 @@ export const DEFAULT_MOBILE_THEME_VARIABLES = {
     "--color-md-user-fence-bg": "rgba(0, 0, 0, 0.28)",
     "--color-md-user-fence-text": "#ffffff",
     "--color-md-hr": "rgba(255, 255, 255, 0.08)",
-    "--color-user-bubble": "#A78BFA",
-    "--color-user-bubble-foreground": "#241523",
-    "--color-user-bubble-foreground-muted": "rgba(36, 21, 35, 0.78)",
+    "--color-user-bubble": "#0a84ff",
+    "--color-user-bubble-foreground": "#ffffff",
+    "--color-user-bubble-foreground-muted": "rgba(255, 255, 255, 0.78)",
     "--color-user-bubble-skill-foreground": "#f0abfc",
     "--color-backdrop": "rgba(0, 0, 0, 0.48)",
     "--color-drawer": "rgba(14, 14, 14, 0.99)",

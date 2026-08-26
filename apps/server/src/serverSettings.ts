@@ -51,7 +51,6 @@ import {
   isModelSelectionProviderEnabled,
 } from "@rune/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
-import { projectLegacyInstancesToHarnesses } from "./provider/harnesses/HarnessMigration.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@rune/shared/serverSettings";
 
@@ -159,28 +158,7 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
         : instance,
     ]),
   );
-  const services = Object.fromEntries(
-    Object.entries(settings.harnesses?.services ?? {}).map(([serviceId, service]) => {
-      const hasCred = Boolean(service.credentialRef || service.hasCredential);
-      return [
-        serviceId,
-        {
-          ...service,
-          hasCredential: hasCred,
-          ...(hasCred ? { maskedLabel: "••••••••" } : {}),
-          status: hasCred ? ("connected" as const) : ("needs-auth" as const),
-        },
-      ];
-    }),
-  );
-  return {
-    ...settings,
-    providerInstances,
-    harnesses: {
-      profiles: settings.harnesses?.profiles ?? {},
-      services,
-    },
-  };
+  return { ...settings, providerInstances };
 }
 
 export class ServerSettingsService extends Context.Service<
@@ -210,7 +188,7 @@ export class ServerSettingsService extends Context.Service<
      */
     readonly subscribeChanges: Effect.Effect<Stream.Stream<ServerSettings>, never, Scope.Scope>;
   }
->()("@rune/server/serverSettings/ServerSettingsService") {
+>()("rune/serverSettings/ServerSettingsService") {
   /** @deprecated Import and use `layerTest` from this module. */
   static readonly layerTest = (overrides: DeepPartial<ServerSettings> = {}) => layerTest(overrides);
 }
@@ -537,16 +515,6 @@ const make = Effect.gen(function* () {
                   cause,
                 }),
             ),
-          );
-        }
-      }
-
-      // Clean up removed model service secrets
-      const nextServiceIds = new Set(Object.keys(next.harnesses?.services ?? {}));
-      for (const serviceId of Object.keys(current.harnesses?.services ?? {})) {
-        if (!nextServiceIds.has(serviceId)) {
-          yield* secretStore.remove(`model-service:${serviceId}:api-key`).pipe(
-            Effect.ignoreCause({ log: false }),
           );
         }
       }

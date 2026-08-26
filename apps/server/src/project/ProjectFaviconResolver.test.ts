@@ -8,13 +8,13 @@ import * as PlatformError from "effect/PlatformError";
 
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
-import * as RuneProjectFileLoader from "./RuneProjectFileLoader.ts";
+import * as RUNEProjectFileLoader from "./RUNEProjectFileLoader.ts";
 
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(
     ProjectFaviconResolver.layer.pipe(
       Layer.provide(WorkspacePaths.layer),
-      Layer.provide(RuneProjectFileLoader.layer),
+      Layer.provide(RUNEProjectFileLoader.layer),
     ),
   ),
   Layer.provideMerge(NodeServices.layer),
@@ -43,7 +43,7 @@ const writeTextFile = Effect.fn("writeTextFile")(function* (
 
 const makeResolverWithFileSystem = (fileSystem: FileSystem.FileSystem) =>
   ProjectFaviconResolver.make.pipe(
-    Effect.provide([WorkspacePaths.layer, RuneProjectFileLoader.layer]),
+    Effect.provide([WorkspacePaths.layer, RUNEProjectFileLoader.layer]),
     Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
@@ -73,7 +73,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("brand/mark.svg");
+        expect(resolved).toContain("brand/mark.svg");
       }),
     );
 
@@ -87,7 +87,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd, "brand/custom.svg");
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("brand/custom.svg");
+        expect(resolved).toContain("brand/custom.svg");
       }),
     );
 
@@ -171,7 +171,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("public/brand/logo.svg");
+        expect(resolved).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -196,7 +196,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("public/brand/logo.svg");
+        expect(resolved).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -214,7 +214,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("public/brand/logo.svg");
+        expect(resolved).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -232,7 +232,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("public/brand/logo.svg");
+        expect(resolved).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -250,7 +250,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("public/brand/logo.svg");
+        expect(resolved).toContain("public/brand/logo.svg");
       }),
     );
 
@@ -398,7 +398,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved?.replaceAll("\\", "/")).toContain("public/brand/logo.svg");
+        expect(resolved).toContain("public/brand/logo.svg");
       }),
     );
   });

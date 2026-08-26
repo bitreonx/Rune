@@ -128,9 +128,7 @@ const withIdentity = <A, E, R>(
             exists: (path) =>
               input.legacyPathProbeError
                 ? Effect.fail(input.legacyPathProbeError)
-                : Effect.succeed(
-                    input.legacyPathExists === true && path.includes("rune"),
-                  ),
+                : Effect.succeed(input.legacyPathExists === true && path.includes("rune")),
             readFileString: () =>
               Effect.succeed(input.packageJson ?? '{"runeCommitHash":"abcdef1234567890"}'),
           }),
@@ -195,8 +193,8 @@ describe("DesktopAppIdentity", () => {
         const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
         yield* identity.configure;
 
-        assert.deepEqual(calls.setName, ["RUNE (Alpha)"]);
-        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "RUNE (Alpha)");
+        assert.deepEqual(calls.setName, ["RUNE"]);
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "RUNE");
         assert.equal(calls.setAboutPanelOptions[0]?.applicationVersion, "1.2.3");
         assert.equal(calls.setAboutPanelOptions[0]?.version, "0123456789ab");
         // Packaged: the bundle's own icon stands, so a custom one the user

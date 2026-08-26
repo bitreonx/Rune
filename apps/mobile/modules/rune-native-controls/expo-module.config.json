@@ -1,9 +1,9 @@
 {
   "platforms": ["apple", "android"],
   "apple": {
-    "modules": ["RuneNativeControlsModule", "RuneKeyboardCommandsModule"]
+    "modules": ["RUNENativeControlsModule", "RUNEKeyboardCommandsModule"]
   },
   "android": {
-    "modules": ["expo.modules.runenativecontrols.RuneNativeControlsModule"]
+    "modules": ["expo.modules.runenativecontrols.RUNENativeControlsModule"]
   }
 }

@@ -1,4 +1,4 @@
-const REPO = "rune-dev/rune";
+const REPO = "pingdotgg/rune";
 
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 

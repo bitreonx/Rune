@@ -276,8 +276,8 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
 }
 
 /**
- * Whether the legacy sidebar (Settings → General → Legacy features) replaces
- * the default one.
+ * Whether the persisted legacy-sidebar compatibility opt-in replaces the
+ * default sidebar.
  *
  * Held at the default sidebar until client settings hydrate: the pre-hydration
  * snapshot is just the schema defaults, so resolving against it could mount one

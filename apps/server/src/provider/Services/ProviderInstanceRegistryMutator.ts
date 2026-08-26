@@ -49,4 +49,4 @@ export interface ProviderInstanceRegistryMutatorShape {
 export class ProviderInstanceRegistryMutator extends Context.Service<
   ProviderInstanceRegistryMutator,
   ProviderInstanceRegistryMutatorShape
->()("@rune/server/provider/Services/ProviderInstanceRegistryMutator") {}
+>()("rune/provider/Services/ProviderInstanceRegistryMutator") {}

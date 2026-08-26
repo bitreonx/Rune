@@ -421,6 +421,49 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   color: inherit;
 }
 
+@keyframes rune-splash-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes rune-splash-status {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility rune-splash-shell {
+  animation: rune-splash-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@utility rune-splash-mark {
+  animation: rune-splash-enter 700ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@utility rune-splash-status-dot {
+  animation: rune-splash-status 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rune-splash-shell,
+  .rune-splash-mark,
+  .rune-splash-status-dot {
+    animation: none;
+  }
+}
+
 /* Stage-channel art needs a mask and pseudo-element gradient, so keep the
    behavior composable without tying it to the global components layer. */
 @utility sidebar-stage-backdrop {
@@ -467,6 +510,70 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 @keyframes working-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes response-caret {
+  0%,
+  42% {
+    opacity: 1;
+  }
+  43%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes working-dots {
+  0%,
+  20% {
+    content: "·";
+  }
+  45% {
+    content: "··";
+  }
+  70%,
+  100% {
+    content: "···";
+  }
+}
+
+@utility assistant-live-caret {
+  animation: response-caret 900ms steps(1, end) infinite;
+  vertical-align: baseline;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility response-status-enter {
+  animation: response-status-enter 160ms ease-out both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes response-status-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.working-dots::after {
+  content: "·";
+  animation: working-dots 900ms steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-dots::after {
+    animation: none;
+    content: "·";
   }
 }
 
@@ -1573,7 +1680,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --sidebar-border: var(--color-zinc-200);
   --sidebar-stage-fade: var(--sidebar);
   --rune-sidebar-surface: var(--sidebar);
-  --rune-sidebar-surface-subtle: color-mix(in srgb, var(--sidebar-control-surface) 70%, var(--sidebar));
+  --rune-sidebar-surface-subtle: color-mix(
+    in srgb,
+    var(--sidebar-control-surface) 70%,
+    var(--sidebar)
+  );
   --rune-sidebar-ink: var(--sidebar-foreground);
   --rune-sidebar-ink-muted: var(--sidebar-muted-foreground);
   --rune-sidebar-focus: var(--rune-violet-strong);
@@ -1602,7 +1713,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
     --rune-sidebar-surface: var(--sidebar);
-    --rune-sidebar-surface-subtle: color-mix(in srgb, var(--sidebar-control-surface) 82%, var(--sidebar));
+    --rune-sidebar-surface-subtle: color-mix(
+      in srgb,
+      var(--sidebar-control-surface) 82%,
+      var(--sidebar)
+    );
   }
 }
 
@@ -1748,12 +1863,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   will-change: opacity, transform, filter;
 }
 
-[data-rune-right-panel-host][data-rune-right-panel-state="opening"] > [data-rune-right-panel-surface] {
-  animation: rune-right-panel-enter var(--rune-motion-slow) cubic-bezier(0.22, 1, 0.36, 1)
-    both;
+[data-rune-right-panel-host][data-rune-right-panel-state="opening"]
+  > [data-rune-right-panel-surface] {
+  animation: rune-right-panel-enter var(--rune-motion-slow) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-[data-rune-right-panel-host][data-rune-right-panel-state="closing"] > [data-rune-right-panel-surface] {
+[data-rune-right-panel-host][data-rune-right-panel-state="closing"]
+  > [data-rune-right-panel-surface] {
   animation: rune-right-panel-exit var(--rune-motion-standard) cubic-bezier(0.4, 0, 1, 1) both;
 }
 
@@ -1886,8 +2002,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-rune-tasks-drawer-host][data-rune-tasks-drawer-state="opening"] {
-  animation: rune-tasks-drawer-enter var(--rune-tasks-duration) var(--rune-tasks-ease-sheet)
-    both;
+  animation: rune-tasks-drawer-enter var(--rune-tasks-duration) var(--rune-tasks-ease-sheet) both;
 
   @starting-style {
     height: 0;
@@ -2012,8 +2127,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 
 /* Tab progress segments sweep their fill when a step lands or completes. */
 .rune-task-segment-fill {
-  animation: rune-task-segment-fill var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
-    both;
+  animation: rune-task-segment-fill var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes rune-task-segment-fill {
@@ -2026,8 +2140,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 .rune-task-step-swap {
-  animation: rune-task-step-swap var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
-    both;
+  animation: rune-task-step-swap var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes rune-task-step-swap {
@@ -2101,8 +2214,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-rune-agent-detail] {
-  animation: rune-agent-detail-enter var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
-    both;
+  animation: rune-agent-detail-enter var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 [data-rune-agent-row] {
@@ -2133,8 +2245,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-rune-terminal-motion-host][data-rune-terminal-motion-state="opening"] {
-  animation: rune-terminal-enter var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1)
-    both;
+  animation: rune-terminal-enter var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 [data-rune-terminal-motion-host][data-rune-terminal-motion-state="closing"] {

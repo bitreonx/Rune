@@ -13,38 +13,35 @@ import {
 
 const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("codex");
 
-/**
- * Which input media kinds a model accepts natively. When a catalog does not
- * report modalities we assume images (the long-standing baseline) but nothing
- * else, so unknown models keep today's behavior without inventing audio/video
- * support.
- */
+export interface SelectableModelOption {
+  slug: string;
+  name: string;
+}
+
 export interface ModelMediaSupport {
   readonly image: boolean;
   readonly audio: boolean;
   readonly video: boolean;
 }
 
-const MEDIA_MODALITY_KEYS = ["image", "audio", "video"] as const;
-
+/**
+ * Resolve attachment support from provider-neutral model metadata.
+ * Unknown catalogs remain conservative and accept images only, matching the
+ * legacy attachment behavior without inventing audio/video support.
+ */
 export function resolveModelMediaSupport(
-  metadata: Pick<ModelMetadata, "inputModalities"> | null | undefined,
+  metadata: ModelMetadata | null | undefined,
 ): ModelMediaSupport {
-  const listed = metadata?.inputModalities;
-  if (!listed || listed.length === 0) {
+  const modalities = metadata?.inputModalities;
+  if (modalities === undefined) {
     return { image: true, audio: false, video: false };
   }
-  const normalized = new Set(listed.map((modality) => modality.trim().toLowerCase()));
-  const support = {} as Record<(typeof MEDIA_MODALITY_KEYS)[number], boolean>;
-  for (const key of MEDIA_MODALITY_KEYS) {
-    support[key] = normalized.has(key);
-  }
-  return support;
-}
-
-export interface SelectableModelOption {
-  slug: string;
-  name: string;
+  const normalized = new Set(modalities.map((modality) => modality.toLowerCase()));
+  return {
+    image: normalized.has("image"),
+    audio: normalized.has("audio"),
+    video: normalized.has("video"),
+  };
 }
 
 export function createModelCapabilities(input: {

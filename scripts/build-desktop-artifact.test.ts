@@ -157,7 +157,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "RUNE (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "RUNE");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "RUNE (Nightly)");
   });
 
@@ -187,7 +187,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                RUNE_DESKTOP_UPDATE_REPOSITORY: "rune-dev/rune",
+                RUNE_DESKTOP_UPDATE_REPOSITORY: "pingdotgg/rune",
               },
             }),
           ),
@@ -198,7 +198,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                GITHUB_REPOSITORY: "rune-dev/rune",
+                GITHUB_REPOSITORY: "pingdotgg/rune",
               },
             }),
           ),
@@ -207,13 +207,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
-        owner: "rune-dev",
+        owner: "pingdotgg",
         repo: "rune",
         releaseType: "release",
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
-        owner: "rune-dev",
+        owner: "pingdotgg",
         repo: "rune",
         releaseType: "prerelease",
         channel: "nightly",
@@ -453,7 +453,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         },
         ...WINDOWS_SERVER_EXTRA_RESOURCES,
       ]);
-      assert.deepStrictEqual(win.nsis, { differentialPackage: true });
+      assert.equal(win.nsis.differentialPackage, true);
+      assert.equal(win.nsis.include, undefined);
+      assert.equal(win.nsis.installerIcon, "icon.ico");
+      assert.equal(win.nsis.uninstallerIcon, "icon.ico");
+      assert.equal(win.nsis.oneClick, true);
+      assert.equal(win.nsis.allowToChangeInstallationDirectory, undefined);
+      assert.equal(win.nsis.license, undefined);
       // Native binaries and helper executables cannot load from inside an
       // asar; everything else stays packed. The Claude SDK platform packages
       // and .bin shims never ship.
@@ -468,7 +474,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/node_modules/.bin/**",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "RUNE (Alpha) 1.2.3 Installer",
+        title: "RUNE 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 540, height: 412 },
         contents: [
@@ -994,7 +1000,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
 
     assert.deepStrictEqual(configuration, {
-      appId: "dev.rune.rune",
+      appId: "com.runetools.rune",
       teamId: "ABC1234567",
       rpDomains: ["example.clerk.accounts.dev"],
       provisioningProfilePath: "/tmp/rune.provisionprofile",
@@ -1014,7 +1020,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "clerk.example.com",
       "example.clerk.accounts.dev",
     ]);
-    assert.include(entitlements, "<string>ABC1234567.dev.rune.rune</string>");
+    assert.include(entitlements, "<string>ABC1234567.com.runetools.rune</string>");
     assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
     assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
@@ -1109,12 +1115,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       });
 
       const mac = config.mac as Record<string, unknown>;
-      assert.equal(config.appId, "dev.rune.rune");
+      assert.equal(config.appId, "com.runetools.rune");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/rune.provisionprofile");
-      assert.deepStrictEqual(mac.protocols, [
-        { name: "RUNE", schemes: ["rune", "rune-dev"] },
-      ]);
+      assert.deepStrictEqual(mac.protocols, [{ name: "RUNE", schemes: ["rune", "rune-dev"] }]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 

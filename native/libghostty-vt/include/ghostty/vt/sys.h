@@ -52,10 +52,10 @@ extern "C" {
  */
 typedef struct {
     /** Image width in pixels. */
-    uint32_t width;
+    uinrune2_t width;
 
     /** Image height in pixels. */
-    uint32_t height;
+    uinrune2_t height;
 
     /** Pointer to the decoded RGBA pixel data. */
     uint8_t* data;

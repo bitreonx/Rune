@@ -21,11 +21,11 @@ const captureError = (run: () => unknown): unknown => {
 
 describe("Clerk relay auth", () => {
   it("derives a custom Frontend API hostname from a Clerk publishable key", () => {
-    expect(clerkFrontendApiHostnameFromPublishableKey(clerkPublishableKey("clerk.rune.dev"))).toBe(
-      "clerk.rune.dev",
-    );
-    expect(clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey("clerk.rune.dev"))).toBe(
-      "https://clerk.rune.dev",
+    expect(
+      clerkFrontendApiHostnameFromPublishableKey(clerkPublishableKey("clerk.rune.codes")),
+    ).toBe("clerk.rune.codes");
+    expect(clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey("clerk.rune.codes"))).toBe(
+      "https://clerk.rune.codes",
     );
   });
 
@@ -40,7 +40,7 @@ describe("Clerk relay auth", () => {
 
   it("reports semantic frontend API failures without inventing a cause", () => {
     const emptyError = captureError(() => clerkFrontendApiUrlFromPublishableKey("pk_test_"));
-    const pathFrontendApi = "clerk.rune.dev/path";
+    const pathFrontendApi = "clerk.rune.codes/path";
     const pathError = captureError(() =>
       clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey(pathFrontendApi)),
     );
@@ -79,9 +79,9 @@ describe("Clerk relay auth", () => {
   it("allows standard Clerk hosts and an exact configured custom hostname", () => {
     expect(isAllowedClerkFrontendApiHostname("example.clerk.accounts.dev", null)).toBe(true);
     expect(isAllowedClerkFrontendApiHostname("example.clerk.accounts.com", null)).toBe(true);
-    expect(isAllowedClerkFrontendApiHostname("clerk.rune.dev", "clerk.rune.dev")).toBe(true);
-    expect(isAllowedClerkFrontendApiHostname("attacker.example", "clerk.rune.dev")).toBe(false);
-    expect(isAllowedClerkFrontendApiHostname("nested.clerk.rune.dev", "clerk.rune.dev")).toBe(
+    expect(isAllowedClerkFrontendApiHostname("clerk.rune.codes", "clerk.rune.codes")).toBe(true);
+    expect(isAllowedClerkFrontendApiHostname("attacker.example", "clerk.rune.codes")).toBe(false);
+    expect(isAllowedClerkFrontendApiHostname("nested.clerk.rune.codes", "clerk.rune.codes")).toBe(
       false,
     );
   });

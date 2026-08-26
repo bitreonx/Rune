@@ -117,7 +117,7 @@ export const SHOWCASE_PROJECTS = [
     id: "rune",
     title: "RUNE",
     directory: "rune",
-    repositoryUrl: "https://github.com/rune-dev/rune.git",
+    repositoryUrl: "https://github.com/pingdotgg/rune.git",
     favicon: PROJECT_FAVICONS.rune,
   },
   {
@@ -305,7 +305,7 @@ async function seedRuneWorkspace(workspaceRoot: string): Promise<void> {
   );
   await initializeRepository({
     workspaceRoot,
-    repositoryUrl: "https://github.com/rune-dev/rune.git",
+    repositoryUrl: "https://github.com/pingdotgg/rune.git",
     commitMessage: "Show connected environments",
   });
   await runGit(workspaceRoot, ["checkout", "-b", "feat/remote-command-center"]);

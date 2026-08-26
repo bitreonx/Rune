@@ -51,12 +51,12 @@ The default endpoint controls the QR code and primary copy action for pairing li
 When no user default is saved, the app uses the built-in LAN endpoint for pairing links when
 available. You can set another endpoint as the default from the expanded endpoint list.
 
-- HTTPS/WSS-compatible endpoints work from `https://app.rune.dev`, but are not made the default
+- HTTPS/WSS-compatible endpoints work from `https://app.rune.codes`, but are not made the default
   automatically.
 - Non-loopback HTTP endpoints are useful for direct LAN pairing.
 - Loopback-only endpoints are not useful for another device unless that device is the same machine.
 
-If the copied link points directly at `http://192.168.x.y:3773`, open it from a client that can reach that LAN address. If it points at `https://app.rune.dev/pair?...`, the hosted web app will save the environment and connect directly to the backend URL in the link.
+If the copied link points directly at `http://192.168.x.y:3773`, open it from a client that can reach that LAN address. If it points at `https://app.rune.codes/pair?...`, the hosted web app will save the environment and connect directly to the backend URL in the link.
 
 In the mobile app's **Add Environment** form, a numeric IP address without a scheme uses HTTP. Include `https://` explicitly when the backend is served over HTTPS.
 
@@ -78,7 +78,7 @@ Tailscale Serve to proxy HTTPS traffic to the local backend. Turn the same switc
 
 The Tailscale support is an endpoint provider add-on. The core remote model still works without Tailscale: LAN HTTP endpoints, custom HTTPS endpoints, future tunnels, and SSH-launched environments all use the same saved environment and pairing flow.
 
-For `https://app.rune.dev`, prefer an HTTPS Tailnet or other HTTPS endpoint. A plain `http://100.x.y.z:3773` endpoint can still work from a desktop client or another browser page served over HTTP, but it will not work from the hosted HTTPS app because of browser mixed-content rules.
+For `https://app.rune.codes`, prefer an HTTPS Tailnet or other HTTPS endpoint. A plain `http://100.x.y.z:3773` endpoint can still work from a desktop client or another browser page served over HTTP, but it will not work from the hosted HTTPS app because of browser mixed-content rules.
 
 ### Option 2: Headless Server (CLI)
 
@@ -130,15 +130,15 @@ Use this when you want the desktop app to start or reuse RUNE on another machine
 2. Under **Remote Environments**, choose **Add environment**.
 3. Select the SSH launch flow.
 4. Enter the SSH target, such as `user@example.com`.
-5. Confirm the launch. The desktop app probes the host, starts or reuses a remote T3 server, opens a local port forward, and saves the environment.
+5. Confirm the launch. The desktop app probes the host, starts or reuses a remote RUNE server, opens a local port forward, and saves the environment.
 
-After setup, the renderer connects to a local forwarded HTTP/WebSocket endpoint. The remote host still owns the actual T3 server, projects, files, git state, terminals, and provider sessions.
+After setup, the renderer connects to a local forwarded HTTP/WebSocket endpoint. The remote host still owns the actual RUNE server, projects, files, git state, terminals, and provider sessions.
 
 SSH launch is a desktop feature because it needs local process and SSH access. Once the environment is paired and saved, it uses the same environment list and connection model as direct LAN, Tailscale, HTTPS, or future tunnel-backed environments.
 
 #### SSH Launch Troubleshooting
 
-The desktop SSH launcher connects with a non-interactive `sh` session, writes a small launcher script under `~/.rune/ssh-launch/<host-key>/`, starts or reuses a remote T3 server, and forwards the remote loopback port back to your desktop.
+The desktop SSH launcher connects with a non-interactive `sh` session, writes a small launcher script under `~/.rune/ssh-launch/<host-key>/`, starts or reuses a remote RUNE server, and forwards the remote loopback port back to your desktop.
 
 The remote host must have a compatible Node.js runtime. RUNE uses the server package's `engines.node` requirement:
 
@@ -165,7 +165,7 @@ nvm alias default 24
 
 With mise, asdf, fnm, or nodenv, make sure the tool's shim directory is installed and resolves to a Node version satisfying the range above without an interactive shell.
 
-If reconnecting after an app update fails, retry the SSH launch once. The launcher now compares its generated runner script, stops stale launcher-managed remote servers, clears the SSH launch PID/port state, and starts a fresh remote server. You should not normally need to delete `~/.rune/ssh-launch` or kill `t3` processes manually.
+If reconnecting after an app update fails, retry the SSH launch once. The launcher now compares its generated runner script, stops stale launcher-managed remote servers, clears the SSH launch PID/port state, and starts a fresh remote server. You should not normally need to delete `~/.rune/ssh-launch` or kill `rune` processes manually.
 
 ## Updating a Remote Server
 
@@ -194,10 +194,10 @@ After pairing, future access is session-based. You do not need to keep reusing t
 
 ## Hosted Web App Pairing
 
-The hosted web app at `https://app.rune.dev` can save a remote backend in browser local storage from a URL like:
+The hosted web app at `https://app.rune.codes` can save a remote backend in browser local storage from a URL like:
 
 ```text
-https://app.rune.dev/pair?host=https://backend.example.com:3773#token=PAIRCODE
+https://app.rune.codes/pair?host=https://backend.example.com:3773#token=PAIRCODE
 ```
 
 Use hosted pairing when the backend is reachable from the browser over HTTPS/WSS. This includes a backend behind a trusted HTTPS tunnel or another HTTPS endpoint you operate.

@@ -55,7 +55,7 @@ jobs:
 
       - name: Deploy production relay stage
         id: deploy
-        run: vp run --filter=rune-relay deploy --stage prod --yes --github-output
+        run: vp run --filter rune-relay deploy --stage prod --yes --github-output
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           PLANETSCALE_API_TOKEN_ID: ${{ secrets.PLANETSCALE_API_TOKEN_ID }}

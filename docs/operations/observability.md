@@ -31,7 +31,7 @@ Completed spans are written as NDJSON records to `serverTracePath`. The default 
 server starts: production and explicitly configured homes use
 `<home>/userdata/logs/server.trace.ndjson` (so `~/.rune/userdata/...` by default, or
 `/custom/path/userdata/...` with `--home-dir /custom/path`), a linked worktree dev run uses
-`<worktree>/.t3/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
+`<worktree>/.rune/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
 worktree uses `~/.rune/dev/logs/server.trace.ndjson`.
 
 Important fields common to both record types:
@@ -115,7 +115,7 @@ Default Grafana login:
 ```bash
 export RUNE_OTLP_TRACES_URL=http://localhost:4318/v1/traces
 export RUNE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics
-export RUNE_OTLP_SERVICE_NAME=t3-local
+export RUNE_OTLP_SERVICE_NAME=rune-local
 ```
 
 Optional:
@@ -154,7 +154,7 @@ macOS app bundle example:
 ```bash
 RUNE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
 RUNE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-RUNE_OTLP_SERVICE_NAME=t3-desktop \
+RUNE_OTLP_SERVICE_NAME=rune-desktop \
 "/Applications/RUNE.app/Contents/MacOS/RUNE"
 ```
 
@@ -163,7 +163,7 @@ Direct binary example:
 ```bash
 RUNE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
 RUNE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-RUNE_OTLP_SERVICE_NAME=t3-desktop \
+RUNE_OTLP_SERVICE_NAME=rune-desktop \
 ./path/to/your/desktop-app-binary
 ```
 
@@ -183,19 +183,19 @@ Resolve the path for the launch mode once. Production and explicitly configured 
 state under the base directory's `userdata` folder:
 
 ```bash
-TRACE_FILE="${RUNE_HOME:-$HOME/.t3}/userdata/logs/server.trace.ndjson"
+TRACE_FILE="${RUNE_HOME:-$HOME/.rune}/userdata/logs/server.trace.ndjson"
 ```
 
 A dev server started from a linked worktree defaults to that worktree's local home:
 
 ```bash
-TRACE_FILE="$WORKTREE/.t3/userdata/logs/server.trace.ndjson"
+TRACE_FILE="$WORKTREE/.rune/userdata/logs/server.trace.ndjson"
 ```
 
 Only an implicit dev run outside a linked worktree uses the shared dev directory:
 
 ```bash
-TRACE_FILE="$HOME/.t3/dev/logs/server.trace.ndjson"
+TRACE_FILE="$HOME/.rune/dev/logs/server.trace.ndjson"
 ```
 
 Tail the selected file:
@@ -299,7 +299,7 @@ Recommended flow in Grafana:
 
 Good first searches:
 
-- service name such as `t3-local`, `t3-dev`, or `t3-desktop`
+- service name such as `rune-local`, `rune-dev`, or `rune-desktop`
 - span names like `sendTurn` or a Git operation such as `GitVcsDriver.statusDetails.status`
 - Git spans whose `git.operation` attribute identifies the operation
 - orchestration spans with attributes like `orchestration.command_type`
@@ -313,18 +313,18 @@ Traces are best for one request. Metrics are best for trends.
 
 Good metric families to watch:
 
-- `t3_rpc_request_duration`
-- `t3_orchestration_command_duration`
-- `t3_orchestration_command_ack_duration`
-- `t3_provider_turn_duration`
-- `t3_git_command_duration`
+- `rune_rpc_request_duration`
+- `rune_orchestration_command_duration`
+- `rune_orchestration_command_ack_duration`
+- `rune_provider_turn_duration`
+- `rune_git_command_duration`
 
 Counters tell you volume and failure rate:
 
-- `t3_rpc_requests_total`
-- `t3_orchestration_commands_total`
-- `t3_provider_turns_total`
-- `t3_git_commands_total`
+- `rune_rpc_requests_total`
+- `rune_orchestration_commands_total`
+- `rune_provider_turns_total`
+- `rune_git_commands_total`
 
 Use metrics when the question is:
 
@@ -340,7 +340,7 @@ Use traces when the question is:
 
 ### What The New Ack Metric Means
 
-`t3_orchestration_command_ack_duration` measures:
+`rune_orchestration_command_ack_duration` measures:
 
 - start: command dispatch enters the orchestration engine
 - end: the first committed domain event for that command is published by the server
@@ -371,7 +371,7 @@ If you need those later, add client-side instrumentation or a dedicated server f
 
 ### "Did this command take too long to acknowledge?"
 
-1. Check `t3_orchestration_command_ack_duration` by `commandType`.
+1. Check `rune_orchestration_command_ack_duration` by `commandType`.
 2. If it is high, inspect the corresponding orchestration trace.
 3. Look at child spans for projection, sqlite, provider, or git work.
 
@@ -521,7 +521,7 @@ OTLP export:
 - `RUNE_OTLP_TRACES_URL`: OTLP trace endpoint
 - `RUNE_OTLP_METRICS_URL`: OTLP metric endpoint
 - `RUNE_OTLP_EXPORT_INTERVAL_MS`: export interval, default `10000`
-- `RUNE_OTLP_SERVICE_NAME`: service name, default `t3-server`
+- `RUNE_OTLP_SERVICE_NAME`: service name, default `rune-server`
 
 If the OTLP URLs are unset, local tracing still works and metrics stay in-process only.
 

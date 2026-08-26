@@ -1,0 +1,8 @@
+{
+  "name": "RUNE light icon set",
+  "variant": "light",
+  "source_master": "rune-light-universal-1024.png",
+  "generated_sizes": ["1024x1024", "180x180", "32x32", "16x16", "favicon.ico", "windows.ico"],
+  "transparent_outside_tile": true,
+  "note": "Latest packaged RUNE asset set."
+}

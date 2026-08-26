@@ -33,9 +33,9 @@ import {
 
 const REPO_ROOT = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const MOBILE_ROOT = NodePath.join(REPO_ROOT, "apps/mobile");
-const ANDROID_PACKAGE = "dev.rune.rune";
+const ANDROID_PACKAGE = "com.runetools.rune";
 const APP_SCHEME = "rune";
-const IOS_READY_FILENAME = "RuneShowcaseReadyScene";
+const IOS_READY_FILENAME = "RUNEShowcaseReadyScene";
 const SERVER_HOST = "0.0.0.0";
 const IOS_SIMULATOR_ARCH = NodeProcess.arch === "arm64" ? "arm64" : "x86_64";
 const IOS_APP_PATH = NodePath.join(
@@ -956,7 +956,7 @@ async function captureIos(
   const metroUrl = `http://${metroHost}:${config.metroPort}?disableOnboarding=1`;
   const scenePath = NodePath.join(
     await iosAppContainer(simulator.udid),
-    "Library/Caches/RuneShowcaseScene",
+    "Library/Caches/RUNEShowcaseScene",
   );
   const readyPath = NodePath.join(
     await iosAppContainer(simulator.udid),

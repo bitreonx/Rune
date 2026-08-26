@@ -25,9 +25,9 @@ import {
   resolveComposerControlledEventCount,
   type ComposerNativeEventSnapshot,
 } from "./composerEditorRevision";
-import type { ComposerEditorProps, ComposerEditorSelection } from "./RuneComposerEditor.types";
+import type { ComposerEditorProps, ComposerEditorSelection } from "./RUNEComposerEditor.types";
 
-const NATIVE_MODULE_NAME = "RuneComposerEditor";
+const NATIVE_MODULE_NAME = "RUNEComposerEditor";
 const EMPTY_SKILLS: NonNullable<ComposerEditorProps["skills"]> = [];
 
 type NativeEditorEvent = NativeSyntheticEvent<{
@@ -298,4 +298,4 @@ export type {
   ComposerEditorHandle,
   ComposerEditorProps,
   ComposerEditorSelection,
-} from "./RuneComposerEditor.types";
+} from "./RUNEComposerEditor.types";

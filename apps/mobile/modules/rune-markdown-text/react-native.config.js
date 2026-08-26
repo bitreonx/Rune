@@ -2,7 +2,7 @@ module.exports = {
   dependency: {
     platforms: {
       ios: {
-        podspecPath: "RuneMarkdownText.podspec",
+        podspecPath: "RUNEMarkdownText.podspec",
       },
       android: null,
     },

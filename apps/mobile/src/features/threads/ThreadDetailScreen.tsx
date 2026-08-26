@@ -12,7 +12,7 @@ import type {
   ProviderApprovalDecision,
   ProviderInteractionMode,
   RuntimeMode,
-  ServerConfig as RuneServerConfig,
+  ServerConfig as RUNEServerConfig,
   ThreadId,
   UserInputQuestion,
 } from "@rune/contracts";
@@ -106,7 +106,7 @@ export interface ThreadDetailScreenProps {
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
   readonly selectedThreadQueueCount: number;
-  readonly serverConfig: RuneServerConfig | null;
+  readonly serverConfig: RUNEServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;

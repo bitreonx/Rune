@@ -1,8 +1,11 @@
 import type { ColorValue } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
-/** The RUNE wordmark used by the mobile shell. */
-export function RuneWordmark(props: { readonly height: number; readonly color: ColorValue }) {
+/**
+ * The "RUNE" brand mark, matching the desktop sidebar's RUNEWordmark SVG
+ * (apps/web Sidebar.tsx). Width derives from the viewBox aspect ratio.
+ */
+export function RUNEWordmark(props: { readonly height: number; readonly color: ColorValue }) {
   const aspectRatio = 94.3941 / 56.96;
   return (
     <Svg

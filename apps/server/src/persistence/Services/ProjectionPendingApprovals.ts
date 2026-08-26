@@ -90,4 +90,4 @@ export interface ProjectionPendingApprovalRepositoryShape {
 export class ProjectionPendingApprovalRepository extends Context.Service<
   ProjectionPendingApprovalRepository,
   ProjectionPendingApprovalRepositoryShape
->()("@rune/server/persistence/Services/ProjectionPendingApprovals/ProjectionPendingApprovalRepository") {}
+>()("rune/persistence/Services/ProjectionPendingApprovals/ProjectionPendingApprovalRepository") {}

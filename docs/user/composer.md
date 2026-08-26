@@ -7,23 +7,6 @@ multiple messages, then send again in the same thread.
 On servers that support direct uploads, images upload as soon as you add them. The send button
 becomes available after every upload finishes. Failed uploads can be retried or removed.
 
-## Attach media and folders
-
-The paperclip button in the composer footer opens the attach menu, with **Attach files…** and
-**Attach folder…**. A line at the bottom of the menu shows what the selected model accepts.
-
-Images the model can ingest (GIF, JPEG, PNG, WebP up to 10 MB) upload like pasted images, and
-larger ones are downscaled to fit. Audio, video, and other files attach as a path link in your
-message instead: the agent reads them from disk when it runs. On desktop this works for any file
-on your machine. On the web, files outside the workspace cannot be reached, so RUNE says so
-instead of attaching something the agent cannot open.
-
-**Attach folder…** on desktop adds one path link to a folder of your choice; the agent decides
-which files inside it matter. On the web, choosing folders opens the same workspace browser as
-typing `@`.
-
-Pasting and dragging images keeps working exactly as before, independently of this menu.
-
 ## Commands and skills
 
 Type `/` to open the command menu. Type `$` to find and add a skill. Skill rows show their source,
@@ -66,4 +49,3 @@ thread, the composer shows a banner reminding you of this.
 To keep a temporary chat, open its context menu in the sidebar and choose **Keep chat**. It becomes
 a permanent thread again and returns to its usual place in the sidebar. Deleting a temporary chat
 from the same menu works too, if you do not want to wait for the auto-delete.
-

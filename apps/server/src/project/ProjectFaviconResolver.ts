@@ -16,7 +16,7 @@ import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import * as RuneProjectFileLoader from "./RuneProjectFileLoader.ts";
+import * as RUNEProjectFileLoader from "./RUNEProjectFileLoader.ts";
 
 // Well-known favicon paths checked in order.
 const FAVICON_CANDIDATES = [
@@ -97,7 +97,7 @@ export class ProjectFaviconResolver extends Context.Service<
       faviconPath?: string,
     ) => Effect.Effect<string | null, ProjectFaviconResolutionError>;
   }
->()("@rune/server/project/ProjectFaviconResolver") {}
+>()("rune/project/ProjectFaviconResolver") {}
 
 function extractIconHref(source: string): string | null {
   const htmlMatch = source.match(LINK_ICON_HTML_RE);
@@ -127,7 +127,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
-  const projectFileLoader = yield* RuneProjectFileLoader.RuneProjectFileLoader;
+  const projectFileLoader = yield* RUNEProjectFileLoader.RUNEProjectFileLoader;
 
   const resolveIconHref = (href: string): ReadonlyArray<string> => {
     const clean = href.replace(/^\//, "");

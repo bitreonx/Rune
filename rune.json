@@ -1,6 +1,6 @@
 {
-  "$schema": "https://rune.dev/schema/rune.json",
-  "iconPath": "assets/dev/rune-web-apple-touch-180.png",
+  "$schema": "https://rune.codes/schema/rune.json",
+  "iconPath": "assets/dev/blueprint-web-apple-touch-180.png",
   "scripts": [
     {
       "name": "Setup Worktree",

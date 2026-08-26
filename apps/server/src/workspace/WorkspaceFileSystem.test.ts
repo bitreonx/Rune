@@ -291,7 +291,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const cwd = yield* makeTempDir;
         yield* runGit(cwd, ["init"]);
         yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
-        yield* runGit(cwd, ["config", "user.name", "T3 Test"]);
+        yield* runGit(cwd, ["config", "user.name", "RUNE Test"]);
         yield* writeTextFile(cwd, "src/index.ts", "export const answer = 42;\n");
         yield* commitAll(cwd);
         yield* writeTextFile(cwd, "src/index.ts", "export const answer = 43;\n");
@@ -317,7 +317,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const cwd = yield* makeTempDir;
         yield* runGit(cwd, ["init"]);
         yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
-        yield* runGit(cwd, ["config", "user.name", "T3 Test"]);
+        yield* runGit(cwd, ["config", "user.name", "RUNE Test"]);
         yield* writeTextFile(cwd, "README.md", "# repo\n");
         yield* commitAll(cwd);
         yield* writeTextFile(cwd, "src/new.ts", "export {};\n");
@@ -384,7 +384,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const cwd = yield* makeTempDir;
         yield* runGit(cwd, ["init"]);
         yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
-        yield* runGit(cwd, ["config", "user.name", "T3 Test"]);
+        yield* runGit(cwd, ["config", "user.name", "RUNE Test"]);
         yield* fileSystem
           .writeFile(path.join(cwd, "blob.bin"), Uint8Array.from([0x50, 0x4b, 0x00, 0x03]))
           .pipe(Effect.orDie);
@@ -404,7 +404,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const cwd = yield* makeTempDir;
         yield* runGit(cwd, ["init"]);
         yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
-        yield* runGit(cwd, ["config", "user.name", "T3 Test"]);
+        yield* runGit(cwd, ["config", "user.name", "RUNE Test"]);
         const blobSize = 1024 * 1024 + 4096;
         yield* writeTextFile(cwd, "big.txt", "x".repeat(blobSize));
         yield* commitAll(cwd);

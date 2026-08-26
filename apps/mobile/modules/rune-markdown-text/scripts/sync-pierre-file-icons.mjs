@@ -14,10 +14,10 @@ const webIconSource = NodeFS.readFileSync(
   NodePath.join(repositoryRoot, "apps/web/src/pierre-icons.ts"),
   "utf8",
 );
-const customSprite = webIconSource.match(/const T3_FILE_ICON_SPRITE = `([\s\S]*?)`;/)?.[1];
+const customSprite = webIconSource.match(/const RUNE_FILE_ICON_SPRITE = `([\s\S]*?)`;/)?.[1];
 
 if (!customSprite) {
-  throw new Error("Could not read the T3 Pierre icon sprite from apps/web/src/pierre-icons.ts");
+  throw new Error("Could not read the RUNE Pierre icon sprite from apps/web/src/pierre-icons.ts");
 }
 
 const colors = {
@@ -77,12 +77,12 @@ const colors = {
 };
 
 const customIcons = {
-  agents: "t3-file-icon-agents",
-  claude: "t3-file-icon-claude",
-  package: "t3-file-icon-package-json",
-  pnpm: "t3-file-icon-pnpm",
-  readme: "t3-file-icon-readme",
-  tsconfig: "t3-file-icon-tsconfig",
+  agents: "rune-file-icon-agents",
+  claude: "rune-file-icon-claude",
+  package: "rune-file-icon-package-json",
+  pnpm: "rune-file-icon-pnpm",
+  readme: "rune-file-icon-readme",
+  tsconfig: "rune-file-icon-tsconfig",
 };
 
 function symbolFromSprite(sprite, id) {

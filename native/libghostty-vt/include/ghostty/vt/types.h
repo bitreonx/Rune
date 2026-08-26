@@ -262,7 +262,7 @@ typedef struct {
 /**
  * A borrowed list of Unicode scalar values.
  *
- * Values are encoded as uint32_t scalar values. The memory is not owned by this
+ * Values are encoded as uinrune2_t scalar values. The memory is not owned by this
  * struct. The pointer is only valid for the lifetime documented by the API that
  * consumes or produces it.
  *
@@ -270,7 +270,7 @@ typedef struct {
  */
 typedef struct {
   /** Pointer to Unicode scalar values. */
-  const uint32_t* ptr;
+  const uinrune2_t* ptr;
 
   /** Number of entries in ptr. */
   size_t len;

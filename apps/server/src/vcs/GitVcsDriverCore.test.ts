@@ -1496,40 +1496,40 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
-        yield* git(cwd, ["remote", "add", "origin", "https://github.com/rune-dev/rune.git"]);
+        yield* git(cwd, ["remote", "add", "origin", "https://github.com/pingdotgg/rune.git"]);
 
         const reusedForSsh = yield* driver.ensureRemote({
           cwd,
-          preferredName: "rune-dev",
-          url: "git@github.com:rune-dev/rune.git",
+          preferredName: "pingdotgg",
+          url: "git@github.com:pingdotgg/rune.git",
         });
         assert.equal(reusedForSsh, "origin");
 
         const reusedForSshScheme = yield* driver.ensureRemote({
           cwd,
-          preferredName: "rune-dev",
-          url: "ssh://git@github.com/rune-dev/rune",
+          preferredName: "pingdotgg",
+          url: "ssh://git@github.com/pingdotgg/rune",
         });
         assert.equal(reusedForSshScheme, "origin");
 
         const reusedForBareSshScheme = yield* driver.ensureRemote({
           cwd,
-          preferredName: "rune-dev",
-          url: "ssh://github.com/rune-dev/rune",
+          preferredName: "pingdotgg",
+          url: "ssh://github.com/pingdotgg/rune",
         });
         assert.equal(reusedForBareSshScheme, "origin");
 
         const reusedForSshPort = yield* driver.ensureRemote({
           cwd,
-          preferredName: "rune-dev",
-          url: "ssh://git@github.com:22/rune-dev/rune",
+          preferredName: "pingdotgg",
+          url: "ssh://git@github.com:22/pingdotgg/rune",
         });
         assert.equal(reusedForSshPort, "origin");
 
         const reusedForSshWithPort = yield* driver.ensureRemote({
           cwd,
-          preferredName: "rune-dev",
-          url: "ssh://git@github.com:22/rune-dev/rune.git",
+          preferredName: "pingdotgg",
+          url: "ssh://git@github.com:22/pingdotgg/rune.git",
         });
         assert.equal(reusedForSshWithPort, "origin");
 

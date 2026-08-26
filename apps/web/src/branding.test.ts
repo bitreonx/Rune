@@ -83,7 +83,7 @@ describe("branding logic", () => {
     expect(
       resolveServerBackedAppStageLabel({
         primaryServerVersion: "0.0.28-nightly.20260616.12",
-        fallbackStageLabel: "Alpha",
+        fallbackStageLabel: "Stable",
       }),
     ).toBe("Nightly");
   });
@@ -92,8 +92,8 @@ describe("branding logic", () => {
     expect(
       resolveServerBackedAppDisplayName({
         baseName: "RUNE",
-        fallbackDisplayName: "RUNE (Alpha)",
-        fallbackStageLabel: "Alpha",
+        fallbackDisplayName: "RUNE",
+        fallbackStageLabel: "Stable",
         primaryServerVersion: "0.0.28-nightly.20260616.12",
       }),
     ).toBe("RUNE (Nightly)");
@@ -103,21 +103,21 @@ describe("branding logic", () => {
     expect(
       resolveServerBackedAppDisplayName({
         baseName: "RUNE",
-        fallbackDisplayName: "RUNE (Alpha)",
-        fallbackStageLabel: "Alpha",
+        fallbackDisplayName: "RUNE",
+        fallbackStageLabel: "Stable",
         primaryServerVersion: "0.0.27",
       }),
-    ).toBe("RUNE (Alpha)");
+    ).toBe("RUNE");
   });
 
   it("keeps the fallback display name for malformed nightly primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({
         baseName: "RUNE",
-        fallbackDisplayName: "RUNE (Alpha)",
-        fallbackStageLabel: "Alpha",
+        fallbackDisplayName: "RUNE",
+        fallbackStageLabel: "Stable",
         primaryServerVersion: "0.0.28-nightly.20260616",
       }),
-    ).toBe("RUNE (Alpha)");
+    ).toBe("RUNE");
   });
 });

@@ -4,12 +4,12 @@
 #import <React/RCTComponent.h>
 #import <UIKit/UIKit.h>
 
-#ifndef RuneMarkdownTextRunNativeComponent_h
-#define RuneMarkdownTextRunNativeComponent_h
+#ifndef RUNEMarkdownTextRunNativeComponent_h
+#define RUNEMarkdownTextRunNativeComponent_h
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface RuneMarkdownTextRun : RCTViewComponentView
+@interface RUNEMarkdownTextRun : RCTViewComponentView
 
 @property (nonatomic, copy, nullable) NSString *text;
 

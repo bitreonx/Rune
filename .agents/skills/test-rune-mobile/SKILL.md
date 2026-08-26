@@ -29,7 +29,7 @@ Do not treat unavailable iOS tooling as a blocker when Android is a valid repres
 The development identity on both platforms is:
 
 - App: `RUNE Dev`
-- Bundle/package identifier: `dev.rune.mobile.dev`
+- Bundle/package identifier: `com.runetools.rune.dev`
 - URL scheme: `rune-dev`
 
 Bundle or package presence proves the correct variant, not native compatibility. Reuse it only when the current changes did not alter its Expo SDK, native dependencies, config plugins, entitlements, generated project, or native source.
@@ -93,16 +93,16 @@ Run Metro from `apps/mobile`.
 
 Use `ios-debugger-agent` to select one UDID and set these XcodeBuildMCP session defaults:
 
-- Workspace: `<repo>/apps/mobile/ios/RUNEDev.xcworkspace`
-- Scheme: `RUNEDev`
+- Workspace: `<repo>/apps/mobile/ios/RuneDev.xcworkspace`
+- Scheme: `RuneDev`
 - Configuration: `Debug`
 - Simulator ID: the selected UDID
-- Bundle ID: `dev.rune.mobile.dev`
+- Bundle ID: `com.runetools.rune.dev`
 
 Check the installed client with:
 
 ```bash
-xcrun simctl get_app_container <simulator-udid> dev.rune.mobile.dev app
+xcrun simctl get_app_container <simulator-udid> com.runetools.rune.dev app
 xcrun simctl openurl <simulator-udid> <printed-dev-client-url>
 ```
 
@@ -113,12 +113,12 @@ Accept the iOS confirmation prompt and dismiss the developer menu when it obscur
 Select one running emulator serial from `adb devices` and check the installed client:
 
 ```bash
-adb -s <emulator-serial> shell pm path dev.rune.mobile.dev
+adb -s <emulator-serial> shell pm path com.runetools.rune.dev
 adb -s <emulator-serial> reverse tcp:<metro-port> tcp:<metro-port>
 adb -s <emulator-serial> shell am start -W \
   -a android.intent.action.VIEW \
   -d '<printed-dev-client-url>' \
-  dev.rune.mobile.dev
+  com.runetools.rune.dev
 ```
 
 Do not start, stop, erase, or reconfigure an emulator owned by another task. Track and later stop only processes owned by this test.

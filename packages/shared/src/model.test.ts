@@ -12,7 +12,6 @@ import {
   getProviderOptionStringSelectionValue,
   normalizeCustomModelSlug,
   normalizeModelSlug,
-  resolveModelMediaSupport,
 } from "./model.ts";
 
 const codexCaps: ModelCapabilities = createModelCapabilities({
@@ -154,52 +153,5 @@ describe("model slug normalization", () => {
 
     expect(normalizeModelSlug("opus", claude)).toBe("claude-opus-5");
     expect(normalizeCustomModelSlug(" opus ")).toBe("opus");
-  });
-});
-
-describe("resolveModelMediaSupport", () => {
-  it("reports the modalities the catalog lists for the model", () => {
-    expect(resolveModelMediaSupport({ inputModalities: ["text", "image"] })).toEqual({
-      image: true,
-      audio: false,
-      video: false,
-    });
-    expect(
-      resolveModelMediaSupport({ inputModalities: ["text", "image", "audio", "video"] }),
-    ).toEqual({
-      image: true,
-      audio: true,
-      video: true,
-    });
-  });
-
-  it("treats a catalog that omits image as not accepting images", () => {
-    expect(resolveModelMediaSupport({ inputModalities: ["text"] })).toEqual({
-      image: false,
-      audio: false,
-      video: false,
-    });
-  });
-
-  it("matches modality names case-insensitively", () => {
-    expect(resolveModelMediaSupport({ inputModalities: ["Text", "Image"] })?.image).toBe(true);
-  });
-
-  it("falls back to images-only defaults when the catalog is silent", () => {
-    expect(resolveModelMediaSupport(undefined)).toEqual({
-      image: true,
-      audio: false,
-      video: false,
-    });
-    expect(resolveModelMediaSupport({})).toEqual({
-      image: true,
-      audio: false,
-      video: false,
-    });
-    expect(resolveModelMediaSupport({ inputModalities: [] })).toEqual({
-      image: true,
-      audio: false,
-      video: false,
-    });
   });
 });

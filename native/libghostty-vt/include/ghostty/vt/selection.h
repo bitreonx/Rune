@@ -133,8 +133,8 @@ typedef struct {
   /** Grid reference under which to derive the word selection. */
   GhosttyGridRef ref;
 
-  /** Optional word-boundary codepoints as uint32_t scalar values. */
-  const uint32_t* boundary_codepoints;
+  /** Optional word-boundary codepoints as uinrune2_t scalar values. */
+  const uinrune2_t* boundary_codepoints;
 
   /** Number of entries in boundary_codepoints. */
   size_t boundary_codepoints_len;
@@ -160,8 +160,8 @@ typedef struct {
   /** Ending grid reference for the inclusive search range. */
   GhosttyGridRef end;
 
-  /** Optional word-boundary codepoints as uint32_t scalar values. */
-  const uint32_t* boundary_codepoints;
+  /** Optional word-boundary codepoints as uinrune2_t scalar values. */
+  const uinrune2_t* boundary_codepoints;
 
   /** Number of entries in boundary_codepoints. */
   size_t boundary_codepoints_len;
@@ -185,7 +185,7 @@ typedef struct {
   GhosttyGridRef ref;
 
   /** Optional codepoints to trim from the start and end of the line. */
-  const uint32_t* whitespace;
+  const uinrune2_t* whitespace;
 
   /** Number of entries in whitespace. */
   size_t whitespace_len;
@@ -358,16 +358,16 @@ typedef struct {
  */
 typedef struct {
   /** Number of columns in the rendered terminal grid. Must be non-zero. */
-  uint32_t columns;
+  uinrune2_t columns;
 
   /** Width of one terminal cell in surface pixels. Must be non-zero. */
-  uint32_t cell_width;
+  uinrune2_t cell_width;
 
   /** Left padding before the terminal grid begins in surface pixels. */
-  uint32_t padding_left;
+  uinrune2_t padding_left;
 
   /** Height of the rendered terminal surface in surface pixels. Must be non-zero. */
-  uint32_t screen_height;
+  uinrune2_t screen_height;
 } GhosttySelectionGestureGeometry;
 
 /**

@@ -9,15 +9,15 @@ orchestration layer does not know which one is behind a thread.
 
 [`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with eight entries:
 
-| Driver kind   | Driver source                                  |
-| ------------- | ---------------------------------------------- |
-| `codex`       | [`Drivers/CodexDriver.ts`][codex]              |
-| `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]            |
-| `cursor`      | [`Drivers/CursorDriver.ts`][cursor]            |
-| `grok`        | [`Drivers/GrokDriver.ts`][grok]                |
+| Driver kind   | Driver source                                 |
+| ------------- | --------------------------------------------- |
+| `codex`       | [`Drivers/CodexDriver.ts`][codex]             |
+| `claudeAgent` | [`Drivers/ClaudeDriver.ts`][claude]           |
+| `cursor`      | [`Drivers/CursorDriver.ts`][cursor]           |
+| `grok`        | [`Drivers/GrokDriver.ts`][grok]               |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode]       |
 | `antigravity` | [`Drivers/AntigravityDriver.ts`][antigravity] |
-| `openaiApi`   | [`Drivers/OpenAiApiDriver.ts`][openai-api]     |
+| `openaiApi`   | [`Drivers/OpenAiApiDriver.ts`][openai-api]    |
 | `openrouter`  | [`Drivers/OpenRouterDriver.ts`][openrouter]   |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
@@ -25,11 +25,6 @@ adapter in a child scope. Adapter implementations live beside them in
 `apps/server/src/provider/Layers/` (`CodexAdapter.ts`, `ClaudeAdapter.ts`, and so on) and conform to
 [`ProviderAdapter.ts`][adapter]. Read the driver plus its adapter to see how a specific agent's
 transport, config, and event shapes are mapped.
-
-The `openaiApi` and `openrouter` drivers are the exception to CLI wrapping: they have no CLI, so
-their adapter runs Rune's own agent loop over OpenAI-compatible chat-completion streaming — with
-workspace tools, approval gating, and sandboxing provided by the server itself. See
-[native agent loop](./rune-native-agent.md).
 
 ## Registry and routing
 

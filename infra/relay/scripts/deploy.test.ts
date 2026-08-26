@@ -90,10 +90,10 @@ describe("reconcileRootEnvPublicConfig", () => {
   const config = {
     relayUrl: "https://relay.example.test",
     mobileTracingUrl: "https://api.axiom.co/v1/traces",
-    mobileTracingDataset: "t3-code-mobile-traces-dev",
+    mobileTracingDataset: "rune-mobile-traces-dev",
     mobileTracingToken: "xaat-public-ingest",
     clientTracingUrl: "https://api.axiom.co/v1/traces",
-    clientTracingDataset: "t3-code-relay-client-traces-dev",
+    clientTracingDataset: "rune-relay-client-traces-dev",
     clientTracingToken: "xaat-relay-client-ingest",
   } as const;
 
@@ -102,10 +102,10 @@ describe("reconcileRootEnvPublicConfig", () => {
       [
         "RUNE_RELAY_URL=https://relay.example.test",
         "RUNE_MOBILE_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "RUNE_MOBILE_OTLP_TRACES_DATASET=t3-code-mobile-traces-dev",
+        "RUNE_MOBILE_OTLP_TRACES_DATASET=rune-mobile-traces-dev",
         "RUNE_MOBILE_OTLP_TRACES_TOKEN=xaat-public-ingest",
         "RUNE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "RUNE_RELAY_CLIENT_OTLP_TRACES_DATASET=t3-code-relay-client-traces-dev",
+        "RUNE_RELAY_CLIENT_OTLP_TRACES_DATASET=rune-relay-client-traces-dev",
         "RUNE_RELAY_CLIENT_OTLP_TRACES_TOKEN=xaat-relay-client-ingest",
         "",
       ].join("\n"),
@@ -133,10 +133,10 @@ describe("reconcileRootEnvPublicConfig", () => {
         "RUNE_CLERK_PUBLISHABLE_KEY=pk_test_example",
         "RUNE_RELAY_URL=https://relay.example.test",
         "RUNE_MOBILE_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "RUNE_MOBILE_OTLP_TRACES_DATASET=t3-code-mobile-traces-dev",
+        "RUNE_MOBILE_OTLP_TRACES_DATASET=rune-mobile-traces-dev",
         "RUNE_MOBILE_OTLP_TRACES_TOKEN=xaat-public-ingest",
         "RUNE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "RUNE_RELAY_CLIENT_OTLP_TRACES_DATASET=t3-code-relay-client-traces-dev",
+        "RUNE_RELAY_CLIENT_OTLP_TRACES_DATASET=rune-relay-client-traces-dev",
         "RUNE_RELAY_CLIENT_OTLP_TRACES_TOKEN=xaat-relay-client-ingest",
         "",
       ].join("\n"),

@@ -108,7 +108,7 @@ export const resolveNightlyReleaseMetadata = (
     baseVersion,
     version,
     tag: `v${version}`,
-    name: `Rune Nightly ${version} (${shortSha})`,
+    name: `RUNE Nightly ${version} (${shortSha})`,
     shortSha,
   };
 };

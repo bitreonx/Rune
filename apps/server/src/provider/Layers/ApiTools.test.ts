@@ -13,7 +13,7 @@ import * as ProcessRunner from "../../processRunner.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "../../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
-import { GATED_TOOLS, SAFE_TOOLS } from "./ApiTools.ts";
+import { GATED_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
 
 const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
 
@@ -143,35 +143,25 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
 
   describe("tool definitions", () => {
     it("every safe tool def is fully described", () => {
-      // Compound read tools from ApiWorkspaceTools lead, base tools follow.
-      expect(SAFE_TOOLS.map((tool) => tool.name)).toEqual([
-        "workspace_snapshot",
-        "search_many",
-        "read_many",
-        "read_file",
-        "list_dir",
-        "search",
-      ]);
+      expect(SAFE_TOOLS.map((tool) => tool.name)).toEqual(["read_file", "list_dir", "search"]);
       for (const def of SAFE_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
-        // Zero-arg tools like workspace_snapshot legitimately have empty properties.
-        expect((def.parametersJsonSchema as { type?: string }).type).toBe("object");
+        expect(
+          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
+            .length,
+        ).toBeGreaterThan(0);
         expect(def.requiresApproval).toBe(false);
       }
     });
 
     it("every gated tool def is fully described and requires approval", () => {
-      // Compound mutation tools from ApiWorkspaceTools lead, base tools follow.
-      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual([
-        "apply_patch",
-        "generate_files",
-        "run_checks",
-        "edit_file",
-        "bash",
-      ]);
+      expect(GATED_TOOLS.map((tool) => tool.name)).toEqual(["edit_file", "bash"]);
       for (const def of GATED_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
-        expect((def.parametersJsonSchema as { type?: string }).type).toBe("object");
+        expect(
+          Object.keys((def.parametersJsonSchema as { properties?: object }).properties ?? {})
+            .length,
+        ).toBeGreaterThan(0);
         expect(def.requiresApproval).toBe(true);
       }
     });

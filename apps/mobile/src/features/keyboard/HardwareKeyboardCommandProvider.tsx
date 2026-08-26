@@ -1,7 +1,7 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { useCallback, useMemo, useSyncExternalStore, type PropsWithChildren } from "react";
 
-import { RuneKeyboardCommands } from "../../native/RuneKeyboardCommands";
+import { RUNEKeyboardCommands } from "../../native/RUNEKeyboardCommands";
 import {
   dispatchHardwareKeyboardCommand,
   getHardwareKeyboardCommandRegistrationVersion,
@@ -66,8 +66,8 @@ export function HardwareKeyboardCommandProvider({
   );
 
   return (
-    <RuneKeyboardCommands enabledCommands={enabledCommands} onCommand={onCommand}>
+    <RUNEKeyboardCommands enabledCommands={enabledCommands} onCommand={onCommand}>
       {children}
-    </RuneKeyboardCommands>
+    </RUNEKeyboardCommands>
   );
 }

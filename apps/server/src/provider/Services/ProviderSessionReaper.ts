@@ -12,4 +12,4 @@ export interface ProviderSessionReaperShape {
 export class ProviderSessionReaper extends Context.Service<
   ProviderSessionReaper,
   ProviderSessionReaperShape
->()("@rune/server/provider/Services/ProviderSessionReaper") {}
+>()("rune/provider/Services/ProviderSessionReaper") {}

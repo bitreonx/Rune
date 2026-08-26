@@ -25,7 +25,7 @@ function makeProject(id: string, environmentId = "environment"): EnvironmentProj
 
 function makeScope(projects: ReadonlyArray<EnvironmentProject>): HomeProjectScope {
   return {
-    key: "github.com/rune-dev/rune",
+    key: "github.com/runetools/rune",
     title: "RUNE",
     representative: projects[0]!,
     projects,

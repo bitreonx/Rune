@@ -1,6 +1,6 @@
-#include "RuneMarkdownTextRunShadowNode.h"
+#include "RUNEMarkdownTextRunShadowNode.h"
 
 namespace facebook::react {
 
-extern const char RuneMarkdownTextRunComponentName[] = "RuneMarkdownTextRun";
+extern const char RUNEMarkdownTextRunComponentName[] = "RUNEMarkdownTextRun";
 } // namespace facebook::react

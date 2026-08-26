@@ -194,4 +194,4 @@ export interface ProjectionSnapshotQueryShape {
 export class ProjectionSnapshotQuery extends Context.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("@rune/server/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("rune/orchestration/Services/ProjectionSnapshotQuery") {}

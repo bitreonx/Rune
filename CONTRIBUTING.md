@@ -1,67 +1,53 @@
-# Contributing
+# Contributing to RUNE
 
-## Read This First
+RUNE is early and intentionally selective about outside contributions. Small, focused bug fixes, reliability improvements, performance work, and maintenance changes are the best fit. For a substantial feature, open a discussion first so the direction and scope are clear.
 
-We are not actively accepting contributions right now.
+## Development setup
 
-You can still report a bug or open a PR, but please do so knowing there is a high chance we close it, defer it forever, or never look at it.
+RUNE uses pnpm 11 and Vite+ (`vp`). The root toolchain requires Node.js 24.13.1.
 
-Feature requests and proposals belong in [Ideas discussions](https://github.com/rune-dev/rune/discussions/categories/ideas), not issues.
+```bash
+vp i
+vp run dev
+```
 
-If that sounds annoying, that is because it is. This project is still early and we are trying to keep scope, quality, and direction under control.
+The repository contains the server, web client, Electron desktop app, mobile client, shared contracts/runtime, relay infrastructure, and native terminal components. Start the smallest surface that exercises your change:
 
-PRs are automatically labeled with a `vouch:*` trust status and a `size:*` diff size based on changed lines.
+```bash
+vp run dev:server
+vp run dev:web
+vp run dev:desktop
+```
 
-If you are an external contributor, expect `vouch:unvouched` until we explicitly add you to [.github/VOUCHED.td](.github/VOUCHED.td).
+Read [`AGENTS.md`](./AGENTS.md) and [`docs/internals/overview.md`](./docs/internals/overview.md) before changing server, RPC, provider, or orchestration code. The server owns provider processes, terminals, filesystem access, Git, and workspace state.
 
-## What We Are Most Likely To Accept
+## Verification
 
-Small, focused bug fixes.
+Prefer focused proof:
 
-Small reliability fixes.
+```bash
+vp test run path/to/changed.test.ts
+vp run --filter @rune/web typecheck
+vp run --filter rune typecheck
+vp run lint:mobile
+```
 
-Small performance improvements.
+Do not run repository-wide checks for a narrowly scoped change unless the change requires them. CI runs the full suite. Backend behavior changes should include focused tests. Async server tests should await worker drains or typed receipts rather than sleeping.
 
-Tightly scoped maintenance work that clearly improves the project without changing its direction.
+For user-visible web changes, include one integrated client pass when practical. Mobile work must account for its native modules and Expo dev-client workflow; mobile is still in development and is not an official distributed app.
 
-## What We Are Least Likely To Accept
+## Pull requests
 
-Large PRs.
+- Keep one concern per change.
+- Explain the user-facing problem and the smallest durable fix.
+- Preserve unrelated dirty-worktree changes.
+- Include focused verification commands and their results.
+- Include before/after images for UI changes.
+- Include a short video when motion or timing is part of the change.
+- Do not include secrets, provider credentials, private project data, or PR-only screenshots in the repository.
 
-Drive-by feature work.
+We may close, defer, or rework a contribution. A clear, small, evidence-backed change is easiest to review.
 
-Opinionated rewrites.
+## Scope boundaries
 
-Anything that expands product scope without us asking for it first.
-
-If you open a 1,000+ line PR full of new features, we will probably close it quickly and remember that you ignored the clearly written instructions.
-
-## If You Still Want To Open A PR
-
-Keep it small.
-
-Explain exactly what changed.
-
-Explain exactly why the change should exist.
-
-Do not mix unrelated fixes together.
-
-If the PR makes anything resembling a UI change, include clear before/after images.
-
-If the change depends on motion, timing, transitions, or interaction details, include a short video.
-
-If we have to guess what changed, we are much less likely to review it.
-
-## Discuss Changes First
-
-If you are thinking about a non-trivial change, start a discussion first. Issues are reserved for bug reports.
-
-That still does not mean we will want the PR, but it gives you a chance to avoid wasting your time.
-
-## Be Realistic
-
-Opening a PR does not create an obligation on our side.
-
-We may close it. We may ignore it. We may ask you to shrink it. We may reimplement the idea ourselves later.
-
-If you are fine with that, proceed.
+Avoid copying provider branding, store identifiers, signing identities, analytics keys, release infrastructure, or domains from upstream. Preserve required upstream attribution and third-party license notices. If a compatibility-sensitive inherited identifier must remain, document it in [`RUNE_UPSTREAM_AUDIT.md`](./RUNE_UPSTREAM_AUDIT.md).

@@ -1,12 +1,12 @@
 import ExpoModulesCore
 import UIKit
 
-public final class RuneKeyboardCommandsModule: Module {
+public final class RUNEKeyboardCommandsModule: Module {
   public func definition() -> ModuleDefinition {
-    Name("RuneKeyboardCommands")
+    Name("RUNEKeyboardCommands")
 
-    View(RuneKeyboardCommandsView.self) {
-      Prop("enabledCommands") { (view: RuneKeyboardCommandsView, commands: [String]) in
+    View(RUNEKeyboardCommandsView.self) {
+      Prop("enabledCommands") { (view: RUNEKeyboardCommandsView, commands: [String]) in
         view.setEnabledCommands(commands)
       }
       Events("onCommand")
@@ -14,7 +14,7 @@ public final class RuneKeyboardCommandsModule: Module {
   }
 }
 
-public final class RuneKeyboardCommandsView: ExpoView {
+public final class RUNEKeyboardCommandsView: ExpoView {
   let onCommand = EventDispatcher()
   private var enabledCommands = Set<String>()
 
@@ -114,17 +114,17 @@ public final class RuneKeyboardCommandsView: ExpoView {
 
   @objc private func reclaimFirstResponderIfAvailable() {
     DispatchQueue.main.async { [weak self] in
-      guard let self, self.window?.t3FirstResponder == nil else { return }
+      guard let self, self.window?.runeFirstResponder == nil else { return }
       self.becomeFirstResponder()
     }
   }
 }
 
 private extension UIView {
-  var t3FirstResponder: UIResponder? {
+  var runeFirstResponder: UIResponder? {
     if isFirstResponder { return self }
     for subview in subviews {
-      if let responder = subview.t3FirstResponder { return responder }
+      if let responder = subview.runeFirstResponder { return responder }
     }
     return nil
   }

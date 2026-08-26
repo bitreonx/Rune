@@ -12,8 +12,8 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId,
-  type ApiModelCapabilities,
   type ProviderApprovalDecision,
+  type ApiModelCapabilities,
   type ProviderApprovalPolicy,
   type ProviderSandboxMode,
   type ProviderUserInputAnswers,
@@ -25,6 +25,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
@@ -34,6 +35,8 @@ import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { runAgenticTurn, type AgentLoopDeps, type AgentLoopMessage } from "./ApiAgentLoop.ts";
 import { NATIVE_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
+import { ApiHarnessLedger, compileOutcomeContract } from "./ApiHarness.ts";
+import { decodeApiResumeCursor, encodeApiResumeCursor } from "./ApiSessionState.ts";
 import {
   type ProviderAdapterError,
   ProviderAdapterRequestError,
@@ -68,6 +71,7 @@ interface ApiSessionContext {
   approvalPolicy: ProviderApprovalPolicy | undefined;
   sandboxMode: ProviderSandboxMode | undefined;
   workspaceInstructions: string | undefined;
+  harnessLedger: ApiHarnessLedger | undefined;
   pendingApprovals: Map<ApprovalRequestId, ApiPendingApproval>;
 }
 
@@ -189,7 +193,24 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
   const fetchJson = (operation: string, request: ReturnType<typeof HttpClientRequest.get>) =>
     makeRequest(operation, withHeaders(request));
 
-  // Hands back the live response so the SSE body can be consumed incrementally.
+  const postJson = (operation: string, url: string, body: unknown) => {
+    let request = HttpClientRequest.post(url).pipe(HttpClientRequest.acceptJson);
+    if (options.apiKey.trim().length > 0) {
+      request = request.pipe(HttpClientRequest.bearerToken(options.apiKey.trim()));
+    }
+    for (const [name, value] of Object.entries(options.requestHeaders ?? {})) {
+      if (value.trim().length > 0) request = request.pipe(HttpClientRequest.setHeader(name, value));
+    }
+    return HttpClientRequest.bodyJson(body)(request).pipe(
+      Effect.flatMap(httpClient.execute),
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Unknown)),
+      Effect.mapError((cause) => requestError(options.provider, operation, cause)),
+    );
+  };
+
+  // Streaming variant: same envelope as postJson but hands back the live
+  // response so the SSE body can be consumed incrementally.
   const postStream = (operation: string, url: string, body: unknown) => {
     let request = HttpClientRequest.post(url).pipe(HttpClientRequest.acceptJson);
     if (options.apiKey.trim().length > 0) {
@@ -262,6 +283,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
       }
 
       context.messages.push({ role: "user", content: userText });
+      context.harnessLedger = new ApiHarnessLedger(compileOutcomeContract(userText));
       context.session = {
         ...context.session,
         status: "running",
@@ -354,6 +376,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
           stamp: makeStamp,
           toolContext,
           approvalGate,
+          harnessLedger: context.harnessLedger,
         },
         {
           threadId: context.threadId,
@@ -398,6 +421,27 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
           { role: "assistant", content: text },
         ],
       });
+      context.session = {
+        ...context.session,
+        resumeCursor: encodeApiResumeCursor({
+          messages: context.messages,
+          turns: context.turns.map((turn) => ({
+            id: String(turn.id),
+            items: turn.items.flatMap((item) => {
+              if (
+                !isRecord(item) ||
+                typeof item.role !== "string" ||
+                typeof item.content !== "string"
+              ) {
+                return [];
+              }
+              return item.role === "user" || item.role === "assistant"
+                ? [{ role: item.role, content: item.content }]
+                : [];
+            }),
+          })),
+        }),
+      };
       const updatedAt = yield* nowIso;
       const { activeTurnId: _activeTurnId, ...readySession } = context.session;
       context.activeTurnId = undefined;
@@ -447,6 +491,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
         if (existing.activeFiber) yield* Fiber.interrupt(existing.activeFiber).pipe(Effect.ignore);
       }
       const now = yield* nowIso;
+      const resume = decodeApiResumeCursor(input.resumeCursor);
       const selectedModel =
         input.modelSelection?.instanceId === options.instanceId
           ? input.modelSelection.model
@@ -459,21 +504,32 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(selectedModel ? { model: selectedModel } : {}),
         threadId: input.threadId,
-        ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(resume !== undefined ? { resumeCursor: resume } : {}),
         createdAt: now,
         updatedAt: now,
       };
       const context: ApiSessionContext = {
         threadId: input.threadId,
         session,
-        messages: [],
-        turns: [],
+        messages:
+          resume?.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })) ?? [],
+        turns:
+          resume?.turns.map(
+            (turn): ApiTurnRecord => ({
+              id: TurnId.make(turn.id),
+              items: turn.items.map((item) => ({ role: item.role, content: item.content })),
+            }),
+          ) ?? [],
         activeFiber: undefined,
         activeTurnId: undefined,
         stopped: false,
         approvalPolicy: input.approvalPolicy,
         sandboxMode: input.sandboxMode,
         workspaceInstructions: undefined,
+        harnessLedger: undefined,
         pendingApprovals: new Map(),
       };
       if (options.toolServices !== undefined && input.cwd !== undefined) {

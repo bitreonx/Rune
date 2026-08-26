@@ -90,15 +90,6 @@ interface AssistantSegmentState {
   activeMessageId: MessageId | null;
 }
 
-// Live reasoning ("thinking") stream for a turn. Unlike assistant text there is
-// no buffered/streaming mode split — reasoning always streams through a
-// throttle so clients see thinking as it happens without per-token traffic.
-interface ReasoningStreamState {
-  baseKey: string;
-  nextSegmentIndex: number;
-  activeMessageId: MessageId | null;
-}
-
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(120);
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
@@ -109,8 +100,6 @@ const TASK_DESCRIPTION_BY_TASK_CACHE_CAPACITY = 10_000;
 const TASK_DESCRIPTION_BY_TASK_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const BUFFERED_ASSISTANT_FLUSH_INTERVAL_MS = 500;
-const MAX_BUFFERED_REASONING_CHARS = 24_000;
-const REASONING_FLUSH_INTERVAL_MS = 400;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.RUNE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -257,12 +246,6 @@ function assistantSegmentBaseKeyFromEvent(event: ProviderRuntimeEvent): string {
 function assistantSegmentMessageId(baseKey: string, segmentIndex: number): MessageId {
   return MessageId.make(
     segmentIndex === 0 ? `assistant:${baseKey}` : `assistant:${baseKey}:segment:${segmentIndex}`,
-  );
-}
-
-function reasoningSegmentMessageId(baseKey: string, segmentIndex: number): MessageId {
-  return MessageId.make(
-    segmentIndex === 0 ? `reasoning:${baseKey}` : `reasoning:${baseKey}:segment:${segmentIndex}`,
   );
 }
 function buildContextWindowActivityPayload(
@@ -943,24 +926,6 @@ const make = Effect.gen(function* () {
       ),
   });
 
-  const reasoningStreamByTurnKey = yield* Cache.make<string, ReasoningStreamState>({
-    capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
-    timeToLive: TURN_MESSAGE_IDS_BY_TURN_TTL,
-    lookup: () =>
-      Effect.die(
-        new Error("reasoning stream state should be read through getOption before initialization"),
-      ),
-  });
-
-  const bufferedReasoningTextByMessageId = yield* Cache.make<
-    MessageId,
-    { text: string; lastFlushAtMs: number; flushedChars: number }
-  >({
-    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
-    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
-    lookup: () => Effect.succeed({ text: "", lastFlushAtMs: 0, flushedChars: 0 }),
-  });
-
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
@@ -1349,183 +1314,6 @@ const make = Effect.gen(function* () {
       }
     });
 
-  // ── Reasoning ("thinking") streaming ──────────────────────────────────
-  // Reasoning deltas always stream through a time throttle regardless of the
-  // assistant delivery-mode setting: live thinking is the point of the
-  // feature, and per-token dispatch would flood both the event store and
-  // websocket fan-out.
-
-  const getReasoningStreamStateForTurn = (threadId: ThreadId, turnId: TurnId) =>
-    Cache.getOption(reasoningStreamByTurnKey, providerTurnKey(threadId, turnId));
-
-  const setReasoningStreamStateForTurn = (
-    threadId: ThreadId,
-    turnId: TurnId,
-    state: ReasoningStreamState,
-  ) => Cache.set(reasoningStreamByTurnKey, providerTurnKey(threadId, turnId), state);
-
-  const clearReasoningStreamStateForTurn = (threadId: ThreadId, turnId: TurnId) =>
-    Cache.invalidate(reasoningStreamByTurnKey, providerTurnKey(threadId, turnId));
-
-  const getActiveReasoningMessageIdForTurn = (threadId: ThreadId, turnId: TurnId) =>
-    getReasoningStreamStateForTurn(threadId, turnId).pipe(
-      Effect.map((state) =>
-        Option.flatMap(state, (entry) =>
-          entry.activeMessageId ? Option.some(entry.activeMessageId) : Option.none(),
-        ),
-      ),
-    );
-
-  // A reasoning segment closes when assistant text starts (think→answer),
-  // at pause points, or when the turn completes; the next reasoning delta
-  // after a close opens a new segment so interleaved phases stay separate.
-  const openOrActiveReasoningMessageId = (input: {
-    threadId: ThreadId;
-    turnId?: TurnId;
-    baseKey: string;
-  }) =>
-    Effect.gen(function* () {
-      if (!input.turnId) {
-        return reasoningSegmentMessageId(input.baseKey, 0);
-      }
-      const activeMessageId = yield* getActiveReasoningMessageIdForTurn(
-        input.threadId,
-        input.turnId,
-      );
-      if (Option.isSome(activeMessageId)) {
-        return activeMessageId.value;
-      }
-      const existingState = yield* getReasoningStreamStateForTurn(input.threadId, input.turnId);
-      const segmentIndex =
-        existingState.pipe(
-          Option.map((state) => (state.baseKey === input.baseKey ? state.nextSegmentIndex : 0)),
-        ).pipe(Option.getOrElse(() => 0));
-      const messageId = reasoningSegmentMessageId(input.baseKey, segmentIndex);
-      yield* setReasoningStreamStateForTurn(input.threadId, input.turnId, {
-        baseKey: input.baseKey,
-        nextSegmentIndex: segmentIndex + 1,
-        activeMessageId: messageId,
-      });
-      return messageId;
-    });
-
-  const appendBufferedReasoningText = (messageId: MessageId, delta: string, nowMs: number) =>
-    Cache.getOption(bufferedReasoningTextByMessageId, messageId).pipe(
-      Effect.flatMap((existingEntry) =>
-        Effect.gen(function* () {
-          const existing = Option.getOrUndefined(existingEntry);
-          const nextText = `${existing?.text ?? ""}${delta}`;
-          const lastFlushAtMs = existing?.lastFlushAtMs ?? 0;
-          const flushedChars = existing?.flushedChars ?? 0;
-
-          if (nextText.length > MAX_BUFFERED_REASONING_CHARS) {
-            // Safety valve: spill the full buffer as one delta to cap memory.
-            yield* Cache.set(bufferedReasoningTextByMessageId, messageId, {
-              text: "",
-              lastFlushAtMs: nowMs,
-              flushedChars: flushedChars + nextText.length,
-            });
-            return nextText;
-          }
-
-          if (
-            Number.isFinite(nowMs) &&
-            nowMs - lastFlushAtMs >= REASONING_FLUSH_INTERVAL_MS &&
-            hasRenderableAssistantText(nextText)
-          ) {
-            yield* Cache.set(bufferedReasoningTextByMessageId, messageId, {
-              text: "",
-              lastFlushAtMs: nowMs,
-              flushedChars: flushedChars + nextText.length,
-            });
-            return nextText;
-          }
-
-          yield* Cache.set(bufferedReasoningTextByMessageId, messageId, {
-            text: nextText,
-            lastFlushAtMs,
-            flushedChars,
-          });
-          return "";
-        }),
-      ),
-    );
-
-  const takeBufferedReasoningText = (messageId: MessageId) =>
-    Cache.getOption(bufferedReasoningTextByMessageId, messageId).pipe(
-      Effect.flatMap((existingEntry) =>
-        Cache.invalidate(bufferedReasoningTextByMessageId, messageId).pipe(
-          Effect.as(
-            Option.getOrElse(existingEntry, () => ({
-              text: "",
-              lastFlushAtMs: 0,
-              flushedChars: 0,
-            })),
-          ),
-        ),
-      ),
-    );
-
-  const clearBufferedReasoningText = (messageId: MessageId) =>
-    Cache.invalidate(bufferedReasoningTextByMessageId, messageId);
-
-  // Flushes whatever reasoning text is still buffered for an active segment
-  // and closes it. Whitespace-only segments that never streamed anything are
-  // dropped entirely — no empty blocks in history.
-  const finalizeActiveReasoningSegmentForTurn = (input: {
-    event: ProviderRuntimeEvent;
-    threadId: ThreadId;
-    turnId: TurnId;
-    createdAt: string;
-  }) =>
-    Effect.gen(function* () {
-      const activeMessageId = yield* getActiveReasoningMessageIdForTurn(
-        input.threadId,
-        input.turnId,
-      );
-      if (Option.isNone(activeMessageId)) {
-        return;
-      }
-      const messageId = activeMessageId.value;
-
-      const buffered = yield* takeBufferedReasoningText(messageId);
-      const remainderIsRenderable = hasRenderableAssistantText(buffered.text);
-      const hasContent = buffered.flushedChars > 0 || remainderIsRenderable;
-
-      if (remainderIsRenderable) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.message.reasoning.delta",
-          commandId: yield* providerCommandId(input.event, "reasoning-delta-finalize"),
-          threadId: input.threadId,
-          messageId,
-          delta: buffered.text,
-          turnId: input.turnId,
-          createdAt: input.createdAt,
-        });
-      }
-
-      if (hasContent) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.message.reasoning.complete",
-          commandId: yield* providerCommandId(input.event, "reasoning-complete"),
-          threadId: input.threadId,
-          messageId,
-          turnId: input.turnId,
-          createdAt: input.createdAt,
-        });
-      } else {
-        yield* clearBufferedReasoningText(messageId);
-      }
-
-      const state = yield* getReasoningStreamStateForTurn(input.threadId, input.turnId);
-      if (Option.isSome(state) && state.value.activeMessageId === messageId) {
-        yield* setReasoningStreamStateForTurn(input.threadId, input.turnId, {
-          ...state.value,
-          activeMessageId: null,
-        });
-      }
-    });
-
   const upsertProposedPlan = (input: {
     event: ProviderRuntimeEvent;
     threadId: ThreadId;
@@ -1610,7 +1398,6 @@ const make = Effect.gen(function* () {
       const proposedPlanPrefix = `plan:${threadId}:`;
       const turnKeys = Array.from(yield* Cache.keys(turnMessageIdsByTurnKey));
       const assistantSegmentKeys = Array.from(yield* Cache.keys(assistantSegmentStateByTurnKey));
-      const reasoningStreamKeys = Array.from(yield* Cache.keys(reasoningStreamByTurnKey));
       const proposedPlanKeys = Array.from(yield* Cache.keys(bufferedProposedPlanById));
       const taskDescriptionKeys = Array.from(yield* Cache.keys(taskDescriptionByTaskKey));
       yield* Effect.forEach(
@@ -1638,25 +1425,6 @@ const make = Effect.gen(function* () {
           key.startsWith(prefix)
             ? Cache.invalidate(assistantSegmentStateByTurnKey, key)
             : Effect.void,
-        { concurrency: 1 },
-      ).pipe(Effect.asVoid);
-      yield* Effect.forEach(
-        reasoningStreamKeys,
-        (key) =>
-          Effect.gen(function* () {
-            if (!key.startsWith(prefix)) {
-              return;
-            }
-
-            // Any buffered text belongs to this turn's active segment —
-            // finalization always drains the buffer before nulling it.
-            const state = yield* Cache.getOption(reasoningStreamByTurnKey, key);
-            if (Option.isSome(state) && state.value.activeMessageId) {
-              yield* clearBufferedReasoningText(state.value.activeMessageId);
-            }
-
-            yield* Cache.invalidate(reasoningStreamByTurnKey, key);
-          }),
         { concurrency: 1 },
       ).pipe(Effect.asVoid);
       yield* Effect.forEach(
@@ -1924,53 +1692,11 @@ const make = Effect.gen(function* () {
         event.type === "content.delta" && event.payload.streamKind === "assistant_text"
           ? event.payload.delta
           : undefined;
-      const reasoningDelta =
-        event.type === "content.delta" &&
-        (event.payload.streamKind === "reasoning_text" ||
-          event.payload.streamKind === "reasoning_summary_text")
-          ? event.payload.delta
-          : undefined;
       const proposedPlanDelta =
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
-      if (reasoningDelta && reasoningDelta.length > 0) {
-        const turnId = toTurnId(event.turnId);
-        const reasoningMessageId = yield* openOrActiveReasoningMessageId({
-          threadId: thread.id,
-          ...(turnId ? { turnId } : {}),
-          baseKey: assistantSegmentBaseKeyFromEvent(event),
-        });
-        const visibleChunk = yield* appendBufferedReasoningText(
-          reasoningMessageId,
-          reasoningDelta,
-          Date.parse(now),
-        );
-        if (visibleChunk.length > 0) {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.message.reasoning.delta",
-            commandId: yield* providerCommandId(event, "reasoning-delta"),
-            threadId: thread.id,
-            messageId: reasoningMessageId,
-            delta: visibleChunk,
-            ...(turnId ? { turnId } : {}),
-            createdAt: now,
-          });
-        }
-      }
-
       if (assistantDelta && assistantDelta.length > 0) {
         const turnId = toTurnId(event.turnId);
-        // Thinking is over once the answer starts: close the live reasoning
-        // segment so the block collapses and any later thinking phase opens a
-        // new segment instead of appending to a finished one.
-        if (turnId) {
-          yield* finalizeActiveReasoningSegmentForTurn({
-            event,
-            threadId: thread.id,
-            turnId,
-            createdAt: now,
-          });
-        }
         const assistantMessageId = yield* getOrCreateAssistantMessageId({
           threadId: thread.id,
           event,
@@ -2056,12 +1782,6 @@ const make = Effect.gen(function* () {
               streamingOnly: true,
             }),
           flushedMessageIds,
-        });
-        yield* finalizeActiveReasoningSegmentForTurn({
-          event,
-          threadId: thread.id,
-          turnId: pauseForUserTurnId,
-          createdAt: now,
         });
       }
 
@@ -2178,16 +1898,6 @@ const make = Effect.gen(function* () {
           yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
           yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
 
-          // Backstop: flush any reasoning segment still open at turn end
-          // (providers that never emit assistant text after thinking).
-          yield* finalizeActiveReasoningSegmentForTurn({
-            event,
-            threadId: thread.id,
-            turnId,
-            createdAt: now,
-          });
-          yield* clearReasoningStreamStateForTurn(thread.id, turnId);
-
           yield* finalizeBufferedProposedPlan({
             event,
             threadId: thread.id,
@@ -2223,7 +1933,7 @@ const make = Effect.gen(function* () {
                 ? { providerInstanceId: event.providerInstanceId }
                 : {}),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
-              activeTurnId: null,
+              activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
               updatedAt: now,
             },

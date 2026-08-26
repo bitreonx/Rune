@@ -55,7 +55,7 @@ export class AnalyticsService extends Context.Service<
     /** Flush all currently queued telemetry events. */
     readonly flush: Effect.Effect<void>;
   }
->()("@rune/server/telemetry/AnalyticsService") {
+>()("rune/telemetry/AnalyticsService") {
   /** No-op layer for callers that intentionally disable telemetry. */
   static readonly layerTest = Layer.succeed(
     AnalyticsService,
@@ -119,7 +119,7 @@ export const make = Effect.gen(function* () {
           platform: hostPlatform,
           wsl: Option.getOrUndefined(telemetryConfig.wslDistroName),
           arch: hostArchitecture,
-          runeVersion: packageJson.version,
+          runeCodeVersion: packageJson.version,
           clientType,
         },
         timestamp: event.capturedAt,

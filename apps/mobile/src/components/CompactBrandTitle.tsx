@@ -6,7 +6,7 @@ import type {
 import { Platform, View } from "react-native";
 
 import { AppText as Text } from "./AppText";
-import { RuneWordmark } from "./RuneWordmark";
+import { RUNEWordmark } from "./RUNEWordmark";
 import { IPAD_HOME_TITLE_OFFSET } from "../lib/layoutMetrics";
 import { resolveMobileStageLabel } from "../lib/mobileBranding";
 import { useThemeColor } from "../lib/useThemeColor";
@@ -56,7 +56,7 @@ export function CompactBrandTitle(
         marginLeft: titleOffset,
       }}
     >
-      <RuneWordmark color={iconColor} height={15} />
+      <RUNEWordmark color={iconColor} height={15} />
       <Text
         allowFontScaling={props.allowFontScaling}
         style={{

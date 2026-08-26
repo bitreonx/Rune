@@ -64,6 +64,6 @@ describe("provider performance runtime events", () => {
       },
     });
 
-    expect(completed.payload.outcome).toBe("completed");
+    expect(completed.payload).toHaveProperty("outcome", "completed");
   });
 });

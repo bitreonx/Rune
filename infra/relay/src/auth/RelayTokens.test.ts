@@ -21,12 +21,12 @@ const config = RelayConfiguration.RelayConfiguration.of({
     teamId: "team-id",
     keyId: "key-id",
     privateKey: Redacted.make("private-key"),
-    bundleId: "dev.rune.rune.dev",
+    bundleId: "com.runetools.rune.dev",
   },
   apnsDeliveryJobSigningSecret: Redacted.make("job-secret"),
   clerkSecretKey: Redacted.make("clerk-secret"),
   clerkPublishableKey: "pk_test_test",
-  clerkJwtAudience: "t3-code-relay",
+  clerkJwtAudience: "rune-relay",
   cloudMintPrivateKey: Redacted.make(keyPair.privateKey),
   cloudMintPublicKey: keyPair.publicKey,
   managedEndpointBaseDomain: undefined,
@@ -145,7 +145,7 @@ describe("RelayTokens", () => {
       const relayTokens = yield* RelayTokens.RelayTokens;
       const token = yield* signRelayJwt({
         privateKey: keyPair.privateKey,
-        typ: "t3-relay-dpop-access+jwt",
+        typ: "rune-relay-dpop-access+jwt",
         payload: {
           iss: "https://relay.example.test",
           aud: "https://relay.example.test",
@@ -168,7 +168,7 @@ describe("RelayTokens", () => {
       const relayTokens = yield* RelayTokens.RelayTokens;
       const token = yield* signRelayJwt({
         privateKey: keyPair.privateKey,
-        typ: "t3-relay-dpop-access+jwt",
+        typ: "rune-relay-dpop-access+jwt",
         payload: {
           iss: "https://relay.example.test",
           aud: "https://relay.example.test",

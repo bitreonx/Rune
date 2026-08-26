@@ -61,9 +61,9 @@ typedef struct {
     /** Terminal column count in cells. */
     uint16_t columns;
     /** Width of a single terminal cell in pixels. */
-    uint32_t cell_width;
+    uinrune2_t cell_width;
     /** Height of a single terminal cell in pixels. */
-    uint32_t cell_height;
+    uinrune2_t cell_height;
 } GhosttySizeReportSize;
 
 /**

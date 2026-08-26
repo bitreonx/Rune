@@ -51,7 +51,7 @@ const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
 class CodexAdapter extends Context.Service<CodexAdapter, CodexAdapterShape>()(
-  "@rune/server/provider/Layers/CodexAdapter.test/CodexAdapter",
+  "rune/provider/Layers/CodexAdapter.test/CodexAdapter",
 ) {}
 
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
@@ -93,7 +93,10 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   );
 
   public readonly sendChildTurnImpl = vi.fn(
-    (_agentThreadId: string, _input: CodexSessionRuntimeSendTurnInput): Promise<ProviderTurnStartResult> =>
+    (
+      _agentThreadId: string,
+      _input: CodexSessionRuntimeSendTurnInput,
+    ): Promise<ProviderTurnStartResult> =>
       Promise.resolve({
         threadId: this.options.threadId,
         turnId: asTurnId("child-turn-1"),
@@ -1568,9 +1571,7 @@ scopedFailureLayer("CodexAdapterLive scoped startup failure", (it) => {
 
 it.effect("flushes managed native logs when the adapter layer shuts down", () =>
   Effect.gen(function* () {
-    const tempDir = NodeFS.mkdtempSync(
-      NodePath.join(NodeOS.tmpdir(), "rune-codex-adapter-native-log-"),
-    );
+    const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "runex-adapter-native-log-"));
     const basePath = NodePath.join(tempDir, "provider-native.ndjson");
     const runtimeFactory = makeRuntimeFactory();
     const scope = yield* Scope.make("sequential");
@@ -1631,61 +1632,3 @@ it.effect("flushes managed native logs when the adapter layer shuts down", () =>
     }
   }),
 );
-
-it.effect("maps 429 rate limit stderr and error events to immediate runtime.error", () =>
-  Effect.gen(function* () {
-    const runtimeFactory = makeRuntimeFactory();
-    const scope = yield* Scope.make("sequential");
-    try {
-      const layer = Layer.effect(
-        CodexAdapter,
-        Effect.gen(function* () {
-          const codexConfig = decodeCodexSettings({});
-          return yield* makeCodexAdapter(codexConfig, {
-            makeRuntime: runtimeFactory.factory,
-          });
-        }),
-      ).pipe(
-        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
-        Layer.provideMerge(providerSessionDirectoryTestLayer),
-        Layer.provideMerge(NodeServices.layer),
-      );
-
-      const context = yield* Layer.buildWithScope(layer, scope);
-      const adapter = yield* Effect.service(CodexAdapter).pipe(Effect.provide(context));
-      yield* adapter.startSession({
-        provider: ProviderDriverKind.make("codex"),
-        threadId: asThreadId("thread-ratelimit"),
-        runtimeMode: "full-access",
-      });
-
-      const runtime = runtimeFactory.lastRuntime;
-      NodeAssert.ok(runtime);
-
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      yield* runtime.emit({
-        id: asEventId("evt-429"),
-        kind: "notification",
-        provider: ProviderDriverKind.make("codex"),
-        threadId: asThreadId("thread-ratelimit"),
-        createdAt: "2026-01-01T00:00:00.000Z",
-        method: "process/stderr",
-        message:
-          "API Error: Request rejected (429) · Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day",
-      } satisfies ProviderEvent);
-
-      const mapped = yield* Fiber.join(firstEventFiber);
-      NodeAssert.ok(mapped._tag === "Some");
-      NodeAssert.equal(mapped.value.type, "runtime.error");
-      if (mapped.value.type === "runtime.error") {
-        NodeAssert.equal(mapped.value.payload.class, "provider_error");
-        NodeAssert.ok(mapped.value.payload.message.includes("429"));
-      }
-    } finally {
-      yield* Scope.close(scope, Exit.void);
-    }
-  }),
-);
-

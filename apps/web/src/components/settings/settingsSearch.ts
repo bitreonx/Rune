@@ -171,6 +171,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "agent-activity",
   },
   {
+    id: "auto-continue-after-restart",
+    title: "Automatically continue interrupted tasks",
+    to: "/settings/general",
+    targetId: "agent-activity",
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",
@@ -245,21 +251,6 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "diagnostics",
     title: "Diagnostics",
-    to: "/settings/general",
-  },
-  {
-    id: "legacy-plan-mode",
-    title: "Plan mode (legacy)",
-    to: "/settings/general",
-  },
-  {
-    id: "legacy-token-streaming",
-    title: "Stream token by token (legacy)",
-    to: "/settings/general",
-  },
-  {
-    id: "legacy-sidebar",
-    title: "Sidebar (legacy)",
     to: "/settings/general",
   },
   {

@@ -15,18 +15,13 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-export const APP_DISPLAY_NAME = isDevelopment ? "RUNE (Dev)" : "RUNE (Alpha)";
+export const APP_DISPLAY_NAME = isDevelopment ? "RUNE (Dev)" : "RUNE";
 export const APP_BUNDLE_ID = isDevelopment
   ? `dev.rune.desktop.dev.${devBundleIdSuffix || "local"}`
   : "dev.rune.desktop";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["rune-dev"] : ["rune"];
 const LAUNCHER_VERSION = 15;
-const developmentMacIconPngPath = NodePath.join(
-  repoRoot,
-  "assets",
-  "dev",
-  "rune-macos-1024.png",
-);
+const developmentMacIconPngPath = NodePath.join(repoRoot, "assets", "dev", "rune-macos-1024.png");
 const productionMacIconPngPath = NodePath.join(repoRoot, "assets", "prod", "rune-macos-1024.png");
 // oxlint-disable-next-line rune/no-global-process-runtime -- Standalone launcher script has no Effect runtime.
 const hostPlatform = NodeOS.platform();

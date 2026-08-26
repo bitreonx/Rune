@@ -7,14 +7,14 @@ import { readManyTool, searchManyTool, workspaceSnapshotTool } from "./ApiWorksp
 const makeContext = (): NativeToolContext => ({
   cwd: "C:/workspace",
   workspaceFileSystem: {
-    readFile: ({ relativePath }) =>
+    readFile: ({ relativePath }: { readonly relativePath: string }) =>
       Effect.succeed({
         relativePath,
         contents: `contents of ${relativePath}`,
         byteLength: relativePath.length,
         truncated: false,
       }),
-  } as NativeToolContext["workspaceFileSystem"],
+  } as unknown as NativeToolContext["workspaceFileSystem"],
   workspaceEntries: {
     list: () =>
       Effect.succeed({
@@ -24,14 +24,14 @@ const makeContext = (): NativeToolContext => ({
         ],
         truncated: false,
       }),
-    searchContents: ({ query }) =>
+    searchContents: ({ query }: { readonly query: string }) =>
       Effect.succeed({
         matches: [
           { path: "src/index.ts", lineNumber: 1, lineContent: `found ${query}`, matchRanges: [] },
         ],
         truncated: false,
       }),
-  } as NativeToolContext["workspaceEntries"],
+  } as unknown as NativeToolContext["workspaceEntries"],
 });
 
 describe("ApiWorkspaceTools", () => {

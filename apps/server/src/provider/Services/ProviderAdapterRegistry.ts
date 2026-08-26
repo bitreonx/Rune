@@ -97,4 +97,4 @@ export interface ProviderAdapterRegistryShape {
 export class ProviderAdapterRegistry extends Context.Service<
   ProviderAdapterRegistry,
   ProviderAdapterRegistryShape
->()("@rune/server/provider/Services/ProviderAdapterRegistry") {}
+>()("rune/provider/Services/ProviderAdapterRegistry") {}

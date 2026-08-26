@@ -46,6 +46,6 @@ interface NativeProps extends ViewProps {
   onLongPress?: BubblingEventHandler<TargetedEvent>;
 }
 
-export default codegenNativeComponent<NativeProps>("RuneMarkdownTextRun", {
+export default codegenNativeComponent<NativeProps>("RUNEMarkdownTextRun", {
   excludedPlatforms: ["android"],
 });

@@ -11,7 +11,7 @@ import {
 
 describe("electron development launcher", () => {
   it("uses the RUNE product identity for native desktop launches", () => {
-    assert.match(APP_DISPLAY_NAME, /^RUNE \((?:Dev|Alpha)\)$/);
+    assert.match(APP_DISPLAY_NAME, /^(?:RUNE|RUNE \(Dev\))$/);
   });
 
   it("uses captured values only as fallbacks for a live runner environment", () => {
@@ -22,7 +22,7 @@ describe("electron development launcher", () => {
       environment: {
         VITE_DEV_SERVER_URL: "http://127.0.0.1:8526",
         RUNE_PORT: "16566",
-        RUNE_HOME: "/tmp/t3",
+        RUNE_HOME: "/tmp/rune",
       },
     });
 
@@ -89,10 +89,7 @@ describe("electron development launcher", () => {
       desktopRoot: "/repo/apps/desktop",
       environment: {},
     });
-    assert.include(
-      script,
-      "exec '" + paths.runtimeElectronBinaryPath + "'",
-    );
+    assert.include(script, "exec '" + paths.runtimeElectronBinaryPath + "'");
     assert.notInclude(script, "node_modules/electron");
   });
 

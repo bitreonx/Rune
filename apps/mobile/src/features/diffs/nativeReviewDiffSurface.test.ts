@@ -41,13 +41,13 @@ describe("resolveNativeReviewDiffView", () => {
     expect(resolvedView).not.toBeNull();
     expect(resolvedView).not.toBe(nativeView);
     expect(resolveNativeReviewDiffView()).toBe(resolvedView);
-    expect(expoMocks.requireNativeView).toHaveBeenCalledWith("RuneReviewDiffSurface");
+    expect(expoMocks.requireNativeView).toHaveBeenCalledWith("RUNEReviewDiffSurface");
   });
 
   it("does not fall back to stale legacy native review diff view names", async () => {
     globalThis.expo = {
       getViewConfig: vi.fn().mockImplementation((moduleName: string) => {
-        if (moduleName === "RuneReviewDiffView") {
+        if (moduleName === "RUNEReviewDiffView") {
           return { validAttributes: {}, directEventTypes: {} };
         }
         return null;
@@ -74,7 +74,7 @@ describe("resolveNativeReviewDiffView", () => {
     expect(consoleError).toHaveBeenCalledWith(
       expect.objectContaining({
         _tag: "NativeViewResolutionError",
-        nativeModuleName: "RuneReviewDiffSurface",
+        nativeModuleName: "RUNEReviewDiffSurface",
         cause,
       }),
     );
@@ -88,18 +88,18 @@ describe("isPendingNativeViewRegistration", () => {
 
     expect(
       isPendingNativeViewRegistration(
-        new Error("Unable to find the 'RuneReviewDiffSurface' view for this native tag"),
+        new Error("Unable to find the 'RUNEReviewDiffSurface' view for this native tag"),
       ),
     ).toBe(true);
     expect(
       isPendingNativeViewRegistration(
-        new Error("Unable to find the 'RuneReviewDiffView' view for this native tag"),
+        new Error("Unable to find the 'RUNEReviewDiffView' view for this native tag"),
       ),
     ).toBe(false);
     expect(
       isPendingNativeViewRegistration(
         new Error(
-          "Unable to find the class expo.modules.runereviewdiff.RuneReviewDiffView view with tag 1150",
+          "Unable to find the class expo.modules.runereviewdiff.RUNEReviewDiffView view with tag 1150",
         ),
       ),
     ).toBe(true);

@@ -1,7 +1,7 @@
 import React from "react";
 import { Platform, StyleSheet, Text as RNText, type TextProps, type ViewStyle } from "react-native";
-import RuneMarkdownTextRunNativeComponent from "./RuneMarkdownTextRunNativeComponent";
-import RuneMarkdownTextNativeComponent from "./RuneMarkdownTextNativeComponent";
+import RUNEMarkdownTextRunNativeComponent from "./RUNEMarkdownTextRunNativeComponent";
+import RUNEMarkdownTextNativeComponent from "./RUNEMarkdownTextNativeComponent";
 import { flattenStyles } from "./util";
 
 const TextAncestorContext = React.createContext<[boolean, ViewStyle]>([
@@ -59,7 +59,7 @@ function MarkdownTextPrimitiveChild({ style, children, ...rest }: MarkdownTextPr
     const text = child.toString();
     return (
       // @ts-expect-error The generated run props do not include inherited Text props.
-      <RuneMarkdownTextRunNativeComponent
+      <RUNEMarkdownTextRunNativeComponent
         key={`text-${position}-${text.length}-${text}`}
         style={flattenedStyle}
         text={text}
@@ -71,7 +71,7 @@ function MarkdownTextPrimitiveChild({ style, children, ...rest }: MarkdownTextPr
   if (!isAncestor) {
     return (
       <TextAncestorContext.Provider value={contextValue}>
-        <RuneMarkdownTextNativeComponent
+        <RUNEMarkdownTextNativeComponent
           {...textDefaults}
           {...rest}
           // ellipsizeMode={rest.ellipsizeMode ?? rest.lineBreakMode ?? 'tail'}
@@ -81,7 +81,7 @@ function MarkdownTextPrimitiveChild({ style, children, ...rest }: MarkdownTextPr
           onLongPress={undefined}
         >
           {nativeChildren}
-        </RuneMarkdownTextNativeComponent>
+        </RUNEMarkdownTextNativeComponent>
       </TextAncestorContext.Provider>
     );
   }

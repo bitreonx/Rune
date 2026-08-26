@@ -167,8 +167,8 @@ it("expands both appearances into independent upload-ready directories", () => {
       directory: showcaseCaptureDirectory("/captures", capture),
     })),
     [
-      { appearance: "light", directory: "/captures/apple/iphone-test/light/t3-code" },
-      { appearance: "dark", directory: "/captures/apple/iphone-test/dark/t3-code" },
+      { appearance: "light", directory: "/captures/apple/iphone-test/light/rune" },
+      { appearance: "dark", directory: "/captures/apple/iphone-test/dark/rune" },
     ],
   );
 });
@@ -302,7 +302,7 @@ it("selects a reachable LAN IPv4 address", () => {
 it("seeds a playful multi-environment project spectrum", () => {
   assert.deepStrictEqual(
     SHOWCASE_PROJECTS.map((project) => project.title),
-    ["Rune", "React", "Linux"],
+    ["RUNE", "React", "Linux"],
   );
   assert.deepStrictEqual(
     SHOWCASE_ENVIRONMENTS.map((environment) => environment.label),

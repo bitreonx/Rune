@@ -17,7 +17,7 @@ import {
   RUNE_PROJECT_FILE_NAME,
   ThreadId,
 } from "@rune/contracts";
-import { parseRuneProjectFile } from "@rune/shared/runeProjectFile";
+import { parseRUNEProjectFile } from "@rune/shared/runeProjectFile";
 import {
   isDefaultThreadEnvModeSettled,
   resolveDefaultThreadEnvMode,
@@ -374,7 +374,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const runeProjectFileData = runeProjectFileQuery.data as ProjectReadFileResult | null;
   const runeProjectFileDefaultMode = useMemo(() => {
     if (runeProjectFileData === null || runeProjectFileData.truncated) return null;
-    return parseRuneProjectFile(runeProjectFileData.contents)?.defaultThreadEnvMode ?? null;
+    return parseRUNEProjectFile(runeProjectFileData.contents)?.defaultThreadEnvMode ?? null;
   }, [runeProjectFileData]);
   const defaultWorkspaceMode: WorkspaceMode = resolveDefaultThreadEnvMode({
     projectSetting: selectedProject?.defaultThreadEnvMode,

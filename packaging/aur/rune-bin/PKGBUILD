@@ -5,7 +5,7 @@ pkgver=0.0.33
 pkgrel=1
 pkgdesc='Desktop control surface for local coding agents'
 arch=('x86_64')
-url='https://github.com/rune-dev/rune'
+url='https://github.com/pingdotgg/rune'
 license=('MIT')
 depends=(
   'alsa-lib'
@@ -43,10 +43,10 @@ provides=("rune=$pkgver")
 conflicts=('rune')
 options=('!debug' '!strip')
 
-_appimage="RUNE-${pkgver}-x86_64.AppImage"
+_appimage="RUNE-Code-${pkgver}-x86_64.AppImage"
 source=(
-  "$_appimage::https://github.com/rune-dev/rune/releases/download/v${pkgver}/$_appimage"
-  "${pkgname}-${pkgver}-LICENSE::https://raw.githubusercontent.com/rune-dev/rune/v${pkgver}/LICENSE"
+  "$_appimage::https://github.com/pingdotgg/rune/releases/download/v${pkgver}/$_appimage"
+  "${pkgname}-${pkgver}-LICENSE::https://raw.githubusercontent.com/pingdotgg/rune/v${pkgver}/LICENSE"
 )
 sha256sums=(
   '415c8648f43c3d22d572f27f2c50fdc8c310ea7fcde9537b903e1e2f1c8775a1' # AppImage
@@ -96,7 +96,7 @@ Type=Application
 Icon=rune
 StartupWMClass=rune
 Categories=Development;
-MimeType=x-scheme-handler/rune;x-scheme-handler/rune-dev;
+MimeType=x-scheme-handler/rune;
 EOF
 
   install -Dm644 "$srcdir/${pkgname}-${pkgver}-LICENSE" \

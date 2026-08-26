@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Animated RUNE loading logo">
+  <title>RUNE animated loading logo</title>
+  <desc>Optimized smooth looping animation - GPU accelerated</desc>
+  <defs>
+    <linearGradient id="runeFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="50%" stop-color="#E8E5FF"/>
+      <stop offset="100%" stop-color="#C4B5FD"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feFlood flood-color="#8B5CF6" flood-opacity="0.4"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="shardA"><polygon points="0,0 470,0 512,250 0,260"/></clipPath>
+    <clipPath id="shardB"><polygon points="430,0 1024,0 1024,355 712,360 580,268"/></clipPath>
+    <clipPath id="shardC"><polygon points="405,190 782,180 664,492 330,542"/></clipPath>
+    <clipPath id="shardD"><polygon points="0,250 366,500 468,620 0,1024"/></clipPath>
+    <clipPath id="shardE"><polygon points="318,495 706,495 760,614 484,728 282,618"/></clipPath>
+    <clipPath id="shardF"><polygon points="520,500 1024,340 1024,1024 640,1024 540,700"/></clipPath>
+  </defs>
+
+  <g filter="url(#softGlow)">
+    <g filter="url(#subtleShadow)">
+      <g clip-path="url(#shardA)">
+        <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#runeFill)"/>
+        <animateTransform attributeName="transform" type="translate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 0;0 0;-84 -64;0 0;0 0"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+        <animateTransform attributeName="transform" additive="sum" type="rotate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 512 512;0 512 512;-8 512 512;0 512 512;0 512 512"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+      </g>
+
+      <g clip-path="url(#shardB)">
+        <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#runeFill)"/>
+        <animateTransform attributeName="transform" type="translate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 0;0 0;92 -86;0 0;0 0"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+        <animateTransform attributeName="transform" additive="sum" type="rotate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 512 512;0 512 512;10 512 512;0 512 512;0 512 512"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+      </g>
+
+      <g clip-path="url(#shardC)">
+        <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#runeFill)"/>
+        <animateTransform attributeName="transform" type="translate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 0;0 0;34 -28;0 0;0 0"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+        <animateTransform attributeName="transform" additive="sum" type="rotate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 512 512;0 512 512;-4 512 512;0 512 512;0 512 512"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+      </g>
+
+      <g clip-path="url(#shardD)">
+        <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#runeFill)"/>
+        <animateTransform attributeName="transform" type="translate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 0;0 0;-72 88;0 0;0 0"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+        <animateTransform attributeName="transform" additive="sum" type="rotate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 512 512;0 512 512;-9 512 512;0 512 512;0 512 512"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+      </g>
+
+      <g clip-path="url(#shardE)">
+        <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#runeFill)"/>
+        <animateTransform attributeName="transform" type="translate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 0;0 0;0 38;0 0;0 0"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+        <animateTransform attributeName="transform" additive="sum" type="rotate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 512 512;0 512 512;2 512 512;0 512 512;0 512 512"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+      </g>
+
+      <g clip-path="url(#shardF)">
+        <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#runeFill)"/>
+        <animateTransform attributeName="transform" type="translate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 0;0 0;88 94;0 0;0 0"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+        <animateTransform attributeName="transform" additive="sum" type="rotate"
+          keyTimes="0;0.16;0.5;0.84;1"
+          values="0 512 512;0 512 512;11 512 512;0 512 512;0 512 512"
+          dur="2.8s" repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+      </g>
+
+      <animate attributeName="opacity"
+        values="1;1;0.97;1;1"
+        keyTimes="0;0.16;0.5;0.84;1"
+        dur="2.8s" repeatCount="indefinite"/>
+    </g>
+  </g>
+
+  <g opacity="0.16" filter="url(#softGlow)">
+    <path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="#A78BFA">
+      <animate attributeName="opacity"
+        values="0.1;0.16;0.28;0.16;0.1"
+        keyTimes="0;0.16;0.5;0.84;1"
+        dur="2.8s" repeatCount="indefinite"
+        calcMode="spline"
+        keySplines="0.33 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.33 0 0.2 1"/>
+    </path>
+  </g>
+</svg>

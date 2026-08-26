@@ -27,7 +27,7 @@ const bitbucketPullRequest = {
   updated_on: "2026-01-02T00:00:00.000Z",
   links: {
     html: {
-      href: "https://bitbucket.org/rune-dev/rune/pull-requests/42",
+      href: "https://bitbucket.org/pingdotgg/rune/pull-requests/42",
     },
   },
   source: {
@@ -40,19 +40,19 @@ const bitbucketPullRequest = {
   destination: {
     branch: { name: "main" },
     repository: {
-      full_name: "rune-dev/rune",
-      workspace: { slug: "rune-dev" },
+      full_name: "pingdotgg/rune",
+      workspace: { slug: "pingdotgg" },
     },
   },
 };
 
 const repositoryJson = {
-  full_name: "rune-dev/rune",
+  full_name: "pingdotgg/rune",
   links: {
-    html: { href: "https://bitbucket.org/rune-dev/rune" },
+    html: { href: "https://bitbucket.org/pingdotgg/rune" },
     clone: [
-      { name: "https", href: "https://bitbucket.org/rune-dev/rune.git" },
-      { name: "ssh", href: "git@bitbucket.org:rune-dev/rune.git" },
+      { name: "https", href: "https://bitbucket.org/pingdotgg/rune.git" },
+      { name: "ssh", href: "git@bitbucket.org:pingdotgg/rune.git" },
     ],
   },
   mainbranch: { name: "main" },
@@ -72,7 +72,7 @@ function makeLayer(input: {
   );
   const gitMock = {
     readConfigValue: vi.fn<GitVcsDriver.GitVcsDriver["Service"]["readConfigValue"]>(() =>
-      Effect.succeed<string | null>("git@bitbucket.org:rune-dev/rune.git"),
+      Effect.succeed<string | null>("git@bitbucket.org:pingdotgg/rune.git"),
     ),
     resolvePrimaryRemoteName: vi.fn<
       GitVcsDriver.GitVcsDriver["Service"]["resolvePrimaryRemoteName"]
@@ -107,7 +107,7 @@ function makeLayer(input: {
         remotes: [
           {
             name: "origin",
-            url: "git@bitbucket.org:rune-dev/rune.git",
+            url: "git@bitbucket.org:pingdotgg/rune.git",
             pushUrl: Option.none(),
             isPrimary: true,
           },
@@ -182,7 +182,7 @@ it.effect("parses pull request responses from the Bitbucket REST API", () => {
     assert.deepStrictEqual(result, {
       number: 42,
       title: "Add Bitbucket provider",
-      url: "https://bitbucket.org/rune-dev/rune/pull-requests/42",
+      url: "https://bitbucket.org/pingdotgg/rune/pull-requests/42",
       baseRefName: "main",
       headRefName: "feature/source-control",
       state: "open",
@@ -193,7 +193,7 @@ it.effect("parses pull request responses from the Bitbucket REST API", () => {
     });
     assert.strictEqual(
       execute.mock.calls[0]?.[0].url,
-      "https://api.test.local/2.0/repositories/rune-dev/rune/pullrequests/42",
+      "https://api.test.local/2.0/repositories/pingdotgg/rune/pullrequests/42",
     );
   }).pipe(Effect.provide(layer));
 });
@@ -209,7 +209,7 @@ it.effect("lists pull requests with Bitbucket state and source branch query para
             state: "MERGED",
             source: {
               branch: { name: "feature/merged" },
-              repository: { full_name: "rune-dev/rune" },
+              repository: { full_name: "pingdotgg/rune" },
             },
           },
         ],
@@ -229,7 +229,7 @@ it.effect("lists pull requests with Bitbucket state and source branch query para
     const request = execute.mock.calls[0]?.[0];
     assert.strictEqual(
       request?.url,
-      "https://api.test.local/2.0/repositories/rune-dev/rune/pullrequests",
+      "https://api.test.local/2.0/repositories/pingdotgg/rune/pullrequests",
     );
     assert.deepStrictEqual(request?.urlParams.params, [
       ["pagelen", "10"],
@@ -322,14 +322,14 @@ it.effect("reads repository clone URLs and default branch", () => {
     const bitbucket = yield* BitbucketApi.BitbucketApi;
     const cloneUrls = yield* bitbucket.getRepositoryCloneUrls({
       cwd: "/repo",
-      repository: "rune-dev/rune",
+      repository: "pingdotgg/rune",
     });
     const defaultBranch = yield* bitbucket.getDefaultBranch({ cwd: "/repo" });
 
     assert.deepStrictEqual(cloneUrls, {
-      nameWithOwner: "rune-dev/rune",
-      url: "https://bitbucket.org/rune-dev/rune.git",
-      sshUrl: "git@bitbucket.org:rune-dev/rune.git",
+      nameWithOwner: "pingdotgg/rune",
+      url: "https://bitbucket.org/pingdotgg/rune.git",
+      sshUrl: "git@bitbucket.org:pingdotgg/rune.git",
     });
     assert.strictEqual(defaultBranch, "main");
   }).pipe(Effect.provide(layer));
@@ -361,8 +361,8 @@ it.effect(
       assert.deepStrictEqual(
         execute.mock.calls.map((call) => call[0].url).toSorted(),
         [
-          "https://api.test.local/2.0/repositories/rune-dev/rune",
-          "https://api.test.local/2.0/repositories/rune-dev/rune/branching-model",
+          "https://api.test.local/2.0/repositories/pingdotgg/rune",
+          "https://api.test.local/2.0/repositories/pingdotgg/rune/branching-model",
         ].toSorted(),
       );
     }).pipe(Effect.provide(layer));
@@ -424,18 +424,18 @@ it.effect("creates repositories through the Bitbucket REST API", () => {
     const bitbucket = yield* BitbucketApi.BitbucketApi;
     const cloneUrls = yield* bitbucket.createRepository({
       cwd: "/repo",
-      repository: "rune-dev/rune",
+      repository: "pingdotgg/rune",
       visibility: "private",
     });
 
     assert.deepStrictEqual(cloneUrls, {
-      nameWithOwner: "rune-dev/rune",
-      url: "https://bitbucket.org/rune-dev/rune.git",
-      sshUrl: "git@bitbucket.org:rune-dev/rune.git",
+      nameWithOwner: "pingdotgg/rune",
+      url: "https://bitbucket.org/pingdotgg/rune.git",
+      sshUrl: "git@bitbucket.org:pingdotgg/rune.git",
     });
 
     const request = execute.mock.calls[0]?.[0];
-    assert.strictEqual(request?.url, "https://api.test.local/2.0/repositories/rune-dev/rune");
+    assert.strictEqual(request?.url, "https://api.test.local/2.0/repositories/pingdotgg/rune");
     assert.strictEqual(request?.method, "POST");
     assert.ok(request);
     const rawBody = (request.body as { readonly body?: Uint8Array }).body;
@@ -470,7 +470,7 @@ it.effect("creates pull requests using the official REST payload shape", () => {
     const request = execute.mock.calls[0]?.[0];
     assert.strictEqual(
       request?.url,
-      "https://api.test.local/2.0/repositories/rune-dev/rune/pullrequests",
+      "https://api.test.local/2.0/repositories/pingdotgg/rune/pullrequests",
     );
     assert.strictEqual(request?.method, "POST");
     assert.ok(request);
@@ -626,8 +626,8 @@ it.effect("checks out same-repository pull requests with the existing Bitbucket 
         source: {
           branch: { name: "feature/source-control" },
           repository: {
-            full_name: "rune-dev/rune",
-            workspace: { slug: "rune-dev" },
+            full_name: "pingdotgg/rune",
+            workspace: { slug: "pingdotgg" },
           },
         },
       }),
@@ -644,7 +644,7 @@ it.effect("checks out same-repository pull requests with the existing Bitbucket 
           baseUrl: "https://bitbucket.org",
         },
         remoteName: "origin",
-        remoteUrl: "git@bitbucket.org:rune-dev/rune.git",
+        remoteUrl: "git@bitbucket.org:pingdotgg/rune.git",
       },
       reference: "42",
       force: true,
@@ -684,8 +684,8 @@ it.effect("preserves Git checkout failures without deriving the domain message f
         source: {
           branch: { name: "feature/source-control" },
           repository: {
-            full_name: "rune-dev/rune",
-            workspace: { slug: "rune-dev" },
+            full_name: "pingdotgg/rune",
+            workspace: { slug: "pingdotgg" },
           },
         },
       }),

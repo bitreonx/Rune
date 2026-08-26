@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
 import * as Cause from "effect/Cause";
@@ -32,6 +33,7 @@ import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { copyTextWithHaptic } from "../lib/copyTextWithHaptic";
 import { buildThreadFeed } from "../lib/threadActivity";
+import { mobilePreferencesAtom } from "./preferences";
 import { appAtomRegistry } from "../state/atom-registry";
 import {
   appendComposerDraftAttachments,
@@ -86,6 +88,11 @@ export function useThreadDraftForThread(input: {
 }
 
 export function useThreadComposerState() {
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const simplifiedActivity =
+    !AsyncResult.isSuccess(preferences) || preferences.value.simplifiedActivity !== false;
+  const showDeveloperTrace =
+    AsyncResult.isSuccess(preferences) && preferences.value.showDeveloperTrace === true;
   const { selectedThread: selectedThreadShell, selectedEnvironmentRuntime } = useThreadSelection();
   const selectedThreadDetail = useSelectedThreadDetail();
   const composerDrafts = useAtomValue(composerDraftsAtom);
@@ -116,13 +123,21 @@ export function useThreadComposerState() {
       ? (feedbackSubmissionsByThreadKey[selectedThreadKey] ?? [])
       : [];
     return buildThreadFeed(selectedThreadDetail, {
+      simplifiedActivity,
+      showDeveloperTrace,
       localMessages: submissions.flatMap((submission) =>
         submission.status === "interrupted"
           ? []
           : [codexFeedbackMessage(submission), codexFeedbackMessage(submission, "assistant")],
       ),
     });
-  }, [feedbackSubmissionsByThreadKey, selectedThreadDetail, selectedThreadKey]);
+  }, [
+    feedbackSubmissionsByThreadKey,
+    selectedThreadDetail,
+    selectedThreadKey,
+    showDeveloperTrace,
+    simplifiedActivity,
+  ]);
 
   const selectedDraft = selectedThreadKey ? composerDrafts[selectedThreadKey] : null;
   const draftMessage = selectedDraft?.text ?? "";

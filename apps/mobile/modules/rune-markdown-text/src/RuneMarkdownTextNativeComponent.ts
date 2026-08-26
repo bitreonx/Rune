@@ -50,6 +50,6 @@ interface NativeProps extends ViewProps {
   onSelectionChange?: BubblingEventHandler<SelectionChangeEvent>;
 }
 
-export default codegenNativeComponent<NativeProps>("RuneMarkdownText", {
+export default codegenNativeComponent<NativeProps>("RUNEMarkdownText", {
   excludedPlatforms: ["android"],
 });

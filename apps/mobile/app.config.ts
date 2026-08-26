@@ -31,10 +31,10 @@ const DEVELOPMENT_ASSETS = {
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIconComposerProject),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.developmentUniversalIconPng),
-  androidAdaptiveBackgroundColor: "#111113",
+  androidAdaptiveBackgroundColor: "#00639B",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#7C3AED",
+  androidNotificationColor: "#00639B",
 } as const;
 
 const PREVIEW_ASSETS = {
@@ -42,10 +42,10 @@ const PREVIEW_ASSETS = {
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIconComposerProject),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
   androidAdaptiveForeground: fromRepoRoot(BRAND_ASSET_PATHS.nightlyLinuxIconPng),
-  androidAdaptiveBackgroundColor: "#111113",
+  androidAdaptiveBackgroundColor: "#111533",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#A78BFA",
+  androidNotificationColor: "#7565C7",
 } as const;
 
 const RELEASE_ASSETS = {
@@ -53,35 +53,35 @@ const RELEASE_ASSETS = {
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIconComposerProject),
   splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   androidAdaptiveForeground: "./assets/android-icon-mark.png",
-  androidAdaptiveBackgroundColor: "#111113",
+  androidAdaptiveBackgroundColor: "#000000",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
   androidNotificationIcon: "./assets/android-notification-icon.png",
-  androidNotificationColor: "#7C3AED",
+  androidNotificationColor: "#FFFFFF",
 } as const;
 
 const VARIANT_CONFIG = {
   development: {
     appName: "RUNE Dev",
     scheme: "rune-dev",
-    iosBundleIdentifier: "dev.rune.mobile.dev",
-    androidPackage: "dev.rune.mobile.dev",
-    relyingParty: "clerk.rune.dev",
+    iosBundleIdentifier: "com.runetools.rune.dev",
+    androidPackage: "com.runetools.rune.dev",
+    relyingParty: "clerk.rune.codes",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
     appName: "RUNE Preview",
     scheme: "rune-preview",
-    iosBundleIdentifier: "dev.rune.mobile.preview",
-    androidPackage: "dev.rune.mobile.preview",
-    relyingParty: "clerk.rune.dev",
+    iosBundleIdentifier: "com.runetools.rune.preview",
+    androidPackage: "com.runetools.rune.preview",
+    relyingParty: "clerk.rune.codes",
     assets: PREVIEW_ASSETS,
   },
   production: {
     appName: "RUNE",
     scheme: "rune",
-    iosBundleIdentifier: "dev.rune.mobile",
-    androidPackage: "dev.rune.mobile",
-    relyingParty: "clerk.rune.dev",
+    iosBundleIdentifier: "com.runetools.rune",
+    androidPackage: "com.runetools.rune",
+    relyingParty: "clerk.rune.codes",
     assets: RELEASE_ASSETS,
   },
 } as const;
@@ -185,7 +185,7 @@ const config: ExpoConfig = {
     // showcase capture build requires full screen (see infoPlist below).
     requireFullScreen: process.env.RUNE_SHOWCASE_CAPTURE_BUILD === "1",
     bundleIdentifier: iosBundleIdentifier,
-    // Pin code signing to the RUNE team so non-interactive `expo run:ios`
+    // Pin code signing to the RUNE Tools team so non-interactive `expo run:ios`
     // does not fall back to a personal team (which cannot sign app groups,
     // Sign in with Apple, or push notification entitlements).
     appleTeamId: "ARK85ZXQ4Z",
@@ -369,7 +369,7 @@ const config: ExpoConfig = {
       projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     },
   },
-  owner: "rune-dev",
+  owner: "pingdotgg",
 };
 
 export default config;

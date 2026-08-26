@@ -67,7 +67,7 @@ describe("shouldOpenPullRequestExternally", () => {
 
 describe("parseChangeRequestUrl", () => {
   it("reads a GitHub pull request", () => {
-    expect(parseChangeRequestUrl("https://github.com/T3Tools/Rune/pull/123")).toEqual({
+    expect(parseChangeRequestUrl("https://github.com/RUNETools/Rune/pull/123")).toEqual({
       host: "github.com",
       repository: "rune-dev/rune",
       number: 123,

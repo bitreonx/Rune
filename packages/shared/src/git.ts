@@ -11,30 +11,13 @@ import * as Result from "effect/Result";
 import { detectSourceControlProviderFromRemoteUrl } from "./sourceControl.ts";
 
 export const WORKTREE_BRANCH_PREFIX = "rune";
-// Canonical form is `rune/<8 hex>`; pre-rebrand builds generated `rune/<8 hex>` and
-// `rune/<uuid>` (Crypto.randomUUID(), always RFC 4122 v4), so the matcher accepts the
-// current prefix plus exactly those legacy shapes — version nibble `4`, variant nibble
-// `[89ab]` — to keep older threads eligible for branch regeneration without loosening
-// beyond what was ever generated.
-const TEMP_WORKTREE_BRANCH_TAIL =
-  "(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})";
-const WORKTREE_BRANCH_PREFIXES = [WORKTREE_BRANCH_PREFIX, "rune"] as const;
+// Canonical form is `rune/<8 hex>`. Older mobile builds generated `rune/<uuid>`
+// via Crypto.randomUUID() (always RFC 4122 v4), so the matcher also accepts exactly
+// that shape — version nibble `4`, variant nibble `[89ab]` — to keep those threads
+// eligible for branch regeneration without loosening beyond what was ever generated.
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(
-  `^(?:${WORKTREE_BRANCH_PREFIXES.join("|")})\\/${TEMP_WORKTREE_BRANCH_TAIL}$`,
+  `^${WORKTREE_BRANCH_PREFIX}\\/(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`,
 );
-
-/**
- * Drop the RUNE worktree-branch prefix (`rune/…`, or pre-rebrand `rune/…`),
- * returning the fragment underneath it. Unprefixed input passes through unchanged.
- */
-export function stripWorktreeBranchPrefix(refName: string): string {
-  for (const prefix of WORKTREE_BRANCH_PREFIXES) {
-    if (refName.startsWith(`${prefix}/`)) {
-      return refName.slice(prefix.length + 1);
-    }
-  }
-  return refName;
-}
 
 /**
  * Sanitize an arbitrary string into a valid, lowercase git refName fragment.

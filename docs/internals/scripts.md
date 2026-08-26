@@ -40,8 +40,8 @@ authenticated.
 
 ### Dev state directories
 
-- Dev commands run from a linked **git worktree** default to that worktree's gitignored `.t3`, even
-  when `RUNE_HOME` is set, storing state in `<worktree>/.t3/userdata`. Pass `--home-dir <path>` to
+- Dev commands run from a linked **git worktree** default to that worktree's gitignored `.rune`, even
+  when `RUNE_HOME` is set, storing state in `<worktree>/.rune/userdata`. Pass `--home-dir <path>` to
   choose another isolated directory explicitly. Submodules are not worktrees and keep the normal
   precedence.
 - From the **main checkout**, dev commands implicitly use `~/.rune/dev`, keeping development state
@@ -61,8 +61,8 @@ authenticated.
 - `vp run typecheck`: Strict TypeScript checks for all packages.
 - `vp run test`: Runs workspace tests.
 - `vp run lint:mobile`: Mobile native static analysis (`scripts/mobile-native-static-check.ts`).
-- `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
-  an isolated T3 SQLite database; writes create a private backup first.
+- `node apps/server/scripts/rune-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
+  an isolated RUNE SQLite database; writes create a private backup first.
 
 ## Desktop artifacts
 
@@ -77,15 +77,15 @@ authenticated.
 ### Desktop `.dmg` packaging notes
 
 - Default build is unsigned/not notarized for local sharing.
-- The DMG build uses `assets/prod/rune-macos-1024.png` as the production app icon source.
-- The DMG chrome follows the release channel: neutral for Latest and the violet sky artwork for
-  Nightly. Packaging rasterizes the selected SVG into standard and Retina PNGs inside the
-  disposable staging directory.
+- The DMG build uses `assets/prod/black-macos-1024.png` as the production app icon source.
+- The DMG chrome follows the release channel: neutral for Latest and the Nightly sky artwork for
+  Nightly. Blueprint artwork remains exclusive to Dev builds. Packaging rasterizes the selected
+  SVG into standard and Retina PNGs inside the disposable staging directory.
 - The Finder window is 540×412 while its background is 540×380; the extra 32px accounts for the
   title bar included in Finder's window bounds.
 - Desktop production windows load the bundled UI from the `rune://app/` root URL (not a
   `127.0.0.1` document URL, and not an explicit `index.html` path).
-- Desktop packaging includes `apps/server/dist` (the `t3` backend) and starts it on loopback with an
+- Desktop packaging includes `apps/server/dist` (the `rune` backend) and starts it on loopback with an
   auth token for WebSocket/API traffic.
 - Your tester can still open it on macOS by right-clicking the app and choosing **Open** on first
   launch.

@@ -520,6 +520,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   isPaused?: boolean;
+  isContinueBusy?: boolean;
   showSendWhileRunning?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
@@ -551,6 +552,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         hasSendableContent={props.hasSendableContent}
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
         isPaused={props.isPaused ?? false}
+        isContinueBusy={props.isContinueBusy ?? false}
         showSendWhileRunning={props.showSendWhileRunning ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
@@ -701,6 +703,7 @@ export interface ChatComposerProps {
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
   onInterrupt: () => void;
   isPaused?: boolean;
+  isContinueBusy?: boolean;
   onContinue?: () => void;
   onImplementPlanInNewThread: () => void;
   onRespondToApproval: (
@@ -798,6 +801,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onSend,
     onInterrupt,
     isPaused = false,
+    isContinueBusy = false,
     onContinue,
     onImplementPlanInNewThread,
     onRespondToApproval,
@@ -3899,6 +3903,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     hasSendableContent={composerSendState.hasSendableContent}
                     preserveComposerFocusOnPointerDown={isMobileViewport}
                     isPaused={isPaused}
+                    isContinueBusy={isContinueBusy}
                     showSendWhileRunning
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}

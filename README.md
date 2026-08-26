@@ -162,4 +162,4 @@ RUNE is moving toward a complete AI-native development environment: one project 
 
 ## Attribution
 
-RUNE includes independent modifications and third-party open-source components. See [`LICENSE`](./LICENSE) and the relevant package notices for applicable terms.
+RUNE is derived directly from T3 Code and contains independent modifications. It is not affiliated with or endorsed by T3 Tools Inc. or Theo Browne. See [`NOTICE.md`](./NOTICE.md), [`LICENSE`](./LICENSE), and [`RUNE_UPSTREAM_AUDIT.md`](./RUNE_UPSTREAM_AUDIT.md).

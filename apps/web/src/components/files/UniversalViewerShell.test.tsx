@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { _testing } from "./UniversalViewerShell.tsx";
+import { clampFileLine } from "./fileClampLine.ts";
 import { selectViewer } from "./viewerRegistry.tsx";
 import { describeFile } from "./viewerDescriptor.ts";
 
-describe("UniversalViewerShell descriptor", () => {
-  it("clampFileLine clamps to the actual line count", () => {
-    const { clampFileLine } = _testing;
+describe("clampFileLine", () => {
+  it("clamps to the actual line count", () => {
     // "a\nb\nc" has 3 lines.
     expect(clampFileLine("a\nb\nc", 1)).toBe(1);
     expect(clampFileLine("a\nb\nc", 2)).toBe(2);
@@ -17,21 +16,20 @@ describe("UniversalViewerShell descriptor", () => {
     expect(clampFileLine("a\nb\nc", 0)).toBe(1);
     expect(clampFileLine("a\nb\nc", -5)).toBe(1);
   });
+});
 
-  it("describeFile routes through the registry: SVG before image", () => {
+describe("UniversalViewerShell dispatch", () => {
+  it("routes SVG before image via the registry", () => {
     const d = describeFile({
       relativePath: "logo.svg",
       truncated: false,
       isPreviewSupportedInRuntime: true,
     });
     expect(d.kind).toBe("svg");
-    const viewer = selectViewer(d);
-    // Today the registry only has the binary viewer; the dispatch is
-    // a stub. The contract is that the viewer exists.
-    expect(viewer.id).toBeTruthy();
+    expect(selectViewer(d).id).toBe("svg");
   });
 
-  it("describeFile classifies json as json, not text", () => {
+  it("classifies json as json, not text", () => {
     const d = describeFile({
       relativePath: "package.json",
       truncated: false,

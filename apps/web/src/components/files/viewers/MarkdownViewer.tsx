@@ -1,5 +1,5 @@
 import { Columns2, Code2, Eye } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import type { ReactElement } from "react";
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
@@ -13,7 +13,6 @@ import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
 } from "../projectFilesQueryState.ts";
-import { FileSaveCoordinator } from "../fileSaveCoordinator.ts";
 
 export type MarkdownViewerProps = {
   readonly environmentId: EnvironmentId;
@@ -21,7 +20,13 @@ export type MarkdownViewerProps = {
   readonly relativePath: string;
   readonly contents: string;
   readonly threadRef: ScopedThreadRef;
-  readonly onPendingChange: (relativePath: string, pending: boolean) => void;
+  /**
+   * Persist a new file contents string. The viewer is read-only for
+   * source editing; only the task-list checkbox path mutates the
+   * underlying file, and it does so by calling this with the new
+   * string. The shell wires this to the panel's save coordinator.
+   */
+  readonly onPersist: (nextContents: string) => void;
 };
 
 type Mode = "rendered" | "source" | "split";
@@ -29,8 +34,10 @@ type Mode = "rendered" | "source" | "split";
 const MODE_CYCLE: ReadonlyArray<Mode> = ["rendered", "source", "split"];
 
 function nextMode(current: Mode): Mode {
+  // `current` is one of the three, so the result exists by construction.
   const index = MODE_CYCLE.indexOf(current);
-  return MODE_CYCLE[(index + 1) % MODE_CYCLE.length];
+  const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length];
+  return next ?? "rendered";
 }
 
 /**
@@ -48,27 +55,10 @@ export function MarkdownViewer({
   relativePath,
   contents,
   threadRef,
-  onPendingChange,
+  onPersist,
 }: MarkdownViewerProps): ReactElement {
   const [mode, setMode] = useState<Mode>("rendered");
   const [splitRatio, setSplitRatio] = useState(0.5);
-
-  // The viewer's local coordinator is only used when the user
-  // toggles a task list checkbox in the rendered surface. The
-  // editor's coordinator (in FilePreviewPanel) owns the editable
-  // source path; we don't fight it.
-  const saveCoordinator = useMemo(
-    () =>
-      new FileSaveCoordinator({
-        debounceMs: 500,
-        onPendingChange: () => {},
-        persist: () => Promise.resolve(),
-        onConfirmed: () => {},
-      }),
-    [],
-  );
-  useEffect(() => () => saveCoordinator.dispose(), [saveCoordinator]);
-  void onPendingChange;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -157,7 +147,7 @@ export function MarkdownViewer({
                 const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
                 if (nextContents === currentContents) return;
                 setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                saveCoordinator.change(nextContents);
+                onPersist(nextContents);
               }}
             />
           </ScrollArea>
@@ -188,7 +178,7 @@ export function MarkdownViewer({
               const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
               if (nextContents === currentContents) return;
               setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-              saveCoordinator.change(nextContents);
+              onPersist(nextContents);
             }}
           />
         ) : null}

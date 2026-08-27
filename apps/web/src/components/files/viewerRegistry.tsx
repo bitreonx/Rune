@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactElement } from "react";
 
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
@@ -54,9 +54,7 @@ export type Viewer = {
 // ones (image, markdown, editable text, the truncated-text virtualizer,
 // the SVG/JSON/code viewers) are imported as files once they exist.
 
-function LoadingPlaceholder(): ComponentType<ViewerProps>["render"] extends () => infer R
-  ? R
-  : never {
+function LoadingPlaceholder(_props: ViewerProps): ReactElement {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
       <LoaderCircle className="size-5 animate-spin" />
@@ -103,20 +101,31 @@ const truncatedTextViewer: Viewer = {
 // The image viewer needs a WorkspaceFileRef; the registry hands it
 // props that include (environmentId, cwd, relativePath). The shell
 // builds the ref for the viewer so the registry stays typed.
-const ImageViewerAdapter: ComponentType<ViewerProps> = (props) => (
-  <ImageViewer
-    environmentId={props.environmentId}
-    threadRef={props.threadRef}
-    fileRef={buildWorkspaceFileRef({
-      environmentId: props.environmentId,
-      cwd: props.cwd,
-      projectWorkspaceRoot: undefined,
-      projectId: undefined,
-      relativePath: props.descriptor.relativePath,
-    })}
-    relativePath={props.descriptor.relativePath}
-  />
-);
+// `cwd` is required on the shell's prop bag, so the ref is guaranteed
+// non-null here; the assert keeps the type narrowed without changing
+// the runtime contract.
+const ImageViewerAdapter: ComponentType<ViewerProps> = (props) => {
+  const fileRef = buildWorkspaceFileRef({
+    environmentId: props.environmentId,
+    cwd: props.cwd,
+    projectWorkspaceRoot: undefined,
+    projectId: undefined,
+    relativePath: props.descriptor.relativePath,
+  });
+  if (!fileRef) {
+    throw new Error(
+      `ImageViewer requires a workspace cwd but received none for ${props.descriptor.relativePath}`,
+    );
+  }
+  return (
+    <ImageViewer
+      environmentId={props.environmentId}
+      threadRef={props.threadRef}
+      fileRef={fileRef}
+      relativePath={props.descriptor.relativePath}
+    />
+  );
+};
 
 const imageViewer: Viewer = {
   id: "image",
@@ -130,10 +139,26 @@ const codeViewer: Viewer = {
   component: CodeViewer as unknown as ComponentType<ViewerProps>,
 };
 
+// The markdown viewer needs an `onPersist` for task-list checkbox
+// toggles. Until the shell is wired up, the registry's `ViewerProps`
+// carries `onPendingChange` for the panel to observe; the adapter
+// forwards that as the persist signal. The shell will replace this
+// with a real save coordinator when it takes over from FilePreviewPanel.
+const MarkdownViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <MarkdownViewer
+    environmentId={props.environmentId}
+    cwd={props.cwd}
+    relativePath={props.descriptor.relativePath}
+    contents={props.contents}
+    threadRef={props.threadRef}
+    onPersist={() => props.onPendingChange(props.descriptor.relativePath, true)}
+  />
+);
+
 const markdownViewer: Viewer = {
   id: "markdown",
   match: (d) => d.kind === "markdown",
-  component: MarkdownViewer as unknown as ComponentType<ViewerProps>,
+  component: MarkdownViewerAdapter,
 };
 
 const pdfViewer: Viewer = {

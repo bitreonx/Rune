@@ -46,13 +46,18 @@ export function applyClick(
     return { selected: next, anchor: state.anchor };
   }
   // shift: range from anchor (or single-selected path) to clickedPath
-  const rangeAnchor = state.anchor ?? (state.selected.size === 1 ? [...state.selected][0] : null);
+  const fallbackAnchor =
+    state.selected.size === 1 ? [...state.selected][0] ?? null : null;
+  const rangeAnchor: string | null = state.anchor ?? fallbackAnchor;
   if (rangeAnchor === null) {
     return { selected: new Set([clickedPath]), anchor: clickedPath };
   }
   const fromIndex = allPaths.indexOf(rangeAnchor);
+  if (fromIndex === -1) {
+    return { selected: new Set([clickedPath]), anchor: clickedPath };
+  }
   const toIndex = allPaths.indexOf(clickedPath);
-  if (fromIndex < 0 || toIndex < 0) {
+  if (toIndex === -1) {
     return { selected: new Set([clickedPath]), anchor: clickedPath };
   }
   const [start, end] = fromIndex <= toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];

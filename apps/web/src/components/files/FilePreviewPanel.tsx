@@ -38,6 +38,7 @@ import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hoo
 import { DIFF_SURFACE_THEME_UNSAFE_CSS, resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
+import { buildWorkspaceFileRef } from "~/components/files/filePreviewWorkspaceRef";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Toggle } from "~/components/ui/toggle";
@@ -155,20 +156,20 @@ type FilePostRender = NonNullable<FileOptions<unknown>["onPostRender"]>;
 function WorkspaceImagePreview(props: {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
-  readonly absolutePath: string;
+  readonly fileRef: import("@rune/contracts").WorkspaceFileRef;
   readonly alt: string;
 }) {
   const assetUrl = useAssetUrlState(props.environmentId, {
     _tag: "workspace-file",
     threadId: props.threadRef.threadId,
-    path: props.absolutePath,
+    ref: props.fileRef,
   });
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   if (assetUrl._tag === "Failure" || (assetUrl._tag === "Success" && failedUrl === assetUrl.url)) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-        Unable to load workspace image.
+        Couldn’t preview {props.alt}. The file exists, but its image data could not be decoded.
       </div>
     );
   }
@@ -1005,6 +1006,19 @@ export default function FilePreviewPanel({
   const canOpenInBrowser =
     relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
   const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
+  // Build the canonical WorkspaceFileRef for image preview. Sending a ref keeps
+  // the asset URL out of absolute-path math: the server resolves it against
+  // its own canonical root and never has to guess what the client meant.
+  const imageRef = useMemo(() => {
+    if (!relativePath || !isImage) return null;
+    return buildWorkspaceFileRef({
+      environmentId,
+      cwd,
+      projectWorkspaceRoot: undefined,
+      projectId: undefined,
+      relativePath,
+    });
+  }, [environmentId, cwd, relativePath, isImage]);
   const breadcrumbs = useMemo(
     () => (relativePath ? fileBreadcrumbs(projectName, relativePath) : []),
     [projectName, relativePath],
@@ -1192,12 +1206,12 @@ export default function FilePreviewPanel({
             relativePath ? "flex" : "hidden",
           )}
         >
-          {relativePath && isImage && absolutePath ? (
+          {relativePath && isImage && imageRef ? (
             <WorkspaceImagePreview
-              key={absolutePath}
+              key={`${imageRef.workspaceRoot}:${imageRef.relativePath}`}
               environmentId={environmentId}
               threadRef={threadRef}
-              absolutePath={absolutePath}
+              fileRef={imageRef}
               alt={relativePath}
             />
           ) : relativePath && file.error && file.data === null ? (

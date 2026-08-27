@@ -56,7 +56,9 @@ export const AssetResource = Schema.Union([
     ref: Schema.optional(WorkspaceFileRef),
     // Legacy field kept for one release. When `ref` is absent, the server
     // resolves this against the workspace root supplied by the WS handler.
-    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+    path: Schema.optional(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+    ),
   }),
   Schema.TaggedStruct("attachment", {
     attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
@@ -69,6 +71,20 @@ export const AssetResource = Schema.Union([
   }),
 ]);
 export type AssetResource = typeof AssetResource.Type;
+
+export const AssetCreateUrlInput = Schema.Struct({
+  resource: AssetResource,
+});
+export type AssetCreateUrlInput = typeof AssetCreateUrlInput.Type;
+
+export const AssetCreateUrlResult = Schema.Struct({
+  relativeUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+  expiresAt: Schema.Number,
+  sourcePath: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  ),
+});
+export type AssetCreateUrlResult = typeof AssetCreateUrlResult.Type;
 
 type WorkspaceFileResource = Extract<AssetResource, { _tag: "workspace-file" }>;
 
@@ -86,7 +102,7 @@ export const extractWorkspaceFileRef = (
 ): WorkspaceFileRef | null => {
   if (resource._tag !== "workspace-file") return null;
   if (resource.ref) return resource.ref;
-  if (!fallbackWorkspaceRoot) return null;
+  if (!fallbackWorkspaceRoot || !resource.path) return null;
   const relative = relativePosix(fallbackWorkspaceRoot, resource.path);
   if (relative === null) return null;
   // The ref must pass WorkspaceFileRefPath validation (no traversal, no

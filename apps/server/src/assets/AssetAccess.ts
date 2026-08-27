@@ -215,7 +215,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         workspaceRoot = ref.workspaceRoot;
         relativePath = ref.relativePath;
       } else {
-        if (!input.workspaceRoot) {
+        if (!input.workspaceRoot || !input.resource.path) {
           return yield* new AssetWorkspaceContextNotFoundError({
             resource: input.resource,
           });

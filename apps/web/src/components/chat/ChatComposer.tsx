@@ -3293,8 +3293,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       className={cn(
         "mx-auto w-full min-w-0 max-w-3xl transition-[padding-top] duration-[280ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         hasShoulderTab && "pt-7",
+        isFileDragActive && "chat-composer-form-drag-active",
       )}
       data-chat-composer-form="true"
+      data-drag-active={isFileDragActive ? "true" : undefined}
     >
       <div className="chat-composer-form-host relative" data-chat-composer-form-host="true">
         {isFileDragActive ? (

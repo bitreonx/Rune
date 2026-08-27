@@ -26,13 +26,14 @@ import {
 } from "@rune/client-runtime/state/thread-settled";
 import {
   deriveAgentPanelModel,
+  formatSubagentDisplayName,
   foldSubagentActivities,
   type RuntimeSubagent,
 } from "@rune/client-runtime/state/subagentRuntime";
 import { SubagentAvatar } from "./agent-chat/SubagentAvatar";
 import type { EnvironmentThreadShell } from "@rune/client-runtime/state/models";
 import { scopeProjectRef, scopeThreadRef, scopedThreadKey } from "@rune/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@rune/contracts";
+import type { ContextMenuItem, ScopedThreadRef, ThreadId } from "@rune/contracts";
 import type { TimestampFormat } from "@rune/contracts/settings";
 import {
   AlarmClockIcon,
@@ -132,6 +133,15 @@ import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
+import { FolderSidebarSection } from "./sidebar/FolderSidebarSection";
+import {
+  designForPreset,
+  effectiveThreadDesign,
+  folderAndDescendantIds,
+  THREAD_DESIGN_PRESETS,
+  type ThreadDesignPreset,
+} from "../threadOrganization";
+import { useThreadOrganizationStore } from "../threadOrganizationStore";
 import {
   animatePinnedLayoutChanges,
   buildBulkTitleRegenerationContextMenuItem,
@@ -800,7 +810,7 @@ const SidebarSubagentBranch = memo(function SidebarSubagentBranch({
       >
         <div className="min-h-0 overflow-hidden pl-1 pt-0.5">
           {agents.map((agent) => {
-            const displayName = agent.generatedName || agent.title;
+            const displayName = formatSubagentDisplayName(agent);
             return (
               <button
                 key={agent.id}
@@ -879,6 +889,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   projectCwd: string | null;
   projectFaviconPath: string | null;
   projectTitle: string | null;
+  designPreset?: ThreadDesignPreset;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   timestampFormat: TimestampFormat;
   onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
@@ -1388,6 +1399,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 tabIndex={0}
                 data-rune-sidebar-row="thread"
                 data-rune-sidebar-active={props.isActive ? "true" : "false"}
+                data-rune-sidebar-selected={isSelected ? "true" : "false"}
+                data-rune-thread-design={props.designPreset ?? "slate-minimal"}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
@@ -1551,6 +1564,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               tabIndex={0}
               data-rune-sidebar-row="thread"
               data-rune-sidebar-active={props.isActive ? "true" : "false"}
+              data-rune-sidebar-selected={isSelected ? "true" : "false"}
+              data-rune-thread-design={props.designPreset ?? "slate-minimal"}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
@@ -1881,6 +1896,7 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const organization = useThreadOrganizationStore();
   const router = useRouter();
   const { isMobile, setOpenMobile, state: sidebarState } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -1962,6 +1978,7 @@ export default function Sidebar() {
     },
   });
   const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2117,6 +2134,26 @@ export default function Sidebar() {
           ),
     [scopedProjectGroup],
   );
+  const threadProjectKeysByThreadKey = useMemo(
+    () =>
+      Object.fromEntries(
+        threads.map((thread) => [
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          `${thread.environmentId}:${thread.projectId}`,
+        ]),
+      ),
+    [threads],
+  );
+  const selectedFolderThreadIds = useMemo(
+    () =>
+      selectedFolderId === null ? null : folderAndDescendantIds(organization, selectedFolderId),
+    [organization, selectedFolderId],
+  );
+  useEffect(() => {
+    if (selectedFolderId !== null && !organization.folders[selectedFolderId]) {
+      setSelectedFolderId(null);
+    }
+  }, [organization.folders, selectedFolderId]);
   useEffect(() => {
     if (projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);
@@ -2152,7 +2189,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, projectScopeKey, selectedFolderId]);
 
   const handleProjectSettings = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
@@ -2194,12 +2231,17 @@ export default function Sidebar() {
     // sidebar presence is the Temporary shelf, so counts, search, jump
     // hints, and prewarming all stay blind to them by construction.
     const { permanent, temporary } = splitTemporarySidebarThreads(threads);
-    const visible = permanent.filter(
-      (thread) =>
+    const visible = permanent.filter((thread) => {
+      const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      return (
         thread.archivedAt === null &&
+        organization.threadTrashedAtByKey[threadKey] === undefined &&
         (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
+          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) &&
+        (selectedFolderThreadIds === null ||
+          selectedFolderThreadIds.has(organization.threadFolderByKey[threadKey] ?? ""))
+      );
+    });
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
@@ -2264,11 +2306,16 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       // Newest chat first: the shelf answers "what did I just open?"
       temporaryThreads: sortThreadsForSidebar(
-        temporary.filter(
-          (thread) =>
-            scopedProjectKeys === null ||
-            scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
-        ),
+        temporary.filter((thread) => {
+          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+          return (
+            (scopedProjectKeys === null ||
+              scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) &&
+            organization.threadTrashedAtByKey[threadKey] === undefined &&
+            (selectedFolderThreadIds === null ||
+              selectedFolderThreadIds.has(organization.threadFolderByKey[threadKey] ?? ""))
+          );
+        }),
       ),
       snoozeNow: preciseNow,
     };
@@ -2277,7 +2324,9 @@ export default function Sidebar() {
     autoSettleOnMerge,
     changeRequestSnapshotByKey,
     nowMinute,
+    organization,
     scopedProjectKeys,
+    selectedFolderThreadIds,
     serverConfigs,
     snoozeWakeTick,
     threads,
@@ -3040,6 +3089,13 @@ export default function Sidebar() {
         actionableCount: regeneratableTitleThreads.length,
       });
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+      const folderMenuItems: ContextMenuItem<string>[] = [
+        { id: "folder:none", label: "No folder" },
+        ...Object.values(organization.folders)
+          .filter((folder) => folder.trashedAt === null && folder.archivedAt === null)
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .map((folder) => ({ id: `folder:${folder.id}`, label: folder.name })),
+      ];
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
@@ -3057,6 +3113,11 @@ export default function Sidebar() {
                 ]
               : []),
             ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
+            {
+              id: "move-to-folder",
+              label: `Move to folder (${count})`,
+              children: folderMenuItems,
+            },
             { id: "mark-unread", label: `Mark unread (${count})` },
             { id: "delete", label: `Delete (${count})`, destructive: true },
           ],
@@ -3122,6 +3183,13 @@ export default function Sidebar() {
             );
           }
         }
+        return;
+      }
+      if (clicked.value === "folder:none" || clicked.value?.startsWith("folder:")) {
+        const folderId =
+          clicked.value === "folder:none" ? null : clicked.value.slice("folder:".length);
+        for (const threadKey of threadKeys) organization.assignThreadToFolder(threadKey, folderId);
+        clearSelection();
         return;
       }
       if (clicked.value === "regenerate-title") {
@@ -3218,6 +3286,7 @@ export default function Sidebar() {
       deleteThread,
       markThreadUnread,
       performSnooze,
+      organization,
       removeFromSelection,
       serverConfigs,
       attemptUnsnooze,
@@ -3263,28 +3332,60 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const threadStyleItems: ContextMenuItem<string>[] = [
+          {
+            id: "thread-style:reset",
+            label: "Use folder style",
+            icon: "rotate-ccw",
+            disabled:
+              organization.threadDesignByKey[threadKey]?.design === null ||
+              organization.threadDesignByKey[threadKey]?.design === undefined,
+          },
+          ...THREAD_DESIGN_PRESETS.map((preset) => ({
+            id: `thread-style:${preset.id}`,
+            label: preset.label,
+            icon: "palette",
+          })),
+        ];
+        const threadActionItems: ContextMenuItem<string>[] = [
+          ...buildThreadActionMenuItems({
+            branch: thread.branch ?? null,
+            isPinned,
+            isSettled,
+            isSnoozed,
+            canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+            isRegeneratingTitle,
+            isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
+            isTemporary: thread.temporaryAt != null,
+            supports: {
+              settlement: supportsSettlement,
+              snooze: supportsSnooze,
+              pinning: supportsPinning,
+              titleRegeneration: supportsTitleRegeneration,
+            },
+            snoozePresets,
+          }),
+          {
+            id: "thread-style",
+            label: "Thread style",
+            icon: "palette",
+            children: threadStyleItems,
+          },
+          {
+            id: "move-to-folder",
+            label: "Move to folder",
+            icon: "folder",
+            children: [
+              { id: "folder:none", label: "No folder" },
+              ...Object.values(organization.folders)
+                .filter((folder) => folder.trashedAt === null && folder.archivedAt === null)
+                .sort((left, right) => left.name.localeCompare(right.name))
+                .map((folder) => ({ id: `folder:${folder.id}`, label: folder.name })),
+            ],
+          },
+        ];
         const clicked = await settlePromise(() =>
-          api.contextMenu.show(
-            buildThreadActionMenuItems({
-              branch: thread.branch ?? null,
-              isPinned,
-              isSettled,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning:
-                thread.session?.status === "running" && thread.session.activeTurnId != null,
-              isTemporary: thread.temporaryAt != null,
-              supports: {
-                settlement: supportsSettlement,
-                snooze: supportsSnooze,
-                pinning: supportsPinning,
-                titleRegeneration: supportsTitleRegeneration,
-              },
-              snoozePresets,
-            }),
-            position,
-          ),
+          api.contextMenu.show(threadActionItems, position),
         );
         if (clicked._tag === "Failure") return;
         if (clicked.value?.startsWith("snooze:")) {
@@ -3292,6 +3393,25 @@ export default function Sidebar() {
             (candidate) => `snooze:${candidate.id}` === clicked.value,
           );
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (clicked.value === "thread-style:reset") {
+          organization.setThreadDesign(threadKey, null);
+          return;
+        }
+        if (clicked.value?.startsWith("thread-style:")) {
+          const preset = clicked.value.slice("thread-style:".length) as ThreadDesignPreset;
+          if (THREAD_DESIGN_PRESETS.some((candidate) => candidate.id === preset)) {
+            organization.setThreadDesign(threadKey, designForPreset(preset));
+          }
+          return;
+        }
+        if (clicked.value === "folder:none") {
+          organization.assignThreadToFolder(threadKey, null);
+          return;
+        }
+        if (clicked.value?.startsWith("folder:")) {
+          organization.assignThreadToFolder(threadKey, clicked.value.slice("folder:".length));
           return;
         }
         switch (clicked.value) {
@@ -3469,6 +3589,7 @@ export default function Sidebar() {
       handleMultiSelectContextMenu,
       keepThread,
       markThreadUnread,
+      organization,
       projectCwdByKey,
       serverConfigs,
       startThreadRename,
@@ -3820,6 +3941,12 @@ export default function Sidebar() {
           data-rune-sidebar-section="threads"
           data-rune-sidebar-scope={scopedProjectGroup ? "project" : "all-projects"}
         >
+          <FolderSidebarSection
+            projectScopeKeys={scopedProjectKeys}
+            threadProjectKeysByThreadKey={threadProjectKeysByThreadKey}
+            selectedFolderId={selectedFolderId}
+            onSelectFolder={setSelectedFolderId}
+          />
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -3978,6 +4105,7 @@ export default function Sidebar() {
                               `${thread.environmentId}:${thread.projectId}`,
                             ) ?? null
                           }
+                          designPreset={effectiveThreadDesign(organization, threadKey).preset}
                           providerEntryByInstanceId={
                             providerEntriesByEnvironment.get(thread.environmentId) ??
                             EMPTY_PROVIDER_ENTRIES

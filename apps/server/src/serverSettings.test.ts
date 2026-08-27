@@ -3,6 +3,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServiceId,
   ServerSettings,
   ServerSettingsPatch,
 } from "@rune/contracts";
@@ -750,5 +751,104 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         "sk-or-secret",
       );
     }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("projects a global OpenRouter credential into the CLI-native variable", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("claude_openrouter");
+      const codexInstanceId = ProviderInstanceId.make("codex_openrouter");
+      const customInstanceId = ProviderInstanceId.make("codex_custom_gateway");
+      const serviceId = ServiceId.make("openrouter");
+
+      const settings = yield* serverSettings.updateSettings({
+        harnesses: {
+          services: {
+            [serviceId]: {
+              serviceId,
+              kind: "openrouter",
+              displayName: "OpenRouter",
+              credentialRef: "global-openrouter-key",
+            },
+          },
+        },
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            environment: [
+              { name: "ANTHROPIC_BASE_URL", value: "https://openrouter.ai/api", sensitive: false },
+            ],
+            config: {},
+          },
+          [codexInstanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            environment: [
+              { name: "OPENAI_BASE_URL", value: "https://openrouter.ai/api/v1", sensitive: false },
+            ],
+            config: {},
+          },
+          [customInstanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            environment: [
+              {
+                name: "OPENAI_BASE_URL",
+                value: "https://gateway.example/openrouter.ai/api/v1",
+                sensitive: false,
+              },
+            ],
+            config: {},
+          },
+        },
+      });
+
+      assert.isTrue(
+        settings.providerInstances[instanceId]?.environment?.some(
+          (variable) =>
+            variable.name === "ANTHROPIC_AUTH_TOKEN" &&
+            variable.value === "sk-or-global" &&
+            variable.sensitive === true,
+        ) ?? false,
+      );
+      assert.isTrue(
+        settings.providerInstances[codexInstanceId]?.environment?.some(
+          (variable) =>
+            variable.name === "OPENAI_API_KEY" &&
+            variable.value === "sk-or-global" &&
+            variable.sensitive === true,
+        ) ?? false,
+      );
+      assert.isFalse(
+        settings.providerInstances[customInstanceId]?.environment?.some(
+          (variable) => variable.name === "OPENAI_API_KEY",
+        ) ?? false,
+      );
+    }).pipe(
+      Effect.provide(
+        ServerSettingsModule.layer.pipe(
+          Layer.provide(
+            Layer.succeed(
+              ServerSecretStore.ServerSecretStore,
+              ServerSecretStore.ServerSecretStore.of({
+                get: (name) =>
+                  name === "global-openrouter-key"
+                    ? Effect.succeed(Option.some(new TextEncoder().encode("sk-or-global")))
+                    : Effect.succeed(Option.none()),
+                set: () => Effect.void,
+                create: () => Effect.void,
+                getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
+                remove: () => Effect.void,
+              }),
+            ),
+          ),
+          Layer.provideMerge(
+            Layer.fresh(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "rune-server-settings-openrouter-test-",
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 });

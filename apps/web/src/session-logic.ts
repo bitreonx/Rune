@@ -894,9 +894,22 @@ export function deriveSimplifiedWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
   return deriveAgentActivityJob(activities).activities.map((activity) => {
-    const files = [...new Set(activity.operations.map((entry) => entry.filePath).filter(Boolean))];
+    const files = [
+      ...new Set(
+        activity.operations
+          .map((entry) => entry.filePath)
+          .filter(
+            (filePath): filePath is string => typeof filePath === "string" && filePath.length > 0,
+          ),
+      ),
+    ];
     const count = activity.operations.length;
+    const failureDetail =
+      activity.status === "failed"
+        ? `Failed: ${activity.failureSummary ?? "the operation did not report a reason"}`
+        : undefined;
     const detail =
+      failureDetail ??
       activity.reasoningSummary ??
       (files.length > 0
         ? `${files.slice(0, 3).join(", ")}${files.length > 3 ? ` +${files.length - 3} files` : ""}`

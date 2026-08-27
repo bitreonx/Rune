@@ -678,11 +678,54 @@ const make = Effect.gen(function* () {
       cwd: checkpointCwd,
       checkpointRef: baselineCheckpointRef,
     });
-    yield* receiptBus.publish({
-      type: "checkpoint.baseline.captured",
+    yield* orchestrationEngine.dispatch({
+      type: "thread.baseline.capture",
+      commandId: yield* serverCommandId("checkpoint-baseline-captured-on-first-user-message"),
       threadId,
-      checkpointTurnCount: currentTurnCount,
       checkpointRef: baselineCheckpointRef,
+      capturedAt: event.occurredAt,
+      source: "first-user-message",
+      createdAt: event.occurredAt,
+    });
+  });
+
+  const captureBaselineOnThreadCreate = Effect.fn("captureBaselineOnThreadCreate")(function* (
+    event: Extract<OrchestrationEvent, { type: "thread.created" }>,
+  ) {
+    const threadId = event.payload.threadId;
+    const thread = yield* resolveThreadDetail(threadId);
+    if (!thread) return;
+
+    const projects = yield* resolveThreadProjects(thread.projectId);
+    const checkpointCwd = yield* resolveCheckpointCwd({
+      threadId,
+      thread,
+      projects,
+      preferSessionRuntime: false,
+    });
+    if (!checkpointCwd) return;
+
+    const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+    if (
+      yield* checkpointStore.hasCheckpointRef({
+        cwd: checkpointCwd,
+        checkpointRef: baselineCheckpointRef,
+      })
+    ) {
+      return;
+    }
+
+    yield* checkpointStore.captureCheckpoint({
+      cwd: checkpointCwd,
+      checkpointRef: baselineCheckpointRef,
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.baseline.capture",
+      commandId: yield* serverCommandId("checkpoint-baseline-captured-on-create"),
+      threadId,
+      checkpointRef: baselineCheckpointRef,
+      capturedAt: event.occurredAt,
+      source: "thread-created",
       createdAt: event.occurredAt,
     });
   });
@@ -818,6 +861,22 @@ const make = Effect.gen(function* () {
   });
 
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (event: OrchestrationEvent) {
+    if (event.type === "thread.created") {
+      yield* captureBaselineOnThreadCreate(event).pipe(
+        Effect.catch((error) =>
+          Effect.flatMap(nowIso, (createdAt) =>
+            appendCaptureFailureActivity({
+              threadId: event.payload.threadId,
+              turnId: null,
+              detail: `Baseline capture on thread.created failed: ${error.message}`,
+              createdAt,
+            }).pipe(Effect.catch(() => Effect.void)),
+          ),
+        ),
+      );
+      return;
+    }
+
     if (event.type === "thread.turn-start-requested" || event.type === "thread.message-sent") {
       yield* ensurePreTurnBaselineFromDomainTurnStart(event);
       return;
@@ -916,6 +975,7 @@ const make = Effect.gen(function* () {
     yield* forkParked(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
         if (
+          event.type !== "thread.created" &&
           event.type !== "thread.turn-start-requested" &&
           event.type !== "thread.message-sent" &&
           event.type !== "thread.checkpoint-revert-requested" &&

@@ -55,6 +55,7 @@ import { ProviderEnvironmentSection } from "./ProviderEnvironmentSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
+import { ProviderSetupNotice } from "./ProviderSetupNotice";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeServices";
 import { getDriverOption } from "./providerDriverMeta";
@@ -431,6 +432,7 @@ function ProviderInstanceEditContent(props: {
               </Badge>
             </div>
           </div>
+          <ProviderSetupNotice driver={slot.driver} provider={entry?.snapshot} />
           <div className="flex items-center gap-2">
             {slot.isDefault && slot.isDirty ? (
               <SettingResetButton

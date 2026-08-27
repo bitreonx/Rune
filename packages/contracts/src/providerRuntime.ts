@@ -337,12 +337,7 @@ const ThreadTokenUsageUpdatedPayload = Schema.Struct({
 });
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
 
-export const AgentExecutionStage = Schema.Literals([
-  "inspect",
-  "execute",
-  "verify",
-  "finalize",
-]);
+export const AgentExecutionStage = Schema.Literals(["inspect", "execute", "verify", "finalize"]);
 export type AgentExecutionStage = typeof AgentExecutionStage.Type;
 
 export const AgentExecutionOutcome = Schema.Literals([
@@ -447,6 +442,16 @@ export type TurnProposedCompletedPayload = typeof TurnProposedCompletedPayload.T
 
 const TurnDiffUpdatedPayload = Schema.Struct({
   unifiedDiff: Schema.String,
+  itemFileChanges: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        path: TrimmedNonEmptyStringSchema,
+        kind: TrimmedNonEmptyStringSchema,
+        additions: NonNegativeInt,
+        deletions: NonNegativeInt,
+      }),
+    ),
+  ),
 });
 export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 

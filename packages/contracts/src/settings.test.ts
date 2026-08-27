@@ -80,6 +80,20 @@ describe("ClientSettings appearance contrast", () => {
   });
 });
 
+describe("ClientSettings motion profile", () => {
+  it("defaults to balanced and accepts the supported profiles", () => {
+    expect(decodeClientSettings({}).motionProfile).toBe("balanced");
+    for (const profile of ["reduced", "balanced", "expressive"] as const) {
+      expect(decodeClientSettingsPatch({ motionProfile: profile }).motionProfile).toBe(profile);
+    }
+  });
+
+  it("rejects unsupported motion profiles", () => {
+    expect(() => decodeClientSettings({ motionProfile: "bouncy" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ motionProfile: "bouncy" })).toThrow();
+  });
+});
+
 describe("ClientSettings environment identification", () => {
   it("defaults to pill and accepts each presentation mode", () => {
     expect(DEFAULT_CLIENT_SETTINGS.environmentIdentificationMode).toBe("pill");

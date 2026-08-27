@@ -3017,6 +3017,7 @@ describe("ProviderRuntimeIngestion", () => {
       itemId: asItemId("item-p1-assistant"),
       payload: {
         unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello\n",
+        itemFileChanges: [{ path: "file.txt", kind: "modified", additions: 1, deletions: 0 }],
       },
     });
 
@@ -3076,6 +3077,9 @@ describe("ProviderRuntimeIngestion", () => {
       (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
     );
     expect(checkpoint?.status).toBe("missing");
+    expect(checkpoint?.files).toEqual([
+      { path: "file.txt", kind: "modified", additions: 1, deletions: 0 },
+    ]);
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
   });

@@ -6,6 +6,7 @@ import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 export const CheckpointDiffOperation = Schema.Literals([
   "CheckpointDiffQuery.getTurnDiff",
   "CheckpointDiffQuery.getFullThreadDiff",
+  "CheckpointDiffQuery.getChatDiff",
 ]);
 export type CheckpointDiffOperation = typeof CheckpointDiffOperation.Type;
 
@@ -19,7 +20,11 @@ export class CheckpointDiffResultInvalidError extends Schema.TaggedErrorClass<Ch
 ) {
   override get message(): string {
     const result =
-      this.operation === "CheckpointDiffQuery.getTurnDiff" ? "turn diff" : "full thread diff";
+      this.operation === "CheckpointDiffQuery.getTurnDiff"
+        ? "turn diff"
+        : this.operation === "CheckpointDiffQuery.getChatDiff"
+          ? "chat diff"
+          : "full thread diff";
     return `Checkpoint invariant violation in ${this.operation}: Computed ${result} result does not satisfy contract schema.`;
   }
 }
@@ -47,7 +52,11 @@ export class CheckpointWorkspacePathMissingError extends Schema.TaggedErrorClass
 ) {
   override get message(): string {
     const diff =
-      this.operation === "CheckpointDiffQuery.getTurnDiff" ? "turn diff" : "full thread diff";
+      this.operation === "CheckpointDiffQuery.getTurnDiff"
+        ? "turn diff"
+        : this.operation === "CheckpointDiffQuery.getChatDiff"
+          ? "chat diff"
+          : "full thread diff";
     return `Checkpoint invariant violation in ${this.operation}: Workspace path missing for thread '${this.threadId}' when computing ${diff}.`;
   }
 }
@@ -82,6 +91,25 @@ export class CheckpointRefUnavailableError extends Schema.TaggedErrorClass<Check
   }
 }
 
+/** The thread has no `turn/0` baseline; diff computation cannot fall back to HEAD. */
+export class CheckpointBaselineMissingError extends Schema.TaggedErrorClass<CheckpointBaselineMissingError>()(
+  "CheckpointBaselineMissingError",
+  {
+    operation: CheckpointDiffOperation,
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    const diff =
+      this.operation === "CheckpointDiffQuery.getTurnDiff"
+        ? "turn diff"
+        : this.operation === "CheckpointDiffQuery.getChatDiff"
+          ? "chat diff"
+          : "full thread diff";
+    return `Checkpoint baseline is missing for thread '${this.threadId}' when computing ${diff}.`;
+  }
+}
+
 export type CheckpointStoreError = VcsError;
 
 export type CheckpointServiceError =
@@ -91,4 +119,5 @@ export type CheckpointServiceError =
   | CheckpointThreadNotFoundError
   | CheckpointWorkspacePathMissingError
   | CheckpointTurnRangeUnavailableError
-  | CheckpointRefUnavailableError;
+  | CheckpointRefUnavailableError
+  | CheckpointBaselineMissingError;

@@ -41,6 +41,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { DriverOption } from "./providerDriverMeta";
+import { ProviderSetupNotice } from "./ProviderSetupNotice";
 import { ProviderEnvironmentSection } from "./ProviderEnvironmentSection";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
@@ -323,7 +324,7 @@ export function ProviderInstanceCard({
   const isClaudeProvider = String(driverKind) === "claudeAgent";
 
   const titleIconNode = driverKind ? (
-      <ProviderInstanceIcon
+    <ProviderInstanceIcon
       driverKind={driverKind}
       displayName={displayName}
       accentColor={accentColor}
@@ -539,6 +540,7 @@ export function ProviderInstanceCard({
               {titleTailNode}
             </div>
             {authRowNode}
+            <ProviderSetupNotice driver={instance.driver} provider={liveProvider} />
           </div>
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
             <Button

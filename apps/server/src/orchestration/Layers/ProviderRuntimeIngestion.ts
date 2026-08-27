@@ -1981,7 +1981,14 @@ const make = Effect.gen(function* () {
               completedAt: now,
               checkpointRef: CheckpointRef.make(`provider-diff:${event.eventId}`),
               status: "missing",
-              files: [],
+              files: Array.isArray(event.payload.itemFileChanges)
+                ? event.payload.itemFileChanges.map((entry) => ({
+                    path: entry.path,
+                    kind: entry.kind,
+                    additions: Math.max(0, entry.additions),
+                    deletions: Math.max(0, entry.deletions),
+                  }))
+                : [],
               assistantMessageId,
               checkpointTurnCount: maxCheckpointTurnCount(checkpointContext.checkpoints) + 1,
               createdAt: now,

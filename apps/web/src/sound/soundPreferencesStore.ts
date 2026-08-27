@@ -17,6 +17,7 @@ export interface SoundPreferencesStoreState extends SoundPreferences {
   /** Picks a flavor for an event; an undefined id restores the default. */
   setEventVariant: (event: SoundEventId, variantId: string | undefined) => void;
   setNotifications: (notifications: boolean) => void;
+  setInAppNotifications: (enabled: boolean) => void;
 }
 
 /**
@@ -40,6 +41,7 @@ export const useSoundPreferencesStore = create<SoundPreferencesStoreState>()(
           return { variants };
         }),
       setNotifications: (notifications) => set({ notifications }),
+      setInAppNotifications: (inAppNotifications) => set({ inAppNotifications }),
     }),
     {
       name: SOUND_PREFERENCES_STORAGE_KEY,

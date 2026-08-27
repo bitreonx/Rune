@@ -43,6 +43,8 @@ export interface ProviderThreadTurnSnapshot {
 export interface ProviderThreadSnapshot {
   readonly threadId: ThreadId;
   readonly turns: ReadonlyArray<ProviderThreadTurnSnapshot>;
+  /** Provider turn currently producing output, when the runtime can observe it. */
+  readonly activeTurnId?: TurnId;
 }
 
 export interface ProviderAgentThreadInput {
@@ -133,9 +135,7 @@ export interface ProviderAdapterShape<TError> {
     input: ProviderAgentTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, TError>;
 
-  readonly interruptAgentTurn?: (
-    input: ProviderAgentInterruptInput,
-  ) => Effect.Effect<void, TError>;
+  readonly interruptAgentTurn?: (input: ProviderAgentInterruptInput) => Effect.Effect<void, TError>;
 
   /**
    * Roll back a provider thread by N turns.

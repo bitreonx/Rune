@@ -175,6 +175,9 @@ export function buildLocalDraftThread(
     checkpoints: [],
     activities: [],
     proposedPlans: [],
+    chatDiff: { files: [], computedAt: draftThread.createdAt, throughTurnCount: 0 },
+    baseline: null,
+    fileOwnership: [],
   };
 }
 
@@ -185,6 +188,9 @@ export function buildLoadingThreadFromShell(shell: ThreadShell): Thread {
     proposedPlans: [],
     activities: [],
     checkpoints: [],
+    chatDiff: { files: [], computedAt: shell.updatedAt, throughTurnCount: 0 },
+    baseline: null,
+    fileOwnership: [],
     deletedAt: null,
   };
 }
@@ -225,6 +231,22 @@ export function shouldInterruptRunningTurnBeforeSend(input: {
   sendInFlight: boolean;
 }): boolean {
   return input.phase === "running" && !input.isSendBusy && !input.sendInFlight;
+}
+
+export function shouldQueueRunningComposerSubmission(input: {
+  phase: SessionPhase;
+  isSendBusy: boolean;
+  sendInFlight: boolean;
+  hasQueueableTextOnlyContent: boolean;
+  hasPendingEdit: boolean;
+}): boolean {
+  return (
+    input.phase === "running" &&
+    !input.isSendBusy &&
+    !input.sendInFlight &&
+    input.hasQueueableTextOnlyContent &&
+    !input.hasPendingEdit
+  );
 }
 
 export function shouldRewindBeforeEditedUserMessageSend(input: {

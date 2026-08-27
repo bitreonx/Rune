@@ -44,6 +44,7 @@ import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
+import { aggregateChatDiff } from "../chatDiffAggregate.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
@@ -597,6 +598,43 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       });
     });
 
+    const deriveThreadScopedChanges = Effect.fn("deriveThreadScopedChanges")(function* (
+      threadId: ThreadId,
+      computedAt: string,
+    ) {
+      const turns = yield* projectionTurnRepository.listByThreadId({ threadId });
+      const checkpoints = turns.flatMap((turn) => {
+        if (
+          turn.turnId === null ||
+          turn.checkpointTurnCount === null ||
+          turn.checkpointRef === null ||
+          turn.checkpointStatus === null ||
+          turn.completedAt === null
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            turnId: turn.turnId,
+            checkpointTurnCount: turn.checkpointTurnCount,
+            checkpointRef: turn.checkpointRef,
+            status: turn.checkpointStatus,
+            files: turn.checkpointFiles,
+            assistantMessageId: turn.assistantMessageId,
+            completedAt: turn.completedAt,
+          },
+        ];
+      });
+      const aggregated = aggregateChatDiff(checkpoints, threadId, computedAt);
+
+      return {
+        chatDiffJson: JSON.stringify(aggregated.chatDiff.files),
+        chatDiffThroughTurnCount: aggregated.chatDiff.throughTurnCount,
+        fileOwnershipJson: JSON.stringify(aggregated.fileOwnership),
+      };
+    });
+
     const applyThreadsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyThreadsProjection",
     )(function* (event, attachmentSideEffects) {
@@ -612,6 +650,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
             latestTurnId: null,
+            baselineCheckpointRef: null,
+            baselineCapturedAt: null,
+            baselineSource: null,
+            chatDiffJson: "[]",
+            chatDiffThroughTurnCount: 0,
+            fileOwnershipJson: "[]",
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             archivedAt: null,
@@ -645,6 +689,23 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             titleRegenerationRequestId: null,
             titleRegenerationStartedAt: null,
             updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.baseline-captured": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            baselineCheckpointRef: event.payload.checkpointRef,
+            baselineCapturedAt: event.payload.capturedAt,
+            baselineSource: event.payload.source,
+            updatedAt: event.occurredAt,
           });
           return;
         }
@@ -925,9 +986,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isNone(existingRow)) {
             return;
           }
+          const scopedChanges = yield* deriveThreadScopedChanges(
+            event.payload.threadId,
+            event.occurredAt,
+          );
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             latestTurnId: event.payload.turnId,
+            ...scopedChanges,
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
@@ -962,10 +1028,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               latestTurnId = turn.turnId;
             }
           }
+          const scopedChanges = yield* deriveThreadScopedChanges(
+            event.payload.threadId,
+            event.occurredAt,
+          );
 
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             latestTurnId,
+            ...scopedChanges,
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);

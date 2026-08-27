@@ -187,9 +187,11 @@ export default function DiffPanel({
   }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
 
   const selectedTurnId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
+  const isChatSelection = diffSelection.kind === "chat";
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
-  const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
+  const selectedFilePath =
+    diffSelection.kind === "turn" || isChatSelection ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
     diffSelection.kind === "turn" ? diffSelection.revealRequestId : 0;
   const selectedTurn =
@@ -201,15 +203,20 @@ export default function DiffPanel({
     selectedTurn &&
     (selectedTurn.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[selectedTurn.turnId]);
   const latestTurn = orderedTurnDiffSummaries[0];
-  const selectedScopeLabel =
-    selectedTurnId === null
+  const selectedScopeLabel = isChatSelection
+    ? `Chat changes through turn ${diffSelection.toTurnCount}`
+    : selectedTurnId === null
       ? selectedGitScope === "unstaged"
         ? "Working tree"
         : "Branch changes"
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
-  const reviewSectionId = selectedTurn ? `turn:${selectedTurn.turnId}` : selectedGitScope;
+  const reviewSectionId = isChatSelection
+    ? "chat"
+    : selectedTurn
+      ? `turn:${selectedTurn.turnId}`
+      : selectedGitScope;
   const collapseScopeKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
@@ -225,12 +232,14 @@ export default function DiffPanel({
       : "Branch changes";
   const selectedCheckpointRange = useMemo(
     () =>
-      typeof selectedCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
-            toTurnCount: selectedCheckpointTurnCount,
-          }
-        : null,
+      isChatSelection
+        ? { fromTurnCount: 0, toTurnCount: diffSelection.toTurnCount }
+        : typeof selectedCheckpointTurnCount === "number"
+          ? {
+              fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
+              toTurnCount: selectedCheckpointTurnCount,
+            }
+          : null,
     [selectedCheckpointTurnCount],
   );
   const activeCheckpointDiff = useCheckpointDiff(
@@ -240,9 +249,9 @@ export default function DiffPanel({
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
       ignoreWhitespace: diffIgnoreWhitespace,
-      cacheScope: selectedTurn ? `turn:${selectedTurn.turnId}` : null,
+      cacheScope: isChatSelection ? "chat" : selectedTurn ? `turn:${selectedTurn.turnId}` : null,
     },
-    { enabled: isGitRepo && selectedTurn !== undefined },
+    { enabled: isGitRepo && (selectedTurn !== undefined || isChatSelection) },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
     selectedTurnId === null && activeThread && activeCwd
@@ -382,18 +391,19 @@ export default function DiffPanel({
   ];
   const gitDiff = selectedGitSource?.diff;
 
-  const selectedPatch = selectedTurn ? activeCheckpointDiff.data?.diff : gitDiff;
-  const isSelectedPatchTruncated = !selectedTurn && selectedGitSource?.truncated === true;
-  const isLoadingSelectedPatch = selectedTurn
-    ? activeCheckpointDiff.isPending
-    : branchDiffPreview.isPending;
-  const selectedPatchError = selectedTurn ? activeCheckpointDiff.error : branchDiffPreview.error;
+  const selectedPatch = selectedTurn || isChatSelection ? activeCheckpointDiff.data?.diff : gitDiff;
+  const isSelectedPatchTruncated =
+    !selectedTurn && !isChatSelection && selectedGitSource?.truncated === true;
+  const isLoadingSelectedPatch =
+    selectedTurn || isChatSelection ? activeCheckpointDiff.isPending : branchDiffPreview.isPending;
+  const selectedPatchError =
+    selectedTurn || isChatSelection ? activeCheckpointDiff.error : branchDiffPreview.error;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
     () =>
       getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
-        compactPartialHunkOffsets: selectedTurnId === null,
+        compactPartialHunkOffsets: selectedTurnId === null && !isChatSelection,
       }),
     [resolvedTheme, selectedPatch, selectedTurnId],
   );
@@ -521,6 +531,20 @@ export default function DiffPanel({
             <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-60">
+            {(activeThread?.chatDiff.files.length ?? 0) > 0 && (
+              <DropdownMenuItem
+                className={isChatSelection ? "bg-foreground/[0.08]" : undefined}
+                onClick={() => {
+                  if (routeThreadRef) {
+                    useDiffPanelStore
+                      .getState()
+                      .selectChat(routeThreadRef, activeThread?.chatDiff.throughTurnCount ?? 0);
+                  }
+                }}
+              >
+                <span>Chat changes</span>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               className={
                 selectedTurnId === null && selectedGitScope === "unstaged"

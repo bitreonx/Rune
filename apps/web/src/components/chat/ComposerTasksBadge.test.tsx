@@ -41,19 +41,15 @@ describe("ComposerTasksBadge", () => {
     expect(markup).toContain("right-4");
     expect(markup).toContain('data-composer-task-current="true"');
     expect(markup).toContain("min-w-0 flex-1 truncate");
-    expect(markup).toContain("w-20");
     expect(markup).toContain("Tasks");
     expect(markup).toContain("Attach task progress");
     expect(markup).not.toContain("·");
     expect(markup).toContain("1/3");
     expect(markup).toContain("Current task: Attach task progress");
-    expect(markup).toContain("lucide-list-todo");
     expect(markup).toContain('aria-label="Dismiss tasks for this turn"');
     expect(markup).toContain("lucide-x");
     expect(markup).not.toContain("lucide-chevron");
-    expect(markup).toContain("bg-success");
-    expect(markup).toContain("bg-primary");
-    expect(markup).toContain("bg-muted-foreground/25");
+    expect(markup).toContain("rune-task-badge-mark");
   });
 
   it("leaves room for the stash tab when both shoulders are present", () => {
@@ -122,7 +118,7 @@ describe("ComposerTasksBadge", () => {
     expect(markup).toContain("rune-task-step-swap");
   });
 
-  it("fills each progress segment from a shared track", () => {
+  it("uses a contextual progress trigger", () => {
     const markup = renderToStaticMarkup(
       <ComposerTasksBadge
         expanded={false}
@@ -133,10 +129,8 @@ describe("ComposerTasksBadge", () => {
       />,
     );
 
-    expect(markup).toContain('data-rune-task-segment="completed"');
-    expect(markup).toContain('data-rune-task-segment="inProgress"');
-    expect(markup).toContain('data-rune-task-segment="pending"');
-    expect(markup).toContain("rune-task-segment-fill");
+    expect(markup).toContain("rune-task-badge-mark");
+    expect(markup).toContain("Attach task progress");
   });
 
   it("has a compact inline fallback for occupied composer shoulders", () => {
@@ -155,7 +149,7 @@ describe("ComposerTasksBadge", () => {
     expect(markup).toContain("1/3");
     expect(markup).not.toContain("chat-composer-shoulder-tab");
     expect(markup).not.toContain("rounded-t-xl");
-    expect(markup).toContain('data-rune-task-segment="completed"');
+    expect(markup).toContain("rune-task-badge-mark");
   });
 
   it("does not render an empty task count", () => {
@@ -194,9 +188,8 @@ describe("ComposerTasksDrawer", () => {
     expect(markup).toContain("now");
     expect(markup).toContain("Attach task progress");
     expect(markup).toContain("Verify the result");
-    expect(markup).toContain("lucide-list-todo");
     expect(markup).toContain('aria-label="Dismiss tasks for this turn"');
-    expect(markup).not.toContain("lucide-chevron");
+    expect(markup).toContain("rune-task-row-active");
   });
 
   it("reports completion through a progress bar", () => {

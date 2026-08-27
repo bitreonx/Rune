@@ -28,7 +28,12 @@ const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 type SkillFrontmatter =
   | { readonly kind: "missing" }
   | { readonly kind: "malformed" }
-  | { readonly kind: "parsed"; readonly name?: string; readonly description?: string };
+  | {
+      readonly kind: "parsed";
+      readonly name?: string;
+      readonly description?: string;
+      readonly repositoryUrl?: string;
+    };
 
 function parseSkillFrontmatter(contents: string): SkillFrontmatter {
   const match = FRONTMATTER_PATTERN.exec(contents);
@@ -49,10 +54,13 @@ function parseSkillFrontmatter(contents: string): SkillFrontmatter {
   const record = parsed as Record<string, unknown>;
   const name = typeof record.name === "string" ? record.name.trim() : "";
   const description = typeof record.description === "string" ? record.description.trim() : "";
+  const repositoryValue = record.repositoryUrl ?? record.repository;
+  const repositoryUrl = typeof repositoryValue === "string" ? repositoryValue.trim() : "";
   return {
     kind: "parsed",
     ...(name ? { name } : {}),
     ...(description ? { description } : {}),
+    ...(repositoryUrl ? { repositoryUrl } : {}),
   };
 }
 
@@ -146,6 +154,9 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
         scope: root.scope,
         ...(frontmatter.kind === "parsed" && frontmatter.description
           ? { description: frontmatter.description }
+          : {}),
+        ...(frontmatter.kind === "parsed" && frontmatter.repositoryUrl
+          ? { repositoryUrl: frontmatter.repositoryUrl }
           : {}),
       });
     }

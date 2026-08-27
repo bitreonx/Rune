@@ -84,6 +84,7 @@ import {
   type AtomCommandResult,
 } from "@rune/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
+import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { APP_BASE_NAME } from "../branding";
@@ -95,6 +96,7 @@ import {
   type ComposerSubmissionIntent,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
+import { formatGoalAwarePrompt, parseComposerGoalCommand } from "../composerGoal";
 import {
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -173,6 +175,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import { TasksPanel } from "./TasksPanel";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
@@ -284,7 +287,11 @@ import { RunePageTransition } from "./RunePageTransition";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
-import { runePanelTransitionClass, useRunePanelMotionState } from "../runePanelMotion";
+import {
+  resolveRuneRightPanelPresentation,
+  shouldRestoreRunePanelToggleFocus,
+  useRunePanelMotionState,
+} from "../runePanelMotion";
 import { RUNE_MOTION_MS } from "../runeMotion";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -340,6 +347,7 @@ import {
   isBranchMismatchDismissedForSession,
   shouldDockDraftHeroForSubmission,
   shouldInterruptRunningTurnBeforeSend,
+  shouldQueueRunningComposerSubmission,
   shouldRewindBeforeEditedUserMessageSend,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -1517,6 +1525,7 @@ function ChatViewContent(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const rightPanelPresentation = resolveRuneRightPanelPresentation(shouldUseRightPanelSheet);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   // Bumped by the terminal.search command; the drawer opens its search row on change.
@@ -1699,6 +1708,12 @@ function ChatViewContent(props: ChatViewProps) {
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
   const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
+  const goalScopeId = activeThreadId ?? draftId ?? "none";
+  const [activeGoal, setActiveGoal] = useLocalStorage(
+    `rune:thread-goal:${goalScopeId}`,
+    "",
+    Schema.String,
+  );
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
     threadId: activeThreadId,
@@ -1892,9 +1907,17 @@ function ChatViewContent(props: ChatViewProps) {
   }, [prefersReducedMotion, rightPanelMotionState, shouldUseRightPanelSheet]);
 
   useEffect(() => {
-    if (!shouldRestoreRightPanelToggleFocusRef.current || rightPanelMotionState !== "closing") {
+    if (
+      !shouldRestoreRunePanelToggleFocus({
+        closeIntent: shouldRestoreRightPanelToggleFocusRef.current,
+        open: rightPanelOpen,
+        reducedMotion: prefersReducedMotion,
+        state: rightPanelMotionState,
+      })
+    ) {
       return;
     }
+    shouldRestoreRightPanelToggleFocusRef.current = false;
     const toggle = rightPanelToggleRef.current;
     if (!toggle || toggle.disabled) return;
     const activeElement = document.activeElement;
@@ -1908,9 +1931,8 @@ function ChatViewContent(props: ChatViewProps) {
     ) {
       return;
     }
-    shouldRestoreRightPanelToggleFocusRef.current = false;
     toggle.focus({ preventScroll: true });
-  }, [rightPanelMotionState]);
+  }, [prefersReducedMotion, rightPanelMotionState, rightPanelOpen]);
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -2596,6 +2618,7 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const promptQueue = usePromptQueue(activeThreadId);
+  const enqueueQueuedPrompt = usePromptQueueStore((store) => store.enqueue);
   const editQueuedPrompt = usePromptQueueStore((store) => store.edit);
   const removeQueuedPrompt = usePromptQueueStore((store) => store.remove);
   const reorderQueuedPrompt = usePromptQueueStore((store) => store.reorder);
@@ -3744,6 +3767,7 @@ function ChatViewContent(props: ChatViewProps) {
   const togglePreviewPanel = useCallback(() => {
     if (!activeThreadRef || !isPreviewSupportedInRuntime()) return;
     if (previewPanelOpen) {
+      shouldRestoreRightPanelToggleFocusRef.current = true;
       useRightPanelStore.getState().close(activeThreadRef);
       return;
     }
@@ -4619,6 +4643,10 @@ function ChatViewContent(props: ChatViewProps) {
     activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
       ? activePlan.steps
       : null;
+  const addTasksSurface = useCallback(() => {
+    if (!activeThreadRef || !activeComposerTasksProgress || !activeComposerTaskSteps) return;
+    useRightPanelStore.getState().open(activeThreadRef, "tasks");
+  }, [activeComposerTaskSteps, activeComposerTasksProgress, activeThreadRef]);
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
   const autoSettleOnMerge = useClientSettings((settings) => settings.sidebarAutoSettleOnMerge);
   const activeThreadPr = resolveDisplayedThreadPr({
@@ -5615,6 +5643,44 @@ function ChatViewContent(props: ChatViewProps) {
       notifyDirectAnnotationAttached();
       return;
     }
+    const goalCommand = directAnnotation ? null : parseComposerGoalCommand(promptRef.current);
+    if (goalCommand) {
+      if (goalCommand.kind === "empty") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "Set an active goal",
+            description: "Use /goal followed by the outcome this thread must achieve.",
+          }),
+        );
+        return;
+      }
+      if (goalCommand.kind === "status") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: activeGoal ? "Active goal" : "No active goal",
+            description: activeGoal ?? "Set one with /goal followed by a concise outcome.",
+          }),
+        );
+      } else {
+        setActiveGoal(goalCommand.kind === "clear" ? "" : goalCommand.goal);
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: goalCommand.kind === "clear" ? "Goal cleared" : "Goal saved",
+            description:
+              goalCommand.kind === "clear"
+                ? "New turns will no longer include the previous goal."
+                : goalCommand.goal,
+          }),
+        );
+      }
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
     if (activeEnvironmentUnavailable) {
       toastManager.add(
         stackedThreadToast({
@@ -5869,8 +5935,9 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    const goalAwarePrompt = formatGoalAwarePrompt(activeGoal, promptForSend);
     const messageTextWithContexts = appendElementContextsToPrompt(
-      appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
+      appendTerminalContextsToPrompt(goalAwarePrompt, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
     );
     const messageTextWithPreviewAnnotations = composerPreviewAnnotationsSnapshot.reduce(
@@ -5892,6 +5959,31 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    const pendingEdit = pendingUserMessageEditRef.current;
+    const hasQueueableTextOnlyContent =
+      !directAnnotation &&
+      trimmed.length > 0 &&
+      composerImagesSnapshot.length === 0 &&
+      composerTerminalContextsSnapshot.length === 0 &&
+      composerElementContextsSnapshot.length === 0 &&
+      composerPreviewAnnotationsSnapshot.length === 0 &&
+      composerReviewCommentsSnapshot.length === 0;
+    if (
+      shouldQueueRunningComposerSubmission({
+        phase,
+        isSendBusy,
+        sendInFlight: sendInFlightRef.current,
+        hasQueueableTextOnlyContent,
+        hasPendingEdit: pendingEdit !== null,
+      })
+    ) {
+      enqueueQueuedPrompt(threadIdForSend, promptForSend.trim());
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
+
     const shouldInterruptPreviousTurn = shouldInterruptRunningTurnBeforeSend({
       phase,
       isSendBusy,
@@ -5900,7 +5992,6 @@ function ChatViewContent(props: ChatViewProps) {
     // Reserve the send before awaiting confirmation or interruption so a
     // second click cannot race the same lifecycle.
     sendInFlightRef.current = true;
-    const pendingEdit = pendingUserMessageEditRef.current;
     if (pendingEdit) {
       const localApi = readLocalApi();
       if (!localApi) {
@@ -6384,6 +6475,12 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadId, removeQueuedPrompt],
   );
+  const onReorderQueuedPrompt = useCallback(
+    (itemId: string, beforeItemId: string | null) => {
+      if (activeThreadId !== null) reorderQueuedPrompt(activeThreadId, itemId, beforeItemId);
+    },
+    [activeThreadId, reorderQueuedPrompt],
+  );
   const onMoveQueuedPrompt = useCallback(
     (itemId: string, direction: -1 | 1) => {
       if (activeThreadId === null) return;
@@ -6391,13 +6488,9 @@ function ChatViewContent(props: ChatViewProps) {
       const index = queued.findIndex((item) => item.id === itemId);
       const target = queued[index + direction];
       if (index < 0 || target === undefined) return;
-      reorderQueuedPrompt(
-        activeThreadId,
-        itemId,
-        direction < 0 ? target.id : (queued[index + 2]?.id ?? null),
-      );
+      onReorderQueuedPrompt(itemId, direction < 0 ? target.id : (queued[index + 2]?.id ?? null));
     },
-    [activeThreadId, promptQueue.queue, reorderQueuedPrompt],
+    [activeThreadId, onReorderQueuedPrompt, promptQueue.queue],
   );
   const onRetryQueuedPrompt = useCallback(
     (itemId: string) => {
@@ -6413,11 +6506,12 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const onSteerQueuedPrompt = useCallback(
     (itemId: string) => {
-      if (activeThreadId === null || activeThread === null) return;
+      if (activeThreadId === null || !activeThread) return;
+      const threadForSteer = activeThread;
       promoteQueuedPrompt(activeThreadId, itemId);
       void interruptThreadTurn({
         environmentId,
-        input: buildThreadTurnInterruptInput(activeThread),
+        input: buildThreadTurnInterruptInput(threadForSteer),
       }).then((result) => {
         if (result._tag === "Failure" && activeThreadId !== null) {
           updatePromptQueue(activeThreadId, {
@@ -7094,6 +7188,14 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
+  const onOpenChatDiff = useCallback(() => {
+    if (!isServerThread || !activeThreadRef || !activeThread) return;
+    useDiffPanelStore
+      .getState()
+      .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount);
+    useRightPanelStore.getState().open(activeThreadRef, "diff");
+    onDiffPanelOpen?.();
+  }, [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen]);
   // Both the Map and the rewind handler are read from refs at call-time so
   // the callback references stay fully stable and never bust context identity.
   const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
@@ -7272,6 +7374,12 @@ function ChatViewContent(props: ChatViewProps) {
         focusedAgentId={focusedAgentId}
         onFocusAgent={handleFocusAgent}
       />
+    ) : activeRightPanelSurface?.kind === "tasks" ? (
+      <TasksPanel
+        activities={threadActivities}
+        progress={activeComposerTasksProgress}
+        steps={activeComposerTaskSteps}
+      />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -7281,6 +7389,9 @@ function ChatViewContent(props: ChatViewProps) {
           environmentId={activeProject.environmentId}
           cwd={activeWorkspaceRoot}
           projectName={activeProject.title}
+          chatDiff={activeThread?.chatDiff.files ?? null}
+          threadTitle={activeThread?.title ?? null}
+          onToggleScope={() => undefined}
           threadRef={activeThreadRef}
           composerDraftTarget={composerDraftTarget}
           keybindings={keybindings}
@@ -7418,6 +7529,8 @@ function ChatViewContent(props: ChatViewProps) {
                   activeThreadEnvironmentId={activeThread.environmentId}
                   routeThreadKey={routeThreadKey}
                   onOpenTurnDiff={onOpenTurnDiff}
+                  onOpenChatDiff={onOpenChatDiff}
+                  chatDiff={activeThread.chatDiff.files}
                   onOpenFile={openFileSurface}
                   onRevertTurn={onRevertTurn}
                   revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
@@ -7576,6 +7689,8 @@ function ChatViewContent(props: ChatViewProps) {
                             activeProposedPlan={activeProposedPlan}
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
+                            onOpenTasks={addTasksSurface}
+                            activeGoal={activeGoal || null}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
                             lockedProvider={lockedProvider}
@@ -7589,6 +7704,7 @@ function ChatViewContent(props: ChatViewProps) {
                             onEditQueuedPrompt={onEditQueuedPrompt}
                             onRemoveQueuedPrompt={onRemoveQueuedPrompt}
                             onMoveQueuedPrompt={onMoveQueuedPrompt}
+                            onReorderQueuedPrompt={onReorderQueuedPrompt}
                             onSteerQueuedPrompt={onSteerQueuedPrompt}
                             onRetryQueuedPrompt={onRetryQueuedPrompt}
                             resolvedTheme={resolvedTheme}
@@ -7606,6 +7722,7 @@ function ChatViewContent(props: ChatViewProps) {
                             isContinueBusy={isContinuingTurn}
                             onContinue={() => void continuePausedTurn()}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
+                            onClearGoal={() => setActiveGoal("")}
                             onRespondToApproval={onRespondToApproval}
                             onSelectActivePendingUserInputOption={
                               onSelectActivePendingUserInputOption
@@ -7638,7 +7755,7 @@ function ChatViewContent(props: ChatViewProps) {
                       <div className="min-h-0">
                         <div
                           data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
-                          className="relative z-0"
+                          className="relative z-10"
                         >
                           {showComposerContextStrip && (
                             <div className="pointer-events-auto">
@@ -7765,86 +7882,33 @@ function ChatViewContent(props: ChatViewProps) {
         ))}
       </div>
 
-      {!shouldUseRightPanelSheet && rightPanelMounted ? (
-        <div
-          ref={rightPanelHostRef}
-          className={cn(
-            // Flex (not block) so the surface child stretches to the host's
-            // full height; as a block the surface's flex-1 is inert and the
-            // panel content collapses to its own height, pinned to the top.
-            "rune-right-panel-host flex min-h-0 min-w-0 overflow-hidden",
-            rightPanelMaximized
-              ? "flex-1"
-              : "shrink-0 border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))]",
-            runePanelTransitionClass(rightPanelMotionState),
-          )}
-          data-rune-right-panel-host
-          data-rune-right-panel-state={rightPanelMotionState}
-          data-rune-right-panel-maximized={rightPanelMaximized ? "true" : "false"}
-        >
-          <div
-            className="rune-right-panel-surface flex min-h-0 min-w-0 flex-1 flex-col"
-            data-rune-right-panel-surface
-            data-rune-right-panel-surface-state={rightPanelMotionState}
-          >
-            <RightPanelTabs
-              mode="inline"
-              maximized={rightPanelMaximized}
-              surfaces={rightPanelState.surfaces}
-              activeSurfaceId={activeRightPanelSurface?.id ?? null}
-              pendingSurfaceIds={pendingFileSurfaceIds}
-              previewSessions={activePreviewState.sessions}
-              desktopByTabId={activePreviewState.desktopByTabId}
-              previewRuntimeTabId={resolvePreviewRuntimeTabId}
-              terminalLabelsById={activeTerminalLabelsById}
-              onActivate={activateRightPanelSurface}
-              onCloseSurface={closeRightPanelSurface}
-              onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
-              onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
-              onCloseAllSurfaces={closeAllRightPanelSurfaces}
-              onCopyFilePath={copyRightPanelFilePath}
-              onAddBrowser={createBrowserSurface}
-              onAddTerminal={addTerminalSurface}
-              onAddDiff={addDiffSurface}
-              onAddFiles={addFilesSurface}
-              onAddPullRequest={addPullRequestSurface}
-              onAddAgents={addAgentsSurface}
-              browserAvailable={isPreviewSupportedInRuntime()}
-              terminalAvailable={activeProject !== null}
-              diffAvailable={isServerThread && isGitRepo}
-              filesAvailable={activeProject !== null}
-              pullRequestAvailable={pullRequestSurfaceAvailable}
-              agentsAvailable
-              pullRequestStatuses={pullRequestTabStatuses}
-              liveAgentCount={agentPanelModel.liveCount}
-            >
-              {rightPanelContent}
-            </RightPanelTabs>
-          </div>
-        </div>
-      ) : null}
-      {shouldUseRightPanelSheet && rightPanelMounted ? (
+      {rightPanelMounted ? (
         <RightPanelSheet
+          hostRef={rightPanelHostRef}
+          mode={rightPanelPresentation.mode}
           open={rightPanelOpen}
           motionState={rightPanelMotionState}
           maximized={rightPanelMaximized}
           onClose={closePreviewPanel}
         >
           <RightPanelTabs
-            mode="sheet"
+            key={rightPanelPresentation.contentKey}
+            mode={rightPanelPresentation.mode}
             maximized={rightPanelMaximized}
             // Same effective inset as the closed-state titlebar controls
             // (pr-3 in the tab bar plus this pixel equals the absolute
             // right inset plus mr-px), so the cluster does not creep when
             // the sheet opens.
             layoutControls={
-              <div className="mr-px flex items-center gap-0.5">
-                <RightPanelMaximizeControl
-                  maximized={rightPanelMaximized}
-                  onToggle={toggleRightPanelMaximized}
-                />
-                {panelToggleControls}
-              </div>
+              shouldUseRightPanelSheet ? (
+                <div className="mr-px flex items-center gap-0.5">
+                  <RightPanelMaximizeControl
+                    maximized={rightPanelMaximized}
+                    onToggle={toggleRightPanelMaximized}
+                  />
+                  {panelToggleControls()}
+                </div>
+              ) : undefined
             }
             surfaces={rightPanelState.surfaces}
             activeSurfaceId={activeRightPanelSurface?.id ?? null}
@@ -7865,12 +7929,16 @@ function ChatViewContent(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddAgents={addAgentsSurface}
+            onAddTasks={addTasksSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             agentsAvailable
+            tasksAvailable={
+              activeComposerTasksProgress !== null && activeComposerTaskSteps !== null
+            }
             pullRequestStatuses={pullRequestTabStatuses}
             liveAgentCount={agentPanelModel.liveCount}
           >

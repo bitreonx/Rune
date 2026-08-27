@@ -62,6 +62,80 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
+ * Materialize a connected global OpenRouter service into the environment
+ * variable understood by the selected CLI harness. The settings UI stores a
+ * service credential by reference so it can be shared without exposing the
+ * secret; Claude Code and Codex still need their provider-specific variable at
+ * process launch time.
+ */
+const materializeOpenRouterHarnessCredential = (input: {
+  readonly settings: ServerSettings;
+  readonly instanceId: string;
+  readonly driver: string;
+  readonly environment: ProviderInstanceEnvironmentVariable[];
+  readonly secretStore: ServerSecretStore.ServerSecretStore["Service"];
+}): Effect.Effect<ProviderInstanceEnvironmentVariable[], ServerSettingsError> =>
+  Effect.gen(function* () {
+    const isClaude = input.driver === "claudeAgent" || input.driver === "claude";
+    const isCodex = input.driver === "codex";
+    if (!isClaude && !isCodex) return input.environment;
+
+    const baseUrlName = isClaude ? "ANTHROPIC_BASE_URL" : "OPENAI_BASE_URL";
+    const credentialName = isClaude ? "ANTHROPIC_AUTH_TOKEN" : "OPENAI_API_KEY";
+    const baseUrl =
+      input.environment.find((variable) => variable.name === baseUrlName)?.value ?? "";
+    let isOpenRouterEndpoint = false;
+    try {
+      const hostname = new URL(baseUrl).hostname.toLowerCase();
+      isOpenRouterEndpoint = hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
+    } catch {
+      // Invalid/custom URLs are left untouched; the provider will surface its
+      // normal validation error instead of receiving an unrelated credential.
+    }
+    if (!isOpenRouterEndpoint) return input.environment;
+
+    const existingCredential = input.environment.find(
+      (variable) => variable.name === credentialName,
+    );
+    if (existingCredential && existingCredential.value.trim().length > 0) return input.environment;
+
+    // Preserve compatibility with the older per-instance OpenRouter field,
+    // while exposing the provider-native variable to the child CLI.
+    const legacyCredential = input.environment.find(
+      (variable) => variable.name === "OPENROUTER_API_KEY",
+    );
+    if (legacyCredential && legacyCredential.value.trim().length > 0) {
+      return [
+        ...input.environment,
+        { name: credentialName, value: legacyCredential.value, sensitive: true },
+      ];
+    }
+
+    const service = Object.values(input.settings.harnesses.services).find(
+      (candidate) => candidate.kind === "openrouter",
+    );
+    if (!service) return input.environment;
+    const secretName = service.credentialRef ?? `model-service:${service.serviceId}:api-key`;
+    const secret = yield* input.secretStore.get(secretName).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ServerSettingsError({
+            settingsPath: "global OpenRouter service",
+            operation: "read-secret",
+            providerInstanceId: input.instanceId,
+            environmentVariable: credentialName,
+            cause,
+          }),
+      ),
+    );
+    if (Option.isNone(secret)) return input.environment;
+    return [
+      ...input.environment,
+      { name: credentialName, value: textDecoder.decode(secret.value), sensitive: true },
+    ];
+  });
+
+/**
  * Fold the legacy in-config `enabled` flag into the envelope-level
  * `ProviderInstanceConfig.enabled` and strip it from the config blob, so
  * explicit provider instances carry exactly one enabled flag. Old settings
@@ -396,9 +470,16 @@ const make = Effect.gen(function* () {
             value: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
           });
         }
+        const materializedEnvironment = yield* materializeOpenRouterHarnessCredential({
+          settings,
+          instanceId,
+          driver: String(instance.driver),
+          environment,
+          secretStore,
+        });
         providerInstances[instanceId] = {
           ...instance,
-          environment,
+          environment: materializedEnvironment,
         } satisfies ProviderInstanceConfig;
       }
       return {

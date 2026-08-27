@@ -5,7 +5,7 @@ import type {
   DesktopPreviewTabState,
 } from "@rune/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
 import { installDesktopUiPolish } from "./desktopUiPolish.ts";
@@ -33,6 +33,13 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 }
 
 contextBridge.exposeInMainWorld("desktopBridge", {
+  getPathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return null;
+    }
+  },
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {
@@ -136,6 +143,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(IpcChannels.QUIT_SHORTCUT_CHANNEL, wrappedListener);
     };
   },
+  onWindowCloseRequest: (listener) => {
+    const wrappedListener = () => listener();
+    ipcRenderer.on(IpcChannels.WINDOW_CLOSE_REQUEST_CHANNEL, wrappedListener);
+    return () =>
+      ipcRenderer.removeListener(IpcChannels.WINDOW_CLOSE_REQUEST_CHANNEL, wrappedListener);
+  },
+  respondToWindowClose: (decision) =>
+    ipcRenderer.invoke(IpcChannels.WINDOW_CLOSE_DECISION_CHANNEL, decision),
   getWindowFullscreenState: () =>
     ipcRenderer.sendSync(IpcChannels.GET_WINDOW_FULLSCREEN_STATE_CHANNEL) === true,
   onWindowFullscreenStateChange: (listener) => {

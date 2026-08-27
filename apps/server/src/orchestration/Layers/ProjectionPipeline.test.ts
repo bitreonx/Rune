@@ -241,6 +241,238 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 });
 
+it.layer(
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("rune-projection-thread-scoped-changes-")),
+)("OrchestrationProjectionPipeline thread-scoped changes", (it) => {
+  it.effect("persists created, baseline, diff, and reverted chat-scoped fields", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-scoped-changes");
+      const projectId = ProjectId.make("project-scoped-changes");
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const readScopedChanges = () =>
+        sql<{
+          readonly baselineCheckpointRef: string | null;
+          readonly baselineCapturedAt: string | null;
+          readonly baselineSource: string | null;
+          readonly chatDiffJson: string | null;
+          readonly chatDiffThroughTurnCount: number | null;
+          readonly fileOwnershipJson: string | null;
+        }>`
+          SELECT
+            baseline_checkpoint_ref AS "baselineCheckpointRef",
+            baseline_captured_at AS "baselineCapturedAt",
+            baseline_source AS "baselineSource",
+            chat_diff_json AS "chatDiffJson",
+            chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
+            file_ownership_json AS "fileOwnershipJson"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `.pipe(
+          Effect.map((rows) => {
+            const row = rows[0];
+            if (!row) {
+              throw new Error("Expected thread projection row to exist.");
+            }
+            return {
+              ...row,
+              chatDiff: JSON.parse(row.chatDiffJson ?? "null"),
+              fileOwnership: JSON.parse(row.fileOwnershipJson ?? "null"),
+            };
+          }),
+        );
+
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-thread-scoped-created"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-08-27T10:00:00.000Z",
+        commandId: CommandId.make("cmd-thread-scoped-created"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-thread-scoped-created"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId,
+          title: "Thread scoped changes",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-08-27T10:00:00.000Z",
+          updatedAt: "2026-08-27T10:00:00.000Z",
+        },
+      });
+
+      assert.deepEqual(yield* readScopedChanges(), {
+        baselineCheckpointRef: null,
+        baselineCapturedAt: null,
+        baselineSource: null,
+        chatDiffJson: "[]",
+        chatDiffThroughTurnCount: 0,
+        fileOwnershipJson: "[]",
+        chatDiff: [],
+        fileOwnership: [],
+      });
+
+      yield* appendAndProject({
+        type: "thread.baseline-captured",
+        eventId: EventId.make("evt-thread-scoped-baseline"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-08-27T10:00:01.000Z",
+        commandId: CommandId.make("cmd-thread-scoped-baseline"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-thread-scoped-baseline"),
+        metadata: {},
+        payload: {
+          threadId,
+          checkpointRef: CheckpointRef.make("refs/rune/checkpoints/thread-scoped-changes/base"),
+          capturedAt: "2026-08-27T10:00:01.000Z",
+          source: "thread-created",
+        },
+      });
+
+      const firstDiff = {
+        type: "thread.turn-diff-completed" as const,
+        aggregateKind: "thread" as const,
+        aggregateId: threadId,
+        causationEventId: null,
+        metadata: {},
+        threadId,
+        status: "ready" as const,
+        assistantMessageId: null,
+      };
+      yield* appendAndProject({
+        ...firstDiff,
+        eventId: EventId.make("evt-thread-scoped-diff-1"),
+        occurredAt: "2026-08-27T10:00:02.000Z",
+        commandId: CommandId.make("cmd-thread-scoped-diff-1"),
+        correlationId: CorrelationId.make("cmd-thread-scoped-diff-1"),
+        payload: {
+          threadId,
+          turnId: TurnId.make("turn-scoped-1"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("refs/rune/checkpoints/thread-scoped-changes/1"),
+          status: "ready",
+          files: [{ path: "src/a.ts", kind: "added", additions: 3, deletions: 0 }],
+          assistantMessageId: null,
+          completedAt: "2026-08-27T10:00:02.000Z",
+        },
+      });
+      yield* appendAndProject({
+        ...firstDiff,
+        eventId: EventId.make("evt-thread-scoped-diff-2"),
+        occurredAt: "2026-08-27T10:00:03.000Z",
+        commandId: CommandId.make("cmd-thread-scoped-diff-2"),
+        correlationId: CorrelationId.make("cmd-thread-scoped-diff-2"),
+        payload: {
+          threadId,
+          turnId: TurnId.make("turn-scoped-2"),
+          checkpointTurnCount: 2,
+          checkpointRef: CheckpointRef.make("refs/rune/checkpoints/thread-scoped-changes/2"),
+          status: "ready",
+          files: [{ path: "src/b.ts", kind: "modified", additions: 2, deletions: 1 }],
+          assistantMessageId: null,
+          completedAt: "2026-08-27T10:00:03.000Z",
+        },
+      });
+
+      assert.deepEqual(yield* readScopedChanges(), {
+        baselineCheckpointRef: "refs/rune/checkpoints/thread-scoped-changes/base",
+        baselineCapturedAt: "2026-08-27T10:00:01.000Z",
+        baselineSource: "thread-created",
+        chatDiffJson:
+          '[{"path":"src/a.ts","kind":"added","additions":3,"deletions":0},{"path":"src/b.ts","kind":"modified","additions":2,"deletions":1}]',
+        chatDiffThroughTurnCount: 2,
+        fileOwnershipJson:
+          '[{"path":"src/a.ts","owners":[{"threadId":"thread-scoped-changes","throughTurnCount":1,"additions":3,"deletions":0}]},{"path":"src/b.ts","owners":[{"threadId":"thread-scoped-changes","throughTurnCount":2,"additions":2,"deletions":1}]}]',
+        chatDiff: [
+          { path: "src/a.ts", kind: "added", additions: 3, deletions: 0 },
+          { path: "src/b.ts", kind: "modified", additions: 2, deletions: 1 },
+        ],
+        fileOwnership: [
+          {
+            path: "src/a.ts",
+            owners: [
+              {
+                threadId: "thread-scoped-changes",
+                throughTurnCount: 1,
+                additions: 3,
+                deletions: 0,
+              },
+            ],
+          },
+          {
+            path: "src/b.ts",
+            owners: [
+              {
+                threadId: "thread-scoped-changes",
+                throughTurnCount: 2,
+                additions: 2,
+                deletions: 1,
+              },
+            ],
+          },
+        ],
+      });
+
+      yield* appendAndProject({
+        type: "thread.reverted",
+        eventId: EventId.make("evt-thread-scoped-reverted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-08-27T10:00:04.000Z",
+        commandId: CommandId.make("cmd-thread-scoped-reverted"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-thread-scoped-reverted"),
+        metadata: {},
+        payload: { threadId, turnCount: 1 },
+      });
+
+      const reverted = yield* readScopedChanges();
+      assert.deepEqual(
+        {
+          chatDiffJson: reverted.chatDiffJson,
+          chatDiffThroughTurnCount: reverted.chatDiffThroughTurnCount,
+          fileOwnershipJson: reverted.fileOwnershipJson,
+          chatDiff: reverted.chatDiff,
+          fileOwnership: reverted.fileOwnership,
+        },
+        {
+          chatDiffJson: '[{"path":"src/a.ts","kind":"added","additions":3,"deletions":0}]',
+          chatDiffThroughTurnCount: 1,
+          fileOwnershipJson:
+            '[{"path":"src/a.ts","owners":[{"threadId":"thread-scoped-changes","throughTurnCount":1,"additions":3,"deletions":0}]}]',
+          chatDiff: [{ path: "src/a.ts", kind: "added", additions: 3, deletions: 0 }],
+          fileOwnership: [
+            {
+              path: "src/a.ts",
+              owners: [
+                {
+                  threadId: "thread-scoped-changes",
+                  throughTurnCount: 1,
+                  additions: 3,
+                  deletions: 0,
+                },
+              ],
+            },
+          ],
+        },
+      );
+    }),
+  );
+});
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("rune-projection-pipeline-hidden-")))(
   "OrchestrationProjectionPipeline hidden messages",
   (it) => {
@@ -1111,181 +1343,176 @@ it.layer(
   );
 });
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("rune-projection-attachments-revert-")))(
-  "OrchestrationProjectionPipeline",
-  (it) => {
-    it.effect("removes thread attachment directory when thread is deleted", () =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const projectionPipeline = yield* OrchestrationProjectionPipeline;
-        const eventStore = yield* OrchestrationEventStore;
-        const { attachmentsDir } = yield* ServerConfig;
-        const now = "2026-01-01T00:00:00.000Z";
-        const threadId = ThreadId.make("Thread Delete.Files");
-        const attachmentId = "thread-delete-files-00000000-0000-4000-8000-000000000001";
-        const otherThreadAttachmentId =
-          "thread-delete-files-extra-00000000-0000-4000-8000-000000000002";
+it.layer(
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("rune-projection-attachments-revert-")),
+)("OrchestrationProjectionPipeline", (it) => {
+  it.effect("removes thread attachment directory when thread is deleted", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const { attachmentsDir } = yield* ServerConfig;
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("Thread Delete.Files");
+      const attachmentId = "thread-delete-files-00000000-0000-4000-8000-000000000001";
+      const otherThreadAttachmentId =
+        "thread-delete-files-extra-00000000-0000-4000-8000-000000000002";
 
-        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
-          eventStore
-            .append(event)
-            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
 
-        yield* appendAndProject({
-          type: "project.created",
-          eventId: EventId.make("evt-delete-files-1"),
-          aggregateKind: "project",
-          aggregateId: ProjectId.make("project-delete-files"),
-          occurredAt: now,
-          commandId: CommandId.make("cmd-delete-files-1"),
-          causationEventId: null,
-          correlationId: CorrelationId.make("cmd-delete-files-1"),
-          metadata: {},
-          payload: {
-            projectId: ProjectId.make("project-delete-files"),
-            title: "Project Delete Files",
-            workspaceRoot: "/tmp/project-delete-files",
-            defaultModelSelection: null,
-            scripts: [],
-            createdAt: now,
-            updatedAt: now,
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-delete-files-1"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-delete-files"),
+        occurredAt: now,
+        commandId: CommandId.make("cmd-delete-files-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-delete-files-1"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-delete-files"),
+          title: "Project Delete Files",
+          workspaceRoot: "/tmp/project-delete-files",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-delete-files-2"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-delete-files-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-delete-files-2"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-delete-files"),
+          title: "Thread Delete Files",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
           },
-        });
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
 
-        yield* appendAndProject({
-          type: "thread.created",
-          eventId: EventId.make("evt-delete-files-2"),
-          aggregateKind: "thread",
-          aggregateId: threadId,
-          occurredAt: now,
-          commandId: CommandId.make("cmd-delete-files-2"),
-          causationEventId: null,
-          correlationId: CorrelationId.make("cmd-delete-files-2"),
-          metadata: {},
-          payload: {
-            threadId,
-            projectId: ProjectId.make("project-delete-files"),
-            title: "Thread Delete Files",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("codex"),
-              model: "gpt-5-codex",
+      yield* appendAndProject({
+        type: "thread.message-sent",
+        eventId: EventId.make("evt-delete-files-3"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-delete-files-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-delete-files-3"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId: MessageId.make("message-delete-files"),
+          role: "user",
+          text: "Delete",
+          attachments: [
+            {
+              type: "image",
+              id: attachmentId,
+              name: "delete.png",
+              mimeType: "image/png",
+              sizeBytes: 5,
             },
-            runtimeMode: "full-access",
-            branch: null,
-            worktreePath: null,
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
+          ],
+          turnId: null,
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
 
-        yield* appendAndProject({
-          type: "thread.message-sent",
-          eventId: EventId.make("evt-delete-files-3"),
-          aggregateKind: "thread",
-          aggregateId: threadId,
-          occurredAt: now,
-          commandId: CommandId.make("cmd-delete-files-3"),
-          causationEventId: null,
-          correlationId: CorrelationId.make("cmd-delete-files-3"),
-          metadata: {},
-          payload: {
-            threadId,
-            messageId: MessageId.make("message-delete-files"),
-            role: "user",
-            text: "Delete",
-            attachments: [
-              {
-                type: "image",
-                id: attachmentId,
-                name: "delete.png",
-                mimeType: "image/png",
-                sizeBytes: 5,
-              },
-            ],
-            turnId: null,
-            streaming: false,
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
+      const threadAttachmentPath = path.join(attachmentsDir, `${attachmentId}.png`);
+      const otherThreadAttachmentPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
+      yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
+      yield* fileSystem.writeFileString(threadAttachmentPath, "delete");
+      yield* fileSystem.writeFileString(otherThreadAttachmentPath, "other-thread");
+      assert.isTrue(yield* exists(threadAttachmentPath));
+      assert.isTrue(yield* exists(otherThreadAttachmentPath));
 
-        const threadAttachmentPath = path.join(attachmentsDir, `${attachmentId}.png`);
-        const otherThreadAttachmentPath = path.join(
-          attachmentsDir,
-          `${otherThreadAttachmentId}.png`,
-        );
-        yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
-        yield* fileSystem.writeFileString(threadAttachmentPath, "delete");
-        yield* fileSystem.writeFileString(otherThreadAttachmentPath, "other-thread");
-        assert.isTrue(yield* exists(threadAttachmentPath));
-        assert.isTrue(yield* exists(otherThreadAttachmentPath));
+      yield* appendAndProject({
+        type: "thread.deleted",
+        eventId: EventId.make("evt-delete-files-4"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-delete-files-4"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-delete-files-4"),
+        metadata: {},
+        payload: {
+          threadId,
+          deletedAt: now,
+        },
+      });
 
-        yield* appendAndProject({
-          type: "thread.deleted",
-          eventId: EventId.make("evt-delete-files-4"),
-          aggregateKind: "thread",
-          aggregateId: threadId,
-          occurredAt: now,
-          commandId: CommandId.make("cmd-delete-files-4"),
-          causationEventId: null,
-          correlationId: CorrelationId.make("cmd-delete-files-4"),
-          metadata: {},
-          payload: {
-            threadId,
-            deletedAt: now,
-          },
-        });
+      assert.isFalse(yield* exists(threadAttachmentPath));
+      assert.isTrue(yield* exists(otherThreadAttachmentPath));
+    }),
+  );
+});
 
-        assert.isFalse(yield* exists(threadAttachmentPath));
-        assert.isTrue(yield* exists(otherThreadAttachmentPath));
-      }),
-    );
-  },
-);
+it.layer(
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("rune-projection-attachments-delete-")),
+)("OrchestrationProjectionPipeline", (it) => {
+  it.effect("ignores unsafe thread ids for attachment cleanup paths", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const now = "2026-01-01T00:00:00.000Z";
+      const { attachmentsDir: attachmentsRootDir, stateDir } = yield* ServerConfig;
+      const attachmentsSentinelPath = path.join(attachmentsRootDir, "sentinel.txt");
+      const stateDirSentinelPath = path.join(stateDir, "state-sentinel.txt");
+      yield* fileSystem.makeDirectory(attachmentsRootDir, { recursive: true });
+      yield* fileSystem.writeFileString(attachmentsSentinelPath, "keep-attachments-root");
+      yield* fileSystem.writeFileString(stateDirSentinelPath, "keep-state-dir");
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("rune-projection-attachments-delete-")))(
-  "OrchestrationProjectionPipeline",
-  (it) => {
-    it.effect("ignores unsafe thread ids for attachment cleanup paths", () =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const projectionPipeline = yield* OrchestrationProjectionPipeline;
-        const eventStore = yield* OrchestrationEventStore;
-        const now = "2026-01-01T00:00:00.000Z";
-        const { attachmentsDir: attachmentsRootDir, stateDir } = yield* ServerConfig;
-        const attachmentsSentinelPath = path.join(attachmentsRootDir, "sentinel.txt");
-        const stateDirSentinelPath = path.join(stateDir, "state-sentinel.txt");
-        yield* fileSystem.makeDirectory(attachmentsRootDir, { recursive: true });
-        yield* fileSystem.writeFileString(attachmentsSentinelPath, "keep-attachments-root");
-        yield* fileSystem.writeFileString(stateDirSentinelPath, "keep-state-dir");
+      yield* eventStore.append({
+        type: "thread.deleted",
+        eventId: EventId.make("evt-unsafe-thread-delete"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make(".."),
+        occurredAt: now,
+        commandId: CommandId.make("cmd-unsafe-thread-delete"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-unsafe-thread-delete"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make(".."),
+          deletedAt: now,
+        },
+      });
 
-        yield* eventStore.append({
-          type: "thread.deleted",
-          eventId: EventId.make("evt-unsafe-thread-delete"),
-          aggregateKind: "thread",
-          aggregateId: ThreadId.make(".."),
-          occurredAt: now,
-          commandId: CommandId.make("cmd-unsafe-thread-delete"),
-          causationEventId: null,
-          correlationId: CorrelationId.make("cmd-unsafe-thread-delete"),
-          metadata: {},
-          payload: {
-            threadId: ThreadId.make(".."),
-            deletedAt: now,
-          },
-        });
+      yield* projectionPipeline.bootstrap;
 
-        yield* projectionPipeline.bootstrap;
-
-        assert.isTrue(yield* exists(attachmentsRootDir));
-        assert.isTrue(yield* exists(attachmentsSentinelPath));
-        assert.isTrue(yield* exists(stateDirSentinelPath));
-      }),
-    );
-  },
-);
+      assert.isTrue(yield* exists(attachmentsRootDir));
+      assert.isTrue(yield* exists(attachmentsSentinelPath));
+      assert.isTrue(yield* exists(stateDirSentinelPath));
+    }),
+  );
+});
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   it.effect("resumes from projector last_applied_sequence without replaying older events", () =>

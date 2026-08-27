@@ -18,6 +18,7 @@ import type {
   RuntimeSubagent,
 } from "@rune/client-runtime/state/subagentRuntime";
 import {
+  formatSubagentDisplayName,
   formatSubagentModelLabel,
   formatSubagentTokenCount,
 } from "@rune/client-runtime/state/subagentRuntime";
@@ -173,8 +174,7 @@ function AgentRow({
     agent.activationCount > 1 ? `run ${agent.activationCount}` : null,
   ].filter((value): value is string => value !== null);
 
-  // Use generated name as primary display, with original title as fallback
-  const displayName = agent.generatedName || agent.title;
+  const displayName = formatSubagentDisplayName(agent);
 
   // Check if this agent has a thread ID (Codex v2 sub-agent)
   const handleClick = () => {
@@ -664,7 +664,7 @@ function AgentSwitcher({
       </Button>
       <span className="h-4 w-px shrink-0 bg-border/60" aria-hidden />
       {agents.map((agent) => {
-        const name = agent.generatedName || agent.title;
+        const name = formatSubagentDisplayName(agent);
         return (
           <button
             key={agent.id}
@@ -708,13 +708,15 @@ function AgentActivityDetail({
     <section
       className="mx-2 mt-2 overflow-hidden border border-[color-mix(in_srgb,var(--rune-violet-soft)_26%,var(--border))] bg-[color-mix(in_srgb,var(--rune-surface-raised)_82%,transparent)]"
       data-rune-agent-detail
-      aria-label={`${agent.title} activity`}
+      aria-label={`${formatSubagentDisplayName(agent)} activity`}
     >
       <div className="flex items-start gap-2 border-b border-border/55 px-3 py-2.5">
         <span className="mt-1 size-2 shrink-0 rounded-full bg-[var(--rune-violet-strong)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--rune-violet-soft)_12%,transparent)]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-xs font-semibold text-foreground">{agent.title}</h3>
+            <h3 className="truncate text-xs font-semibold text-foreground">
+              {formatSubagentDisplayName(agent)}
+            </h3>
             <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
               {statusLabel}
             </span>
@@ -827,31 +829,48 @@ export function AgentsPanel({
     environmentId !== null &&
     threadId !== null;
 
+  if (canOpenFocusedChat && focusedAgent && environmentId && threadId) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <AgentSwitcher
+          agents={agents}
+          activeId={focusedAgent.id}
+          onSelect={(agentId) => onFocusAgent?.(agentId)}
+          onBack={() => onFocusAgent?.(null)}
+        />
+        <AgentChatPanel
+          environmentId={environmentId}
+          threadId={threadId}
+          agent={focusedAgent}
+          {...(cwd ? { cwd } : {})}
+          onBack={() => onFocusAgent?.(null)}
+        />
+      </div>
+    );
+  }
+
+  if (focusedAgent) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <AgentSwitcher
+          agents={agents}
+          activeId={focusedAgent.id}
+          onSelect={(agentId) => onFocusAgent?.(agentId)}
+          onBack={() => onFocusAgent?.(null)}
+        />
+        <ScrollArea className="min-h-0 flex-1">
+          <AgentActivityDetail
+            agent={focusedAgent}
+            onClearFocus={() => onFocusAgent?.(null)}
+            activityOnly={focusedAgent.chat?.canRead !== true}
+          />
+        </ScrollArea>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {canOpenFocusedChat && focusedAgent && environmentId && threadId ? (
-        <>
-          <AgentSwitcher
-            agents={agents}
-            activeId={focusedAgent.id}
-            onSelect={(agentId) => onFocusAgent?.(agentId)}
-            onBack={() => onFocusAgent?.(null)}
-          />
-          <AgentChatPanel
-            environmentId={environmentId}
-            threadId={threadId}
-            agent={focusedAgent}
-            {...(cwd ? { cwd } : {})}
-            onBack={() => onFocusAgent?.(null)}
-          />
-        </>
-      ) : focusedAgent ? (
-        <AgentActivityDetail
-          agent={focusedAgent}
-          onClearFocus={() => onFocusAgent?.(null)}
-          activityOnly={focusedAgent.chat?.canRead !== true}
-        />
-      ) : null}
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-2">
           {model.workflows.map((group) => (

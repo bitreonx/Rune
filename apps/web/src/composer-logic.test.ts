@@ -149,6 +149,15 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("discovers slash skills inside natural language instead of requiring a new line", () => {
+    expect(detectComposerTrigger("make a new usage page and use /grillme", 38)).toEqual({
+      kind: "slash-command",
+      query: "grillme",
+      rangeStart: 30,
+      rangeEnd: 38,
+    });
+  });
+
   it("detects @path trigger in the middle of existing text", () => {
     // User typed @ between "inspect " and "in this sentence"
     const text = "Please inspect @in this sentence";

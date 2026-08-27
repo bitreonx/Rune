@@ -16,10 +16,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import {
-  ProviderInstanceEnvironment,
-  ProviderInstanceId,
-} from "./providerInstance.ts";
+import { ProviderInstanceEnvironment, ProviderInstanceId } from "./providerInstance.ts";
 
 const SLUG_MAX_CHARS = 64;
 const SLUG_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
@@ -51,8 +48,7 @@ export const HarnessKind = slugSchema.pipe(Schema.brand("HarnessKind"));
 export type HarnessKind = typeof HarnessKind.Type;
 
 const isHarnessKindValue = Schema.is(HarnessKind);
-export const isHarnessKind = (value: unknown): value is HarnessKind =>
-  isHarnessKindValue(value);
+export const isHarnessKind = (value: unknown): value is HarnessKind => isHarnessKindValue(value);
 
 /**
  * ModelServiceKind — types of model providers/gateways.
@@ -77,8 +73,7 @@ export const ServiceId = slugSchema.pipe(Schema.brand("ServiceId"));
 export type ServiceId = typeof ServiceId.Type;
 
 const isServiceIdValue = Schema.is(ServiceId);
-export const isServiceId = (value: unknown): value is ServiceId =>
-  isServiceIdValue(value);
+export const isServiceId = (value: unknown): value is ServiceId => isServiceIdValue(value);
 
 /**
  * ProfileId — user-defined routing key for a harness profile.
@@ -87,8 +82,7 @@ export const ProfileId = slugSchema.pipe(Schema.brand("ProfileId"));
 export type ProfileId = typeof ProfileId.Type;
 
 const isProfileIdValue = Schema.is(ProfileId);
-export const isProfileId = (value: unknown): value is ProfileId =>
-  isProfileIdValue(value);
+export const isProfileId = (value: unknown): value is ProfileId => isProfileIdValue(value);
 
 /**
  * HarnessCapabilityRoleDescriptor — describes a role supported by a harness.
@@ -97,8 +91,7 @@ export const HarnessCapabilityRoleDescriptor = Schema.Struct({
   role: HarnessRole,
   label: Schema.String,
 });
-export type HarnessCapabilityRoleDescriptor =
-  typeof HarnessCapabilityRoleDescriptor.Type;
+export type HarnessCapabilityRoleDescriptor = typeof HarnessCapabilityRoleDescriptor.Type;
 
 /**
  * HarnessCapabilities — dynamic capabilities exposed by a harness.
@@ -129,9 +122,7 @@ export type HarnessDefinition = typeof HarnessDefinition.Type;
 export const ModelRoute = Schema.Struct({
   modelServiceId: Schema.Union([ServiceId, Schema.Literal("native")]),
   defaultModel: TrimmedNonEmptyString,
-  sameModelEverywhere: Schema.Boolean.pipe(
-    Schema.withDecodingDefault(Effect.succeed(true)),
-  ),
+  sameModelEverywhere: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   roleOverrides: Schema.Record(Schema.String, Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -208,22 +199,15 @@ export const HarnessProfileConfig = Schema.Struct({
 });
 export type HarnessProfileConfig = typeof HarnessProfileConfig.Type;
 
-export const HarnessProfileConfigMap = Schema.Record(
-  ProfileId,
-  HarnessProfileConfig,
-);
+export const HarnessProfileConfigMap = Schema.Record(ProfileId, HarnessProfileConfig);
 export type HarnessProfileConfigMap = typeof HarnessProfileConfigMap.Type;
 
 /**
  * HarnessesSettings — Authoring surface container inside ServerSettings.
  */
 export const HarnessesSettings = Schema.Struct({
-  profiles: HarnessProfileConfigMap.pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-  services: ModelServiceConfigMap.pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
+  profiles: HarnessProfileConfigMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  services: ModelServiceConfigMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type HarnessesSettings = typeof HarnessesSettings.Type;
 
@@ -244,12 +228,7 @@ export const BUILT_IN_HARNESS_DEFINITIONS: ReadonlyArray<HarnessDefinition> = [
     capabilities: {
       canApplyRoutesLive: false,
       supportsMultipleIdentities: true,
-      supportedServiceKinds: [
-        "native",
-        "openrouter",
-        "openai",
-        "custom-openai-compatible",
-      ],
+      supportedServiceKinds: ["native", "openrouter", "openai", "custom-openai-compatible"],
       roles: [{ role: "main", label: "Main model" }],
     },
   },
@@ -260,13 +239,8 @@ export const BUILT_IN_HARNESS_DEFINITIONS: ReadonlyArray<HarnessDefinition> = [
     tagline: "Anthropic Claude Code agent with native tool execution",
     capabilities: {
       canApplyRoutesLive: true,
-      supportsMultipleIdentities: false,
-      supportedServiceKinds: [
-        "native",
-        "openrouter",
-        "anthropic",
-        "custom-anthropic-compatible",
-      ],
+      supportsMultipleIdentities: true,
+      supportedServiceKinds: ["native", "openrouter", "anthropic", "custom-anthropic-compatible"],
       roles: [
         { role: "main", label: "Main model" },
         { role: "reasoning", label: "Reasoning (Opus)" },
@@ -347,8 +321,6 @@ export const BUILT_IN_HARNESS_DEFINITIONS: ReadonlyArray<HarnessDefinition> = [
   },
 ];
 
-export const getHarnessDefinition = (
-  kind: string,
-): HarnessDefinition | undefined => {
+export const getHarnessDefinition = (kind: string): HarnessDefinition | undefined => {
   return BUILT_IN_HARNESS_DEFINITIONS.find((def) => def.kind === kind);
 };

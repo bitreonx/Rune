@@ -145,10 +145,9 @@ export function normalizeProviderAccentColor(value: string | undefined): string 
 }
 
 /**
- * Give each user-created Codex instance a private auth home. Codex can share
- * its read-only/config state through the normal home while keeping
- * `auth.json` isolated, which makes “add another Codex account” behave like a
- * real account instance instead of silently reusing the first login.
+ * Give user-created CLI instances a private credential/config home. Codex and
+ * Claude Code both persist account state outside the process environment, so a
+ * second instance must not silently reuse the first instance's login.
  */
 export function withIsolatedProviderInstanceConfig(
   driver: ProviderDriverKind,
@@ -160,19 +159,36 @@ export function withIsolatedProviderInstanceConfig(
     typeof config === "object" && config !== null && !Array.isArray(config)
       ? (config as Readonly<Record<string, unknown>>)
       : {};
-  if (String(driver) !== "codex") return { ...baseConfig };
-  const existingShadowHomePath = baseConfig.shadowHomePath;
-  if (
-    options.overwriteExisting !== true &&
-    typeof existingShadowHomePath === "string" &&
-    existingShadowHomePath.trim().length > 0
-  ) {
-    return { ...baseConfig };
+  const driverName = String(driver);
+  if (driverName === "codex") {
+    const existingShadowHomePath = baseConfig.shadowHomePath;
+    if (
+      options.overwriteExisting !== true &&
+      typeof existingShadowHomePath === "string" &&
+      existingShadowHomePath.trim().length > 0
+    ) {
+      return { ...baseConfig };
+    }
+    return {
+      ...baseConfig,
+      shadowHomePath: `~/.codex-rune/instances/${String(instanceId)}`,
+    };
   }
-  return {
-    ...baseConfig,
-    shadowHomePath: `~/.codex-rune/instances/${String(instanceId)}`,
-  };
+  if (driverName === "claudeAgent" || driverName === "claude") {
+    const existingHomePath = baseConfig.homePath;
+    if (
+      options.overwriteExisting !== true &&
+      typeof existingHomePath === "string" &&
+      existingHomePath.trim().length > 0
+    ) {
+      return { ...baseConfig };
+    }
+    return {
+      ...baseConfig,
+      homePath: `~/.claude-rune/instances/${String(instanceId)}`,
+    };
+  }
+  return { ...baseConfig };
 }
 
 /**

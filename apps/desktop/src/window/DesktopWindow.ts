@@ -21,6 +21,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
+  WINDOW_CLOSE_REQUEST_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -107,6 +108,8 @@ export class DesktopWindow extends Context.Service<
     // the main window.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
+    readonly hideMain?: Effect.Effect<void>;
+    readonly confirmMainClose?: Effect.Effect<void, DesktopWindowError>;
   }
 >()("@rune/desktop/window/DesktopWindow") {}
 
@@ -290,6 +293,8 @@ export const make = Effect.gen(function* () {
   const runFork = Effect.runForkWith(context);
   const runPromise = Effect.runPromiseWith(context);
   let flushMainWindowBounds: Effect.Effect<void> = Effect.void;
+  let allowMainClose = false;
+  let backgroundTray: Electron.Tray | null = null;
 
   const dismissConnectingSplash = Effect.gen(function* () {
     const splash = yield* Ref.getAndSet(splashWindowRef, Option.none());
@@ -466,6 +471,16 @@ export const make = Effect.gen(function* () {
     flushMainWindowBounds = flushBoundsPersist;
 
     yield* previewManager.setMainWindow(window);
+    window.on("close", (event) => {
+      if (!window.isDestroyed()) {
+        if (allowMainClose) {
+          allowMainClose = false;
+          return;
+        }
+        event.preventDefault();
+        window.webContents.send(WINDOW_CLOSE_REQUEST_CHANNEL);
+      }
+    });
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -921,6 +936,47 @@ export const make = Effect.gen(function* () {
         syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );
     }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
+    hideMain: Effect.gen(function* () {
+      const main = yield* currentMainWindow;
+      if (Option.isNone(main) || main.value.isDestroyed()) return;
+      if (backgroundTray === null) {
+        const iconPaths = yield* assets.iconPaths;
+        const iconPath = Option.match(
+          environment.platform === "win32" ? iconPaths.ico : iconPaths.png,
+          { onNone: () => null, onSome: (path) => path },
+        );
+        if (iconPath !== null) {
+          backgroundTray = new Electron.Tray(iconPath);
+          backgroundTray.setToolTip(`${environment.displayName} is running in the background`);
+          backgroundTray.setContextMenu(
+            Electron.Menu.buildFromTemplate([
+              {
+                label: `Open ${environment.displayName}`,
+                click: () => {
+                  if (main.value.isDestroyed()) return;
+                  main.value.show();
+                  main.value.focus();
+                },
+              },
+            ]),
+          );
+          backgroundTray.on("click", () => {
+            if (main.value.isDestroyed()) return;
+            main.value.show();
+            main.value.focus();
+          });
+        }
+      }
+      main.value.hide();
+    }),
+    confirmMainClose: Effect.gen(function* () {
+      const main = yield* currentMainWindow;
+      if (Option.isNone(main) || main.value.isDestroyed()) return;
+      allowMainClose = true;
+      backgroundTray?.destroy();
+      backgroundTray = null;
+      main.value.close();
+    }),
   });
 });
 

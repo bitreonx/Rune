@@ -13,14 +13,40 @@ import {
 import { useEffect, useRef } from "react";
 
 import { useThreadShells } from "../state/entities";
+import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { playSoundEffect } from "./playback";
 import { useSoundPreferencesStore } from "./soundPreferencesStore";
 
 const NOTIFICATION_TITLES: Readonly<Record<ThreadSoundEventKind, string>> = {
-  done: "Agent finished",
-  "needs-input": "Agent needs your input",
-  error: "Agent hit an error",
+  done: "Sub-agent finished",
+  "needs-input": "Sub-agent needs your input",
+  error: "Sub-agent hit an error",
 };
+
+const NOTIFICATION_DESCRIPTIONS: Readonly<Record<ThreadSoundEventKind, string>> = {
+  done: "The sub-agent finished working. Open the thread to review the result.",
+  "needs-input": "The sub-agent is waiting for your answer or approval.",
+  error: "The sub-agent stopped because something went wrong. Open the thread for details.",
+};
+
+function showInAppNotification(
+  event: ThreadSoundEvent,
+  shell: EnvironmentThreadShell | undefined,
+  onOpenThread: (threadRef: ScopedThreadRef) => void,
+): void {
+  const threadRef = scopeThreadRef(event.environmentId, event.threadId);
+  toastManager.add(
+    stackedThreadToast({
+      type: event.kind === "error" ? "error" : event.kind === "needs-input" ? "warning" : "success",
+      title: NOTIFICATION_TITLES[event.kind],
+      description: `${shell?.title ?? "This thread"}: ${NOTIFICATION_DESCRIPTIONS[event.kind]}`,
+      priority: event.kind === "needs-input" ? "high" : "low",
+      ...(event.kind === "needs-input" ? {} : { timeout: 12_000 }),
+      actionProps: { children: "Open thread", onClick: () => onOpenThread(threadRef) },
+      data: { threadRef, leadingIcon: <span aria-hidden>◈</span> },
+    }),
+  );
+}
 
 function showOsNotification(
   event: ThreadSoundEvent,
@@ -52,10 +78,15 @@ function showOsNotification(
  * exists to sit inside the atom registry next to the router for the
  * lifetime of the session.
  */
-export function SoundEventHost({ onOpenThread }: { readonly onOpenThread: (threadRef: ScopedThreadRef) => void }) {
+export function SoundEventHost({
+  onOpenThread,
+}: {
+  readonly onOpenThread: (threadRef: ScopedThreadRef) => void;
+}) {
   const shells = useThreadShells();
   const enabled = useSoundPreferencesStore((state) => state.enabled);
   const notifications = useSoundPreferencesStore((state) => state.notifications);
+  const inAppNotifications = useSoundPreferencesStore((state) => state.inAppNotifications);
   const previousShellsRef = useRef<ReadonlyArray<EnvironmentThreadShell> | null>(null);
 
   useEffect(() => {
@@ -79,16 +110,15 @@ export function SoundEventHost({ onOpenThread }: { readonly onOpenThread: (threa
       : null;
     for (const event of events) {
       playSoundEffect(event.kind);
-      if (gateInput === null || !shouldShowOsNotification(gateInput)) continue;
-      showOsNotification(
-        event,
-        shells.find(
-          (shell) => shell.environmentId === event.environmentId && shell.id === event.threadId,
-        ),
-        onOpenThread,
+      const shell = shells.find(
+        (candidate) =>
+          candidate.environmentId === event.environmentId && candidate.id === event.threadId,
       );
+      if (inAppNotifications) showInAppNotification(event, shell, onOpenThread);
+      if (gateInput === null || !shouldShowOsNotification(gateInput)) continue;
+      showOsNotification(event, shell, onOpenThread);
     }
-  }, [shells, enabled, notifications, onOpenThread]);
+  }, [shells, enabled, notifications, inAppNotifications, onOpenThread]);
 
   return null;
 }

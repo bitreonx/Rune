@@ -2148,7 +2148,9 @@ export const makeCodexSessionRuntime = (
           threadId: child.agentThreadId,
           includeTurns: true,
         });
-        return parseThreadSnapshot(response);
+        const snapshot = parseThreadSnapshot(response);
+        const activeTurnId = (yield* Ref.get(collabChildLiveTurnsRef)).get(child.agentThreadId);
+        return activeTurnId ? { ...snapshot, activeTurnId: TurnId.make(activeTurnId) } : snapshot;
       });
 
     const sendChildTurn = (agentThreadId: string, input: CodexSessionRuntimeSendTurnInput) =>

@@ -1,10 +1,14 @@
 import { parsePatchFiles, type ChangeTypes, type FileDiffMetadata } from "@pierre/diffs";
-import type { OrchestrationCheckpointSummary, ReviewDiffPreviewSource } from "@rune/contracts";
+import type {
+  OrchestrationCheckpointSummary,
+  OrchestrationChatDiff,
+  ReviewDiffPreviewSource,
+} from "@rune/contracts";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Order from "effect/Order";
 
-export type ReviewSectionKind = "turn" | "working-tree" | "branch-range";
+export type ReviewSectionKind = "turn" | "chat" | "working-tree" | "branch-range";
 
 const DIRTY_WORKTREE_SECTION_ID = "git:working-tree";
 const DIRTY_WORKTREE_TITLE = "Dirty worktree";
@@ -526,11 +530,26 @@ export function getReadyReviewCheckpoints(
 
 export function buildReviewSectionItems(input: {
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
+  readonly chatDiff?: OrchestrationChatDiff | undefined;
+  readonly chatDiffText?: string | null | undefined;
   readonly gitSections: ReadonlyArray<ReviewDiffPreviewSource>;
   readonly turnDiffById: Readonly<Record<string, string | undefined>>;
   readonly loadingTurnIds: Readonly<Record<string, boolean | undefined>>;
   readonly loadingGitSections: boolean;
 }): ReadonlyArray<ReviewSectionItem> {
+  const chatItems: ReadonlyArray<ReviewSectionItem> =
+    input.chatDiff !== undefined && input.chatDiff.files.length > 0
+      ? [
+          {
+            id: "chat:changes",
+            kind: "chat",
+            title: "Changes in this chat",
+            subtitle: `${input.chatDiff.files.length} ${input.chatDiff.files.length === 1 ? "file" : "files"} changed`,
+            diff: input.chatDiffText ?? null,
+            isLoading: false,
+          },
+        ]
+      : [];
   const turnItems = getReadyReviewCheckpoints(input.checkpoints).map<ReviewSectionItem>(
     (checkpoint) => {
       const id = getReviewSectionIdForCheckpoint(checkpoint);
@@ -569,7 +588,7 @@ export function buildReviewSectionItems(input: {
         ]
       : gitItems;
 
-  return [...turnItems, ...visibleGitItems];
+  return [...chatItems, ...turnItems, ...visibleGitItems];
 }
 
 export function getDefaultReviewSectionId(

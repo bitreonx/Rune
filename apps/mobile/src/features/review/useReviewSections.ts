@@ -52,6 +52,15 @@ export function useReviewSections(input: {
     () => getReadyReviewCheckpoints(selectedThread?.checkpoints ?? []),
     [selectedThread?.checkpoints],
   );
+  const chatDiff = selectedThread?.chatDiff;
+  const chatDiffQuery = useCheckpointDiff({
+    environmentId: enabled ? (environmentId ?? null) : null,
+    threadId: enabled ? (threadId ?? null) : null,
+    fromTurnCount: enabled && chatDiff && chatDiff.files.length > 0 ? 0 : null,
+    toTurnCount:
+      enabled && chatDiff && chatDiff.files.length > 0 ? chatDiff.throughTurnCount : null,
+    ignoreWhitespace: false,
+  });
   const checkpointBySectionId = useMemo(
     () =>
       Object.fromEntries(
@@ -70,10 +79,14 @@ export function useReviewSections(input: {
         turnDiffById: reviewCache.turnDiffById,
         loadingTurnIds,
         loadingGitSections: diffPreview.isPending,
+        chatDiff,
+        chatDiffText: chatDiffQuery.data?.diff ?? null,
       }),
     [
       diffPreview.isPending,
       loadingTurnIds,
+      chatDiff,
+      chatDiffQuery.data?.diff,
       readyCheckpoints,
       reviewCache.gitSections,
       reviewCache.turnDiffById,
@@ -118,15 +131,27 @@ export function useReviewSections(input: {
   if (selectedSection?.kind === "turn") {
     activeCheckpoint = checkpointBySectionId[selectedSection.id] ?? activeCheckpoint;
   }
-  const activeSectionId = activeCheckpoint
-    ? getReviewSectionIdForCheckpoint(activeCheckpoint)
-    : null;
+  const activeSectionId =
+    selectedSection?.kind === "chat"
+      ? selectedSection.id
+      : activeCheckpoint
+        ? getReviewSectionIdForCheckpoint(activeCheckpoint)
+        : null;
   const activeTurnDiff = useCheckpointDiff({
     environmentId: enabled ? (environmentId ?? null) : null,
     threadId: enabled ? (threadId ?? null) : null,
     fromTurnCount:
-      enabled && activeCheckpoint ? Math.max(0, activeCheckpoint.checkpointTurnCount - 1) : null,
-    toTurnCount: enabled ? (activeCheckpoint?.checkpointTurnCount ?? null) : null,
+      enabled && selectedSection?.kind === "chat"
+        ? 0
+        : enabled && activeCheckpoint
+          ? Math.max(0, activeCheckpoint.checkpointTurnCount - 1)
+          : null,
+    toTurnCount:
+      enabled && selectedSection?.kind === "chat"
+        ? (chatDiff?.throughTurnCount ?? null)
+        : enabled
+          ? (activeCheckpoint?.checkpointTurnCount ?? null)
+          : null,
     ignoreWhitespace: false,
   });
 
@@ -155,7 +180,7 @@ export function useReviewSections(input: {
     if (!enabled) {
       return;
     }
-    if (selectedSection?.kind === "turn") {
+    if (selectedSection?.kind === "turn" || selectedSection?.kind === "chat") {
       activeTurnDiff.refresh();
       return;
     }

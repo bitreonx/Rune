@@ -10,11 +10,23 @@ import {
   OpenAI,
   OpenCodeIcon,
   OpenRouterIcon,
+  RuneMarkIcon,
   xAIIcon,
 } from "../Icons";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
-export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
+/**
+ * Provider / harness → icon registry.
+ *
+ * The map is keyed by `ProviderDriverKind` for the provider-driver surfaces
+ * (Codex, Claude, etc.) and additionally by `HarnessKind` strings for the
+ * harness picker surfaces (`runeNative` is a `HarnessKind` but no
+ * `ProviderDriverKind`, so it has to be looked up via a type-loose key). The
+ * `string` key signature here is what lets `AddHarnessDialog` do
+ * `PROVIDER_ICON_BY_PROVIDER[harness.kind as any]` without TypeScript
+ * complaining; the harness string keys never collide with driver kinds.
+ */
+export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind | string, Icon>> = {
   [ProviderDriverKind.make("codex")]: OpenAI,
   [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
@@ -23,6 +35,8 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("grok")]: GrokIcon,
   [ProviderDriverKind.make("openaiApi")]: OpenAI,
   [ProviderDriverKind.make("openrouter")]: OpenRouterIcon,
+  /** Rune Native harness in the AddHarnessDialog picker. */
+  runeNative: RuneMarkIcon,
 };
 
 export const SERVICE_ICON_BY_KIND: Record<string, Icon> = {
@@ -49,7 +63,6 @@ export function getProviderOrServiceIcon(kind: string): Icon | null {
   }
   return null;
 }
-
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderDriverKind;

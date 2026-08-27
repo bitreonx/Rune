@@ -21,6 +21,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
@@ -70,6 +71,20 @@ export const getWindowFullscreenState = DesktopIpc.makeSyncIpcMethod({
     const electronWindow = yield* ElectronWindow.ElectronWindow;
     const window = yield* electronWindow.currentMainOrFirst;
     return Option.isSome(window) && window.value.isFullScreen();
+  }),
+});
+
+export const respondToWindowClose = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.WINDOW_CLOSE_DECISION_CHANNEL,
+  payload: Schema.Literals(["background", "close", "cancel"]),
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.respondToWindowClose")(function* (decision) {
+    const window = yield* DesktopWindow.DesktopWindow;
+    if (decision === "background") {
+      if (window.hideMain) yield* window.hideMain;
+    } else if (decision === "close" && window.confirmMainClose) {
+      yield* window.confirmMainClose;
+    }
   }),
 });
 

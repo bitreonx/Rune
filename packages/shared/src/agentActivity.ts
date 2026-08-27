@@ -25,6 +25,7 @@ export interface AgentActivity {
   readonly createdAt: string;
   readonly operations: ReadonlyArray<AgentActivityOperation>;
   readonly reasoningSummary?: string | undefined;
+  readonly failureSummary?: string | undefined;
 }
 export interface AgentActivityJob {
   readonly activities: ReadonlyArray<AgentActivity>;
@@ -141,6 +142,26 @@ function reasoning(a: OrchestrationThreadActivity): string | undefined {
   }
   return undefined;
 }
+
+function failureSummary(a: OrchestrationThreadActivity): string | undefined {
+  if (a.tone !== "error" && payloadText(a, "status")?.toLowerCase() !== "failed") {
+    return undefined;
+  }
+  for (const key of ["message", "reason", "error", "detail"]) {
+    const value = payloadText(a, key);
+    if (value && value.length <= 280 && value !== a.summary) return value;
+  }
+  return undefined;
+}
+
+function mergeFailureSummary(
+  current: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!next || next === current) return current;
+  if (!current) return next;
+  return `${current}; ${next}`.slice(0, 280);
+}
 export function deriveAgentActivityJob(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): AgentActivityJob {
@@ -177,6 +198,9 @@ export function deriveAgentActivityJob(
         status: nextStatus === "working" ? current.status : nextStatus,
         operations: [...current.operations, toOperation(source)],
         ...(reasoning(source) ? { reasoningSummary: reasoning(source) } : {}),
+        ...(mergeFailureSummary(current.failureSummary, failureSummary(source))
+          ? { failureSummary: mergeFailureSummary(current.failureSummary, failureSummary(source)) }
+          : {}),
       };
     } else
       result.push({
@@ -186,6 +210,7 @@ export function deriveAgentActivityJob(
         createdAt: source.createdAt,
         operations: [toOperation(source)],
         ...(reasoning(source) ? { reasoningSummary: reasoning(source) } : {}),
+        ...(failureSummary(source) ? { failureSummary: failureSummary(source) } : {}),
       });
   }
   const phases = new Map<AgentActivityPhase, AgentActivity[]>();

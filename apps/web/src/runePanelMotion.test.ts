@@ -3,9 +3,11 @@ import { describe, expect, it } from "vite-plus/test";
 import { RUNE_MOTION_MS } from "./runeMotion";
 
 import {
+  resolveRuneRightPanelPresentation,
   resolveRunePanelMotionState,
   resolveRunePanelSettleDelayMs,
   runePanelTransitionClass,
+  shouldRestoreRunePanelToggleFocus,
 } from "./runePanelMotion";
 
 describe("RUNE panel motion", () => {
@@ -44,5 +46,31 @@ describe("RUNE panel motion", () => {
     expect(resolveRunePanelSettleDelayMs(undefined)).toBe(RUNE_MOTION_MS.standard + 40);
     expect(resolveRunePanelSettleDelayMs(280)).toBe(320);
   });
-});
 
+  it("keeps one content identity while the presentation crosses the sheet breakpoint", () => {
+    const inline = resolveRuneRightPanelPresentation(false);
+    const sheet = resolveRuneRightPanelPresentation(true);
+
+    expect(inline).toEqual({ contentKey: "rune-right-panel-content", mode: "inline" });
+    expect(sheet).toEqual({ contentKey: inline.contentKey, mode: "sheet" });
+  });
+
+  it("restores and consumes the close intent for reduced motion", () => {
+    expect(
+      shouldRestoreRunePanelToggleFocus({
+        closeIntent: true,
+        open: false,
+        reducedMotion: true,
+        state: "closed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRestoreRunePanelToggleFocus({
+        closeIntent: false,
+        open: false,
+        reducedMotion: true,
+        state: "closed",
+      }),
+    ).toBe(false);
+  });
+});

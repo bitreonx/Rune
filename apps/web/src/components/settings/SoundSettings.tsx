@@ -6,19 +6,16 @@ import {
   resolveOsNotificationPermission,
   type OsNotificationPermission,
 } from "@rune/client-runtime/sound/notification-gate";
-import { DEFAULT_SOUND_PREFERENCES, type SoundEventId } from "@rune/client-runtime/sound/preferences";
+import {
+  DEFAULT_SOUND_PREFERENCES,
+  type SoundEventId,
+} from "@rune/client-runtime/sound/preferences";
 import { SOUND_VARIANTS } from "@rune/client-runtime/sound/engine";
 
 import { playSoundEffect } from "~/sound/playback";
 import { useSoundPreferencesStore } from "~/sound/soundPreferencesStore";
 import { Button } from "../ui/button";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import {
   SettingResetButton,
@@ -82,7 +79,13 @@ const SOUND_EVENT_ROWS: ReadonlyArray<{
   },
 ];
 
-function EventPreviewButton({ event, label }: { readonly event: SoundEventId; readonly label: string }) {
+function EventPreviewButton({
+  event,
+  label,
+}: {
+  readonly event: SoundEventId;
+  readonly label: string;
+}) {
   return (
     <Button
       size="icon-sm"
@@ -117,8 +120,7 @@ function EventVariantSelect({
   const variants = SOUND_VARIANTS[primaryEvent] ?? [];
   const defaultVariantId = variants[0]?.id ?? "";
   const selectedVariantId =
-    variants.find((variant: { id: string }) => variant.id === storedId)?.id ??
-    defaultVariantId;
+    variants.find((variant: { id: string }) => variant.id === storedId)?.id ?? defaultVariantId;
 
   return (
     <Select
@@ -162,11 +164,13 @@ export function SoundSettingsPanel() {
   const setEventEnabled = useSoundPreferencesStore((state) => state.setEventEnabled);
   const notifications = useSoundPreferencesStore((state) => state.notifications);
   const setNotifications = useSoundPreferencesStore((state) => state.setNotifications);
+  const inAppNotifications = useSoundPreferencesStore((state) => state.inAppNotifications);
+  const setInAppNotifications = useSoundPreferencesStore((state) => state.setInAppNotifications);
 
   // Sampled at mount and after each explicit request; a permission change made
   // elsewhere lands on the next visit to this page.
-  const [permission, setPermission] = useState<OsNotificationPermission>(
-    () => resolveOsNotificationPermission(),
+  const [permission, setPermission] = useState<OsNotificationPermission>(() =>
+    resolveOsNotificationPermission(),
   );
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
@@ -267,6 +271,17 @@ export function SoundSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection title="Notifications">
+        <SettingsRow
+          title="In-app notifications"
+          description="Shows a branded RUNE notification card for finished turns, input requests, and errors. It stays inside the app and can open the thread directly."
+          control={
+            <Switch
+              checked={inAppNotifications}
+              onCheckedChange={(checked) => setInAppNotifications(Boolean(checked))}
+              aria-label="In-app notifications"
+            />
+          }
+        />
         <SettingsRow
           {...searchableSetting("sound-notifications")}
           description="Shows an OS banner for finished turns, input requests, and errors — but only while this window is out of focus or minimized. Sounds carry the focused case alone."

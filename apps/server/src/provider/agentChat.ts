@@ -1,8 +1,4 @@
-import {
-  OrchestrationRpcSchemas,
-  RuntimeTaskId,
-  TurnId,
-} from "@rune/contracts";
+import { OrchestrationRpcSchemas, RuntimeTaskId, TurnId } from "@rune/contracts";
 
 import type { ProviderThreadSnapshot } from "./Services/ProviderAdapter.ts";
 
@@ -74,9 +70,16 @@ export function normalizeProviderAgentChatSnapshot(
       }
       const message = asTextMessage(rawItem as Record<string, unknown>, turn.id);
       if (message) {
-        messages.push(message);
+        messages.push({
+          ...message,
+          streaming: snapshot.activeTurnId === turn.id && message.role === "assistant",
+        });
       }
     }
   }
-  return { agentId, messages };
+  return {
+    agentId,
+    messages,
+    ...(snapshot.activeTurnId ? { activeTurnId: snapshot.activeTurnId } : {}),
+  };
 }

@@ -1,5 +1,6 @@
 import {
   type ReactNode,
+  Fragment,
   type RefObject,
   useEffect,
   useLayoutEffect,
@@ -103,7 +104,7 @@ export function PreviewPanelShell(props: {
     >
       {isInline && !props.maximized ? <RightPanelResizeHandle handlers={handlers} /> : null}
       {useDragRegion ? <div className="electron-drag-region h-0 w-full" aria-hidden /> : null}
-      {props.children}
+      <Fragment key="rune-preview-panel-content">{props.children}</Fragment>
     </div>
   );
 }

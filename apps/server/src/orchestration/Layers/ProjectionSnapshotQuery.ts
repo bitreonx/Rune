@@ -5,6 +5,9 @@ import {
   MessageId,
   NonNegativeInt,
   OrchestrationCheckpointFile,
+  type OrchestrationChatDiff,
+  OrchestrationFileOwnership,
+  type OrchestrationThreadBaseline,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   OrchestrationThreadSearchSource,
@@ -89,6 +92,14 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    baselineCheckpointRef: Schema.optionalKey(Schema.NullOr(CheckpointRef)),
+    baselineCapturedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
+    baselineSource: Schema.optionalKey(
+      Schema.NullOr(Schema.Literals(["thread-created", "first-user-message", "recovery"])),
+    ),
+    chatDiffJson: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    chatDiffThroughTurnCount: Schema.optionalKey(Schema.NullOr(NonNegativeInt)),
+    fileOwnershipJson: Schema.optionalKey(Schema.NullOr(Schema.String)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -115,6 +126,46 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   sourceProposedPlanId: Schema.NullOr(OrchestrationProposedPlanId),
 });
 const ProjectionStateDbRowSchema = ProjectionState;
+
+const decodeChatDiffJson = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
+);
+const decodeFileOwnershipJson = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Array(OrchestrationFileOwnership)),
+);
+
+const hydrateThreadScopedChanges = (
+  row: Schema.Schema.Type<typeof ProjectionThreadDbRowSchema>,
+): Pick<OrchestrationThread, "baseline" | "chatDiff" | "fileOwnership"> => {
+  const baseline =
+    row.baselineCheckpointRef !== undefined &&
+    row.baselineCheckpointRef !== null &&
+    row.baselineCapturedAt !== undefined &&
+    row.baselineCapturedAt !== null &&
+    row.baselineSource !== undefined &&
+    row.baselineSource !== null
+      ? ({
+          checkpointRef: row.baselineCheckpointRef,
+          capturedAt: row.baselineCapturedAt,
+          source: row.baselineSource,
+        } satisfies OrchestrationThreadBaseline)
+      : null;
+  return {
+    baseline,
+    chatDiff: {
+      files:
+        row.chatDiffJson !== undefined && row.chatDiffJson !== null
+          ? decodeChatDiffJson(row.chatDiffJson)
+          : [],
+      computedAt: row.updatedAt,
+      throughTurnCount: row.chatDiffThroughTurnCount ?? 0,
+    },
+    fileOwnership:
+      row.fileOwnershipJson !== undefined && row.fileOwnershipJson !== null
+        ? decodeFileOwnershipJson(row.fileOwnershipJson)
+        : [],
+  };
+};
 const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
@@ -440,7 +491,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          baseline_checkpoint_ref AS "baselineCheckpointRef",
+          baseline_captured_at AS "baselineCapturedAt",
+          baseline_source AS "baselineSource",
+          chat_diff_json AS "chatDiffJson",
+          chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
+          file_ownership_json AS "fileOwnershipJson"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
       `,
@@ -478,7 +535,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          baseline_checkpoint_ref AS "baselineCheckpointRef",
+          baseline_captured_at AS "baselineCapturedAt",
+          baseline_source AS "baselineSource",
+          chat_diff_json AS "chatDiffJson",
+          chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
+          file_ownership_json AS "fileOwnershipJson"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
@@ -518,7 +581,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          baseline_checkpoint_ref AS "baselineCheckpointRef",
+          baseline_captured_at AS "baselineCapturedAt",
+          baseline_source AS "baselineSource",
+          chat_diff_json AS "chatDiffJson",
+          chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
+          file_ownership_json AS "fileOwnershipJson"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NOT NULL
@@ -962,7 +1031,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          baseline_checkpoint_ref AS "baselineCheckpointRef",
+          baseline_captured_at AS "baselineCapturedAt",
+          baseline_source AS "baselineSource",
+          chat_diff_json AS "chatDiffJson",
+          chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
+          file_ownership_json AS "fileOwnershipJson"
         FROM projection_threads
         WHERE thread_id = ${threadId}
           AND deleted_at IS NULL
@@ -1723,6 +1798,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 activities: activitiesByThread.get(row.threadId) ?? [],
                 checkpoints: checkpointsByThread.get(row.threadId) ?? [],
                 session: sessionsByThread.get(row.threadId) ?? null,
+                ...hydrateThreadScopedChanges(row),
               }));
 
               const snapshot = {
@@ -2687,6 +2763,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           completedAt: row.completedAt,
         })),
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
+        ...hydrateThreadScopedChanges(threadRow.value),
       };
 
       return Option.some(

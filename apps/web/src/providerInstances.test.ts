@@ -63,14 +63,27 @@ describe("withIsolatedProviderInstanceConfig", () => {
     });
   });
 
-  it("does not add Codex-only settings to other provider instances", () => {
+  it("gives each Claude Code instance a separate config home", () => {
     const config = withIsolatedProviderInstanceConfig(
       ProviderDriverKind.make("claudeAgent"),
       ProviderInstanceId.make("claude_work"),
       { binaryPath: "claude" },
     );
 
-    expect(config).toEqual({ binaryPath: "claude" });
+    expect(config).toEqual({
+      binaryPath: "claude",
+      homePath: "~/.claude-rune/instances/claude_work",
+    });
+  });
+
+  it("preserves an explicitly configured Claude Code config home", () => {
+    const config = withIsolatedProviderInstanceConfig(
+      ProviderDriverKind.make("claudeAgent"),
+      ProviderInstanceId.make("claude_work"),
+      { homePath: "D:/accounts/work" },
+    );
+
+    expect(config.homePath).toBe("D:/accounts/work");
   });
 
   it("preserves an explicitly configured Codex auth home", () => {

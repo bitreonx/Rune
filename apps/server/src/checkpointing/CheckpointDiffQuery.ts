@@ -9,6 +9,8 @@
 import {
   type CheckpointRef,
   OrchestrationGetTurnDiffResult,
+  type OrchestrationGetChatDiffInput,
+  type OrchestrationGetChatDiffResult,
   type OrchestrationGetFullThreadDiffInput,
   type OrchestrationGetFullThreadDiffResult,
   type OrchestrationGetTurnDiffInput,
@@ -24,6 +26,7 @@ import * as Schema from "effect/Schema";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   CheckpointDiffResultInvalidError,
+  CheckpointBaselineMissingError,
   CheckpointRefUnavailableError,
   CheckpointThreadNotFoundError,
   CheckpointTurnRangeUnavailableError,
@@ -54,6 +57,10 @@ export class CheckpointDiffQuery extends Context.Service<
     readonly getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Effect.Effect<OrchestrationGetFullThreadDiffResult, CheckpointServiceError>;
+
+    readonly getChatDiff: (
+      input: OrchestrationGetChatDiffInput,
+    ) => Effect.Effect<OrchestrationGetChatDiffResult, CheckpointServiceError>;
   }
 >()("rune/checkpointing/CheckpointDiffQuery") {}
 
@@ -135,6 +142,19 @@ export const make = Effect.gen(function* () {
           operation,
           threadId: input.threadId,
         });
+      }
+
+      if (input.fromTurnCount === 0) {
+        const baselineExists = yield* checkpointStore.hasCheckpointRef({
+          cwd: workspaceCwd,
+          checkpointRef: checkpointRefForThreadTurn(input.threadId, 0),
+        });
+        if (!baselineExists) {
+          return yield* new CheckpointBaselineMissingError({
+            operation,
+            threadId: input.threadId,
+          });
+        }
       }
 
       const fromCheckpointRef =
@@ -282,9 +302,69 @@ export const make = Effect.gen(function* () {
     return turnDiff satisfies OrchestrationGetFullThreadDiffResult;
   });
 
+  const getChatDiff: CheckpointDiffQuery["Service"]["getChatDiff"] = Effect.fn(
+    "CheckpointDiffQuery.getChatDiff",
+  )(function* (input) {
+    const operation = "CheckpointDiffQuery.getChatDiff";
+    if (input.toTurnCount === 0) {
+      return buildTurnDiffResult(
+        { threadId: input.threadId, fromTurnCount: 0, toTurnCount: 0 },
+        "",
+      ) satisfies OrchestrationGetChatDiffResult;
+    }
+
+    const threadContext = yield* projectionSnapshotQuery
+      .getFullThreadDiffContext(input.threadId, input.toTurnCount)
+      .pipe(Effect.withSpan("checkpoint.chatDiff.lookupContext"));
+    if (Option.isNone(threadContext)) {
+      return yield* new CheckpointThreadNotFoundError({ operation, threadId: input.threadId });
+    }
+    const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
+    if (!workspaceCwd) {
+      return yield* new CheckpointWorkspacePathMissingError({
+        operation,
+        threadId: input.threadId,
+      });
+    }
+    const baselineRef = checkpointRefForThreadTurn(input.threadId, 0);
+    if (
+      !(yield* checkpointStore.hasCheckpointRef({ cwd: workspaceCwd, checkpointRef: baselineRef }))
+    ) {
+      return yield* new CheckpointBaselineMissingError({ operation, threadId: input.threadId });
+    }
+    if (input.toTurnCount > threadContext.value.latestCheckpointTurnCount) {
+      return yield* new CheckpointTurnRangeUnavailableError({
+        operation,
+        threadId: input.threadId,
+        requestedTurnCount: input.toTurnCount,
+        availableTurnCount: threadContext.value.latestCheckpointTurnCount,
+      });
+    }
+    if (!threadContext.value.toCheckpointRef) {
+      return yield* new CheckpointRefUnavailableError({
+        operation,
+        threadId: input.threadId,
+        turnCount: input.toTurnCount,
+        checkpoint: "to",
+      });
+    }
+    const diff = yield* checkpointStore.diffCheckpoints({
+      cwd: workspaceCwd,
+      fromCheckpointRef: baselineRef,
+      toCheckpointRef: threadContext.value.toCheckpointRef,
+      fallbackFromToHead: false,
+      ignoreWhitespace: input.ignoreWhitespace ?? true,
+    });
+    return buildTurnDiffResult(
+      { threadId: input.threadId, fromTurnCount: 0, toTurnCount: input.toTurnCount },
+      diff,
+    ) satisfies OrchestrationGetChatDiffResult;
+  });
+
   return CheckpointDiffQuery.of({
     getTurnDiff,
     getFullThreadDiff,
+    getChatDiff,
   });
 });
 

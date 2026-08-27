@@ -31,7 +31,8 @@ const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
 
 export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   turnId: TurnId;
-  files: ReadonlyArray<TurnDiffFileChange>;
+  chatDiff: ReadonlyArray<TurnDiffFileChange>;
+  turnDiff: ReadonlyArray<TurnDiffFileChange>;
   expanded: boolean;
   showCompactPreview: boolean;
   allDirectoriesExpanded: boolean;
@@ -39,6 +40,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   onExpandedChange: (expanded: boolean) => void;
   onToggleAllDirectories: () => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenChatDiff: (filePath?: string) => void;
   /** Opens a workspace-relative file in the file explorer when provided. */
   onOpenFile?: (relativePath: string) => void;
   environmentId: EnvironmentId;
@@ -50,7 +52,8 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
 }) {
   const {
     turnId,
-    files,
+    chatDiff,
+    turnDiff,
     expanded,
     showCompactPreview,
     allDirectoriesExpanded,
@@ -58,6 +61,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
     onExpandedChange,
     onToggleAllDirectories,
     onOpenTurnDiff,
+    onOpenChatDiff,
     onOpenFile,
     environmentId,
     threadId,
@@ -66,9 +70,10 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
     revertDisabled,
   } = props;
   const [expandedFilePath, setExpandedFilePath] = useState<string | null>(null);
-  const summaryStat = useMemo(() => summarizeTurnDiffStats(files), [files]);
-  const scopeSummary = useMemo(() => summarizeChangedFileScopes(files), [files]);
-  const previewFiles = useMemo(() => selectChangedFilePreview(files), [files]);
+  const [showTurnOnly, setShowTurnOnly] = useState(false);
+  const summaryStat = useMemo(() => summarizeTurnDiffStats(chatDiff), [chatDiff]);
+  const scopeSummary = useMemo(() => summarizeChangedFileScopes(chatDiff), [chatDiff]);
+  const previewFiles = useMemo(() => selectChangedFilePreview(chatDiff), [chatDiff]);
   const compactPreviewVisible = showCompactPreview && !expanded;
 
   return (
@@ -103,7 +108,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
             />
             <span className="flex shrink-0 items-center gap-1 whitespace-nowrap font-medium text-foreground text-xs leading-4">
               <span>
-                {files.length} changed file{files.length === 1 ? "" : "s"}
+                {chatDiff.length} changed file{chatDiff.length === 1 ? "" : "s"}
               </span>
               {hasNonZeroStat(summaryStat) && (
                 <DiffStatLabel
@@ -144,32 +149,54 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
             </Tooltip>
           ) : null}
           {expanded ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    variant="outline"
-                    className="!size-[22px]"
-                    aria-label={
-                      allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
-                    }
-                    data-scroll-anchor-ignore
-                    onClick={onToggleAllDirectories}
-                  />
-                }
-              >
-                {allDirectoriesExpanded ? (
-                  <ChevronsDownUpIcon className="size-3" />
-                ) : (
-                  <ChevronsUpDownIcon className="size-3" />
-                )}
-              </TooltipTrigger>
-              <TooltipPopup side="top">
-                {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
-              </TooltipPopup>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="outline"
+                      className="!size-[22px]"
+                      aria-label={
+                        allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
+                      }
+                      data-scroll-anchor-ignore
+                      onClick={onToggleAllDirectories}
+                    />
+                  }
+                >
+                  {allDirectoriesExpanded ? (
+                    <ChevronsDownUpIcon className="size-3" />
+                  ) : (
+                    <ChevronsUpDownIcon className="size-3" />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="top">
+                  {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
+                </TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      className="h-[22px] px-1.5 text-[10px]"
+                      aria-label={showTurnOnly ? "Show chat-cumulative" : "Show this turn only"}
+                      data-scroll-anchor-ignore
+                      onClick={() => setShowTurnOnly((current) => !current)}
+                    >
+                      {showTurnOnly ? "Chat" : "Turn"}
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="top">
+                  {showTurnOnly ? "Show chat-cumulative" : "Show this turn only"}
+                </TooltipPopup>
+              </Tooltip>
+            </>
           ) : null}
           <Tooltip>
             <TooltipTrigger
@@ -179,7 +206,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
                   size="xs"
                   variant="outline"
                   aria-label="Open diff"
-                  onClick={() => onOpenTurnDiff(turnId, files[0]?.path)}
+                  onClick={() => onOpenChatDiff(undefined)}
                 />
               }
             >
@@ -192,9 +219,9 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
       </div>
       {expanded ? (
         <ChangedFilesTree
-          key={`changed-files-tree:${turnId}`}
+          key={showTurnOnly ? `${turnId}-turn` : "chat"}
           turnId={turnId}
-          files={files}
+          files={showTurnOnly ? turnDiff : chatDiff}
           allDirectoriesExpanded={allDirectoriesExpanded}
           resolvedTheme={resolvedTheme}
           onOpenTurnDiff={onOpenTurnDiff}
@@ -252,7 +279,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
               className="rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => onExpandedChange(true)}
             >
-              Show all {files.length} files
+              Show all {chatDiff.length} files
             </button>
           </div>
         </div>

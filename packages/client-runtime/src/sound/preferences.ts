@@ -26,6 +26,8 @@ export interface SoundPreferences {
   readonly variants: Readonly<Partial<Record<SoundEventId, string>>>;
   /** Whether unfocused-window attention edges may raise an OS banner. */
   readonly notifications: boolean;
+  /** Whether attention edges may raise an in-app RUNE notification card. */
+  readonly inAppNotifications: boolean;
 }
 
 export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
@@ -43,6 +45,7 @@ export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
   },
   variants: {},
   notifications: true,
+  inAppNotifications: true,
 };
 
 /** Stored volumes come from JSON and sliders; both can stray out of range. */
@@ -96,19 +99,22 @@ export function sanitizeSoundPreferences(input: unknown): SoundPreferences {
     ).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
   const volume =
-    typeof record.volume === "number" ? clampVolume(record.volume) : DEFAULT_SOUND_PREFERENCES.volume;
+    typeof record.volume === "number"
+      ? clampVolume(record.volume)
+      : DEFAULT_SOUND_PREFERENCES.volume;
   return {
     enabled: sanitizeFlag(record.enabled, DEFAULT_SOUND_PREFERENCES.enabled),
     volume,
     events,
     variants,
     notifications: sanitizeFlag(record.notifications, DEFAULT_SOUND_PREFERENCES.notifications),
+    inAppNotifications: sanitizeFlag(
+      record.inAppNotifications,
+      DEFAULT_SOUND_PREFERENCES.inAppNotifications,
+    ),
   };
 }
 
-export function resolveEventEnabled(
-  preferences: SoundPreferences,
-  event: SoundEventId,
-): boolean {
+export function resolveEventEnabled(preferences: SoundPreferences, event: SoundEventId): boolean {
   return preferences.enabled && preferences.events[event];
 }

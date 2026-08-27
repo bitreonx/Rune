@@ -1,8 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import { RuntimeTaskId, type EnvironmentId, type ThreadId } from "@rune/contracts";
-import type { RuntimeSubagent } from "@rune/client-runtime/state/subagentRuntime";
+import {
+  formatSubagentDisplayName,
+  type RuntimeSubagent,
+} from "@rune/client-runtime/state/subagentRuntime";
 import { ArrowLeft, CheckCircle2, CircleStop, Clock, Send, Wrench, XCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
@@ -26,6 +29,66 @@ import {
 
 function agentChatInput(environmentId: EnvironmentId, threadId: ThreadId, agentId: RuntimeTaskId) {
   return { environmentId, input: { threadId, agentId } };
+}
+
+function formatAgentElapsed(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt) return "";
+  const start = Date.parse(startedAt);
+  const end = completedAt ? Date.parse(completedAt) : Date.now();
+  if (Number.isNaN(start) || Number.isNaN(end)) return "";
+  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60
+    ? `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`
+    : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+function AgentWorkingMeta({ agent }: { agent: RuntimeSubagent }) {
+  const live =
+    agent.status === "pending" || agent.status === "running" || agent.status === "waiting";
+  const elapsedRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!live || !agent.startedAt) return;
+    const update = () => {
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatAgentElapsed(agent.startedAt, null);
+      }
+    };
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [agent.startedAt, live]);
+
+  const label = live
+    ? agent.status === "waiting"
+      ? "Waiting"
+      : "Working"
+    : agent.status === "completed"
+      ? "Completed"
+      : agent.status === "failed"
+        ? "Failed"
+        : "Stopped";
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+      <span>{label}</span>
+      {agent.startedAt ? (
+        <>
+          <span aria-hidden>·</span>
+          <span ref={elapsedRef} className="tabular-nums">
+            {formatAgentElapsed(agent.startedAt, live ? null : agent.completedAt)}
+          </span>
+        </>
+      ) : null}
+      {agent.progress ? (
+        <>
+          <span aria-hidden>·</span>
+          <span className="max-w-52 truncate text-foreground/65">{agent.progress}</span>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 export function AgentChatPanel({
@@ -61,7 +124,7 @@ export function AgentChatPanel({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const displayName = agent.generatedName || agent.title;
+  const displayName = formatSubagentDisplayName(agent);
 
   const refresh = useCallback(() => {
     void refreshChat(input);
@@ -138,7 +201,7 @@ export function AgentChatPanel({
 
   const statusDotClass =
     agent.status === "running" || agent.status === "pending"
-      ? "bg-info animate-pulse"
+      ? "bg-info shadow-[0_0_0_3px_color-mix(in_srgb,var(--info)_18%,transparent)]"
       : agent.status === "failed"
         ? "bg-destructive"
         : agent.status === "completed"
@@ -176,9 +239,15 @@ export function AgentChatPanel({
           <p className="truncate text-[10px] text-muted-foreground">
             {agent.agentPath ?? agent.role ?? agent.title}
           </p>
+          <AgentWorkingMeta agent={agent} />
         </div>
         {(agent.status === "running" || agent.status === "waiting") && interruptSupported ? (
-          <Button size="icon-micro" variant="ghost-muted" onClick={interrupt} aria-label="Stop agent">
+          <Button
+            size="icon-micro"
+            variant="ghost-muted"
+            onClick={interrupt}
+            aria-label="Stop agent"
+          >
             <CircleStop aria-hidden />
           </Button>
         ) : null}
@@ -200,7 +269,8 @@ export function AgentChatPanel({
 
           {!readSupported ? (
             <div className="border border-dashed border-border/70 px-3 py-3 text-xs text-muted-foreground">
-              This agent reports live activity below. Follow-up messaging is not supported for this provider.
+              This agent reports live activity below. Follow-up messaging is not supported for this
+              provider.
             </div>
           ) : result._tag === "Failure" ? (
             <div className="border border-dashed border-destructive/45 px-3 py-3 text-xs text-destructive-foreground">
@@ -237,8 +307,19 @@ export function AgentChatPanel({
                   )}
                 </div>
                 {message.role === "assistant" ? (
-                  <div className="rounded-md border border-border/40 bg-card/60 px-3 py-2">
+                  <div
+                    className={cn(
+                      "rounded-md border border-border/40 bg-card/60 px-3 py-2",
+                      message.streaming && "border-info/45 bg-info/5",
+                    )}
+                  >
                     <ChatMarkdown text={message.text} cwd={cwd} lineBreaks />
+                    {message.streaming ? (
+                      <div className="mt-2 flex items-center gap-1.5 text-[10px] text-info-foreground">
+                        <span className="size-1.5 rounded-full bg-info" aria-hidden />
+                        Streaming
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="whitespace-pre-wrap rounded-md bg-accent/55 px-2.5 py-2 text-foreground/90">
@@ -258,8 +339,19 @@ export function AgentChatPanel({
               </div>
               <div className="space-y-1 rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px]">
                 {agent.recentActivity.map((act, i) => (
-                  <div key={`${act.at}-${i}`} className="flex items-start gap-1.5 text-muted-foreground">
-                    <span className="text-[9px] text-muted-foreground/60">{act.at ? new Date(act.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""}</span>
+                  <div
+                    key={`${act.at}-${i}`}
+                    className="flex items-start gap-1.5 text-muted-foreground"
+                  >
+                    <span className="text-[9px] text-muted-foreground/60">
+                      {act.at
+                        ? new Date(act.at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })
+                        : ""}
+                    </span>
                     <span className="text-foreground/85">{act.summary}</span>
                   </div>
                 ))}
@@ -322,4 +414,3 @@ export function AgentChatPanel({
     </section>
   );
 }
-

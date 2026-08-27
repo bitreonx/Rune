@@ -20,6 +20,8 @@ import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
+  DEFAULT_MOTION_PROFILE,
+  type MotionProfile,
   MAX_APPEARANCE_CONTRAST,
   MAX_CODE_FONT_SIZE,
   MAX_GLASS_OPACITY,
@@ -149,6 +151,18 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
+};
+
+const MOTION_PROFILE_LABELS: Record<MotionProfile, string> = {
+  reduced: "Reduced",
+  balanced: "Balanced",
+  expressive: "Expressive",
+};
+
+const MOTION_PROFILE_DESCRIPTIONS: Record<MotionProfile, string> = {
+  reduced: "Quiet transitions with minimal movement. OS reduced-motion preferences always win.",
+  balanced: "Short, spatial transitions that keep the interface easy to scan.",
+  expressive: "More pronounced panel and preview entrances for a livelier workspace.",
 };
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -478,6 +492,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
         ? ["Contrast"]
         : []),
+      ...(settings.motionProfile !== DEFAULT_UNIFIED_SETTINGS.motionProfile ? ["Motion"] : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
       ...(settings.environmentIdentificationMode !==
       DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
@@ -553,6 +568,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.browserDefaultAppearance,
       settings.browserAutoShowFloatingPreview,
       settings.appearanceContrast,
+      settings.motionProfile,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -651,6 +667,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     }
     updateSettings({
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
+      motionProfile: DEFAULT_UNIFIED_SETTINGS.motionProfile,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -1084,6 +1101,40 @@ export function AppearanceSettingsPanel() {
                 value={settings.appearanceContrast}
               />
             </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("motion-profile")}
+          description={MOTION_PROFILE_DESCRIPTIONS[settings.motionProfile]}
+          resetAction={
+            settings.motionProfile !== DEFAULT_MOTION_PROFILE ? (
+              <SettingResetButton
+                label="motion"
+                onClick={() => updateSettings({ motionProfile: DEFAULT_MOTION_PROFILE })}
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.motionProfile}
+              onValueChange={(value) => {
+                if (value === "reduced" || value === "balanced" || value === "expressive") {
+                  updateSettings({ motionProfile: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Motion profile">
+                <SelectValue>{MOTION_PROFILE_LABELS[settings.motionProfile]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {Object.entries(MOTION_PROFILE_LABELS).map(([value, label]) => (
+                  <SelectItem hideIndicator key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 

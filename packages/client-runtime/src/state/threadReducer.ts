@@ -101,6 +101,9 @@ export function applyThreadDetailEvent(
           proposedPlans: [],
           activities: [],
           checkpoints: [],
+          chatDiff: { files: [], computedAt: event.payload.createdAt, throughTurnCount: 0 },
+          baseline: null,
+          fileOwnership: [],
           session: null,
         },
       };

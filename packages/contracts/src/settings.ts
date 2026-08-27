@@ -90,6 +90,10 @@ export const AppearanceContrast = Schema.Int.check(
 );
 export type AppearanceContrast = typeof AppearanceContrast.Type;
 export const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
+
+export const MotionProfile = Schema.Literals(["reduced", "balanced", "expressive"]);
+export type MotionProfile = typeof MotionProfile.Type;
+export const DEFAULT_MOTION_PROFILE: MotionProfile = "balanced";
 /**
  * Font size preferences, in CSS pixels. The ranges are deliberately narrow:
  * the interface size scales every rem-based dimension in the app, so the
@@ -150,6 +154,9 @@ export const DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW = true;
 export const ClientSettingsSchema = Schema.Struct({
   appearanceContrast: AppearanceContrast.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
+  ),
+  motionProfile: MotionProfile.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_MOTION_PROFILE)),
   ),
   browserDefaultViewport: PreviewViewportSetting.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_VIEWPORT)),
@@ -1012,6 +1019,7 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
+  motionProfile: Schema.optionalKey(MotionProfile),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),

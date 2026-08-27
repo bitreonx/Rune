@@ -1,33 +1,49 @@
-import { type ReactNode } from "react";
+import { type ReactNode, type Ref, useEffect } from "react";
 
 import { RIGHT_PANEL_SHEET_CLASS_NAME } from "../rightPanelLayout";
 import { cn } from "../lib/utils";
 import { runePanelTransitionClass, type RunePanelMotionState } from "../runePanelMotion";
-import { Sheet, SheetPopup } from "./ui/sheet";
-
 export function RightPanelSheet(props: {
   children: ReactNode;
+  hostRef?: Ref<HTMLDivElement>;
+  mode: "inline" | "sheet";
   open: boolean;
   onClose: () => void;
   motionState?: RunePanelMotionState;
   maximized?: boolean;
 }) {
   const motionState = props.motionState ?? (props.open ? "open" : "closed");
+  useEffect(() => {
+    if (props.mode !== "sheet" || !props.open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") props.onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [props.mode, props.onClose, props.open]);
+
   return (
-    <Sheet
-      open={props.open}
-      onOpenChange={(open) => {
-        if (!open) {
-          props.onClose();
-        }
-      }}
-    >
-      <SheetPopup
-        side="right"
-        showCloseButton={false}
-        keepMounted
+    <>
+      {props.mode === "sheet" ? (
+        <button
+          type="button"
+          aria-label="Close right panel"
+          className="rune-right-panel-backdrop"
+          data-rune-right-panel-backdrop
+          data-rune-right-panel-state={motionState}
+          onClick={props.onClose}
+        />
+      ) : null}
+      <div
+        key="rune-right-panel-host"
+        ref={props.hostRef}
         className={cn(
-          RIGHT_PANEL_SHEET_CLASS_NAME,
+          "rune-right-panel-host flex min-h-0 min-w-0 overflow-hidden",
+          props.mode === "sheet"
+            ? cn(RIGHT_PANEL_SHEET_CLASS_NAME, "fixed inset-y-0 right-0 z-[51]")
+            : props.maximized
+              ? "flex-1"
+              : "shrink-0 border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))]",
           props.maximized && "rune-right-panel-maximized",
           runePanelTransitionClass(motionState),
         )}
@@ -43,7 +59,7 @@ export function RightPanelSheet(props: {
         >
           {props.children}
         </div>
-      </SheetPopup>
-    </Sheet>
+      </div>
+    </>
   );
 }

@@ -18,6 +18,19 @@ same `$name` skill token to your message. The original skill name remains search
 also reports that skill as a native slash command, RUNE hides the duplicate native entry and keeps
 the `/skill:Skill Name` label.
 
+Skill discovery also works inside a sentence. For example, `make a usage page with /grillme` opens
+the skill results without requiring the slash token to start a new line. RUNE only offers known
+commands and skills, so ordinary paths and URLs remain ordinary text.
+
+Use `/goal` to keep a durable outcome attached to the current thread:
+
+- `/goal <outcome>` saves or replaces the active goal.
+- `/goal status` shows the current goal.
+- `/goal clear` removes it.
+
+An active goal stays visible above the composer and is included as bounded context in future turns.
+Use **Edit** on the goal chip to bring it back into the composer.
+
 On desktop, press `Cmd+Enter` on macOS or `Ctrl+Enter` on Windows and Linux from a new thread to
 start it in the background. RUNE opens another new thread and shows an **Open** action for the
 thread that started. The new thread keeps the selected workspace mode and base branch. If **New

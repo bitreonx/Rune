@@ -30,6 +30,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getWorkflowScript: "orchestration.getWorkflowScript",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
+  getChatDiff: "orchestration.getChatDiff",
   searchThreads: "orchestration.searchThreads",
   getAgentChat: "orchestration.getAgentChat",
   sendAgentMessage: "orchestration.sendAgentMessage",
@@ -368,6 +369,34 @@ export const OrchestrationCheckpointSummary = Schema.Struct({
 });
 export type OrchestrationCheckpointSummary = typeof OrchestrationCheckpointSummary.Type;
 
+export const OrchestrationThreadBaseline = Schema.Struct({
+  checkpointRef: CheckpointRef,
+  capturedAt: IsoDateTime,
+  source: Schema.Literals(["thread-created", "first-user-message", "recovery"]),
+});
+export type OrchestrationThreadBaseline = typeof OrchestrationThreadBaseline.Type;
+
+export const OrchestrationChatDiff = Schema.Struct({
+  files: Schema.Array(OrchestrationCheckpointFile),
+  computedAt: IsoDateTime,
+  throughTurnCount: NonNegativeInt,
+});
+export type OrchestrationChatDiff = typeof OrchestrationChatDiff.Type;
+
+export const OrchestrationFileOwner = Schema.Struct({
+  threadId: ThreadId,
+  throughTurnCount: NonNegativeInt,
+  additions: NonNegativeInt,
+  deletions: NonNegativeInt,
+});
+export type OrchestrationFileOwner = typeof OrchestrationFileOwner.Type;
+
+export const OrchestrationFileOwnership = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  owners: Schema.Array(OrchestrationFileOwner),
+});
+export type OrchestrationFileOwnership = typeof OrchestrationFileOwnership.Type;
+
 export const OrchestrationThreadActivityTone = Schema.Literals([
   "info",
   "tool",
@@ -464,6 +493,9 @@ export const OrchestrationThread = Schema.Struct({
   ),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
+  chatDiff: OrchestrationChatDiff,
+  baseline: Schema.NullOr(OrchestrationThreadBaseline),
+  fileOwnership: Schema.Array(OrchestrationFileOwnership),
   session: Schema.NullOr(OrchestrationSession),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
@@ -1123,6 +1155,16 @@ const ThreadTurnDiffCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadBaselineCapturedCommand = Schema.Struct({
+  type: Schema.Literal("thread.baseline.capture"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  checkpointRef: CheckpointRef,
+  capturedAt: IsoDateTime,
+  source: Schema.Literals(["thread-created", "first-user-message", "recovery"]),
+  createdAt: IsoDateTime,
+});
+
 const ThreadActivityAppendCommand = Schema.Struct({
   type: Schema.Literal("thread.activity.append"),
   commandId: CommandId,
@@ -1155,6 +1197,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageReasoningCompleteCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
+  ThreadBaselineCapturedCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
@@ -1172,6 +1215,7 @@ export const OrchestrationEventType = Schema.Literals([
   "project.meta-updated",
   "project.deleted",
   "thread.created",
+  "thread.baseline-captured",
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
@@ -1435,6 +1479,14 @@ export const ThreadProposedPlanUpsertedPayload = Schema.Struct({
   proposedPlan: OrchestrationProposedPlan,
 });
 
+export const ThreadBaselineCapturedPayload = Schema.Struct({
+  threadId: ThreadId,
+  checkpointRef: CheckpointRef,
+  capturedAt: IsoDateTime,
+  source: Schema.Literals(["thread-created", "first-user-message", "recovery"]),
+});
+export type ThreadBaselineCapturedPayload = typeof ThreadBaselineCapturedPayload.Type;
+
 export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
@@ -1633,6 +1685,11 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.baseline-captured"),
+    payload: ThreadBaselineCapturedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.turn-diff-completed"),
     payload: ThreadTurnDiffCompletedPayload,
   }),
@@ -1745,6 +1802,16 @@ export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThr
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
 export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
+export const OrchestrationGetChatDiffInput = Schema.Struct({
+  threadId: ThreadId,
+  toTurnCount: NonNegativeInt,
+  ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+});
+export type OrchestrationGetChatDiffInput = typeof OrchestrationGetChatDiffInput.Type;
+
+export const OrchestrationGetChatDiffResult = ThreadTurnDiff;
+export type OrchestrationGetChatDiffResult = typeof OrchestrationGetChatDiffResult.Type;
+
 export const OrchestrationThreadSearchSource = Schema.Literals(["user", "assistant"]);
 export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSource.Type;
 
@@ -1834,6 +1901,10 @@ export const OrchestrationRpcSchemas = {
   getFullThreadDiff: {
     input: OrchestrationGetFullThreadDiffInput,
     output: OrchestrationGetFullThreadDiffResult,
+  },
+  getChatDiff: {
+    input: OrchestrationGetChatDiffInput,
+    output: OrchestrationGetChatDiffResult,
   },
   searchThreads: {
     input: OrchestrationSearchThreadsInput,

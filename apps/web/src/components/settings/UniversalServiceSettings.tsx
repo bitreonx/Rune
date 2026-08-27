@@ -15,6 +15,15 @@ import { OPENROUTER_LOGO_URL } from "../../claudeServices";
 
 export type ServiceConnectionMode = "native" | "openrouter" | "api-provider" | "custom";
 
+function isOpenRouterEndpoint(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
+  } catch {
+    return false;
+  }
+}
+
 export function readInstanceServiceConnection(
   driverKind: ProviderDriverKind,
   environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>,
@@ -32,17 +41,28 @@ export function readInstanceServiceConnection(
   const keyVarName = isClaude ? "ANTHROPIC_AUTH_TOKEN" : "OPENAI_API_KEY";
 
   const urlVar = environment.find((v) => v.name === urlVarName);
-  const keyVar = environment.find((v) => v.name === keyVarName || v.name === "ANTHROPIC_API_KEY");
+  // Read both the provider-native key and the legacy OpenRouter key. Older
+  // settings stored the latter even when the CLI actually requires
+  // OPENAI_API_KEY / ANTHROPIC_AUTH_TOKEN; the server normalizes it at launch,
+  // and the editor must not hide that stored credential from the user.
+  const keyVar =
+    environment.find((v) => v.name === keyVarName) ??
+    environment.find((v) => v.name === "ANTHROPIC_API_KEY") ??
+    environment.find((v) => v.name === "OPENROUTER_API_KEY");
 
   const baseUrl = urlVar?.value.trim() ?? "";
-  const normalizedUrl = baseUrl.replace(/\/+$/, "").toLowerCase();
   const hasStoredKey = Boolean(keyVar && (keyVar.valueRedacted || keyVar.value.trim().length > 0));
   const apiKey = keyVar?.valueRedacted ? "" : (keyVar?.value ?? "");
+  // Presence is intentional here. Selecting Custom Gateway must remain a
+  // durable mode even before the user has filled in the URL/key; deriving the
+  // mode from non-empty values made the UI snap back to Native on the next
+  // render and silently discarded the user's choice.
+  const hasExplicitGatewaySelection = urlVar !== undefined || keyVar !== undefined;
 
-  if (normalizedUrl.includes("openrouter.ai")) {
+  if (isOpenRouterEndpoint(baseUrl)) {
     return { mode: "openrouter", baseUrl, apiKey, hasStoredKey };
   }
-  if (baseUrl.length > 0 || hasStoredKey) {
+  if (hasExplicitGatewaySelection || baseUrl.length > 0 || hasStoredKey) {
     return { mode: "custom", baseUrl, apiKey, hasStoredKey };
   }
   return { mode: "native", baseUrl: "", apiKey: "", hasStoredKey: false };
@@ -81,9 +101,7 @@ export function UniversalServiceSettings(props: {
     );
 
     if (mode === "openrouter") {
-      const defaultUrl = isClaude
-        ? "https://openrouter.ai/api"
-        : "https://openrouter.ai/api/v1";
+      const defaultUrl = isClaude ? "https://openrouter.ai/api" : "https://openrouter.ai/api/v1";
       next = [
         ...next,
         { name: urlVarName, value: defaultUrl, sensitive: false },
@@ -105,7 +123,7 @@ export function UniversalServiceSettings(props: {
   const updateBaseUrl = (url: string) => {
     const urlVarName = isClaude ? "ANTHROPIC_BASE_URL" : "OPENAI_BASE_URL";
     const next = environment.filter((v) => v.name !== urlVarName);
-    if (url.trim().length > 0) {
+    if (url.trim().length > 0 || connection.mode === "custom") {
       next.push({ name: urlVarName, value: url.trim(), sensitive: false });
     }
     onChange(next);
@@ -113,8 +131,11 @@ export function UniversalServiceSettings(props: {
 
   const updateApiKey = (key: string) => {
     const keyVarName = isClaude ? "ANTHROPIC_AUTH_TOKEN" : "OPENAI_API_KEY";
-    const next = environment.filter((v) => v.name !== keyVarName && v.name !== "ANTHROPIC_API_KEY");
-    if (key.trim().length > 0) {
+    const next = environment.filter(
+      (v) =>
+        v.name !== keyVarName && v.name !== "ANTHROPIC_API_KEY" && v.name !== "OPENROUTER_API_KEY",
+    );
+    if (key.trim().length > 0 || connection.mode === "custom") {
       next.push({ name: keyVarName, value: key.trim(), sensitive: true });
     }
     onChange(next);
@@ -236,7 +257,10 @@ export function UniversalServiceSettings(props: {
 
           {!openRouterService?.hasCredential ? (
             <div className="space-y-1.5">
-              <label htmlFor={`${idPrefix}-openrouter-key`} className="text-xs font-medium text-foreground">
+              <label
+                htmlFor={`${idPrefix}-openrouter-key`}
+                className="text-xs font-medium text-foreground"
+              >
                 OpenRouter API Key
               </label>
               <DraftInput
@@ -248,12 +272,14 @@ export function UniversalServiceSettings(props: {
                 className="font-mono text-xs"
               />
               <p className="text-[11px] text-muted-foreground">
-                Enter your key once here or connect OpenRouter in Settings → API Providers to share across all profiles.
+                Enter your key once here or connect OpenRouter in Settings → API Providers to share
+                across all profiles.
               </p>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Requests from this {driver} instance will automatically route through your connected OpenRouter API service.
+              Requests from this {driver} instance will automatically route through your connected
+              OpenRouter API service.
             </p>
           )}
         </div>
@@ -263,7 +289,10 @@ export function UniversalServiceSettings(props: {
       {connection.mode === "custom" ? (
         <div className="rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-3">
           <div className="space-y-1.5">
-            <label htmlFor={`${idPrefix}-custom-url`} className="text-xs font-medium text-foreground">
+            <label
+              htmlFor={`${idPrefix}-custom-url`}
+              className="text-xs font-medium text-foreground"
+            >
               Base URL
             </label>
             <DraftInput
@@ -276,7 +305,10 @@ export function UniversalServiceSettings(props: {
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor={`${idPrefix}-custom-key`} className="text-xs font-medium text-foreground">
+            <label
+              htmlFor={`${idPrefix}-custom-key`}
+              className="text-xs font-medium text-foreground"
+            >
               API Key / Auth Token
             </label>
             <DraftInput

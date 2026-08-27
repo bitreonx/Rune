@@ -2,7 +2,7 @@ import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "goal";
 export type ComposerSubmissionIntent = "foreground" | "background";
 
 export interface ComposerTrigger {
@@ -230,24 +230,26 @@ export const isCollapsedCursorAdjacentToMention = isCollapsedCursorAdjacentToInl
 
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
-  const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
-  const linePrefix = text.slice(lineStart, cursor);
+  const tokenStart = tokenStartForCursor(text, cursor);
+  const token = text.slice(tokenStart, cursor);
 
-  if (linePrefix.startsWith("/")) {
-    const commandMatch = /^\/(\S*)$/.exec(linePrefix);
+  // Slash discovery is intentionally token-based rather than line-based. A
+  // skill mention in natural language ("make a page with /grillme") should
+  // open the same picker as a command typed on its own line. The result list
+  // still decides whether the token is a known command or skill, so URLs and
+  // ordinary slash text do not become actionable entries.
+  if (token.startsWith("/")) {
+    const commandMatch = /^\/(\S*)$/.exec(token);
     if (commandMatch) {
-      const commandQuery = commandMatch[1] ?? "";
       return {
         kind: "slash-command",
-        query: commandQuery,
-        rangeStart: lineStart,
+        query: commandMatch[1] ?? "",
+        rangeStart: tokenStart,
         rangeEnd: cursor,
       };
     }
   }
 
-  const tokenStart = tokenStartForCursor(text, cursor);
-  const token = text.slice(tokenStart, cursor);
   if (token.startsWith("$")) {
     return {
       kind: "skill",
@@ -270,7 +272,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+): Exclude<ComposerSlashCommand, "model" | "goal"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

@@ -7,7 +7,7 @@ import {
 } from "./ComposerAttachmentCapability";
 
 describe("ComposerAttachmentCapability", () => {
-  it("keeps the capability explanation behind a hoverable adjacent control", () => {
+  it("keeps the capability explanation behind an adjacent click control", () => {
     const html = renderToStaticMarkup(
       <ComposerAttachmentCapability modelName="GPT-5.6-Luna" supportsNativeImageUpload />,
     );

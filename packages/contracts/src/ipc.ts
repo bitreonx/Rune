@@ -1140,6 +1140,8 @@ export interface DesktopBridge {
    * desktop builds never emit it.
    */
   onQuitShortcut?: (listener: (state: "down" | "up") => void) => () => void;
+  onWindowCloseRequest?: (listener: () => void) => () => void;
+  respondToWindowClose?: (decision: "background" | "close" | "cancel") => Promise<void>;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;

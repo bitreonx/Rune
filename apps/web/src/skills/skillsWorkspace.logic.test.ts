@@ -54,14 +54,58 @@ describe("skillsWorkspace.logic", () => {
       environmentId: "env-a" as never,
       providers: [
         provider([
-          { name: "review", path: "/repo/.agents/skills/review/SKILL.md", scope: "project", enabled: true },
-          { name: "ship", path: "/repo/.agents/skills/ship/SKILL.md", scope: "repo", enabled: true },
+          {
+            name: "review",
+            path: "/repo/.agents/skills/review/SKILL.md",
+            scope: "project",
+            enabled: true,
+          },
+          {
+            name: "ship",
+            path: "/repo/.agents/skills/ship/SKILL.md",
+            scope: "repo",
+            enabled: true,
+          },
         ]),
       ],
     });
 
-    expect(filterSkillWorkspaceEntries(entries, "review").map((entry) => entry.name)).toEqual(["review"]);
-    expect(filterSkillWorkspaceEntries(entries, "", "repo").map((entry) => entry.name)).toEqual(["ship"]);
+    expect(filterSkillWorkspaceEntries(entries, "review").map((entry) => entry.name)).toEqual([
+      "review",
+    ]);
+    expect(filterSkillWorkspaceEntries(entries, "", "repo").map((entry) => entry.name)).toEqual([
+      "ship",
+    ]);
+  });
+
+  it("collapses repeated provider reports into one skill with source provenance", () => {
+    const entries = buildSkillWorkspaceEntries({
+      environmentId: "env-a" as never,
+      providers: [
+        provider([
+          {
+            name: "grill-me",
+            path: "/repo/.agents/skills/grill-me/SKILL.md",
+            scope: "repo",
+            enabled: true,
+            repositoryUrl: "https://github.com/example/grill-me",
+          },
+          {
+            name: "Grill Me",
+            path: "/Users/maria/.codex/skills/grill-me/SKILL.md",
+            scope: "personal",
+            enabled: true,
+          },
+        ]),
+      ],
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      name: "grill-me",
+      repositoryUrl: "https://github.com/example/grill-me",
+    });
+    expect(entries[0]?.sources).toHaveLength(2);
   });
 
   it("does not expose the host prefix in a displayed path", () => {

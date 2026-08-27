@@ -1,4 +1,10 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@rune/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationFileOwner,
+  OrchestrationFileOwnership,
+  OrchestrationReadModel,
+  ThreadId,
+} from "@rune/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -35,11 +41,68 @@ import {
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
+  ThreadBaselineCapturedPayload,
 } from "./Schemas.ts";
+import { aggregateChatDiff } from "./chatDiffAggregate.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
+
+function mergeCrossThreadOwnership(
+  readModel: OrchestrationReadModel,
+  currentThreadId: ThreadId,
+  currentOwnership: ReadonlyArray<OrchestrationFileOwnership>,
+): OrchestrationReadModel {
+  const touchedPaths = new Set(currentOwnership.map((entry) => entry.path));
+  if (touchedPaths.size === 0) return readModel;
+
+  const ownersByPath = new Map<string, OrchestrationFileOwner[]>();
+  for (const thread of readModel.threads) {
+    for (const ownership of thread.fileOwnership) {
+      if (!touchedPaths.has(ownership.path)) continue;
+      const owners = ownersByPath.get(ownership.path) ?? [];
+      for (const owner of ownership.owners) {
+        if (!owners.some((candidate) => candidate.threadId === owner.threadId)) {
+          owners.push(owner);
+        }
+      }
+      ownersByPath.set(ownership.path, owners);
+    }
+  }
+  for (const ownership of currentOwnership) {
+    const owners = ownersByPath.get(ownership.path) ?? [];
+    for (const owner of ownership.owners) {
+      if (!owners.some((candidate) => candidate.threadId === owner.threadId)) {
+        owners.push(owner);
+      }
+    }
+    ownersByPath.set(ownership.path, owners);
+  }
+
+  return {
+    ...readModel,
+    threads: readModel.threads.map((thread) => {
+      if (thread.id === currentThreadId) {
+        return {
+          ...thread,
+          fileOwnership: thread.fileOwnership.map((entry) => ({
+            ...entry,
+            owners: ownersByPath.get(entry.path) ?? entry.owners,
+          })),
+        };
+      }
+      return {
+        ...thread,
+        fileOwnership: thread.fileOwnership.map((entry) =>
+          touchedPaths.has(entry.path)
+            ? { ...entry, owners: ownersByPath.get(entry.path) ?? entry.owners }
+            : entry,
+        ),
+      };
+    }),
+  };
+}
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;
@@ -313,6 +376,13 @@ export function projectEvent(
             messages: [],
             activities: [],
             checkpoints: [],
+            chatDiff: {
+              files: [],
+              computedAt: payload.createdAt,
+              throughTurnCount: 0,
+            },
+            baseline: null,
+            fileOwnership: [],
             session: null,
           },
           event.type,
@@ -574,13 +644,17 @@ export function projectEvent(
           : [...thread.messages, message];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
 
-        return {
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            messages: cappedMessages,
-            updatedAt: event.occurredAt,
-          }),
-        };
+        return mergeCrossThreadOwnership(
+          {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              messages: cappedMessages,
+              updatedAt: event.occurredAt,
+            }),
+          },
+          payload.threadId,
+          aggregated.fileOwnership,
+        );
       });
 
     case "thread.session-set":
@@ -722,6 +796,7 @@ export function projectEvent(
         ]
           .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
           .slice(-MAX_THREAD_CHECKPOINTS);
+        const aggregated = aggregateChatDiff(checkpoints, thread.id, event.occurredAt);
 
         // Mid-turn diff updates produce placeholder checkpoints; record the
         // checkpoint, but don't settle a turn its session is still running.
@@ -732,6 +807,8 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             checkpoints,
+            chatDiff: aggregated.chatDiff,
+            fileOwnership: aggregated.fileOwnership,
             latestTurn: turnStillRunning
               ? thread.latestTurn
               : {
@@ -752,6 +829,30 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.baseline-captured":
+      return decodeForEvent(
+        ThreadBaselineCapturedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              baseline: {
+                checkpointRef: payload.checkpointRef,
+                capturedAt: payload.capturedAt,
+                source: payload.source,
+              },
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.reverted":
       return decodeForEvent(ThreadRevertedPayload, event.payload, event.type, "payload").pipe(
@@ -776,6 +877,7 @@ export function projectEvent(
             retainedTurnIds,
           ).slice(-200);
           const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
+          const aggregated = aggregateChatDiff(checkpoints, thread.id, event.occurredAt);
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
           const latestTurn =
@@ -794,6 +896,8 @@ export function projectEvent(
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               checkpoints,
+              chatDiff: aggregated.chatDiff,
+              fileOwnership: aggregated.fileOwnership,
               messages,
               proposedPlans,
               activities,

@@ -14,9 +14,11 @@
  */
 import type { ProviderInstanceConfig } from "@rune/contracts";
 
+import { LOGO_URLS } from "./lib/logoUrls";
+
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 
-export const OPENROUTER_LOGO_URL = new URL("./assets/openrouter-color.png", import.meta.url).href;
+export const OPENROUTER_LOGO_URL = LOGO_URLS.openrouter;
 
 /** Kind of upstream service a `claudeAgent` instance is pointed at. */
 export type ClaudeServiceBadgeKind = "openrouter" | "gateway";

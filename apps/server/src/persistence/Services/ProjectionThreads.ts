@@ -7,6 +7,7 @@
  * @module ProjectionThreadRepository
  */
 import {
+  CheckpointRef,
   CommandId,
   IsoDateTime,
   ModelSelection,
@@ -34,6 +35,14 @@ export const ProjectionThread = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   latestTurnId: Schema.NullOr(TurnId),
+  baselineCheckpointRef: Schema.NullOr(CheckpointRef),
+  baselineCapturedAt: Schema.NullOr(IsoDateTime),
+  baselineSource: Schema.NullOr(
+    Schema.Literals(["thread-created", "first-user-message", "recovery"]),
+  ),
+  chatDiffJson: Schema.NullOr(Schema.String),
+  chatDiffThroughTurnCount: Schema.NullOr(NonNegativeInt),
+  fileOwnershipJson: Schema.NullOr(Schema.String),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),

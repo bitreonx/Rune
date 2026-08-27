@@ -6,6 +6,7 @@ import {
   Files,
   GitPullRequest,
   Globe2,
+  ListTodo,
   Plus,
   TerminalSquare,
   Volume2,
@@ -75,12 +76,14 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddTasks?: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  tasksAvailable?: boolean;
   pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
@@ -102,6 +105,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   agents: "Agents are only available from a thread.",
+  tasks: "Tasks are only available from a thread.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -124,6 +128,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   agents: "Available from a thread.",
+  tasks: "Available from a thread.",
 } as const;
 
 type TabContextMenuAction =
@@ -253,12 +258,14 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddAgents: () => void;
+  onAddTasks: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
+  tasksAvailable: boolean;
   liveAgentCount: number;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
@@ -324,6 +331,16 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
       onClick: props.onAddAgents,
       badgeCount: props.liveAgentCount,
+    },
+    {
+      label: "Tasks",
+      description: "Follow the live execution plan.",
+      icon: ListTodo,
+      shortcut: "K",
+      available: props.tasksAvailable ?? false,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.tasks,
+      onClick: props.onAddTasks ?? (() => undefined),
+      badgeCount: 0,
     },
   ] as const;
 
@@ -449,9 +466,7 @@ function RightPanelEmptyState(props: {
         onClick={action.onClick}
         onMouseEnter={() => setHighlight(availableActions.indexOf(action))}
         onMouseLeave={() =>
-          setHighlight((current) =>
-            current === availableActions.indexOf(action) ? -1 : current,
-          )
+          setHighlight((current) => (current === availableActions.indexOf(action) ? -1 : current))
         }
         className={cn(
           actionRowClass,
@@ -528,6 +543,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "agents":
       return "Agents";
+    case "tasks":
+      return "Tasks";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -613,6 +630,8 @@ function SurfaceIcon({
     }
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "tasks":
+      return <ListTodo className="size-3 shrink-0" />;
   }
 }
 
@@ -670,6 +689,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       available: props.agentsAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.agents,
       onClick: props.onAddAgents,
+    },
+    {
+      label: "Tasks",
+      icon: ListTodo,
+      shortcut: "K",
+      available: props.tasksAvailable ?? false,
+      disabledReason: SURFACE_DISABLED_REASONS.tasks,
+      onClick: props.onAddTasks ?? (() => undefined),
     },
   ] as const;
 
@@ -961,12 +988,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddPullRequest={props.onAddPullRequest}
             onAddAgents={props.onAddAgents}
+            onAddTasks={props.onAddTasks ?? (() => undefined)}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
             pullRequestAvailable={props.pullRequestAvailable}
             agentsAvailable={props.agentsAvailable}
+            tasksAvailable={props.tasksAvailable ?? false}
             liveAgentCount={props.liveAgentCount}
           />
         ) : (

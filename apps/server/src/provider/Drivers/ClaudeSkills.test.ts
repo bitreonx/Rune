@@ -34,6 +34,7 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
           "---",
           "name: codex-review",
           "description: Ask Codex for a review.",
+          "repositoryUrl: https://github.com/example/review-skill",
           "---",
           "",
           "# Body",
@@ -54,6 +55,7 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
           enabled: true,
           scope: "user",
           description: "Ask Codex for a review.",
+          repositoryUrl: "https://github.com/example/review-skill",
         },
         {
           name: "deploy",

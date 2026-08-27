@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   formatProviderSkillDisplayName,
+  dedupeProviderSkills,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   resolveProviderSkillSourceKind,
@@ -36,6 +37,34 @@ describe("getProviderSkillsForSlashMenu", () => {
     expect(getProviderSkillsForSlashMenu([askMatt], true).map((skill) => skill.name)).toEqual([
       "ask-matt",
     ]);
+  });
+
+  it("deduplicates enabled reports that differ only by skill-name punctuation", () => {
+    const skills = [
+      {
+        name: "grill-me",
+        path: "/repo/.agents/skills/grill-me/SKILL.md",
+        enabled: true,
+      },
+      {
+        name: "Grill Me",
+        path: "/Users/matt/.codex/skills/grill-me/SKILL.md",
+        enabled: true,
+      },
+    ];
+
+    expect(getProviderSkillsForSlashMenu(skills, true).map((skill) => skill.name)).toEqual([
+      "grill-me",
+    ]);
+  });
+
+  it("does not let a disabled duplicate hide an enabled report", () => {
+    const skills = [
+      { name: "review", path: "/disabled/SKILL.md", enabled: false },
+      { name: "review", path: "/enabled/SKILL.md", enabled: true },
+    ];
+
+    expect(dedupeProviderSkills(skills).map((skill) => skill.path)).toEqual(["/enabled/SKILL.md"]);
   });
 });
 

@@ -4,6 +4,8 @@ import {
   ChevronDownIcon,
   CircleDashedIcon,
   FilterIcon,
+  GitBranchIcon,
+  Layers3Icon,
   SearchIcon,
   SparklesIcon,
 } from "lucide-react";
@@ -67,7 +69,10 @@ function EnvironmentPicker({
           </option>
         ))}
       </select>
-      <ChevronDownIcon className="pointer-events-none absolute end-2.5 size-3.5 text-muted-foreground" aria-hidden />
+      <ChevronDownIcon
+        className="pointer-events-none absolute end-2.5 size-3.5 text-muted-foreground"
+        aria-hidden
+      />
     </label>
   );
 }
@@ -102,12 +107,23 @@ function SkillListRow({
           <span className="truncate text-sm font-medium text-foreground">
             {formatProviderSkillDisplayName(entry.skill)}
           </span>
-          {entry.skill.enabled ? <CheckIcon className="size-3.5 shrink-0 text-emerald-500" aria-label="Enabled" /> : null}
+          {entry.skill.enabled ? (
+            <CheckIcon className="size-3.5 shrink-0 text-emerald-500" aria-label="Enabled" />
+          ) : null}
         </span>
-        <span className="mt-1 block truncate text-xs text-muted-foreground">{entry.description}</span>
+        <span className="mt-1 block truncate text-xs text-muted-foreground">
+          {entry.description}
+        </span>
         <span className="mt-2 flex flex-wrap items-center gap-1.5">
-          <Badge variant="outline" size="sm" className="capitalize">{entry.scope}</Badge>
-          <Badge variant="outline" size="sm">{entry.providerDisplayName}</Badge>
+          <Badge variant="outline" size="sm" className="capitalize">
+            {entry.scope}
+          </Badge>
+          <Badge variant="outline" size="sm">
+            <GitBranchIcon className="size-3" aria-hidden />
+            {entry.sources.length === 1
+              ? entry.providerDisplayName
+              : `${entry.sources.length} sources`}
+          </Badge>
         </span>
       </span>
     </button>
@@ -122,7 +138,8 @@ export function SkillsPage() {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SkillWorkspaceSourceFilter>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const environmentId = environmentOverride ?? primaryEnvironmentId ?? environments[0]?.environmentId ?? null;
+  const environmentId =
+    environmentOverride ?? primaryEnvironmentId ?? environments[0]?.environmentId ?? null;
   const providerValue = useAtomValue(
     serverEnvironment.providersValueAtom(environmentId ?? ("" as EnvironmentId)),
   );
@@ -135,7 +152,8 @@ export function SkillsPage() {
     () => filterSkillWorkspaceEntries(entries, query, sourceFilter),
     [entries, query, sourceFilter],
   );
-  const selectedEntry = filteredEntries.find((entry) => entry.key === selectedKey) ?? filteredEntries[0] ?? null;
+  const selectedEntry =
+    filteredEntries.find((entry) => entry.key === selectedKey) ?? filteredEntries[0] ?? null;
   const enabledCount = entries.filter((entry) => entry.skill.enabled).length;
 
   const useSkill = (entry: SkillWorkspaceEntry) => {
@@ -146,7 +164,10 @@ export function SkillsPage() {
   };
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-[var(--rune-surface-canvas)]" data-rune-skills-page>
+    <main
+      className="min-h-0 flex-1 overflow-y-auto bg-[var(--rune-surface-canvas)]"
+      data-rune-skills-page
+    >
       <div className="mx-auto w-full max-w-7xl px-5 py-8 sm:px-8 sm:py-10">
         <header className="flex flex-col gap-5 border-b border-border/70 pb-7 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
@@ -174,26 +195,47 @@ export function SkillsPage() {
 
         <div className="mt-6 grid gap-2 sm:grid-cols-3">
           <div className="rounded-2xl border border-border/60 bg-card/35 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">Discovered</p>
-            <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{entries.length}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+              Discovered
+            </p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
+              {entries.length}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">Across this environment</p>
           </div>
           <div className="rounded-2xl border border-border/60 bg-card/35 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">Enabled</p>
-            <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{enabledCount}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+              Enabled
+            </p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
+              {enabledCount}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">Available in the composer</p>
           </div>
           <div className="rounded-2xl border border-border/60 bg-card/35 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">Providers</p>
-            <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{providers.length}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+              Providers
+            </p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
+              {providers.length}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">Reporting skill catalogs</p>
           </div>
         </div>
 
         <div className="mt-8 flex flex-col gap-3 border-b border-border/60 pb-4 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1 lg:max-w-sm">
-            <SearchIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-            <Input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search skills" aria-label="Search skills" className="h-9 rounded-xl ps-9" />
+            <SearchIcon
+              className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Search skills"
+              aria-label="Search skills"
+              className="h-9 rounded-xl ps-9"
+            />
           </div>
           <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:ms-auto">
             <FilterIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -213,15 +255,23 @@ export function SkillsPage() {
         </div>
 
         {!isReady || (environmentId && providerValue === null) ? (
-          <div className="mt-8 flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-sm text-muted-foreground" role="status">
-            <CircleDashedIcon className="size-4 animate-spin text-[var(--rune-violet-strong)]" aria-hidden />
+          <div
+            className="mt-8 flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-sm text-muted-foreground"
+            role="status"
+          >
+            <CircleDashedIcon
+              className="size-4 animate-spin text-[var(--rune-violet-strong)]"
+              aria-hidden
+            />
             Loading skill catalogs…
           </div>
         ) : filteredEntries.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-dashed border-border/70 bg-card/20 p-8 text-center">
-            <SparklesIcon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
+            <Layers3Icon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
             <p className="mt-3 text-sm font-medium text-foreground">
-              {entries.length === 0 ? "No provider skills reported yet" : "No skills match this view"}
+              {entries.length === 0
+                ? "No provider skills reported yet"
+                : "No skills match this view"}
             </p>
             <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
               {entries.length === 0

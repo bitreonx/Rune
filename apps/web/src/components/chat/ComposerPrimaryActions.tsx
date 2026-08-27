@@ -239,7 +239,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     );
   }
 
-  if (isPaused) {
+  if (isPaused && !hasSendableContent) {
     return renderContinueButton();
   }
 

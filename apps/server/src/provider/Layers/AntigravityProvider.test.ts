@@ -37,6 +37,28 @@ function makeProbeSpawner(modelsOutput: string) {
   });
 }
 
+function makeSlowModelsSpawner() {
+  return ChildProcessSpawner.make((command) => {
+    const args = (command as unknown as { readonly args: ReadonlyArray<string> }).args;
+    const isVersionProbe = args.includes("--version");
+    return Effect.succeed(
+      ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: isVersionProbe ? Effect.succeed(ChildProcessSpawner.ExitCode(0)) : Effect.never,
+        isRunning: Effect.succeed(!isVersionProbe),
+        kill: () => Effect.void,
+        unref: Effect.succeed(Effect.void),
+        stdin: Sink.drain,
+        stdout: isVersionProbe ? Stream.encodeText(Stream.make("agy 1.1.22\n")) : Stream.never,
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+      }),
+    );
+  });
+}
+
 describe("Antigravity provider snapshot", () => {
   it.effect("starts with a visible fallback model while the CLI health check is pending", () =>
     Effect.gen(function* () {
@@ -112,6 +134,23 @@ it.layer(Layer.mergeAll(NodeServices.layer))("Antigravity provider health", (it)
         "claude-sonnet-4-6",
         "team/agy-review",
       ]);
+    }),
+  );
+
+  it.effect("keeps the verified CLI ready when model discovery exceeds its soft timeout", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* checkAntigravityProviderStatus(
+        decodeSettings({ binaryPath: "agy" }),
+        process.env,
+        { modelProbeTimeoutMs: 0 },
+      ).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, makeSlowModelsSpawner()),
+      );
+
+      expect(snapshot.status).toBe("ready");
+      expect(snapshot.installed).toBe(true);
+      expect(snapshot.models[0]?.slug).toBe("gemini-3.7-flash-high");
+      expect(snapshot.message).toContain("using the configured default model");
     }),
   );
 });

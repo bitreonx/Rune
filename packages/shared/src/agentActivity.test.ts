@@ -60,9 +60,10 @@ describe("deriveAgentActivityJob", () => {
 
   it("preserves failures instead of collapsing them into successful work", () => {
     const result = deriveAgentActivityJob([
-      activity("a1", "tool.completed", "ReadFile", {}, "error"),
+      activity("a1", "tool.completed", "ReadFile", { message: "Permission denied" }, "error"),
     ]);
     expect(result.activities[0]?.status).toBe("failed");
+    expect(result.activities[0]?.failureSummary).toBe("Permission denied");
     expect(result.activities[0]?.operations[0]?.rawTrace.summary).toBe("ReadFile");
   });
 

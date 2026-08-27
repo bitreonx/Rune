@@ -2,10 +2,33 @@ import { expect, it } from "@effect/vitest";
 import { ThreadId } from "@rune/contracts";
 
 import {
+  CheckpointBaselineMissingError,
+  CheckpointDiffOperation,
   CheckpointRefUnavailableError,
   CheckpointTurnRangeUnavailableError,
   CheckpointWorkspacePathMissingError,
 } from "./Errors.ts";
+
+it("encodes a missing baseline with the thread and operation", () => {
+  const err = new CheckpointBaselineMissingError({
+    operation: CheckpointDiffOperation.make("CheckpointDiffQuery.getChatDiff"),
+    threadId: ThreadId.make("thread-1"),
+  });
+
+  expect(err._tag).toBe("CheckpointBaselineMissingError");
+  expect(err.threadId).toBe(ThreadId.make("thread-1"));
+  expect(err.message).toContain("thread-1");
+  expect(err.message).toContain("baseline");
+});
+
+it("is assignable to CheckpointServiceError", () => {
+  const err: import("./Errors.ts").CheckpointServiceError = new CheckpointBaselineMissingError({
+    operation: CheckpointDiffOperation.make("CheckpointDiffQuery.getChatDiff"),
+    threadId: ThreadId.make("thread-1"),
+  });
+
+  expect(err._tag).toBe("CheckpointBaselineMissingError");
+});
 
 const threadId = ThreadId.make("thread-1");
 

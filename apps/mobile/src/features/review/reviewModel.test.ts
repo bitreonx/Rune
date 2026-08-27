@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   MessageId,
   TurnId,
+  type OrchestrationChatDiff,
   type OrchestrationCheckpointSummary,
   type ReviewDiffPreviewSource,
 } from "@rune/contracts";
@@ -45,6 +46,19 @@ function makeRenderableFile(
     deletionLines: [],
     rows: [],
     ...input,
+  };
+}
+
+function makeChatDiff(fileCount: number): OrchestrationChatDiff {
+  return {
+    files: Array.from({ length: fileCount }, (_, index) => ({
+      path: `apps/mobile/src/chat-${index + 1}.ts`,
+      kind: "modified",
+      additions: 1,
+      deletions: 0,
+    })),
+    computedAt: "2026-04-02T00:00:00.000Z",
+    throughTurnCount: 2,
   };
 }
 
@@ -132,6 +146,49 @@ describe("buildReviewSectionItems", () => {
       }),
     ]);
     expect(getDefaultReviewSectionId(items)).toBe("git:working-tree");
+  });
+
+  it("returns a 'Changes in this chat' section first when chatDiff has files", () => {
+    const items = buildReviewSectionItems({
+      checkpoints: [],
+      chatDiff: makeChatDiff(3),
+      chatDiffText: "diff --git a/chat-1.ts b/chat-1.ts",
+      gitSections: [],
+      turnDiffById: {},
+      loadingTurnIds: {},
+      loadingGitSections: false,
+    });
+
+    expect(items[0]).toMatchObject({
+      id: "chat:changes",
+      kind: "chat",
+      title: "Changes in this chat",
+      subtitle: "3 files changed",
+      diff: "diff --git a/chat-1.ts b/chat-1.ts",
+      isLoading: false,
+    });
+    expect(getDefaultReviewSectionId(items)).toBe("chat:changes");
+  });
+
+  it("omits the chat section when chatDiff is empty", () => {
+    const items = buildReviewSectionItems({
+      checkpoints: [
+        makeCheckpoint({
+          turnId: TurnId.make("turn-1"),
+          checkpointTurnCount: 1,
+          completedAt: "2026-04-01T00:00:00.000Z",
+        }),
+      ],
+      chatDiff: { ...makeChatDiff(0), throughTurnCount: 0 },
+      chatDiffText: null,
+      gitSections: [],
+      turnDiffById: {},
+      loadingTurnIds: {},
+      loadingGitSections: false,
+    });
+
+    expect(items[0]?.title).not.toBe("Changes in this chat");
+    expect(items[0]?.id).toBe("turn:1");
   });
 });
 

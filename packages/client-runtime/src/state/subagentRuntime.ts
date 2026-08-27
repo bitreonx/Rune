@@ -996,6 +996,27 @@ export function formatSubagentModelLabel(
   return effort ? `${compact} · ${effort}` : compact;
 }
 
+/**
+ * User-facing child identity. Provider ids and generic task titles are
+ * implementation details; a named collaborator should keep that name in
+ * every surface (roster, inline chips, and the live child thread).
+ */
+export function formatSubagentDisplayName(agent: {
+  readonly generatedName?: string | null;
+  readonly title?: string | null;
+  readonly role?: string | null;
+}): string {
+  const title = agent.title?.trim();
+  const role = agent.role?.trim();
+  if (title && !/^general[- ]purpose$/i.test(title) && !/^sub[- ]?agent$/i.test(title)) {
+    return title;
+  }
+  if (role && !/^general[- ]purpose$/i.test(role) && !/^sub[- ]?agent$/i.test(role)) {
+    return role;
+  }
+  return agent.generatedName?.trim() || title || "Agent";
+}
+
 export function formatSubagentTokenCount(totalTokens: number): string {
   if (totalTokens < 1000) {
     return `${totalTokens}`;

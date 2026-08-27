@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Google Antigravity">
+  <!-- Google Antigravity mark: a single-stroke "A" with a small
+       four-point sparkle in the upper-right. Mirrors the official brand
+       artwork. Uses `currentColor` so the host can recolor the mark to
+       match surrounding chrome without losing the stroke proportions. -->
+  <g fill="currentColor">
+    <path d="M11.07 3.4a.9.9 0 0 1 1.86 0l4.62 15.55a.9.9 0 0 1-.86 1.18h-2.46a.9.9 0 0 1-.86-.63l-.92-3.07H9.55l-.92 3.07a.9.9 0 0 1-.86.63H5.31a.9.9 0 0 1-.86-1.18L11.07 3.4Zm-1.5 9.7h4.86l-2.2-7.34h-.46l-2.2 7.34Z" />
+    <path d="M19.7 5.4a.6.6 0 0 1 1.14 0l.6 1.74 1.74.6a.6.6 0 0 1 0 1.14l-1.74.6-.6 1.74a.6.6 0 0 1-1.14 0l-.6-1.74-1.74-.6a.6.6 0 0 1 0-1.14l1.74-.6L19.7 5.4Z" />
+  </g>
+</svg>

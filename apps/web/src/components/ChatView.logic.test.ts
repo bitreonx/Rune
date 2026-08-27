@@ -37,6 +37,7 @@ import {
   startNewThreadForProject,
   shouldDockDraftHeroForSubmission,
   shouldInterruptRunningTurnBeforeSend,
+  shouldQueueRunningComposerSubmission,
   shouldRewindBeforeEditedUserMessageSend,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -241,6 +242,9 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     session: null,
     messages: [],
     proposedPlans: [],
+    chatDiff: { files: [], computedAt: "2026-03-01T00:00:00.000Z", throughTurnCount: 0 },
+    baseline: null,
+    fileOwnership: [],
     activities: [],
     checkpoints: [],
     createdAt: now,
@@ -486,6 +490,39 @@ describe("buildUserMessageRewindConfirmation", () => {
 });
 
 describe("composer send lifecycle", () => {
+  it("queues a plain prompt behind an acknowledged running turn", () => {
+    expect(
+      shouldQueueRunningComposerSubmission({
+        phase: "running",
+        isSendBusy: false,
+        sendInFlight: false,
+        hasQueueableTextOnlyContent: true,
+        hasPendingEdit: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not queue context-rich sends or edited prompts", () => {
+    expect(
+      shouldQueueRunningComposerSubmission({
+        phase: "running",
+        isSendBusy: false,
+        sendInFlight: false,
+        hasQueueableTextOnlyContent: false,
+        hasPendingEdit: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldQueueRunningComposerSubmission({
+        phase: "running",
+        isSendBusy: false,
+        sendInFlight: false,
+        hasQueueableTextOnlyContent: true,
+        hasPendingEdit: true,
+      }),
+    ).toBe(false);
+  });
+
   it("interrupts an acknowledged running turn before sending a new prompt", () => {
     expect(
       shouldInterruptRunningTurnBeforeSend({

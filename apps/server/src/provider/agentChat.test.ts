@@ -53,4 +53,28 @@ describe("normalizeProviderAgentChatSnapshot", () => {
       }),
     ).toEqual({ agentId: "child-empty", messages: [] });
   });
+
+  it("marks the active child turn's assistant output as streaming", () => {
+    const result = normalizeProviderAgentChatSnapshot(RuntimeTaskId.make("child-live"), {
+      threadId: ThreadId.make("child-live"),
+      activeTurnId: TurnId.make("turn-live"),
+      turns: [
+        {
+          id: TurnId.make("turn-live"),
+          items: [
+            {
+              id: "user-live",
+              type: "userMessage",
+              content: [{ type: "text", text: "Keep going" }],
+            },
+            { id: "assistant-live", type: "agentMessage", text: "I am still working" },
+          ],
+        },
+      ],
+    });
+
+    expect(result.activeTurnId).toBe("turn-live");
+    expect(result.messages[1]?.streaming).toBe(true);
+    expect(result.messages[0]?.streaming).toBe(false);
+  });
 });

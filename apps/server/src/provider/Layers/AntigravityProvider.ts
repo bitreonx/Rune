@@ -36,7 +36,14 @@ const ANTIGRAVITY_PRESENTATION = {
 
 const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.7-flash-high";
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
-const MODEL_PROBE_TIMEOUT_MS = 15_000;
+// `agy models` can perform its first authenticated catalog refresh before it
+// prints the table. Give that network-backed operation a reasonable window,
+// but never make catalog enrichment a prerequisite for using the CLI.
+const MODEL_PROBE_TIMEOUT_MS = 30_000;
+
+export interface AntigravityProviderProbeOptions {
+  readonly modelProbeTimeoutMs?: number | undefined;
+}
 
 const ANTIGRAVITY_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [
@@ -164,6 +171,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
   function* (
     settings: AntigravitySettings,
     environment: NodeJS.ProcessEnv = process.env,
+    probeOptions: AntigravityProviderProbeOptions = {},
   ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     const fallbackModels = antigravityModelsFromSettings(settings.customModels);
@@ -248,7 +256,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
     }
 
     const modelsResult = yield* runAntigravityCommand(settings, ["models"], environment).pipe(
-      Effect.timeoutOption(MODEL_PROBE_TIMEOUT_MS),
+      Effect.timeoutOption(probeOptions.modelProbeTimeoutMs ?? MODEL_PROBE_TIMEOUT_MS),
       Effect.result,
     );
     if (Result.isFailure(modelsResult)) {
@@ -279,9 +287,13 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         probe: {
           installed: true,
           version,
-          status: "warning",
+          // Model enumeration is an optional, network-backed enhancement.
+          // The verified CLI is still usable with the configured fallback
+          // model, so a slow catalog must not make the provider unavailable.
+          status: "ready",
           auth: { status: "unknown" },
-          message: `Antigravity model discovery timed out after ${MODEL_PROBE_TIMEOUT_MS}ms.`,
+          message:
+            "Antigravity CLI is ready. Model discovery is still running slowly, so RUNE is using the configured default model.",
         },
       });
     }

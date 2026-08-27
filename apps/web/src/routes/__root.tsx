@@ -137,6 +137,7 @@ function RootRouteView() {
         <DocumentTitleSync />
         <ContrastAppearanceSync />
         <GlassAppearanceSync />
+        <MotionAppearanceSync />
         <FontAppearanceSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         <RelayClientInstallDialog />
@@ -173,6 +174,16 @@ function GlassAppearanceSync() {
   useEffect(() => {
     document.documentElement.style.setProperty("--glass-opacity", `${glassOpacity}%`);
   }, [glassOpacity]);
+
+  return null;
+}
+
+function MotionAppearanceSync() {
+  const motionProfile = useClientSettings((settings) => settings.motionProfile);
+
+  useEffect(() => {
+    document.documentElement.dataset.runeMotion = motionProfile;
+  }, [motionProfile]);
 
   return null;
 }

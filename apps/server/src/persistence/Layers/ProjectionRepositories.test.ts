@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, ProviderInstanceId } from "@rune/contracts";
+import { CheckpointRef, ProjectId, ThreadId, ProviderInstanceId } from "@rune/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -89,6 +89,13 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         branch: null,
         worktreePath: null,
         latestTurnId: null,
+        baselineCheckpointRef: CheckpointRef.make("refs/rune/checkpoints/thread-null-options/base"),
+        baselineCapturedAt: "2026-03-24T00:00:00.000Z",
+        baselineSource: "thread-created",
+        chatDiffJson: '[{"path":"src/app.ts","kind":"modified","additions":2,"deletions":1}]',
+        chatDiffThroughTurnCount: 1,
+        fileOwnershipJson:
+          '[{"path":"src/app.ts","owners":[{"threadId":"thread-null-options","throughTurnCount":1,"additions":2,"deletions":1}]}]',
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         archivedAt: null,
@@ -107,8 +114,21 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       const rows = yield* sql<{
         readonly modelSelection: string | null;
+        readonly baselineCheckpointRef: string | null;
+        readonly baselineCapturedAt: string | null;
+        readonly baselineSource: string | null;
+        readonly chatDiffJson: string | null;
+        readonly chatDiffThroughTurnCount: number | null;
+        readonly fileOwnershipJson: string | null;
       }>`
-        SELECT model_selection_json AS "modelSelection"
+        SELECT
+          model_selection_json AS "modelSelection",
+          baseline_checkpoint_ref AS "baselineCheckpointRef",
+          baseline_captured_at AS "baselineCapturedAt",
+          baseline_source AS "baselineSource",
+          chat_diff_json AS "chatDiffJson",
+          chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
+          file_ownership_json AS "fileOwnershipJson"
         FROM projection_threads
         WHERE thread_id = 'thread-null-options'
       `;
@@ -125,6 +145,25 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
           model: "claude-opus-4-6",
         }),
       );
+      assert.deepStrictEqual(
+        {
+          baselineCheckpointRef: row.baselineCheckpointRef,
+          baselineCapturedAt: row.baselineCapturedAt,
+          baselineSource: row.baselineSource,
+          chatDiffJson: row.chatDiffJson,
+          chatDiffThroughTurnCount: row.chatDiffThroughTurnCount,
+          fileOwnershipJson: row.fileOwnershipJson,
+        },
+        {
+          baselineCheckpointRef: "refs/rune/checkpoints/thread-null-options/base",
+          baselineCapturedAt: "2026-03-24T00:00:00.000Z",
+          baselineSource: "thread-created",
+          chatDiffJson: '[{"path":"src/app.ts","kind":"modified","additions":2,"deletions":1}]',
+          chatDiffThroughTurnCount: 1,
+          fileOwnershipJson:
+            '[{"path":"src/app.ts","owners":[{"threadId":"thread-null-options","throughTurnCount":1,"additions":2,"deletions":1}]}]',
+        },
+      );
 
       const persisted = yield* threads.getById({
         threadId: ThreadId.make("thread-null-options"),
@@ -133,6 +172,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-opus-4-6",
       });
+      assert.strictEqual(
+        Option.getOrNull(persisted)?.baselineCheckpointRef,
+        "refs/rune/checkpoints/thread-null-options/base",
+      );
+      assert.strictEqual(Option.getOrNull(persisted)?.chatDiffThroughTurnCount, 1);
     }),
   );
 
@@ -153,6 +197,12 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         branch: null,
         worktreePath: null,
         latestTurnId: null,
+        baselineCheckpointRef: null,
+        baselineCapturedAt: null,
+        baselineSource: null,
+        chatDiffJson: "[]",
+        chatDiffThroughTurnCount: 0,
+        fileOwnershipJson: "[]",
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-25T00:00:00.000Z",
         archivedAt: null,
@@ -221,6 +271,12 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         branch: null,
         worktreePath: null,
         latestTurnId: null,
+        baselineCheckpointRef: null,
+        baselineCapturedAt: null,
+        baselineSource: null,
+        chatDiffJson: "[]",
+        chatDiffThroughTurnCount: 0,
+        fileOwnershipJson: "[]",
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-25T00:00:00.000Z",
         archivedAt: null,

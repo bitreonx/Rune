@@ -947,6 +947,12 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationGetChatDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getChatDiff, {
+  payload: OrchestrationRpcSchemas.getChatDiff.input,
+  success: OrchestrationRpcSchemas.getChatDiff.output,
+  error: Schema.Union([OrchestrationGetFullThreadDiffError, EnvironmentAuthorizationError]),
+});
+
 export const WsOrchestrationSearchThreadsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.searchThreads, {
   payload: OrchestrationSearchThreadsInput,
   success: OrchestrationRpcSchemas.searchThreads.output,
@@ -1152,6 +1158,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetWorkflowScriptRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
+  WsOrchestrationGetChatDiffRpc,
   WsOrchestrationSearchThreadsRpc,
   WsOrchestrationGetAgentChatRpc,
   WsOrchestrationSendAgentMessageRpc,

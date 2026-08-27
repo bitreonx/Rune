@@ -25,11 +25,30 @@ export function formatProviderSkillDisplayName(
   return titleCaseWords(skill.name);
 }
 
+export function dedupeProviderSkills(
+  skills: ReadonlyArray<ServerProviderSkill>,
+): ServerProviderSkill[] {
+  const unique = new Map<string, ServerProviderSkill>();
+  for (const skill of skills) {
+    if (!skill.enabled) continue;
+    const key = skill.name
+      .trim()
+      .toLocaleLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const existing = unique.get(key);
+    // Keep the first enabled report for stable ordering while making repeated
+    // provider discovery records invisible to the user.
+    if (!existing) unique.set(key, skill);
+  }
+  return [...unique.values()];
+}
+
 export function getProviderSkillsForSlashMenu(
   skills: ReadonlyArray<ServerProviderSkill>,
   showSkillsInSlashMenu: boolean,
 ): ServerProviderSkill[] {
-  return showSkillsInSlashMenu ? skills.filter((skill) => skill.enabled) : [];
+  return showSkillsInSlashMenu ? dedupeProviderSkills(skills) : [];
 }
 
 export function getProviderSlashCommandsForSlashMenu(

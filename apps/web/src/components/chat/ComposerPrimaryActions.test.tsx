@@ -87,7 +87,7 @@ function renderRunningActions(showSendWhileRunning: boolean, hasSendableContent:
   );
 }
 
-function renderPausedAction(isContinueBusy = false) {
+function renderPausedAction(isContinueBusy = false, hasSendableContent = false) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
@@ -96,13 +96,13 @@ function renderPausedAction(isContinueBusy = false) {
       isPaused: true,
       isContinueBusy,
       showPlanFollowUpPrompt: false,
-      promptHasText: false,
+      promptHasText: hasSendableContent,
       isSendBusy: false,
       sendDisabledReason: null,
       isConnecting: false,
       isEnvironmentUnavailable: false,
       isPreparingWorktree: false,
-      hasSendableContent: false,
+      hasSendableContent,
       onPreviousPendingQuestion: () => {},
       onInterrupt: () => {},
       onContinue: () => {},
@@ -305,5 +305,13 @@ describe("ComposerPrimaryActions", () => {
 
     expect(markup).toContain('aria-label="Continuing task"');
     expect(markup).toContain("disabled");
+  });
+
+  it("changes Continue back to Send when the paused composer has a new prompt", () => {
+    const markup = renderPausedAction(false, true);
+
+    expect(markup).toContain('aria-label="Send message"');
+    expect(markup).not.toContain('aria-label="Continue task"');
+    expect(markup).toContain('type="submit"');
   });
 });

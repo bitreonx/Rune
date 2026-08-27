@@ -3,6 +3,17 @@ import { useEffect, useRef, useState } from "react";
 import { RUNE_MOTION_MS } from "./runeMotion";
 
 export type RunePanelMotionState = "closed" | "opening" | "open" | "closing";
+export const RUNE_RIGHT_PANEL_CONTENT_KEY = "rune-right-panel-content";
+
+export function resolveRuneRightPanelPresentation(useSheet: boolean): {
+  contentKey: typeof RUNE_RIGHT_PANEL_CONTENT_KEY;
+  mode: "inline" | "sheet";
+} {
+  return {
+    contentKey: RUNE_RIGHT_PANEL_CONTENT_KEY,
+    mode: useSheet ? "sheet" : "inline",
+  };
+}
 
 export function resolveRunePanelMotionState(options: {
   open: boolean;
@@ -25,6 +36,17 @@ export function runePanelTransitionClass(state: RunePanelMotionState): string {
     case "closed":
       return "rune-panel-motion-closed";
   }
+}
+
+/** A close intent is consumed once it can safely restore the invoking toggle. */
+export function shouldRestoreRunePanelToggleFocus(input: {
+  closeIntent: boolean;
+  open: boolean;
+  reducedMotion: boolean;
+  state: RunePanelMotionState;
+}): boolean {
+  if (!input.closeIntent || input.open) return false;
+  return input.reducedMotion || input.state === "closing" || input.state === "closed";
 }
 
 /**

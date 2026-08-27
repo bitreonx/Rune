@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  DEFAULT_SOUND_PREFERENCES,
-  sanitizeSoundPreferences,
-  volumeCurve,
-} from "./preferences.ts";
+import { DEFAULT_SOUND_PREFERENCES, sanitizeSoundPreferences, volumeCurve } from "./preferences.ts";
 
 describe("sanitizeSoundPreferences", () => {
   it("falls back to defaults for missing or non-object storage", () => {
@@ -24,6 +20,7 @@ describe("sanitizeSoundPreferences", () => {
         events,
         variants: { done: "bells", sent: "pluck" },
         notifications: false,
+        inAppNotifications: true,
       }),
     ).toEqual({
       enabled: false,
@@ -31,6 +28,7 @@ describe("sanitizeSoundPreferences", () => {
       events,
       variants: { done: "bells", sent: "pluck" },
       notifications: false,
+      inAppNotifications: true,
     });
   });
 

@@ -319,6 +319,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
           archivedAt: null,
+          baseline: null,
+          chatDiff: {
+            files: [],
+            computedAt: "2026-02-24T00:00:03.000Z",
+            throughTurnCount: 0,
+          },
           settledOverride: null,
           settledAt: null,
           snoozedUntil: null,
@@ -373,6 +379,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               completedAt: "2026-02-24T00:00:08.000Z",
             },
           ],
+          fileOwnership: [],
           session: {
             threadId: ThreadId.make("thread-1"),
             status: "running",

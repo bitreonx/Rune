@@ -1,10 +1,12 @@
-import { ListTodoIcon, XIcon } from "lucide-react";
-import { memo, type CSSProperties } from "react";
+import { ChevronDown, ChevronRight, PanelRight, XIcon } from "lucide-react";
+import { memo, useMemo, useState, type CSSProperties } from "react";
 
 import { formatDuration } from "../../session-logic";
 import type { RunePanelMotionState } from "../../runePanelMotion";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+import { deriveAgentActivityJob } from "@rune/shared/agentActivity";
+import type { OrchestrationThreadActivity } from "@rune/contracts";
 
 export interface ComposerTasksProgress {
   readonly step: string;
@@ -15,17 +17,30 @@ export interface ComposerTasksProgress {
 export interface ComposerTaskStep {
   readonly durationMs?: number;
   readonly step: string;
-  readonly status: "pending" | "inProgress" | "completed";
+  readonly status: "pending" | "inProgress" | "completed" | "blocked" | "failed" | "skipped";
 }
 
 /** Long lists stagger only their first rows; the tail enters with the pack. */
 const TASKS_STAGGER_MAX_ROWS = 8;
+const EMPTY_TASK_ACTIVITIES: readonly OrchestrationThreadActivity[] = [];
 
 const TASK_STATUS_LABEL = {
   completed: "Completed",
   inProgress: "In progress",
   pending: "Pending",
+  blocked: "Blocked",
+  failed: "Failed",
+  skipped: "Skipped",
 } as const;
+
+const statusMark: Record<ComposerTaskStep["status"], string> = {
+  completed: String.fromCharCode(0x2713),
+  inProgress: String.fromCharCode(0x25cf),
+  pending: String.fromCharCode(0x25cb),
+  blocked: "!",
+  failed: String.fromCharCode(0xd7),
+  skipped: "-",
+};
 
 export function tasksProgressPercent(completedSteps: number, totalSteps: number): number {
   if (totalSteps <= 0) return 0;
@@ -33,23 +48,16 @@ export function tasksProgressPercent(completedSteps: number, totalSteps: number)
 }
 
 export function taskRowMotionStyle(index: number): CSSProperties {
-  return { "--stagger-index": Math.min(Math.max(index, 0), TASKS_STAGGER_MAX_ROWS) } as CSSProperties;
-}
-
-function keyedTaskSteps(steps: readonly ComposerTaskStep[]) {
-  const occurrences = new Map<string, number>();
-  return steps.map((step, index) => {
-    const occurrence = occurrences.get(step.step) ?? 0;
-    occurrences.set(step.step, occurrence + 1);
-    return { index, key: `${step.step}:${occurrence}`, step };
-  });
+  return {
+    "--stagger-index": Math.min(Math.max(index, 0), TASKS_STAGGER_MAX_ROWS),
+  } as CSSProperties;
 }
 
 /**
  * Status marks remount whenever a step's status flips (keyed by status
  * upstream), which is what plays the one-shot fill/draw animations.
  */
-function TaskStatusIcon({ status }: { status: ComposerTaskStep["status"] }) {
+export function TaskStatusIcon({ status }: { status: ComposerTaskStep["status"] }) {
   if (status === "completed") {
     return (
       <span
@@ -77,50 +85,52 @@ function TaskStatusIcon({ status }: { status: ComposerTaskStep["status"] }) {
       className={cn(
         "flex w-3.5 shrink-0 justify-center",
         status === "inProgress" ? "rune-task-dot-active" : "rune-task-dot",
+        status === "blocked" && "text-amber-500",
+        status === "failed" && "text-destructive",
+        status === "skipped" && "text-muted-foreground/50",
       )}
       data-rune-task-status={status}
     >
       <span
         className={cn(
-          "size-2 rounded-full",
+          "flex size-3 items-center justify-center font-mono text-[11px] leading-none",
           status === "inProgress"
-            ? "bg-primary ring-2 ring-primary/20"
-            : "border border-muted-foreground/40",
+            ? "text-primary"
+            : status === "pending"
+              ? "text-muted-foreground/50"
+              : "font-semibold",
         )}
-      />
+      ></span>
     </span>
   );
 }
 
-function TaskSegments({
-  className,
-  steps,
+export function TaskEvidence({
+  activities,
 }: {
-  readonly className?: string;
-  readonly steps: readonly ComposerTaskStep[];
+  activities: readonly OrchestrationThreadActivity[];
 }) {
-  if (steps.length <= 1) return null;
-
+  const activity = useMemo(() => {
+    const job = deriveAgentActivityJob(activities);
+    return (
+      job.activities.toReversed().find((item) => item.status === "working") ?? job.activities.at(-1)
+    );
+  }, [activities]);
+  if (!activity) return null;
+  const files = [
+    ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
+  ].slice(-3);
   return (
-    <span aria-hidden className={cn("flex w-10 shrink-0 items-center gap-0.5", className)}>
-      {keyedTaskSteps(steps).map(({ key, step }) => (
-        <span
-          key={key}
-          className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-full bg-muted-foreground/25"
-          data-rune-task-segment={step.status}
-        >
-          {step.status !== "pending" ? (
-            <span
-              key={step.status}
-              className={cn(
-                "rune-task-segment-fill absolute inset-0 origin-left rounded-full",
-                step.status === "completed" ? "bg-success" : "bg-primary",
-              )}
-            />
-          ) : null}
+    <div className="rune-task-evidence" data-rune-task-evidence="true">
+      <span className="rune-task-evidence-label">
+        {activity.reasoningSummary ?? activity.label}
+      </span>
+      {files.map((file) => (
+        <span key={file} className="rune-task-evidence-file">
+          {file}
         </span>
       ))}
-    </span>
+    </div>
   );
 }
 
@@ -129,15 +139,16 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
   hasTrailingShoulder = false,
   motionState,
   onDismiss,
+  onOpenSidePanel,
   onToggle,
   placement = "tab",
   progress,
-  steps,
 }: {
   readonly expanded: boolean;
   readonly hasTrailingShoulder?: boolean;
   readonly motionState?: RunePanelMotionState;
   readonly onDismiss: () => void;
+  readonly onOpenSidePanel?: () => void;
   readonly onToggle: () => void;
   readonly placement?: "inline" | "tab";
   readonly progress: ComposerTasksProgress;
@@ -146,6 +157,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
   if (progress.totalSteps <= 0) return null;
 
   const allDone = progress.completedSteps >= progress.totalSteps;
+  const stateLabel = allDone ? "Complete" : progress.step ? `- ${progress.step}` : "- Working";
   const label = `Tasks: ${progress.completedSteps} of ${progress.totalSteps} complete. Current task: ${progress.step}`;
   if (placement === "inline") {
     return (
@@ -163,16 +175,19 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
           onClick={onToggle}
           onPointerDown={(event) => event.preventDefault()}
         >
-          <ListTodoIcon aria-hidden className="size-3 shrink-0" />
+          <span
+            aria-hidden
+            className={cn("rune-task-badge-mark", allDone ? "text-success" : "text-primary")}
+            data-rune-task-badge-state={allDone ? "completed" : "active"}
+          />
           <span>Tasks</span>
-          <TaskSegments steps={steps} />
           <span
             className={cn(
               "font-medium tabular-nums",
               allDone ? "text-success" : "text-muted-foreground",
             )}
           >
-            {progress.completedSteps}/{progress.totalSteps}
+            {progress.completedSteps}/{progress.totalSteps} {stateLabel}
           </span>
         </Button>
         <Button
@@ -207,14 +222,18 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
         onClick={onToggle}
         onPointerDown={(event) => event.preventDefault()}
       >
-        <ListTodoIcon aria-hidden className="size-3.5 shrink-0" />
+        <span
+          aria-hidden
+          className={cn("rune-task-badge-mark", allDone ? "text-success" : "text-primary")}
+          data-rune-task-badge-state={allDone ? "completed" : "active"}
+        />
         <span className="shrink-0">Tasks</span>
         <span
           key={progress.step}
           className="rune-task-step-swap min-w-0 flex-1 truncate text-left font-medium text-foreground/80"
           data-composer-task-current="true"
         >
-          {progress.step}
+          {allDone ? "Complete" : progress.step || "Working"}
         </span>
         <span
           className={cn(
@@ -224,8 +243,19 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
         >
           {progress.completedSteps}/{progress.totalSteps}
         </span>
-        <TaskSegments className="w-20" steps={steps} />
       </button>
+      {onOpenSidePanel ? (
+        <Button
+          size="icon-micro"
+          variant="ghost-muted"
+          aria-label="Open tasks in side panel"
+          className="shrink-0"
+          onClick={onOpenSidePanel}
+          onPointerDown={(event) => event.preventDefault()}
+        >
+          <PanelRight aria-hidden className="size-3" />
+        </Button>
+      ) : null}
       <Button
         size="icon-micro"
         variant="ghost-muted"
@@ -243,15 +273,45 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
 export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
   onDismiss,
   onCollapse,
+  onOpenSidePanel,
   progress,
   steps,
+  activities = EMPTY_TASK_ACTIVITIES,
 }: {
   readonly onDismiss: () => void;
   readonly onCollapse: () => void;
+  readonly onOpenSidePanel?: () => void;
+  readonly activities?: readonly OrchestrationThreadActivity[];
   readonly progress: ComposerTasksProgress;
   readonly steps: readonly ComposerTaskStep[];
 }) {
   const allDone = progress.completedSteps >= progress.totalSteps;
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const currentIndex = Math.max(
+    0,
+    steps.findIndex((step) => step.status === "inProgress" || step.status === "pending"),
+  );
+  const recentCompleted = steps
+    .map((step, index) => ({ step, index }))
+    .filter(({ step }) => step.status === "completed")
+    .slice(-4);
+  const olderCompletedCount = Math.max(
+    0,
+    steps.filter((step) => step.status === "completed").length - recentCompleted.length,
+  );
+  const visibleSteps = historyExpanded
+    ? steps.map((step, index) => ({ step, index }))
+    : allDone
+      ? []
+      : steps
+          .map((step, index) => ({ step, index }))
+          .filter(({ step, index }) =>
+            step.status === "completed"
+              ? recentCompleted.some((item) => item.index === index)
+              : step.status === "pending"
+                ? index <= currentIndex + 4
+                : true,
+          );
 
   return (
     <div
@@ -259,7 +319,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
       data-chat-composer-tasks-drawer="true"
       data-variant={allDone ? "success" : undefined}
     >
-      <div className="flex items-center gap-1 px-3 py-1.5 sm:px-4">
+      <div className="rune-tasks-header flex items-center gap-1 px-3 py-2 sm:px-4">
         <button
           type="button"
           aria-expanded="true"
@@ -267,12 +327,29 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           onClick={onCollapse}
           onPointerDown={(event) => event.preventDefault()}
         >
-          <ListTodoIcon aria-hidden className="size-3.5 shrink-0" />
+          <span
+            aria-hidden
+            className={cn("rune-task-badge-mark", allDone ? "text-success" : "text-primary")}
+            data-rune-task-badge-state={allDone ? "completed" : "active"}
+          />
           <span className="font-medium text-foreground">Tasks</span>
           <span className={cn("tabular-nums", allDone && "text-success")}>
             {progress.completedSteps}/{progress.totalSteps}
+            <span className="text-muted-foreground/60">
+              {tasksProgressPercent(progress.completedSteps, progress.totalSteps)}%
+            </span>
           </span>
         </button>
+        {onOpenSidePanel ? (
+          <Button
+            size="icon-micro"
+            variant="ghost-muted"
+            aria-label="Open tasks in side panel"
+            onClick={onOpenSidePanel}
+          >
+            <PanelRight className="size-3" />
+          </Button>
+        ) : null}
         <Button
           size="icon-micro"
           variant="ghost-muted"
@@ -295,43 +372,86 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
       >
         <span
           className="rune-tasks-progress-fill"
-          style={{ width: `${tasksProgressPercent(progress.completedSteps, progress.totalSteps)}%` }}
+          style={{
+            width: `${tasksProgressPercent(progress.completedSteps, progress.totalSteps)}%`,
+          }}
         />
       </div>
       <div className="space-y-1 px-3 pb-4 pt-2 sm:px-4" role="list">
-        {keyedTaskSteps(steps).map(({ index, key, step }) => (
-          <div
-            key={key}
-            className="rune-task-row flex items-center gap-2 text-xs leading-5"
-            role="listitem"
-            style={taskRowMotionStyle(index)}
-          >
-            <TaskStatusIcon key={`${key}:${step.status}`} status={step.status} />
-            <span
+        {visibleSteps.map(({ index, step }) => {
+          const key = `${step.step}:${index}`;
+          return (
+            <div
+              key={key}
               className={cn(
-                "min-w-0 flex-1",
-                step.status === "completed"
-                  ? "text-muted-foreground/55"
-                  : step.status === "inProgress"
-                    ? "text-foreground/90"
-                    : "text-muted-foreground/70",
+                "rune-task-row text-xs leading-5",
+                step.status === "inProgress" && "rune-task-row-active",
+                step.status === "failed" && "rune-task-row-failed",
               )}
+              role="listitem"
+              style={taskRowMotionStyle(index)}
             >
-              {step.step}
+              <div className="flex items-center gap-2">
+                <TaskStatusIcon key={`${key}:${step.status}`} status={step.status} />
+                <span
+                  className={cn(
+                    "min-w-0 flex-1",
+                    step.status === "completed"
+                      ? "text-muted-foreground/55"
+                      : step.status === "inProgress"
+                        ? "text-foreground/90"
+                        : "text-muted-foreground/70",
+                  )}
+                >
+                  {step.step}
+                </span>
+                <span className="sr-only">{TASK_STATUS_LABEL[step.status]}</span>
+                <span
+                  className="ml-auto w-10 shrink-0 text-right text-[10px] text-muted-foreground/45 tabular-nums"
+                  data-composer-task-duration="true"
+                >
+                  {step.durationMs !== undefined
+                    ? formatDuration(step.durationMs)
+                    : step.status === "inProgress"
+                      ? "now"
+                      : null}
+                </span>
+              </div>
+              {step.status === "inProgress" && activities.length > 0 ? (
+                <TaskEvidence activities={activities} />
+              ) : null}
+            </div>
+          );
+        })}
+        {olderCompletedCount > 0 && !allDone && !historyExpanded ? (
+          <button
+            type="button"
+            className="rune-task-history-toggle"
+            onClick={() => setHistoryExpanded(true)}
+          >
+            <ChevronRight className="size-3" />{" "}
+            <span>
+              {statusMark.completed} {olderCompletedCount} earlier tasks
             </span>
-            <span className="sr-only">{TASK_STATUS_LABEL[step.status]}</span>
-            <span
-              className="ml-auto w-10 shrink-0 text-right text-[10px] text-muted-foreground/45 tabular-nums"
-              data-composer-task-duration="true"
-            >
-              {step.durationMs !== undefined
-                ? formatDuration(step.durationMs)
-                : step.status === "inProgress"
-                  ? "now"
-                  : null}
+          </button>
+        ) : null}
+        {allDone ? (
+          <button
+            type="button"
+            className="rune-task-history-toggle"
+            onClick={() => setHistoryExpanded((value) => !value)}
+          >
+            {historyExpanded ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}{" "}
+            <span>
+              {statusMark.completed} Tasks complete - {progress.completedSteps}/
+              {progress.totalSteps}
             </span>
-          </div>
-        ))}
+          </button>
+        ) : null}
       </div>
     </div>
   );

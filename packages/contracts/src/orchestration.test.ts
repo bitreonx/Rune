@@ -11,6 +11,7 @@ import {
   OrchestrationDispatchCommandError,
   OrchestrationEvent,
   OrchestrationGetFullThreadDiffInput,
+  OrchestrationGetChatDiffInput,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
   ProjectCreatedPayload,
@@ -23,6 +24,10 @@ import {
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
+  ThreadBaselineCapturedPayload,
+  OrchestrationChatDiff,
+  OrchestrationFileOwnership,
+  OrchestrationThreadBaseline,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
   isProviderSendTurnSupportedImageMimeType,
@@ -31,6 +36,67 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeFullThreadDiffInput = Schema.decodeUnknownEffect(OrchestrationGetFullThreadDiffInput);
+const decodeChatDiffInput = Schema.decodeUnknownEffect(OrchestrationGetChatDiffInput);
+
+it.effect("decodes chat diff input and rejects negative turn counts", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeChatDiffInput({
+      threadId: "thread-1",
+      toTurnCount: 3,
+      ignoreWhitespace: false,
+    });
+    assert.strictEqual(parsed.toTurnCount, 3);
+    assert.strictEqual(parsed.ignoreWhitespace, false);
+
+    assert.throws(() =>
+      Schema.decodeUnknownSync(OrchestrationGetChatDiffInput)({
+        threadId: "thread-1",
+        toTurnCount: -1,
+      }),
+    );
+  }),
+);
+
+it.effect("decodes thread baseline captured payloads and rejects unknown sources", () =>
+  Effect.gen(function* () {
+    const parsed = yield* Schema.decodeUnknownEffect(ThreadBaselineCapturedPayload)({
+      threadId: "thread-1",
+      checkpointRef: "refs/rune/checkpoints/dGhyZWFkLTE=/turn/0",
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      source: "thread-created",
+    });
+    assert.strictEqual(parsed.source, "thread-created");
+    assert.throws(() =>
+      Schema.decodeUnknownSync(ThreadBaselineCapturedPayload)({
+        threadId: "thread-1",
+        checkpointRef: "refs/rune/checkpoints/dGhyZWFkLTE=/turn/0",
+        capturedAt: "2026-01-01T00:00:00.000Z",
+        source: "magic",
+      }),
+    );
+  }),
+);
+
+it("decodes chat ownership schemas", () => {
+  const baseline = Schema.decodeUnknownSync(OrchestrationThreadBaseline)({
+    checkpointRef: "refs/rune/checkpoints/dGhyZWFkLTE=/turn/0",
+    capturedAt: "2026-01-01T00:00:00.000Z",
+    source: "thread-created",
+  });
+  const diff = Schema.decodeUnknownSync(OrchestrationChatDiff)({
+    files: [{ path: "a.ts", kind: "modified", additions: 1, deletions: 0 }],
+    computedAt: "2026-01-01T00:00:00.000Z",
+    throughTurnCount: 2,
+  });
+  const ownership = Schema.decodeUnknownSync(OrchestrationFileOwnership)({
+    path: "x.tsx",
+    owners: [{ threadId: "thread-1", throughTurnCount: 1, additions: 3, deletions: 0 }],
+  });
+
+  assert.strictEqual(baseline.source, "thread-created");
+  assert.strictEqual(diff.files.length, 1);
+  assert.strictEqual(ownership.owners.length, 1);
+});
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
 const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
@@ -445,6 +511,13 @@ it.effect("defaults temporaryAt to null when decoding historical thread data", (
       proposedPlans: [],
       activities: [],
       checkpoints: [],
+      chatDiff: {
+        files: [],
+        computedAt: "2026-01-01T00:00:00.000Z",
+        throughTurnCount: 0,
+      },
+      baseline: null,
+      fileOwnership: [],
     });
     const shell = yield* decodeOrchestrationThreadShell({
       ...common,
@@ -619,6 +692,13 @@ it.effect("defaults settled fields when decoding historical thread data", () =>
       proposedPlans: [],
       activities: [],
       checkpoints: [],
+      chatDiff: {
+        files: [],
+        computedAt: "2026-01-01T00:00:00.000Z",
+        throughTurnCount: 0,
+      },
+      baseline: null,
+      fileOwnership: [],
     });
     const shell = yield* decodeOrchestrationThreadShell({
       ...common,

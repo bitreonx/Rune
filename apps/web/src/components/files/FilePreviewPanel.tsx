@@ -4,6 +4,7 @@ import type {
   ResolvedKeybindingsConfig,
   ScopedThreadRef,
 } from "@rune/contracts";
+import type { TurnDiffFileChange } from "~/types";
 import { isWorkspaceImagePreviewPath } from "@rune/shared/filePreview";
 import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
 import {
@@ -86,6 +87,9 @@ interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
+  chatDiff?: ReadonlyArray<TurnDiffFileChange> | null;
+  threadTitle?: string | null;
+  onToggleScope?: () => void;
   relativePath: string | null;
   threadRef: ScopedThreadRef;
   composerDraftTarget: ScopedThreadRef | DraftId;
@@ -425,10 +429,10 @@ function useFileSaveCoordinator({
   cwd,
   relativePath,
   onPendingChange,
-}: Pick<
-  EditableFileSurfaceProps,
-  "environmentId" | "cwd" | "relativePath" | "onPendingChange"
->): { coordinator: FileSaveCoordinator; isPending: boolean } {
+}: Pick<EditableFileSurfaceProps, "environmentId" | "cwd" | "relativePath" | "onPendingChange">): {
+  coordinator: FileSaveCoordinator;
+  isPending: boolean;
+} {
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const [isPending, setIsPending] = useState(false);
   const coordinator = useMemo(
@@ -607,10 +611,9 @@ function EditableFileSurface({
   // The search panel has no public opener; the editor resolves its own
   // Cmd/Ctrl+F keydown, so hand it a synthetic one on its content element.
   const handleFind = useCallback(() => {
-    const contentElement =
-      fileContainerRef.current?.shadowRoot?.querySelector<HTMLElement>(
-        "[data-code] [data-content]",
-      );
+    const contentElement = fileContainerRef.current?.shadowRoot?.querySelector<HTMLElement>(
+      "[data-code] [data-content]",
+    );
     if (!contentElement) return;
     editor.focus();
     contentElement.dispatchEvent(
@@ -805,51 +808,51 @@ function EditableFileSurface({
               intersectionObserverMargin: 1200,
             }}
           >
-          <File<FileCommentAnnotationGroup>
-            file={{
-              name: relativePath,
-              contents,
-              cacheKey: projectFileEditorCacheKey(
-                environmentId,
-                cwd,
-                relativePath,
+            <File<FileCommentAnnotationGroup>
+              file={{
+                name: relativePath,
                 contents,
-                editor.getFile(),
-              ),
-            }}
-            options={{
-              disableFileHeader: true,
-              enableGutterUtility: !hasOpenCommentForm,
-              enableLineSelection: !hasOpenCommentForm,
-              onGutterUtilityClick: setSelectedRange,
-              onLineSelectionChange: setSelectedRange,
-              onLineSelectionEnd: handleLineSelectionEnd,
-              overflow: wordWrap ? "wrap" : "scroll",
-              theme: resolveDiffThemeName(resolvedTheme),
-              themeType: resolvedTheme,
-              unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
-              onPostRender: handlePostRender,
-            }}
-            selectedLines={selectedRange}
-            lineAnnotations={lineAnnotations}
-            renderAnnotation={(annotation) => (
-              <div className="py-1">
-                {annotation.metadata.entries.map((entry) => (
-                  <DiffCommentAnnotation
-                    key={entry.id}
-                    kind={entry.kind}
-                    rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
-                    text={entry.text}
-                    onCancel={() => removeAnnotationEntry(entry.id)}
-                    onComment={(text) => submitAnnotationEntry(entry.id, text)}
-                    onDelete={() => removeAnnotationEntry(entry.id)}
-                  />
-                ))}
-              </div>
-            )}
-            className="min-h-full"
-            contentEditable
-          />
+                cacheKey: projectFileEditorCacheKey(
+                  environmentId,
+                  cwd,
+                  relativePath,
+                  contents,
+                  editor.getFile(),
+                ),
+              }}
+              options={{
+                disableFileHeader: true,
+                enableGutterUtility: !hasOpenCommentForm,
+                enableLineSelection: !hasOpenCommentForm,
+                onGutterUtilityClick: setSelectedRange,
+                onLineSelectionChange: setSelectedRange,
+                onLineSelectionEnd: handleLineSelectionEnd,
+                overflow: wordWrap ? "wrap" : "scroll",
+                theme: resolveDiffThemeName(resolvedTheme),
+                themeType: resolvedTheme,
+                unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+                onPostRender: handlePostRender,
+              }}
+              selectedLines={selectedRange}
+              lineAnnotations={lineAnnotations}
+              renderAnnotation={(annotation) => (
+                <div className="py-1">
+                  {annotation.metadata.entries.map((entry) => (
+                    <DiffCommentAnnotation
+                      key={entry.id}
+                      kind={entry.kind}
+                      rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
+                      text={entry.text}
+                      onCancel={() => removeAnnotationEntry(entry.id)}
+                      onComment={(text) => submitAnnotationEntry(entry.id, text)}
+                      onDelete={() => removeAnnotationEntry(entry.id)}
+                    />
+                  ))}
+                </div>
+              )}
+              className="min-h-full"
+              contentEditable
+            />
           </Virtualizer>
         )}
       </div>
@@ -938,6 +941,9 @@ export default function FilePreviewPanel({
   environmentId,
   cwd,
   projectName,
+  chatDiff = null,
+  threadTitle = null,
+  onToggleScope,
   relativePath,
   threadRef,
   composerDraftTarget,
@@ -1049,10 +1055,10 @@ export default function FilePreviewPanel({
   }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background/90">
       {relativePath ? (
         <div
-          className="flex h-10 min-h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
+          className="surface-glass flex h-10 min-h-10 shrink-0 items-center gap-2 border-b border-border/60 px-3 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"
           data-surface-subheader
         >
           <ScrollArea
@@ -1258,7 +1264,7 @@ export default function FilePreviewPanel({
         {explorerOpen || relativePath === null ? (
           <aside
             className={cn(
-              "relative flex min-h-0 shrink-0 bg-background",
+              "relative flex min-h-0 shrink-0 bg-background/80",
               relativePath ? "border-l border-border/60" : "min-w-0 flex-1",
             )}
             style={relativePath ? { width: `${treeWidth}px` } : undefined}
@@ -1269,6 +1275,10 @@ export default function FilePreviewPanel({
               environmentId={environmentId}
               cwd={cwd}
               projectName={projectName}
+              routeThreadKey={`${threadRef.environmentId}:${threadRef.threadId}`}
+              chatDiff={chatDiff}
+              threadTitle={threadTitle}
+              onToggleScope={onToggleScope}
               selectedPath={relativePath}
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}

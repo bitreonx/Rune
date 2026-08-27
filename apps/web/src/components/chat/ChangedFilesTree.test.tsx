@@ -26,8 +26,83 @@ import { ChangedFilesCard, ChangedFilesTree } from "./ChangedFilesTree";
 
 const environmentId = EnvironmentId.make("environment-local");
 const threadId = ThreadId.make("thread-1");
+const baseCardProps = {
+  environmentId,
+  threadId,
+  checkpointTurnCount: 1,
+  turnId: TurnId.make("turn-1"),
+  expanded: true,
+  showCompactPreview: false,
+  allDirectoriesExpanded: false,
+  resolvedTheme: "light" as const,
+  onExpandedChange: () => {},
+  onToggleAllDirectories: () => {},
+  onOpenTurnDiff: () => {},
+  onOpenChatDiff: () => {},
+};
 
 describe("ChangedFilesCard", () => {
+  it("shows the chat-cumulative count instead of the per-turn count", () => {
+    const markup = renderToStaticMarkup(
+      <ChangedFilesCard
+        {...baseCardProps}
+        chatDiff={[
+          { path: "a.ts", kind: "modified", additions: 1, deletions: 0 },
+          { path: "b.ts", kind: "modified", additions: 1, deletions: 0 },
+          { path: "c.ts", kind: "modified", additions: 1, deletions: 0 },
+        ]}
+        turnDiff={[{ path: "a.ts", kind: "modified", additions: 1, deletions: 0 }]}
+      />,
+    );
+
+    expect(markup).toContain("3 changed files");
+    expect(markup).not.toContain("1 changed file");
+  });
+
+  it("uses the singular label for a single chat-cumulative file", () => {
+    const markup = renderToStaticMarkup(
+      <ChangedFilesCard
+        {...baseCardProps}
+        chatDiff={[{ path: "a.ts", kind: "modified", additions: 1, deletions: 0 }]}
+        turnDiff={[]}
+      />,
+    );
+
+    expect(markup).toContain("1 changed file");
+    expect(markup).not.toContain("1 changed files");
+  });
+
+  it("renders the compact preview from the chat-cumulative diff", () => {
+    const markup = renderToStaticMarkup(
+      <ChangedFilesCard
+        {...baseCardProps}
+        expanded={false}
+        showCompactPreview
+        chatDiff={[
+          { path: "a.ts", kind: "modified", additions: 1, deletions: 0 },
+          { path: "b.ts", kind: "modified", additions: 2, deletions: 0 },
+        ]}
+        turnDiff={[]}
+      />,
+    );
+
+    expect(markup).toContain("a.ts");
+    expect(markup).toContain("b.ts");
+  });
+
+  it("offers a cumulative diff action and turn-only toggle while expanded", () => {
+    const markup = renderToStaticMarkup(
+      <ChangedFilesCard
+        {...baseCardProps}
+        chatDiff={[{ path: "a.ts", kind: "modified", additions: 1, deletions: 0 }]}
+        turnDiff={[]}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Open diff"');
+    expect(markup).toContain('aria-label="Show this turn only"');
+  });
+
   it("keeps its compact header sticky while preserving singular labels", () => {
     const markup = renderToStaticMarkup(
       <ChangedFilesCard
@@ -35,7 +110,8 @@ describe("ChangedFilesCard", () => {
         threadId={threadId}
         checkpointTurnCount={3}
         turnId={TurnId.make("turn-1")}
-        files={[{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }]}
+        chatDiff={[{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }]}
+        turnDiff={[{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }]}
         expanded
         showCompactPreview={false}
         allDirectoriesExpanded
@@ -43,6 +119,7 @@ describe("ChangedFilesCard", () => {
         onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
+        onOpenChatDiff={() => {}}
       />,
     );
 
@@ -73,7 +150,7 @@ describe("ChangedFilesCard", () => {
         threadId={threadId}
         checkpointTurnCount={3}
         turnId={TurnId.make("turn-1")}
-        files={[
+        chatDiff={[
           { path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 },
           { path: "apps/web/src/App.test.tsx", kind: "modified", additions: 30, deletions: 2 },
           {
@@ -84,6 +161,7 @@ describe("ChangedFilesCard", () => {
           },
           { path: "README.md", kind: "modified", additions: 3, deletions: 0 },
         ]}
+        turnDiff={[]}
         expanded={false}
         showCompactPreview
         allDirectoriesExpanded={false}
@@ -91,6 +169,7 @@ describe("ChangedFilesCard", () => {
         onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
+        onOpenChatDiff={() => {}}
       />,
     );
 
@@ -114,7 +193,8 @@ describe("ChangedFilesCard", () => {
         threadId={threadId}
         checkpointTurnCount={3}
         turnId={TurnId.make("turn-1")}
-        files={[{ path: "apps/web/src/App.tsx", kind: "modified", additions: 2, deletions: 1 }]}
+        chatDiff={[{ path: "apps/web/src/App.tsx", kind: "modified", additions: 2, deletions: 1 }]}
+        turnDiff={[]}
         expanded={false}
         showCompactPreview
         allDirectoriesExpanded={false}
@@ -122,6 +202,7 @@ describe("ChangedFilesCard", () => {
         onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
+        onOpenChatDiff={() => {}}
         onOpenFile={() => {}}
       />,
     );
@@ -137,7 +218,10 @@ describe("ChangedFilesCard", () => {
         threadId={threadId}
         checkpointTurnCount={3}
         turnId={TurnId.make("turn-1")}
-        files={[{ path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 }]}
+        chatDiff={[
+          { path: "apps/web/src/App.tsx", kind: "modified", additions: 120, deletions: 20 },
+        ]}
+        turnDiff={[]}
         expanded={false}
         showCompactPreview={false}
         allDirectoriesExpanded={false}
@@ -145,6 +229,7 @@ describe("ChangedFilesCard", () => {
         onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
+        onOpenChatDiff={() => {}}
       />,
     );
 
@@ -373,7 +458,8 @@ describe("ChangedFilesCard revert", () => {
     threadId,
     checkpointTurnCount: 3,
     turnId: TurnId.make("turn-1"),
-    files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
+    chatDiff: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
+    turnDiff: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
     expanded: false,
     showCompactPreview: false,
     allDirectoriesExpanded: false,
@@ -381,6 +467,7 @@ describe("ChangedFilesCard revert", () => {
     onExpandedChange: () => {},
     onToggleAllDirectories: () => {},
     onOpenTurnDiff: () => {},
+    onOpenChatDiff: () => {},
   };
 
   it("offers an undo action when the caller can revert", () => {

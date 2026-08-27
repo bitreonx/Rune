@@ -9,11 +9,13 @@ import { parseScopedThreadKey } from "@rune/client-runtime/environment";
 import type { AgentPanelModel } from "@rune/client-runtime/state/subagentRuntime";
 import {
   emptyAgentPanelModel,
+  formatSubagentDisplayName,
   formatSubagentTokenCount,
 } from "@rune/client-runtime/state/subagentRuntime";
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
+const NOOP_OPEN_CHAT_DIFF = () => {};
 import { resolveChatListAnchoredEndSpace } from "@rune/shared/chatList";
 import {
   createContext,
@@ -71,6 +73,7 @@ import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
+import type { TurnDiffFileChange } from "../../types";
 import {
   changedFileName,
   shouldAutoExpandChangedFiles,
@@ -158,6 +161,8 @@ interface TimelineRowSharedState {
   onDeleteUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenChatDiff: () => void;
+  chatDiff: ReadonlyArray<TurnDiffFileChange>;
   onOpenFile: (relativePath: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
@@ -208,6 +213,7 @@ function TimelineLoadEarlierHeader({
 }
 const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+const EMPTY_CHAT_DIFF: ReadonlyArray<TurnDiffFileChange> = [];
 const TIMELINE_MAINTAIN_SCROLL_AT_END = {
   animated: false,
   on: {
@@ -235,6 +241,8 @@ interface MessagesTimelineProps {
   turnDiffSummaryByTurnId: Map<TurnId, TurnDiffSummary>;
   routeThreadKey: string;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenChatDiff?: () => void;
+  chatDiff?: ReadonlyArray<TurnDiffFileChange>;
   onOpenFile: (relativePath: string) => void;
   onRevertTurn?: (turnCount: number) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
@@ -284,6 +292,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   turnDiffSummaryByTurnId,
   routeThreadKey,
   onOpenTurnDiff,
+  onOpenChatDiff = NOOP_OPEN_CHAT_DIFF,
+  chatDiff = EMPTY_CHAT_DIFF,
   onOpenFile,
   onRevertTurn,
   revertTurnCountByUserMessageId,
@@ -554,6 +564,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onDeleteUserMessage,
       onImageExpand,
       onOpenTurnDiff,
+      onOpenChatDiff,
+      chatDiff,
       onOpenFile,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -574,6 +586,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onDeleteUserMessage,
       onImageExpand,
       onOpenTurnDiff,
+      onOpenChatDiff,
+      chatDiff,
       onOpenFile,
       onToggleTurnFold,
       onToggleWorkGroup,
@@ -1221,6 +1235,8 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           routeThreadKey={ctx.routeThreadKey}
           resolvedTheme={ctx.resolvedTheme}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
+          onOpenChatDiff={ctx.onOpenChatDiff}
+          chatDiff={ctx.chatDiff}
         />
         {row.showAssistantMeta ? (
           <div className="mt-1.5 flex items-center gap-2 text-xs tabular-nums opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover/assistant:opacity-100">
@@ -1771,15 +1787,19 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
   routeThreadKey,
   resolvedTheme,
   onOpenTurnDiff,
+  onOpenChatDiff,
+  chatDiff,
 }: {
   turnSummary: TurnDiffSummary | undefined;
   routeThreadKey: string;
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenChatDiff: () => void;
+  chatDiff: ReadonlyArray<TurnDiffFileChange>;
 }) {
   if (!turnSummary) return null;
   const checkpointFiles = turnSummary.files;
-  if (checkpointFiles.length === 0) return null;
+  if (checkpointFiles.length === 0 && chatDiff.length === 0) return null;
 
   return (
     <AssistantChangedFilesSectionInner
@@ -1788,6 +1808,8 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
       routeThreadKey={routeThreadKey}
       resolvedTheme={resolvedTheme}
       onOpenTurnDiff={onOpenTurnDiff}
+      onOpenChatDiff={onOpenChatDiff}
+      chatDiff={chatDiff}
     />
   );
 });
@@ -1800,12 +1822,16 @@ function AssistantChangedFilesSectionInner({
   routeThreadKey,
   resolvedTheme,
   onOpenTurnDiff,
+  onOpenChatDiff,
+  chatDiff,
 }: {
   turnSummary: TurnDiffSummary;
   checkpointFiles: TurnDiffSummary["files"];
   routeThreadKey: string;
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onOpenChatDiff: () => void;
+  chatDiff: ReadonlyArray<TurnDiffFileChange>;
 }) {
   const shared = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
@@ -1827,7 +1853,8 @@ function AssistantChangedFilesSectionInner({
   return (
     <ChangedFilesCard
       turnId={turnSummary.turnId}
-      files={checkpointFiles}
+      chatDiff={chatDiff}
+      turnDiff={checkpointFiles}
       expanded={expanded}
       showCompactPreview={isLatestTurn}
       allDirectoriesExpanded={allDirectoriesExpanded}
@@ -1837,6 +1864,7 @@ function AssistantChangedFilesSectionInner({
       }
       onToggleAllDirectories={() => setAllDirectoriesExpanded((current) => !current)}
       onOpenTurnDiff={onOpenTurnDiff}
+      onOpenChatDiff={onOpenChatDiff}
       onOpenFile={shared.onOpenFile}
       environmentId={threadRef.environmentId}
       threadId={threadRef.threadId}
@@ -2719,7 +2747,7 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   // One steady in-flight presentation (monitoring-pill rule): waiting and
   // stalled agents read as working; only settled states differentiate.
   const singleAgent = agents.length === 1 ? agents[0] : undefined;
-  const singleAgentName = singleAgent ? singleAgent.generatedName || singleAgent.title : undefined;
+  const singleAgentName = singleAgent ? formatSubagentDisplayName(singleAgent) : undefined;
   const lead = singleAgentName
     ? live
       ? `Dispatched ${singleAgentName}`
@@ -2907,8 +2935,10 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         : "text-foreground/80";
   const showEntryIcon = !isExpandedToolGroupEntry || showWarningIndicator || showFailedIndicator;
   const accessibleDisplayText = showFailedIndicator
-    ? `${displayText}, tool call failed`
+    ? `${displayText}, ${workEntry.detail ?? "tool call failed"}`
     : displayText;
+  const visibleFailureDetail =
+    showFailedIndicator && workEntry.detail?.startsWith("Failed:") ? workEntry.detail : null;
   const mainRow = (
     <span className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
       <span
@@ -2975,6 +3005,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       ) : (
         mainRow
       )}
+      {visibleFailureDetail ? (
+        <span className="ms-7 truncate pe-2 text-[11px] leading-relaxed text-destructive/80">
+          {visibleFailureDetail}
+        </span>
+      ) : null}
       <WorkEntryFileChips
         filePaths={filePaths}
         workspaceRoot={workspaceRoot}

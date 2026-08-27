@@ -5,9 +5,11 @@ import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
 import type { FileDescriptor, FileKind } from "./viewerDescriptor.ts";
 import { BinaryViewer } from "./viewers/BinaryViewer.tsx";
+import { ImageViewer } from "./viewers/ImageViewer.tsx";
 import { JsonViewer } from "./viewers/JsonViewer.tsx";
 import { SvgViewer } from "./viewers/SvgViewer.tsx";
 import { TruncatedTextViewer } from "./viewers/TruncatedTextViewer.tsx";
+import { buildWorkspaceFileRef } from "./filePreviewWorkspaceRef.ts";
 
 /**
  * The shape every viewer accepts. The shell hands a subset of the
@@ -95,6 +97,30 @@ const truncatedTextViewer: Viewer = {
   component: TruncatedTextViewer as unknown as ComponentType<ViewerProps>,
 };
 
+// The image viewer needs a WorkspaceFileRef; the registry hands it
+// props that include (environmentId, cwd, relativePath). The shell
+// builds the ref for the viewer so the registry stays typed.
+const ImageViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <ImageViewer
+    environmentId={props.environmentId}
+    threadRef={props.threadRef}
+    fileRef={buildWorkspaceFileRef({
+      environmentId: props.environmentId,
+      cwd: props.cwd,
+      projectWorkspaceRoot: undefined,
+      projectId: undefined,
+      relativePath: props.descriptor.relativePath,
+    })}
+    relativePath={props.descriptor.relativePath}
+  />
+);
+
+const imageViewer: Viewer = {
+  id: "image",
+  match: (d) => d.kind === "image",
+  component: ImageViewerAdapter,
+};
+
 /**
  * The default registry. Each viewer is intentionally lightweight — the
  * real work happens in the imported components (image, markdown, text,
@@ -102,6 +128,7 @@ const truncatedTextViewer: Viewer = {
  * true, falling back to the binary viewer.
  */
 export const viewerRegistry: ReadonlyArray<Viewer> = [
+  imageViewer,
   svgViewer,
   jsonViewer,
   truncatedTextViewer,

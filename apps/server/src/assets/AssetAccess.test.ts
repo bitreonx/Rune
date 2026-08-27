@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AssetPreviewTypeValidationError, ThreadId } from "@rune/contracts";
+import { AssetPreviewTypeValidationError, ThreadId, workspaceFileRefFrom } from "@rune/contracts";
 import { PROJECT_FAVICON_FALLBACK_MARKER } from "@rune/shared/projectFavicon";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
@@ -181,6 +181,57 @@ describe("AssetAccess", () => {
       });
       expect(yield* resolveAsset(token, "other.png")).toBeNull();
       expect(yield* resolveAsset(token, "../icon.png")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("uses the client-supplied WorkspaceFileRef without path.relative math", () =>
+    // Regression for the Windows image-preview bug: when the client sent an
+    // absolute Windows path alongside the cwd it was bound to, the server ran
+    // path.relative(worktreeRoot, absolutePath) and produced a path that
+    // escaped the root whenever the thread's worktree and the panel's cwd
+    // diverged. The fix is to let the client send a canonical WorkspaceFileRef
+    // and use ref.relativePath + ref.workspaceRoot directly. This test pins
+    // that contract: the ref wins over the caller-supplied workspaceRoot, and
+    // paths are resolved against the ref's root, not the input.
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const refRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "rune-asset-refroot-",
+      });
+      const divergentRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "rune-asset-divergent-",
+      });
+      const imagePath = path.join(refRoot, "apps", "web", "src", "assets", "openrouter-color.png");
+      yield* fileSystem.makeDirectory(path.dirname(imagePath), { recursive: true });
+      // Magic bytes for a 1x1 PNG so the resolver accepts the file.
+      yield* fileSystem.writeFile(imagePath, new Uint8Array([137, 80, 78, 71]));
+      const canonicalImagePath = yield* fileSystem.realPath(imagePath);
+
+      const ref = workspaceFileRefFrom({
+        workspaceId: "proj_test",
+        workspaceRoot: refRoot,
+        relativePath: "apps/web/src/assets/openrouter-color.png",
+      });
+
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          ref,
+        },
+        // The handler-supplied root disagrees with the ref's root. The ref
+        // must still win — otherwise the historical Windows bug returns.
+        workspaceRoot: divergentRoot,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+      const token = suffix.slice(0, separatorIndex);
+
+      expect(yield* resolveAsset(token, "openrouter-color.png")).toEqual({
+        kind: "file",
+        path: canonicalImagePath,
+      });
     }).pipe(Effect.provide(testLayer)),
   );
 

@@ -12,6 +12,7 @@ import {
   AssetWorkspacePathValidationError,
   AssetWorkspaceResolutionError,
   AssetWorkspaceRootNormalizationError,
+  extractWorkspaceFileRef,
 } from "@rune/contracts";
 import {
   isWorkspaceImagePreviewPath,
@@ -198,12 +199,41 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
 
   switch (input.resource._tag) {
     case "workspace-file": {
-      if (!input.workspaceRoot) {
-        return yield* new AssetWorkspaceContextNotFoundError({
-          resource: input.resource,
-        });
+      // Two paths: new clients send `ref` (a validated WorkspaceFileRef) and
+      // the server uses ref.relativePath + ref.workspaceRoot directly — never
+      // any `path.relative` math, which is the source of the historical
+      // Windows absolute-path bug. Legacy clients send an absolute `path`;
+      // we accept the caller-supplied workspaceRoot and let the existing
+      // path.relative/resolveRelativePathWithinRoot flow run, preserving
+      // backwards compatibility for one release.
+      const ref = input.resource.ref
+        ? extractWorkspaceFileRef(input.resource, input.workspaceRoot)
+        : null;
+      let workspaceRoot: string;
+      let relativePath: string;
+      if (ref) {
+        workspaceRoot = ref.workspaceRoot;
+        relativePath = ref.relativePath;
+      } else {
+        if (!input.workspaceRoot) {
+          return yield* new AssetWorkspaceContextNotFoundError({
+            resource: input.resource,
+          });
+        }
+        workspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.workspaceRoot).pipe(
+          Effect.mapError(
+            (cause) =>
+              new AssetWorkspaceRootNormalizationError({
+                resource: input.resource,
+                cause,
+              }),
+          ),
+        );
+        relativePath = path.isAbsolute(input.resource.path)
+          ? path.relative(workspaceRoot, input.resource.path)
+          : input.resource.path;
       }
-      const workspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.workspaceRoot).pipe(
+      const normalizedRoot = yield* workspacePaths.normalizeWorkspaceRoot(workspaceRoot).pipe(
         Effect.mapError(
           (cause) =>
             new AssetWorkspaceRootNormalizationError({
@@ -212,11 +242,8 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
             }),
         ),
       );
-      const relativePath = path.isAbsolute(input.resource.path)
-        ? path.relative(workspaceRoot, input.resource.path)
-        : input.resource.path;
       const resolved = yield* workspacePaths
-        .resolveRelativePathWithinRoot({ workspaceRoot, relativePath })
+        .resolveRelativePathWithinRoot({ workspaceRoot: normalizedRoot, relativePath })
         .pipe(
           Effect.mapError(
             (cause) =>
@@ -232,7 +259,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         });
       }
       const canonicalFile = yield* resolveCanonicalWorkspaceFile({
-        workspaceRoot,
+        workspaceRoot: normalizedRoot,
         relativePath: resolved.relativePath,
       }).pipe(
         Effect.mapError(
@@ -248,7 +275,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
           resource: input.resource,
         });
       }
-      const canonicalWorkspaceRoot = yield* fileSystem.realPath(workspaceRoot).pipe(
+      const canonicalWorkspaceRoot = yield* fileSystem.realPath(normalizedRoot).pipe(
         Effect.mapError(
           (cause) =>
             new AssetWorkspaceResolutionError({

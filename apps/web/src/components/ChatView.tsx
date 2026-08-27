@@ -71,6 +71,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type Ref,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
@@ -1861,6 +1862,8 @@ function ChatViewContent(props: ChatViewProps) {
   // WAAPI rather than a class transition so the target width can be measured
   // from the mounted shell instead of being threaded through CSS variables.
   const rightPanelHostRef = useRef<HTMLDivElement | null>(null);
+  const rightPanelToggleRef = useRef<HTMLButtonElement | null>(null);
+  const shouldRestoreRightPanelToggleFocusRef = useRef(false);
   useEffect(() => {
     if (prefersReducedMotion || shouldUseRightPanelSheet) return;
     const host = rightPanelHostRef.current;
@@ -1887,6 +1890,27 @@ function ChatViewContent(props: ChatViewProps) {
       return () => animation.cancel();
     }
   }, [prefersReducedMotion, rightPanelMotionState, shouldUseRightPanelSheet]);
+
+  useEffect(() => {
+    if (!shouldRestoreRightPanelToggleFocusRef.current || rightPanelMotionState !== "closing") {
+      return;
+    }
+    const toggle = rightPanelToggleRef.current;
+    if (!toggle || toggle.disabled) return;
+    const activeElement = document.activeElement;
+    // A surface can hand off focus to a dialog or another interactive control.
+    // Respect that handoff; otherwise return the user to the control that closed
+    // the panel instead of leaving focus in a closing, inert surface.
+    if (
+      activeElement instanceof HTMLElement &&
+      activeElement !== document.body &&
+      !activeElement.closest("[data-rune-right-panel-host]")
+    ) {
+      return;
+    }
+    shouldRestoreRightPanelToggleFocusRef.current = false;
+    toggle.focus({ preventScroll: true });
+  }, [rightPanelMotionState]);
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -3732,6 +3756,7 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activePreviewState.activeTabId, activeThreadRef, createBrowserSurface, previewPanelOpen]);
   const closePreviewPanel = useCallback(() => {
     if (activeThreadRef) {
+      shouldRestoreRightPanelToggleFocusRef.current = true;
       setMaximizedRightPanelThreadKey(null);
       useRightPanelStore.getState().close(activeThreadRef);
     }
@@ -7118,7 +7143,7 @@ function ChatViewContent(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
-  const panelToggleControls = (
+  const panelToggleControls = (toggleRef?: Ref<HTMLButtonElement>) => (
     <PanelLayoutControls
       terminalAvailable={activeProject !== null}
       terminalOpen={terminalUiState.terminalOpen}
@@ -7133,9 +7158,10 @@ function ChatViewContent(props: ChatViewProps) {
       }
       onToggleTerminal={toggleTerminalVisibility}
       onToggleRightPanel={toggleRightPanel}
+      {...(toggleRef ? { rightPanelToggleRef: toggleRef } : {})}
     />
   );
-  const panelLayoutControls = (
+  const panelLayoutControls = (toggleRef?: Ref<HTMLButtonElement>) => (
     <div
       className={cn(
         // One inset in both states: the controls move between containers when
@@ -7151,7 +7177,7 @@ function ChatViewContent(props: ChatViewProps) {
           onToggle={toggleRightPanelMaximized}
         />
       ) : null}
-      {panelToggleControls}
+      {panelToggleControls(toggleRef)}
     </div>
   );
   const rightPanelContent = activeThreadRef ? (
@@ -7280,7 +7306,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
-      {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls : null}
+      {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls() : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -7295,7 +7321,7 @@ function ChatViewContent(props: ChatViewProps) {
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           className="relative bg-background"
         >
-          {!rightPanelOpen ? panelLayoutControls : null}
+          {!rightPanelOpen ? panelLayoutControls(rightPanelToggleRef) : null}
           <ChatHeader
             {...(!supportsPullRequests || threadRepository === null
               ? {}

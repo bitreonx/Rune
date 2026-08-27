@@ -2,13 +2,14 @@ import { type ReactNode } from "react";
 
 import { RIGHT_PANEL_SHEET_CLASS_NAME } from "../rightPanelLayout";
 import { cn } from "../lib/utils";
+import { runePanelTransitionClass, type RunePanelMotionState } from "../runePanelMotion";
 import { Sheet, SheetPopup } from "./ui/sheet";
 
 export function RightPanelSheet(props: {
   children: ReactNode;
   open: boolean;
   onClose: () => void;
-  motionState?: "closed" | "opening" | "open" | "closing";
+  motionState?: RunePanelMotionState;
   maximized?: boolean;
 }) {
   const motionState = props.motionState ?? (props.open ? "open" : "closed");
@@ -25,7 +26,11 @@ export function RightPanelSheet(props: {
         side="right"
         showCloseButton={false}
         keepMounted
-        className={cn(RIGHT_PANEL_SHEET_CLASS_NAME, props.maximized && "rune-right-panel-maximized")}
+        className={cn(
+          RIGHT_PANEL_SHEET_CLASS_NAME,
+          props.maximized && "rune-right-panel-maximized",
+          runePanelTransitionClass(motionState),
+        )}
         data-rune-right-panel-host
         data-rune-right-panel-state={motionState}
         data-rune-right-panel-maximized={props.maximized ? "true" : "false"}
@@ -34,6 +39,7 @@ export function RightPanelSheet(props: {
           className="rune-right-panel-surface flex min-h-0 min-w-0 flex-1 flex-col"
           data-rune-right-panel-surface
           data-rune-right-panel-surface-state={motionState}
+          data-right-panel-surface-content
         >
           {props.children}
         </div>

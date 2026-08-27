@@ -1,5 +1,5 @@
 import { Maximize2Icon, Minimize2Icon, PanelBottomIcon, PanelRightIcon } from "lucide-react";
-import { memo } from "react";
+import { memo, type Ref } from "react";
 
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -17,6 +17,7 @@ interface PanelLayoutControlsProps {
   liveAgentCount: number;
   onToggleTerminal: () => void;
   onToggleRightPanel: () => void;
+  rightPanelToggleRef?: Ref<HTMLButtonElement>;
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
@@ -31,6 +32,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   liveAgentCount,
   onToggleTerminal,
   onToggleRightPanel,
+  rightPanelToggleRef,
 }: PanelLayoutControlsProps) {
   return (
     <div
@@ -62,6 +64,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       <Tooltip>
         <TooltipTrigger render={<span className="flex shrink-0" />}>
           <Toggle
+            ref={rightPanelToggleRef}
             className="shrink-0 [-webkit-app-region:no-drag]"
             pressed={rightPanelOpen}
             onPressedChange={onToggleRightPanel}

@@ -2282,12 +2282,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 @media (prefers-reduced-motion: reduce) {
   [data-rune-right-panel-host] {
     transform: none;
+    transition-duration: 0ms;
   }
 
   [data-rune-right-panel-surface] {
     animation: none;
     transform: none;
     filter: none;
+    transition-duration: 0ms;
   }
 
   [data-rune-collapsible-panel],

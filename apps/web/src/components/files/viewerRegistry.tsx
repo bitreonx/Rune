@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
 import type { FileDescriptor, FileKind } from "./viewerDescriptor.ts";
+import { SvgViewer } from "./viewers/SvgViewer.tsx";
 
 /**
  * The shape every viewer accepts. The shell hands a subset of the
@@ -89,13 +90,22 @@ const binaryViewer: Viewer = {
   component: BinaryFallback as ComponentType<ViewerProps>,
 };
 
+// Wrap the SVG viewer so it conforms to ViewerProps. The viewer itself
+// only needs (contents, resolvedTheme); the rest of the surface is
+// forwarded for symmetry with the rest of the registry.
+const svgViewer: Viewer = {
+  id: "svg",
+  match: (d) => d.kind === "svg",
+  component: SvgViewer as unknown as ComponentType<ViewerProps>,
+};
+
 /**
  * The default registry. Each viewer is intentionally lightweight — the
  * real work happens in the imported components (image, markdown, text,
  * truncated). The shell selects the first viewer whose `match` returns
  * true, falling back to the binary viewer.
  */
-export const viewerRegistry: ReadonlyArray<Viewer> = [binaryViewer];
+export const viewerRegistry: ReadonlyArray<Viewer> = [svgViewer, binaryViewer];
 
 /**
  * The shell calls this once per open file. Pure: same descriptor → same

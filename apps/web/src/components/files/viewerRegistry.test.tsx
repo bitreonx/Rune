@@ -48,12 +48,21 @@ describe("viewerRegistry", () => {
     expect(unknown.id).toBe("binary-fallback");
   });
 
-  it("registry ordering: more specific viewers would be matched first", () => {
+  it("registry ordering: more specific viewers are matched first", () => {
     // The registry is a ReadonlyArray — the contract is that the shell
-    // scans top-to-bottom. The default only has the binary viewer, but
-    // we exercise that the binary viewer is reachable for unrelated
-    // kinds (text, image, markdown) via the catch-all.
-    expect(viewerRegistry).toHaveLength(1);
+    // scans top-to-bottom. The default has an SVG viewer and the
+    // binary catch-all; SVG wins the dispatch for .svg files.
+    const viewer = selectViewer(
+      describeFile({
+        relativePath: "logo.svg",
+        truncated: false,
+        isPreviewSupportedInRuntime: true,
+      }),
+    );
+    expect(viewer.id).toBe("svg");
+  });
+
+  it("falls back to binary viewer for kinds without a registered viewer", () => {
     const viewer = selectViewer(
       describeFile({
         relativePath: "foo.ts",

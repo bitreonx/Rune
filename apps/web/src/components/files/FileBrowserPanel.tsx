@@ -32,6 +32,7 @@ import { fileTreeAreaState } from "./fileTreeArea";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { FileTreeTruncationFooter } from "./FileTreeTruncationFooter";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
+import { toPosixRelativePath } from "./toPosixRelativePath.ts";
 import type { TurnDiffFileChange } from "~/types";
 
 interface FileBrowserPanelProps {
@@ -244,7 +245,7 @@ export default function FileBrowserPanel({
       context.close();
       return;
     }
-    const relativePath = item.path.replace(/\/$/, "");
+    const relativePath = toPosixRelativePath(item.path.replace(/\/$/, ""));
     const mention = serializeComposerFileLink(relativePath);
     const pointer = contextMenuPointerRef.current;
     const pointerIsFresh = pointer !== null && performance.now() - pointer.at < 1000;
@@ -396,7 +397,11 @@ export default function FileBrowserPanel({
       const selectedPath = selectedPaths.at(-1)?.replace(/\/$/, "");
       if (selectedPath && entryKindsRef.current.get(selectedPath) === "file") {
         treeSelectionPathRef.current = selectedPath;
-        onOpenFile(selectedPath);
+        // The tree already stores POSIX paths today, but normalise here as a
+        // single chokepoint so a future server change that returns OS-native
+        // separators can't smuggle backslashes into the WorkspaceFileRef the
+        // preview panel builds (and which the asset service would reject).
+        onOpenFile(toPosixRelativePath(selectedPath));
       }
     },
     paths: [],

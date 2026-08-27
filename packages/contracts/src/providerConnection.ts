@@ -1,42 +1,60 @@
-import type {
+import * as Schema from "effect/Schema";
+import { apiKeyEnvironmentVariableForDriver, normalizeApiProviderBaseUrl } from "./apiProvider.ts";
+import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  defaultInstanceIdForDriver,
   ProviderDriverKind,
-  ProviderInstanceConfig,
-  ProviderInstanceEnvironment,
+  type ProviderInstanceConfig,
+  type ProviderInstanceEnvironment,
   ProviderInstanceId,
 } from "./providerInstance.ts";
-import type {
-  ServerProvider,
-  ServerProviderAvailability,
+import {
+  type ServerProvider,
   ServerProviderAuthStatus,
+  ServerProviderAvailability,
 } from "./server.ts";
 
-export type ProviderConnectionCategory = "subscription" | "api" | "local" | "remote";
+export const ProviderConnectionCategory = Schema.Literals([
+  "subscription",
+  "api",
+  "local",
+  "remote",
+]);
+export type ProviderConnectionCategory = typeof ProviderConnectionCategory.Type;
 
-export interface ProviderWorkspaceSummary {
-  readonly instanceId: ProviderInstanceId;
-  readonly driver: ProviderDriverKind;
-  readonly displayName: string;
-  readonly category: ProviderConnectionCategory;
-  readonly authStatus: ServerProviderAuthStatus | "unknown";
-  readonly enabled: boolean;
-  readonly availability: ServerProviderAvailability;
-  readonly modelCount: number;
-  readonly defaultModel: string | null;
-  readonly scope: string;
-}
+/**
+ * Minimal safe presentation contract for a configured provider instance.
+ *
+ * This deliberately excludes the opaque instance config and environment
+ * variables. Consumers receive only the derived connection state they need
+ * to render a provider workspace.
+ */
+export const ProviderWorkspaceSummary = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  driver: ProviderDriverKind,
+  displayName: TrimmedNonEmptyString,
+  category: ProviderConnectionCategory,
+  authStatus: ServerProviderAuthStatus,
+  enabled: Schema.Boolean,
+  availability: ServerProviderAvailability,
+  modelCount: NonNegativeInt,
+  defaultModel: Schema.NullOr(TrimmedNonEmptyString),
+  scope: TrimmedNonEmptyString,
+});
+export type ProviderWorkspaceSummary = typeof ProviderWorkspaceSummary.Type;
 
 function readConfigString(config: unknown, key: string): string | null {
-  if (config === null || typeof config !== "object") return null;
+  if (config === null || typeof config !== "object" || Array.isArray(config)) return null;
   const value = (config as Record<string, unknown>)[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function hasEnvironmentVariable(
-  environment: ProviderInstanceEnvironment | undefined,
-  names: ReadonlyArray<string>,
-): boolean {
-  const nameSet = new Set(names);
-  return environment?.some((variable) => nameSet.has(variable.name)) ?? false;
+function normalizedEndpoint(config: unknown, key: string): URL | undefined {
+  const value = readConfigString(config, key);
+  if (!value) return undefined;
+  const normalized = normalizeApiProviderBaseUrl(value, "");
+  if (!normalized) return undefined;
+  return new URL(normalized);
 }
 
 export function classifyProviderConnection(input: {
@@ -44,32 +62,21 @@ export function classifyProviderConnection(input: {
   readonly config: unknown;
   readonly environment?: ProviderInstanceEnvironment;
 }): ProviderConnectionCategory {
-  const driver = String(input.driver).toLowerCase();
-  if (
-    driver === "openaiapi" ||
-    driver === "openai-api" ||
-    driver === "openrouter" ||
-    driver.includes("api") ||
-    readConfigString(input.config, "baseUrl")?.startsWith("https://api.")
-  ) {
+  // Environment entries can contain credentials. Categories must be stable
+  // even when their values are redacted, so use only the driver and the
+  // normalized, non-secret configuration endpoint.
+  void input.environment;
+  if (apiKeyEnvironmentVariableForDriver(input.driver)) {
     return "api";
   }
-  if (
-    driver.includes("ollama") ||
-    driver.includes("lmstudio") ||
-    driver.includes("local") ||
-    readConfigString(input.config, "baseUrl")?.startsWith("http://localhost") ||
-    readConfigString(input.config, "baseUrl")?.startsWith("http://127.0.0.1")
-  ) {
+  const baseUrl = normalizedEndpoint(input.config, "baseUrl");
+  if (baseUrl && ["localhost", "127.0.0.1", "::1"].includes(baseUrl.hostname)) {
     return "local";
   }
-  if (
-    readConfigString(input.config, "remoteUrl") !== null ||
-    readConfigString(input.config, "environmentId") !== null ||
-    hasEnvironmentVariable(input.environment, ["RUNE_REMOTE_URL"])
-  ) {
+  if (normalizedEndpoint(input.config, "remoteUrl")) {
     return "remote";
   }
+  if (baseUrl) return "api";
   return "subscription";
 }
 
@@ -97,7 +104,10 @@ export function buildProviderWorkspaceSummary(input: {
     models[0]?.slug ??
     null;
   return {
-    instanceId: input.config.instanceId ?? ("unknown" as ProviderInstanceId),
+    instanceId:
+      input.config.instanceId ??
+      snapshot?.instanceId ??
+      defaultInstanceIdForDriver(input.config.driver),
     driver: input.config.driver,
     displayName:
       input.config.displayName?.trim() || snapshot?.displayName || String(input.config.driver),

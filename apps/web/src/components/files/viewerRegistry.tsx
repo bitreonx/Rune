@@ -4,7 +4,10 @@ import type { ComponentType } from "react";
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
 import type { FileDescriptor, FileKind } from "./viewerDescriptor.ts";
+import { BinaryViewer } from "./viewers/BinaryViewer.tsx";
+import { JsonViewer } from "./viewers/JsonViewer.tsx";
 import { SvgViewer } from "./viewers/SvgViewer.tsx";
+import { TruncatedTextViewer } from "./viewers/TruncatedTextViewer.tsx";
 
 /**
  * The shape every viewer accepts. The shell hands a subset of the
@@ -46,25 +49,6 @@ export type Viewer = {
 // ones (image, markdown, editable text, the truncated-text virtualizer,
 // the SVG/JSON/code viewers) are imported as files once they exist.
 
-function BinaryFallback(props: ViewerProps): ComponentType<ViewerProps>["render"] extends () => infer R
-  ? R
-  : never {
-  // The shape here is the visual fallback for files we can't preview:
-  // a small centered hint that the file is binary, with a "view source"
-  // affordance if a text editor would help (e.g. .env files that the
-  // text classifier didn't catch).
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-muted-foreground">
-      <div>
-        <div className="font-medium text-foreground">{props.descriptor.relativePath}</div>
-        <div className="mt-1">
-          Rune doesn't have a viewer for this file. Open it in your editor.
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function LoadingPlaceholder(): ComponentType<ViewerProps>["render"] extends () => infer R
   ? R
   : never {
@@ -87,7 +71,7 @@ const loadingViewer: Viewer = {
 const binaryViewer: Viewer = {
   id: "binary-fallback",
   match: (d) => d.kind === "unknown" || d.kind === "binary",
-  component: BinaryFallback as ComponentType<ViewerProps>,
+  component: BinaryViewer as unknown as ComponentType<ViewerProps>,
 };
 
 // Wrap the SVG viewer so it conforms to ViewerProps. The viewer itself
@@ -99,13 +83,30 @@ const svgViewer: Viewer = {
   component: SvgViewer as unknown as ComponentType<ViewerProps>,
 };
 
+const jsonViewer: Viewer = {
+  id: "json",
+  match: (d) => d.kind === "json",
+  component: JsonViewer as unknown as ComponentType<ViewerProps>,
+};
+
+const truncatedTextViewer: Viewer = {
+  id: "truncated-text",
+  match: (d) => d.kind === "truncated-text",
+  component: TruncatedTextViewer as unknown as ComponentType<ViewerProps>,
+};
+
 /**
  * The default registry. Each viewer is intentionally lightweight — the
  * real work happens in the imported components (image, markdown, text,
  * truncated). The shell selects the first viewer whose `match` returns
  * true, falling back to the binary viewer.
  */
-export const viewerRegistry: ReadonlyArray<Viewer> = [svgViewer, binaryViewer];
+export const viewerRegistry: ReadonlyArray<Viewer> = [
+  svgViewer,
+  jsonViewer,
+  truncatedTextViewer,
+  binaryViewer,
+];
 
 /**
  * The shell calls this once per open file. Pure: same descriptor → same

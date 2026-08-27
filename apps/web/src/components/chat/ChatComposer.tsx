@@ -58,6 +58,7 @@ import {
   dataTransferHasComposerMention,
   makeComposerMentionDragHandlers,
 } from "./composerMentionDrag";
+import { makeWorkspaceFileDropHandlers, type WorkspaceFileDragEvent } from "./workspaceFileDrop";
 import {
   type ComposerImageAttachment,
   type DraftId,
@@ -129,6 +130,7 @@ import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import { TargetIcon } from "lucide-react";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -556,7 +558,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         showSendWhileRunning={props.showSendWhileRunning ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
-        onContinue={props.onContinue}
+        {...(props.onContinue ? { onContinue: props.onContinue } : {})}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
       />
     </>
@@ -665,6 +667,8 @@ export interface ChatComposerProps {
   activeProposedPlan: Thread["proposedPlans"][number] | null;
   activeTasksProgress: ComposerTasksProgress | null;
   activeTaskSteps: readonly ComposerTaskStep[] | null;
+  onOpenTasks: () => void;
+  activeGoal: string | null;
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -682,6 +686,7 @@ export interface ChatComposerProps {
   onEditQueuedPrompt?: (itemId: string, text: string) => void;
   onRemoveQueuedPrompt?: (itemId: string) => void;
   onMoveQueuedPrompt?: (itemId: string, direction: -1 | 1) => void;
+  onReorderQueuedPrompt?: (itemId: string, beforeItemId: string | null) => void;
   onSteerQueuedPrompt?: (itemId: string) => void;
   onRetryQueuedPrompt?: (itemId: string) => void;
 
@@ -706,6 +711,7 @@ export interface ChatComposerProps {
   isContinueBusy?: boolean;
   onContinue?: () => void;
   onImplementPlanInNewThread: () => void;
+  onClearGoal: () => void;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -775,6 +781,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeProposedPlan,
     activeTasksProgress,
     activeTaskSteps,
+    onOpenTasks,
+    activeGoal,
     runtimeMode,
     interactionMode,
     lockedProvider,
@@ -786,6 +794,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onEditQueuedPrompt,
     onRemoveQueuedPrompt,
     onMoveQueuedPrompt,
+    onReorderQueuedPrompt,
     onSteerQueuedPrompt,
     onRetryQueuedPrompt,
     resolvedTheme,
@@ -804,6 +813,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isContinueBusy = false,
     onContinue,
     onImplementPlanInNewThread,
+    onClearGoal,
     onRespondToApproval,
     onSelectActivePendingUserInputOption,
     onAdvanceActivePendingUserInput,
@@ -1143,6 +1153,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     null,
   );
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
+  const [isFileDragActive, setIsFileDragActive] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
@@ -1262,6 +1273,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           command: "model",
           label: "/model",
           description: "Switch response model for this thread",
+        },
+        {
+          id: "slash:goal",
+          type: "slash-command",
+          command: "goal",
+          label: "/goal",
+          description: "Set, view, or clear the active task goal",
         },
         ...(planModeUiEnabled
           ? ([
@@ -1491,6 +1509,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
     [composerDraftTarget, setComposerDraftPrompt],
   );
+
+  const editActiveGoal = useCallback(() => {
+    const normalizedGoal = activeGoal?.trim();
+    if (!normalizedGoal) return;
+    const nextPrompt = `/goal ${normalizedGoal}`;
+    promptRef.current = nextPrompt;
+    setPrompt(nextPrompt);
+    setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
+    setComposerTrigger(null);
+    scheduleComposerFocus();
+  }, [activeGoal, promptRef, scheduleComposerFocus, setPrompt]);
 
   useEffect(() => {
     const pendingSkill = consumePendingRuneSkill();
@@ -1972,6 +2001,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             setComposerHighlightedItemId(null);
             setIsComposerModelPickerOpen(true);
           }
+          return;
+        }
+        if (item.command === "goal") {
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "/goal ", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          });
+          if (applied) setComposerHighlightedItemId(null);
           return;
         }
         void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
@@ -2603,6 +2639,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       expanded={false}
       motionState={tasksTabMotionState}
       onDismiss={dismissTasks}
+      onOpenSidePanel={onOpenTasks}
       onToggle={toggleTasksDrawer}
       placement="inline"
       progress={visibleTasksProgress}
@@ -2663,6 +2700,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pendingTasksDismissalTurnId,
     tasksDrawerMotionState,
     tasksTabMotionState,
+    onOpenTasks,
   ]);
 
   // Close the stash menu whenever the trigger-driven command menu opens so
@@ -2861,9 +2899,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (sharedAsPathNames.length > 0) {
       toastManager.add({
         type: "info",
-        title: `${attachCapabilitySummary.modelName} can't receive these as uploads.`,
-        description:
-          "The agent will read them from disk via their paths instead of native attachments.",
+        title: "Attached as file path",
+        description: `${sharedAsPathNames.join(", ")} will be read from disk by ${attachCapabilitySummary.modelName}.`,
       });
     }
     if (blockedNames.length > 0) {
@@ -2984,6 +3021,54 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     window.addEventListener("dragend", onWindowDragEnd);
     return () => window.removeEventListener("dragend", onWindowDragEnd);
   }, [isDragOverComposer]);
+
+  // File drops (OS or in-app) and tree drags both land here, and the same
+  // overlay lights up either way — one consistent "drop here" target beats
+  // two subtle ones. The `isMentionDrag` hint lets us skip the attach path
+  // for tree drags while still showing the visual.
+  const workspaceFileDropHandlers = useMemo(
+    () =>
+      makeWorkspaceFileDropHandlers({
+        setDragActive: setIsFileDragActive,
+        isMentionDrag: (event) =>
+          dataTransferHasComposerMention(
+            event.dataTransfer.types as unknown as ReadonlyArray<string>,
+          ),
+        addFiles: (files) => {
+          if (files.length === 0) return;
+          handlePickedAttachmentFiles(files);
+        },
+      }),
+    // handlePickedAttachmentFiles is stable across renders; the producer
+    // only changes when its host wiring changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const toWorkspaceFileDragEvent = (
+    event: React.DragEvent<HTMLFormElement>,
+  ): WorkspaceFileDragEvent => ({
+    dataTransfer: {
+      types: Array.from(event.dataTransfer.types) as unknown as ReadonlyArray<string>,
+      files: event.dataTransfer.files,
+      dropEffect: event.dataTransfer.dropEffect,
+    },
+    relatedTarget: event.relatedTarget as EventTarget | null,
+    currentTarget: {
+      contains: (target: Node | null) =>
+        target instanceof Node ? event.currentTarget.contains(target) : false,
+    },
+    preventDefault: () => event.preventDefault(),
+  });
+
+  const onWorkspaceDragEnter = (event: React.DragEvent<HTMLFormElement>) =>
+    workspaceFileDropHandlers.onDragEnter(toWorkspaceFileDragEvent(event));
+  const onWorkspaceDragOver = (event: React.DragEvent<HTMLFormElement>) =>
+    workspaceFileDropHandlers.onDragOver(toWorkspaceFileDragEvent(event));
+  const onWorkspaceDragLeave = (event: React.DragEvent<HTMLFormElement>) =>
+    workspaceFileDropHandlers.onDragLeave(toWorkspaceFileDragEvent(event));
+  const onWorkspaceDrop = (event: React.DragEvent<HTMLFormElement>) =>
+    workspaceFileDropHandlers.onDrop(toWorkspaceFileDragEvent(event));
   const handleInterruptPrimaryAction = useCallback(() => {
     void onInterrupt();
   }, [onInterrupt]);
@@ -3201,79 +3286,96 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onDragOverCapture={composerMentionDragHandlers.onDragOver}
       onDragLeaveCapture={onComposerMentionDragLeaveCapture}
       onDropCapture={composerMentionDragHandlers.onDrop}
+      onDragEnter={onWorkspaceDragEnter}
+      onDragOver={onWorkspaceDragOver}
+      onDragLeave={onWorkspaceDragLeave}
+      onDrop={onWorkspaceDrop}
       className={cn(
         "mx-auto w-full min-w-0 max-w-3xl transition-[padding-top] duration-[280ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         hasShoulderTab && "pt-7",
       )}
       data-chat-composer-form="true"
     >
-      {recovery ? (
-        <div
-          className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-warning/30 bg-warning-surface px-3 py-2 text-xs text-warning-foreground shadow-sm sm:px-4"
-          role="status"
-          aria-live="polite"
-          data-chat-composer-recovery="true"
-        >
-          <CircleAlertIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
-          <span className="min-w-0 flex-1">This task was interrupted while RUNE restarted.</span>
-          <Button type="button" size="xs" variant="outline" onClick={recovery.onContinue}>
-            Continue
-          </Button>
-        </div>
-      ) : null}
-      {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
-        <div
-          className="chat-composer-top-drawer"
-          data-chat-composer-top-drawer="true"
-          data-variant={activePendingApproval ? "warning" : "info"}
-        >
-          {!isComposerCollapsedMobile && activePendingApproval ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-1 px-3 py-1.5 sm:px-4">
-              <ComposerPendingApprovalPanel
-                approval={activePendingApproval}
-                pendingCount={pendingApprovals.length}
-              />
-              <div className="flex min-w-0 flex-wrap items-center gap-0.5">
-                <ComposerPendingApprovalActions
-                  requestId={activePendingApproval.requestId}
-                  isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
-                  options={activePendingApproval.options}
-                  onRespondToApproval={onRespondToApproval}
-                />
-              </div>
+      <div className="chat-composer-form-host relative" data-chat-composer-form-host="true">
+        {isFileDragActive ? (
+          <div
+            className="chat-composer-drop-overlay pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+            data-chat-composer-drop-overlay="true"
+            data-active="true"
+            aria-hidden
+          >
+            <div className="chat-composer-drop-overlay-shell flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm font-medium text-foreground">
+              <PaperclipIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <span>Drop files to attach</span>
             </div>
-          ) : !isComposerCollapsedMobile && pendingUserInputs.length > 0 ? (
-            <ComposerPendingUserInputPanel
-              pendingUserInputs={pendingUserInputs}
-              respondingRequestIds={respondingRequestIds}
-              answers={activePendingDraftAnswers}
-              questionIndex={activePendingQuestionIndex}
-              onToggleOption={onSelectActivePendingUserInputOption}
-              onAdvance={onAdvanceActivePendingUserInput}
-            />
-          ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
-            <ComposerPlanFollowUpBanner
-              key={activeProposedPlan.id}
-              planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
-            />
-          ) : isComposerCollapsedMobile && activePendingApproval ? (
-            <div data-chat-composer-collapsed-controls="true">
-              <ComposerPendingApprovalPanel
-                approval={activePendingApproval}
-                pendingCount={pendingApprovals.length}
-                className="px-3 pt-2 sm:px-4"
-              />
-              <div className="flex flex-wrap items-center justify-end gap-1 px-3 pt-2 pb-3 sm:px-4">
-                <ComposerPendingApprovalActions
-                  requestId={activePendingApproval.requestId}
-                  isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
-                  options={activePendingApproval.options}
-                  onRespondToApproval={onRespondToApproval}
+          </div>
+        ) : null}
+        {recovery ? (
+          <div
+            className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-warning/30 bg-warning-surface px-3 py-2 text-xs text-warning-foreground shadow-sm sm:px-4"
+            role="status"
+            aria-live="polite"
+            data-chat-composer-recovery="true"
+          >
+            <CircleAlertIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
+            <span className="min-w-0 flex-1">This task was interrupted while RUNE restarted.</span>
+            <Button type="button" size="xs" variant="outline" onClick={recovery.onContinue}>
+              Continue
+            </Button>
+          </div>
+        ) : null}
+        {activeGoal ? (
+          <div
+            className="mb-2 flex min-w-0 items-center gap-2 rounded-xl border border-primary/25 bg-primary/8 px-3 py-2 text-xs text-foreground shadow-sm transition-[border-color,background-color] duration-[var(--rune-motion-fast)] sm:px-4"
+            role="status"
+            aria-live="polite"
+            data-chat-composer-goal="true"
+          >
+            <TargetIcon className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <span className="shrink-0 font-medium text-primary">Goal</span>
+            <span className="min-w-0 flex-1 truncate" title={activeGoal}>
+              {activeGoal}
+            </span>
+            <button
+              type="button"
+              className="shrink-0 rounded-md px-1.5 py-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+              onClick={editActiveGoal}
+              aria-label="Edit active goal"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              className="shrink-0 rounded-md px-1.5 py-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+              onClick={onClearGoal}
+              aria-label="Clear active goal"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+        {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
+          <div
+            className="chat-composer-top-drawer"
+            data-chat-composer-top-drawer="true"
+            data-variant={activePendingApproval ? "warning" : "info"}
+          >
+            {!isComposerCollapsedMobile && activePendingApproval ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-1 px-3 py-1.5 sm:px-4">
+                <ComposerPendingApprovalPanel
+                  approval={activePendingApproval}
+                  pendingCount={pendingApprovals.length}
                 />
+                <div className="flex min-w-0 flex-wrap items-center gap-0.5">
+                  <ComposerPendingApprovalActions
+                    requestId={activePendingApproval.requestId}
+                    isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
+                    options={activePendingApproval.options}
+                    onRespondToApproval={onRespondToApproval}
+                  />
+                </div>
               </div>
-            </div>
-          ) : isComposerCollapsedMobile && pendingUserInputs.length > 0 ? (
-            <div data-chat-composer-collapsed-controls="true">
+            ) : !isComposerCollapsedMobile && pendingUserInputs.length > 0 ? (
               <ComposerPendingUserInputPanel
                 pendingUserInputs={pendingUserInputs}
                 respondingRequestIds={respondingRequestIds}
@@ -3282,658 +3384,706 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 onToggleOption={onSelectActivePendingUserInputOption}
                 onAdvance={onAdvanceActivePendingUserInput}
               />
-              <div className="px-3 pb-3 sm:px-4">
-                <div
-                  data-chat-composer-mobile-pending-compact="true"
-                  className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-lg border border-border/55 bg-background/55 p-1.5 pl-3 transition-colors hover:bg-background/80",
-                    !activePendingProgress?.activeQuestion?.multiSelect && "p-0",
-                  )}
-                >
+            ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
+              <ComposerPlanFollowUpBanner
+                key={activeProposedPlan.id}
+                planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
+              />
+            ) : isComposerCollapsedMobile && activePendingApproval ? (
+              <div data-chat-composer-collapsed-controls="true">
+                <ComposerPendingApprovalPanel
+                  approval={activePendingApproval}
+                  pendingCount={pendingApprovals.length}
+                  className="px-3 pt-2 sm:px-4"
+                />
+                <div className="flex flex-wrap items-center justify-end gap-1 px-3 pt-2 pb-3 sm:px-4">
+                  <ComposerPendingApprovalActions
+                    requestId={activePendingApproval.requestId}
+                    isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
+                    options={activePendingApproval.options}
+                    onRespondToApproval={onRespondToApproval}
+                  />
+                </div>
+              </div>
+            ) : isComposerCollapsedMobile && pendingUserInputs.length > 0 ? (
+              <div data-chat-composer-collapsed-controls="true">
+                <ComposerPendingUserInputPanel
+                  pendingUserInputs={pendingUserInputs}
+                  respondingRequestIds={respondingRequestIds}
+                  answers={activePendingDraftAnswers}
+                  questionIndex={activePendingQuestionIndex}
+                  onToggleOption={onSelectActivePendingUserInputOption}
+                  onAdvance={onAdvanceActivePendingUserInput}
+                />
+                <div className="px-3 pb-3 sm:px-4">
+                  <div
+                    data-chat-composer-mobile-pending-compact="true"
+                    className={cn(
+                      "flex min-w-0 items-center gap-2 rounded-lg border border-border/55 bg-background/55 p-1.5 pl-3 transition-colors hover:bg-background/80",
+                      !activePendingProgress?.activeQuestion?.multiSelect && "p-0",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      className={cn(
+                        "min-w-0 flex-1 truncate bg-transparent py-1.5 text-left text-sm",
+                        activePendingProgress?.customAnswer
+                          ? "text-foreground"
+                          : "text-placeholder",
+                        !activePendingProgress?.activeQuestion?.multiSelect && "px-3 py-2",
+                      )}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={expandMobileComposer}
+                      aria-label="Write custom answer"
+                    >
+                      {activePendingProgress?.customAnswer || "Write custom answer"}
+                    </button>
+                    {inlineTasksBadge}
+                    {inlineStashBadge}
+                    {activePendingProgress?.activeQuestion?.multiSelect ? (
+                      <ComposerPrimaryActions
+                        compact
+                        pendingAction={pendingPrimaryAction}
+                        isRunning={false}
+                        showPlanFollowUpPrompt={false}
+                        promptHasText={false}
+                        isSendBusy={isSendBusy}
+                        sendDisabledReason={sendDisabledReason}
+                        isConnecting={isConnecting}
+                        isEnvironmentUnavailable={
+                          environmentUnavailable !== null ||
+                          noProviderAvailable ||
+                          projectSelectionRequired
+                        }
+                        isPreparingWorktree={false}
+                        hasSendableContent={false}
+                        preserveComposerFocusOnPointerDown
+                        onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                        onInterrupt={handleInterruptPrimaryAction}
+                        onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {tasksDrawerMounted &&
+        !hasBlockingComposerTopDrawer &&
+        visibleTasksProgress &&
+        visibleTaskSteps ? (
+          <div
+            className={cn(
+              "rune-tasks-drawer-host",
+              runePanelTransitionClass(tasksDrawerMotionState),
+            )}
+            data-rune-tasks-drawer-host="true"
+            data-rune-tasks-drawer-state={tasksDrawerMotionState}
+          >
+            <ComposerTasksDrawer
+              activities={activeThreadActivities ?? []}
+              onDismiss={dismissTasks}
+              onCollapse={toggleTasksDrawer}
+              onOpenSidePanel={onOpenTasks}
+              progress={visibleTasksProgress}
+              steps={visibleTaskSteps}
+            />
+          </div>
+        ) : null}
+        <div className="relative">
+          {showTasksShoulderTab && visibleTasksProgress && visibleTaskSteps ? (
+            <ComposerTasksBadge
+              expanded={false}
+              hasTrailingShoulder={stashQueue.length > 0}
+              motionState={tasksTabMotionState}
+              onDismiss={dismissTasks}
+              onOpenSidePanel={onOpenTasks}
+              onToggle={toggleTasksDrawer}
+              progress={visibleTasksProgress}
+              steps={visibleTaskSteps}
+            />
+          ) : null}
+          {showShoulderTabs ? (
+            <ComposerStashBadge
+              count={stashQueue.length}
+              menuOpen={isStashMenuOpen}
+              pulseKey={stashPulse.key}
+              pulsing={stashPulse.active}
+              onToggleMenu={toggleStashMenu}
+            />
+          ) : null}
+          <div
+            data-chat-composer-main-surface="true"
+            className={cn(
+              "group relative z-10 rounded-[22px] p-px transition-colors duration-200",
+              composerProviderState.composerFrameClassName,
+            )}
+          >
+            <div
+              ref={composerSurfaceRef}
+              data-chat-composer-surface="true"
+              data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
+              className={cn(
+                "rounded-[20px] transition-[background-color] duration-200",
+                isDragOverComposer ? "bg-accent/45 ring-1 ring-primary/70" : null,
+                projectSelectionRequired ? "opacity-75" : null,
+                composerProviderState.composerSurfaceClassName,
+              )}
+            >
+              {showCollapsedMobilePromptRow ? (
+                <div className="flex items-center justify-between gap-2 px-3 py-2">
                   <button
                     type="button"
                     className={cn(
-                      "min-w-0 flex-1 truncate bg-transparent py-1.5 text-left text-sm",
-                      activePendingProgress?.customAnswer ? "text-foreground" : "text-placeholder",
-                      !activePendingProgress?.activeQuestion?.multiSelect && "px-3 py-2",
+                      "min-w-0 flex-1 truncate bg-transparent p-0 text-left text-[14px] focus:outline-none",
+                      (activePendingProgress ? activePendingProgress.customAnswer : prompt.trim())
+                        ? "text-foreground"
+                        : "text-placeholder",
                     )}
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={expandMobileComposer}
-                    aria-label="Write custom answer"
+                    aria-label="Expand composer"
                   >
-                    {activePendingProgress?.customAnswer || "Write custom answer"}
+                    {activePendingProgress
+                      ? activePendingProgress.customAnswer ||
+                        "Type your own answer, or leave this blank to use the selected option"
+                      : prompt.trim() ||
+                        (noProviderAvailable ? "Enable a provider in Settings" : "Ask anything...")}
                   </button>
                   {inlineTasksBadge}
                   {inlineStashBadge}
-                  {activePendingProgress?.activeQuestion?.multiSelect ? (
-                    <ComposerPrimaryActions
-                      compact
-                      pendingAction={pendingPrimaryAction}
-                      isRunning={false}
-                      showPlanFollowUpPrompt={false}
-                      promptHasText={false}
-                      isSendBusy={isSendBusy}
-                      sendDisabledReason={sendDisabledReason}
-                      isConnecting={isConnecting}
-                      isEnvironmentUnavailable={
-                        environmentUnavailable !== null ||
-                        noProviderAvailable ||
-                        projectSelectionRequired
-                      }
-                      isPreparingWorktree={false}
-                      hasSendableContent={false}
-                      preserveComposerFocusOnPointerDown
-                      onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                      onInterrupt={handleInterruptPrimaryAction}
-                      onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                  <button
+                    type="button"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover disabled:opacity-30"
+                    disabled={collapsedComposerPrimaryActionDisabled}
+                    aria-label={collapsedComposerPrimaryActionLabel}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      submitComposer();
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path
+                        d="M8 3L8 13M8 3L4 7M8 3L12 7"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
+
+              <div
+                ref={setComposerMenuAnchor}
+                className={cn(
+                  "relative px-3 pb-2 sm:px-4",
+                  "pt-3.5 sm:pt-4",
+                  isComposerApprovalState && "pb-3 sm:pb-4",
+                  isComposerCollapsedMobile && "hidden",
+                )}
+              >
+                {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
+                  <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
+                    <ComposerStashMenu
+                      entries={stashQueue}
+                      onRestore={restoreStashEntry}
+                      onDelete={deleteStashEntry}
+                      onClose={() => setIsStashMenuOpen(false)}
                     />
+                  </ComposerCommandMenuLayer>
+                )}
+
+                {composerMenuOpen && !isComposerApprovalState && (
+                  <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
+                    <ComposerCommandMenu
+                      items={composerMenuItems}
+                      resolvedTheme={resolvedTheme}
+                      isLoading={isComposerMenuLoading}
+                      triggerKind={composerTriggerKind}
+                      emptyStateText={composerMenuEmptyState}
+                      activeItemId={activeComposerMenuItem?.id ?? null}
+                      onHighlightedItemChange={onComposerMenuItemHighlighted}
+                      onSelect={onSelectComposerItem}
+                    />
+                  </ComposerCommandMenuLayer>
+                )}
+
+                {!isComposerCollapsedMobile &&
+                  !isComposerApprovalState &&
+                  pendingUserInputs.length === 0 &&
+                  composerPreviewAnnotations.length > 0 && (
+                    <ComposerPreviewAnnotationCards
+                      annotations={composerPreviewAnnotations}
+                      images={composerImages}
+                      {...(supportsAttachmentUploads
+                        ? {
+                            uploadsByImageId,
+                            onRetryUpload: (image: ComposerImageAttachment) =>
+                              retryAttachmentUpload({ environmentId, image }),
+                          }
+                        : {})}
+                      onRemove={(annotationId) => {
+                        releaseAttachmentUpload(annotationId);
+                        removeComposerDraftPreviewAnnotation(composerDraftTarget, annotationId);
+                      }}
+                      onExpandImage={(imageId) => {
+                        const preview = buildExpandedImagePreview(composerImages, imageId);
+                        if (preview) onExpandImage(preview);
+                      }}
+                      className="mb-3"
+                    />
+                  )}
+
+                {!isComposerCollapsedMobile &&
+                  !isComposerApprovalState &&
+                  pendingUserInputs.length === 0 &&
+                  composerReviewComments.length > 0 && (
+                    <ComposerPendingReviewComments
+                      comments={composerReviewComments}
+                      onRemove={(commentId) =>
+                        removeComposerDraftReviewComment(composerDraftTarget, commentId)
+                      }
+                      className="mb-3"
+                    />
+                  )}
+
+                {!isComposerCollapsedMobile &&
+                  !isComposerApprovalState &&
+                  pendingUserInputs.length === 0 &&
+                  composerElementContexts.length > 0 && (
+                    <ComposerPendingElementContexts
+                      contexts={composerElementContexts}
+                      onRemove={(contextId) =>
+                        removeComposerDraftElementContext(composerDraftTarget, contextId)
+                      }
+                      className="mb-3"
+                    />
+                  )}
+
+                {!isComposerCollapsedMobile &&
+                  !isComposerApprovalState &&
+                  pendingUserInputs.length === 0 &&
+                  composerImages.some(
+                    (image) =>
+                      !composerPreviewAnnotations.some((annotation) => annotation.id === image.id),
+                  ) && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {composerImages
+                        .filter(
+                          (image) =>
+                            !composerPreviewAnnotations.some(
+                              (annotation) => annotation.id === image.id,
+                            ),
+                        )
+                        .map((image) => {
+                          const upload = supportsAttachmentUploads
+                            ? uploadsByImageId[image.id]
+                            : undefined;
+                          return (
+                            <div
+                              key={image.id}
+                              className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+                            >
+                              {image.previewUrl ? (
+                                <button
+                                  type="button"
+                                  className="h-full w-full cursor-zoom-in"
+                                  aria-label={`Preview ${image.name}`}
+                                  onClick={() => {
+                                    const preview = buildExpandedImagePreview(
+                                      composerImages,
+                                      image.id,
+                                    );
+                                    if (!preview) return;
+                                    onExpandImage(preview);
+                                  }}
+                                >
+                                  <img
+                                    src={image.previewUrl}
+                                    alt={image.name}
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-secondary-label">
+                                  {image.name}
+                                </div>
+                              )}
+                              {nonPersistedComposerImageIdSet.has(image.id) && (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <span
+                                        role="img"
+                                        aria-label="Draft attachment may not persist"
+                                        className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
+                                      >
+                                        <CircleAlertIcon className="size-3" />
+                                      </span>
+                                    }
+                                  />
+                                  <TooltipPopup
+                                    side="top"
+                                    className="max-w-64 whitespace-normal leading-tight"
+                                  >
+                                    Draft attachment could not be saved locally and may be lost on
+                                    navigation.
+                                  </TooltipPopup>
+                                </Tooltip>
+                              )}
+                              {upload?.status === "uploading" && (
+                                <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-background/85 px-1 text-center text-[10px] text-foreground">
+                                  {formatAttachmentUploadProgress(upload.progress)}
+                                </span>
+                              )}
+                              {upload?.status === "failed" && (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        className="absolute bottom-1 left-1 bg-background/85 hover:bg-background/95"
+                                        onClick={() =>
+                                          retryAttachmentUpload({ environmentId, image })
+                                        }
+                                        aria-label={`Retry upload for ${image.name}`}
+                                      />
+                                    }
+                                  >
+                                    <RotateCcwIcon />
+                                  </TooltipTrigger>
+                                  <TooltipPopup
+                                    side="top"
+                                    className="max-w-64 whitespace-normal leading-tight"
+                                  >
+                                    {upload.reason}
+                                  </TooltipPopup>
+                                </Tooltip>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                                onClick={() => removeComposerImage(image.id)}
+                                aria-label={`Remove ${image.name}`}
+                              >
+                                <XIcon />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+
+                <div className="relative">
+                  {queueState &&
+                  onEditQueuedPrompt &&
+                  onRemoveQueuedPrompt &&
+                  onMoveQueuedPrompt &&
+                  onReorderQueuedPrompt &&
+                  onSteerQueuedPrompt ? (
+                    <ComposerPromptQueue
+                      items={queueState.queue}
+                      onEdit={onEditQueuedPrompt}
+                      onRemove={onRemoveQueuedPrompt}
+                      onMove={onMoveQueuedPrompt}
+                      onReorder={onReorderQueuedPrompt}
+                      onSteer={onSteerQueuedPrompt}
+                      {...(onRetryQueuedPrompt ? { onRetry: onRetryQueuedPrompt } : {})}
+                    />
+                  ) : null}
+                  <ComposerPromptEditor
+                    editorRef={composerEditorRef}
+                    value={
+                      isComposerApprovalState
+                        ? ""
+                        : activePendingProgress
+                          ? activePendingProgress.customAnswer
+                          : prompt
+                    }
+                    cursor={composerCursor}
+                    terminalContexts={
+                      !isComposerApprovalState && pendingUserInputs.length === 0
+                        ? composerTerminalContexts
+                        : []
+                    }
+                    skills={selectedProviderStatus?.skills ?? []}
+                    {...(showMobilePendingAnswerActions ? { className: "max-sm:pb-11" } : {})}
+                    onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                    onChange={onPromptChange}
+                    onCommandKeyDown={onComposerCommandKey}
+                    onPaste={onComposerPaste}
+                    placeholder={
+                      isComposerApprovalState
+                        ? (activePendingApproval?.detail ??
+                          "Resolve this approval request to continue")
+                        : activePendingProgress
+                          ? "Type your own answer, or leave this blank to use the selected option"
+                          : showPlanFollowUpPrompt && activeProposedPlan
+                            ? "Add feedback to refine the plan, or leave this blank to implement it"
+                            : projectSelectionRequired
+                              ? "Choose a project above to start a thread"
+                              : noProviderAvailable
+                                ? "Enable a provider in Settings to send a message"
+                                : phase === "disconnected"
+                                  ? DISCONNECTED_COMPOSER_PLACEHOLDER
+                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                    }
+                    disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
+                  />
+                  {showMobilePendingAnswerActions ? (
+                    <div
+                      data-chat-composer-mobile-pending-actions="true"
+                      className="absolute bottom-0 right-0 flex items-center justify-end gap-1"
+                    >
+                      {inlineTasksBadge}
+                      {inlineStashBadge}
+                      <ComposerPrimaryActions
+                        compact
+                        pendingAction={pendingPrimaryAction}
+                        isRunning={false}
+                        showPlanFollowUpPrompt={false}
+                        promptHasText={false}
+                        isSendBusy={isSendBusy}
+                        sendDisabledReason={sendDisabledReason}
+                        isConnecting={isConnecting}
+                        isEnvironmentUnavailable={
+                          environmentUnavailable !== null ||
+                          noProviderAvailable ||
+                          projectSelectionRequired
+                        }
+                        isPreparingWorktree={false}
+                        hasSendableContent={false}
+                        preserveComposerFocusOnPointerDown
+                        onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                        onInterrupt={handleInterruptPrimaryAction}
+                        onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                      />
+                    </div>
                   ) : null}
                 </div>
               </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      {tasksDrawerMounted &&
-      !hasBlockingComposerTopDrawer &&
-      visibleTasksProgress &&
-      visibleTaskSteps ? (
-        <div
-          className={cn("rune-tasks-drawer-host", runePanelTransitionClass(tasksDrawerMotionState))}
-          data-rune-tasks-drawer-host="true"
-          data-rune-tasks-drawer-state={tasksDrawerMotionState}
-        >
-          <ComposerTasksDrawer
-            onDismiss={dismissTasks}
-            onCollapse={toggleTasksDrawer}
-            progress={visibleTasksProgress}
-            steps={visibleTaskSteps}
-          />
-        </div>
-      ) : null}
-      <div className="relative">
-        {showTasksShoulderTab && visibleTasksProgress && visibleTaskSteps ? (
-          <ComposerTasksBadge
-            expanded={false}
-            hasTrailingShoulder={stashQueue.length > 0}
-            motionState={tasksTabMotionState}
-            onDismiss={dismissTasks}
-            onToggle={toggleTasksDrawer}
-            progress={visibleTasksProgress}
-            steps={visibleTaskSteps}
-          />
-        ) : null}
-        {showShoulderTabs ? (
-          <ComposerStashBadge
-            count={stashQueue.length}
-            menuOpen={isStashMenuOpen}
-            pulseKey={stashPulse.key}
-            pulsing={stashPulse.active}
-            onToggleMenu={toggleStashMenu}
-          />
-        ) : null}
-        <div
-          data-chat-composer-main-surface="true"
-          className={cn(
-            "group relative z-10 rounded-[22px] p-px transition-colors duration-200",
-            composerProviderState.composerFrameClassName,
-          )}
-        >
-          <div
-            ref={composerSurfaceRef}
-            data-chat-composer-surface="true"
-            data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
-            className={cn(
-              "rounded-[20px] transition-[background-color] duration-200",
-              isDragOverComposer ? "bg-accent/45 ring-1 ring-primary/70" : null,
-              projectSelectionRequired ? "opacity-75" : null,
-              composerProviderState.composerSurfaceClassName,
-            )}
-          >
-            {showCollapsedMobilePromptRow ? (
-              <div className="flex items-center justify-between gap-2 px-3 py-2">
-                <button
-                  type="button"
-                  className={cn(
-                    "min-w-0 flex-1 truncate bg-transparent p-0 text-left text-[14px] focus:outline-none",
-                    (activePendingProgress ? activePendingProgress.customAnswer : prompt.trim())
-                      ? "text-foreground"
-                      : "text-placeholder",
-                  )}
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={expandMobileComposer}
-                  aria-label="Expand composer"
-                >
-                  {activePendingProgress
-                    ? activePendingProgress.customAnswer ||
-                      "Type your own answer, or leave this blank to use the selected option"
-                    : prompt.trim() ||
-                      (noProviderAvailable ? "Enable a provider in Settings" : "Ask anything...")}
-                </button>
-                {inlineTasksBadge}
-                {inlineStashBadge}
-                <button
-                  type="button"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-message-action text-message-action-foreground hover:bg-message-action-hover disabled:opacity-30"
-                  disabled={collapsedComposerPrimaryActionDisabled}
-                  aria-label={collapsedComposerPrimaryActionLabel}
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    submitComposer();
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M8 3L8 13M8 3L4 7M8 3L12 7"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-            ) : null}
 
-            <div
-              ref={setComposerMenuAnchor}
-              className={cn(
-                "relative px-3 pb-2 sm:px-4",
-                "pt-3.5 sm:pt-4",
-                isComposerApprovalState && "pb-3 sm:pb-4",
-                isComposerCollapsedMobile && "hidden",
-              )}
-            >
-              {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
-                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
-                  <ComposerStashMenu
-                    entries={stashQueue}
-                    onRestore={restoreStashEntry}
-                    onDelete={deleteStashEntry}
-                    onClose={() => setIsStashMenuOpen(false)}
-                  />
-                </ComposerCommandMenuLayer>
-              )}
-
-              {composerMenuOpen && !isComposerApprovalState && (
-                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
-                  <ComposerCommandMenu
-                    items={composerMenuItems}
-                    resolvedTheme={resolvedTheme}
-                    isLoading={isComposerMenuLoading}
-                    triggerKind={composerTriggerKind}
-                    emptyStateText={composerMenuEmptyState}
-                    activeItemId={activeComposerMenuItem?.id ?? null}
-                    onHighlightedItemChange={onComposerMenuItemHighlighted}
-                    onSelect={onSelectComposerItem}
-                  />
-                </ComposerCommandMenuLayer>
-              )}
-
-              {!isComposerCollapsedMobile &&
-                !isComposerApprovalState &&
-                pendingUserInputs.length === 0 &&
-                composerPreviewAnnotations.length > 0 && (
-                  <ComposerPreviewAnnotationCards
-                    annotations={composerPreviewAnnotations}
-                    images={composerImages}
-                    {...(supportsAttachmentUploads
-                      ? {
-                          uploadsByImageId,
-                          onRetryUpload: (image: ComposerImageAttachment) =>
-                            retryAttachmentUpload({ environmentId, image }),
-                        }
-                      : {})}
-                    onRemove={(annotationId) => {
-                      releaseAttachmentUpload(annotationId);
-                      removeComposerDraftPreviewAnnotation(composerDraftTarget, annotationId);
-                    }}
-                    onExpandImage={(imageId) => {
-                      const preview = buildExpandedImagePreview(composerImages, imageId);
-                      if (preview) onExpandImage(preview);
-                    }}
-                    className="mb-3"
-                  />
-                )}
-
-              {!isComposerCollapsedMobile &&
-                !isComposerApprovalState &&
-                pendingUserInputs.length === 0 &&
-                composerReviewComments.length > 0 && (
-                  <ComposerPendingReviewComments
-                    comments={composerReviewComments}
-                    onRemove={(commentId) =>
-                      removeComposerDraftReviewComment(composerDraftTarget, commentId)
-                    }
-                    className="mb-3"
-                  />
-                )}
-
-              {!isComposerCollapsedMobile &&
-                !isComposerApprovalState &&
-                pendingUserInputs.length === 0 &&
-                composerElementContexts.length > 0 && (
-                  <ComposerPendingElementContexts
-                    contexts={composerElementContexts}
-                    onRemove={(contextId) =>
-                      removeComposerDraftElementContext(composerDraftTarget, contextId)
-                    }
-                    className="mb-3"
-                  />
-                )}
-
-              {!isComposerCollapsedMobile &&
-                !isComposerApprovalState &&
-                pendingUserInputs.length === 0 &&
-                composerImages.some(
-                  (image) =>
-                    !composerPreviewAnnotations.some((annotation) => annotation.id === image.id),
-                ) && (
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {composerImages
-                      .filter(
-                        (image) =>
-                          !composerPreviewAnnotations.some(
-                            (annotation) => annotation.id === image.id,
-                          ),
-                      )
-                      .map((image) => {
-                        const upload = supportsAttachmentUploads
-                          ? uploadsByImageId[image.id]
-                          : undefined;
-                        return (
-                          <div
-                            key={image.id}
-                            className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
-                          >
-                            {image.previewUrl ? (
-                              <button
-                                type="button"
-                                className="h-full w-full cursor-zoom-in"
-                                aria-label={`Preview ${image.name}`}
-                                onClick={() => {
-                                  const preview = buildExpandedImagePreview(
-                                    composerImages,
-                                    image.id,
-                                  );
-                                  if (!preview) return;
-                                  onExpandImage(preview);
-                                }}
-                              >
-                                <img
-                                  src={image.previewUrl}
-                                  alt={image.name}
-                                  className="h-full w-full object-cover"
-                                />
-                              </button>
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-secondary-label">
-                                {image.name}
-                              </div>
-                            )}
-                            {nonPersistedComposerImageIdSet.has(image.id) && (
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <span
-                                      role="img"
-                                      aria-label="Draft attachment may not persist"
-                                      className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                                    >
-                                      <CircleAlertIcon className="size-3" />
-                                    </span>
-                                  }
-                                />
-                                <TooltipPopup
-                                  side="top"
-                                  className="max-w-64 whitespace-normal leading-tight"
-                                >
-                                  Draft attachment could not be saved locally and may be lost on
-                                  navigation.
-                                </TooltipPopup>
-                              </Tooltip>
-                            )}
-                            {upload?.status === "uploading" && (
-                              <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-background/85 px-1 text-center text-[10px] text-foreground">
-                                {formatAttachmentUploadProgress(upload.progress)}
-                              </span>
-                            )}
-                            {upload?.status === "failed" && (
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <Button
-                                      variant="ghost"
-                                      size="icon-xs"
-                                      className="absolute bottom-1 left-1 bg-background/85 hover:bg-background/95"
-                                      onClick={() =>
-                                        retryAttachmentUpload({ environmentId, image })
-                                      }
-                                      aria-label={`Retry upload for ${image.name}`}
-                                    />
-                                  }
-                                >
-                                  <RotateCcwIcon />
-                                </TooltipTrigger>
-                                <TooltipPopup
-                                  side="top"
-                                  className="max-w-64 whitespace-normal leading-tight"
-                                >
-                                  {upload.reason}
-                                </TooltipPopup>
-                              </Tooltip>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
-                              onClick={() => removeComposerImage(image.id)}
-                              aria-label={`Remove ${image.name}`}
-                            >
-                              <XIcon />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-
-              <div className="relative">
-                {queueState &&
-                onEditQueuedPrompt &&
-                onRemoveQueuedPrompt &&
-                onMoveQueuedPrompt &&
-                onSteerQueuedPrompt ? (
-                  <ComposerPromptQueue
-                    items={queueState.queue}
-                    onEdit={onEditQueuedPrompt}
-                    onRemove={onRemoveQueuedPrompt}
-                    onMove={onMoveQueuedPrompt}
-                    onSteer={onSteerQueuedPrompt}
-                    onRetry={onRetryQueuedPrompt}
-                  />
-                ) : null}
-                <ComposerPromptEditor
-                  editorRef={composerEditorRef}
-                  value={
-                    isComposerApprovalState
-                      ? ""
-                      : activePendingProgress
-                        ? activePendingProgress.customAnswer
-                        : prompt
-                  }
-                  cursor={composerCursor}
-                  terminalContexts={
-                    !isComposerApprovalState && pendingUserInputs.length === 0
-                      ? composerTerminalContexts
-                      : []
-                  }
-                  skills={selectedProviderStatus?.skills ?? []}
-                  {...(showMobilePendingAnswerActions ? { className: "max-sm:pb-11" } : {})}
-                  onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                  onChange={onPromptChange}
-                  onCommandKeyDown={onComposerCommandKey}
-                  onPaste={onComposerPaste}
-                  placeholder={
-                    isComposerApprovalState
-                      ? (activePendingApproval?.detail ??
-                        "Resolve this approval request to continue")
-                      : activePendingProgress
-                        ? "Type your own answer, or leave this blank to use the selected option"
-                        : showPlanFollowUpPrompt && activeProposedPlan
-                          ? "Add feedback to refine the plan, or leave this blank to implement it"
-                          : projectSelectionRequired
-                            ? "Choose a project above to start a thread"
-                            : noProviderAvailable
-                              ? "Enable a provider in Settings to send a message"
-                              : phase === "disconnected"
-                                ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                : "Ask anything, @tag files/folders, $use skills, or / for commands"
-                  }
-                  disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
-                />
-                {showMobilePendingAnswerActions ? (
-                  <div
-                    data-chat-composer-mobile-pending-actions="true"
-                    className="absolute bottom-0 right-0 flex items-center justify-end gap-1"
-                  >
-                    {inlineTasksBadge}
-                    {inlineStashBadge}
-                    <ComposerPrimaryActions
-                      compact
-                      pendingAction={pendingPrimaryAction}
-                      isRunning={false}
-                      showPlanFollowUpPrompt={false}
-                      promptHasText={false}
-                      isSendBusy={isSendBusy}
-                      sendDisabledReason={sendDisabledReason}
-                      isConnecting={isConnecting}
-                      isEnvironmentUnavailable={
-                        environmentUnavailable !== null ||
-                        noProviderAvailable ||
-                        projectSelectionRequired
-                      }
-                      isPreparingWorktree={false}
-                      hasSendableContent={false}
-                      preserveComposerFocusOnPointerDown
-                      onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                      onInterrupt={handleInterruptPrimaryAction}
-                      onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <ComposerPromptLengthValidation
-              message={providerInputSubmissionError ?? composerSubmissionError}
-            />
-
-            {!isComposerCollapsedMobile && !isComposerApprovalState ? (
-              <ComposerContextTray
-                contexts={composerContextTrayContexts}
-                onRemoveContext={removeComposerTerminalContextFromDraft}
+              <ComposerPromptLengthValidation
+                message={providerInputSubmissionError ?? composerSubmissionError}
               />
-            ) : null}
 
-            {/* Bottom toolbar */}
-            {isComposerCollapsedMobile || isComposerApprovalState ? null : (
-              <div
-                data-chat-composer-footer="true"
-                data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
-                className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
-                  pendingUserInputs.length > 0 && "pt-2",
-                  isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
-                  showMobilePendingAnswerActions && "hidden sm:flex",
-                )}
-              >
-                <div className="-m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <ComposerControl
-                          aria-label="Attach media or folders"
-                          className="-ms-2 shrink-0"
-                          type="button"
-                        />
-                      }
-                    >
-                      <ComposerControlIcon icon={PaperclipIcon} />
-                    </MenuTrigger>
-                    <MenuPopup align="start" className="min-w-72" side="top">
-                      <MenuItem onClick={() => attachFilesInputRef.current?.click()}>
-                        <PaperclipIcon className="size-4" /> Attach files…
-                      </MenuItem>
-                      <MenuItem
-                        onClick={() => {
-                          if (isElectron) {
-                            attachFolderInputRef.current?.click();
-                          } else {
-                            openWorkspaceFolderBrowser();
-                          }
-                        }}
-                      >
-                        <FolderOpenIcon className="size-4" />
-                        {isElectron ? "Attach folder…" : "Browse workspace folders…"}
-                      </MenuItem>
-                    </MenuPopup>
-                  </Menu>
-                  <ComposerAttachmentCapability
-                    modelName={attachCapabilitySummary.modelName}
-                    supportsNativeImageUpload={attachCapabilitySummary.supportsNativeImageUpload}
-                  />
-                  {noProviderAvailable ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled
-                      data-chat-provider-unavailable="true"
-                      className="shrink-0 gap-2 px-2 text-secondary-label sm:px-3"
-                    >
-                      <CircleAlertIcon className="size-4" />
-                      No provider available
-                    </Button>
-                  ) : (
-                    <ProviderModelPicker
-                      compact={isComposerFooterCompact}
-                      activeInstanceId={selectedInstanceId}
-                      model={selectedModelForPickerWithCustomFallback}
-                      lockedProvider={lockedProvider}
-                      lockedContinuationGroupKey={lockedContinuationGroupKey}
-                      instanceEntries={providerInstanceEntries}
-                      keybindings={keybindings}
-                      modelOptionsByInstance={modelOptionsByInstance}
-                      triggerClassName="-ms-2.5"
-                      terminalOpen={terminalOpen}
-                      open={isComposerModelPickerOpen}
-                      {...(composerProviderState.modelPickerIconClassName
-                        ? {
-                            activeProviderIconClassName:
-                              composerProviderState.modelPickerIconClassName,
-                          }
-                        : {})}
-                      onOpenChange={(open) => {
-                        setIsComposerModelPickerOpen(open);
-                      }}
-                      getModelDisabledReason={getModelDisabledReason}
-                      onInstanceModelChange={onProviderModelSelect}
-                      {...(lockedProvider === null
-                        ? {
-                            onAddService: () =>
-                              openClaudeServiceSetup({
-                                environmentId,
-                                origin: "composer",
-                              }),
-                          }
-                        : {})}
-                    />
+              {!isComposerCollapsedMobile && !isComposerApprovalState ? (
+                <ComposerContextTray
+                  contexts={composerContextTrayContexts}
+                  onRemoveContext={removeComposerTerminalContextFromDraft}
+                />
+              ) : null}
+
+              {/* Bottom toolbar */}
+              {isComposerCollapsedMobile || isComposerApprovalState ? null : (
+                <div
+                  data-chat-composer-footer="true"
+                  data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
+                  className={cn(
+                    "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
+                    pendingUserInputs.length > 0 && "pt-2",
+                    isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
+                    showMobilePendingAnswerActions && "hidden sm:flex",
                   )}
-
-                  {isComposerFooterCompact ? (
-                    <CompactComposerControlsMenu
-                      interactionMode={interactionMode}
-                      runtimeMode={runtimeMode}
-                      showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
-                      showTemporaryToggle={showTemporaryChatToggle}
-                      temporaryChat={temporaryChatArmed}
-                      traitsMenuContent={providerTraitsMenuContent}
-                      onToggleInteractionMode={toggleInteractionMode}
-                      onRuntimeModeChange={handleRuntimeModeChange}
-                      onToggleTemporaryChat={toggleTemporaryChat}
-                    />
-                  ) : (
-                    <>
-                      {providerTraitsPicker ? (
-                        <>
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-4 sm:block"
+                >
+                  <div className="-m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <Menu>
+                      <MenuTrigger
+                        render={
+                          <ComposerControl
+                            aria-label="Attach media or folders"
+                            className="-ms-2 shrink-0"
+                            type="button"
                           />
-                          {providerTraitsPicker}
-                        </>
-                      ) : null}
-                      <ComposerFooterModeControls
+                        }
+                      >
+                        <ComposerControlIcon icon={PaperclipIcon} />
+                      </MenuTrigger>
+                      <MenuPopup
+                        align="start"
+                        className="max-w-[calc(100vw-1.5rem)] min-w-52"
+                        side="top"
+                      >
+                        <MenuItem onClick={() => attachFilesInputRef.current?.click()}>
+                          <PaperclipIcon className="size-4" /> Attach files…
+                        </MenuItem>
+                        <MenuItem
+                          onClick={() => {
+                            if (isElectron) {
+                              attachFolderInputRef.current?.click();
+                            } else {
+                              openWorkspaceFolderBrowser();
+                            }
+                          }}
+                        >
+                          <FolderOpenIcon className="size-4" />
+                          {isElectron ? "Attach folder…" : "Browse workspace folders…"}
+                        </MenuItem>
+                      </MenuPopup>
+                    </Menu>
+                    <ComposerAttachmentCapability
+                      modelName={attachCapabilitySummary.modelName}
+                      supportsNativeImageUpload={attachCapabilitySummary.supportsNativeImageUpload}
+                    />
+                    {noProviderAvailable ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled
+                        data-chat-provider-unavailable="true"
+                        className="shrink-0 gap-2 px-2 text-secondary-label sm:px-3"
+                      >
+                        <CircleAlertIcon className="size-4" />
+                        No provider available
+                      </Button>
+                    ) : (
+                      <ProviderModelPicker
+                        compact={isComposerFooterCompact}
+                        activeInstanceId={selectedInstanceId}
+                        model={selectedModelForPickerWithCustomFallback}
+                        lockedProvider={lockedProvider}
+                        lockedContinuationGroupKey={lockedContinuationGroupKey}
+                        instanceEntries={providerInstanceEntries}
+                        keybindings={keybindings}
+                        modelOptionsByInstance={modelOptionsByInstance}
+                        triggerClassName="-ms-2.5"
+                        terminalOpen={terminalOpen}
+                        open={isComposerModelPickerOpen}
+                        {...(composerProviderState.modelPickerIconClassName
+                          ? {
+                              activeProviderIconClassName:
+                                composerProviderState.modelPickerIconClassName,
+                            }
+                          : {})}
+                        onOpenChange={(open) => {
+                          setIsComposerModelPickerOpen(open);
+                        }}
+                        getModelDisabledReason={getModelDisabledReason}
+                        onInstanceModelChange={onProviderModelSelect}
+                        {...(lockedProvider === null
+                          ? {
+                              onAddService: () =>
+                                openClaudeServiceSetup({
+                                  environmentId,
+                                  origin: "composer",
+                                }),
+                            }
+                          : {})}
+                      />
+                    )}
+
+                    {isComposerFooterCompact ? (
+                      <CompactComposerControlsMenu
+                        interactionMode={interactionMode}
+                        runtimeMode={runtimeMode}
                         showInteractionModeToggle={
                           composerProviderControls.showInteractionModeToggle
                         }
-                        interactionMode={interactionMode}
-                        runtimeMode={runtimeMode}
                         showTemporaryToggle={showTemporaryChatToggle}
                         temporaryChat={temporaryChatArmed}
+                        traitsMenuContent={providerTraitsMenuContent}
                         onToggleInteractionMode={toggleInteractionMode}
                         onRuntimeModeChange={handleRuntimeModeChange}
                         onToggleTemporaryChat={toggleTemporaryChat}
                       />
-                    </>
-                  )}
-                </div>
+                    ) : (
+                      <>
+                        {providerTraitsPicker ? (
+                          <>
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+                            {providerTraitsPicker}
+                          </>
+                        ) : null}
+                        <ComposerFooterModeControls
+                          showInteractionModeToggle={
+                            composerProviderControls.showInteractionModeToggle
+                          }
+                          interactionMode={interactionMode}
+                          runtimeMode={runtimeMode}
+                          showTemporaryToggle={showTemporaryChatToggle}
+                          temporaryChat={temporaryChatArmed}
+                          onToggleInteractionMode={toggleInteractionMode}
+                          onRuntimeModeChange={handleRuntimeModeChange}
+                          onToggleTemporaryChat={toggleTemporaryChat}
+                        />
+                      </>
+                    )}
+                  </div>
 
-                {/* Right side: send / stop button */}
-                <div
-                  data-chat-composer-actions="right"
-                  data-chat-composer-primary-actions-compact={
-                    isComposerPrimaryActionsCompact ? "true" : "false"
-                  }
-                  className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
-                >
-                  {showMobilePendingAnswerActions ? null : inlineTasksBadge}
-                  {showMobilePendingAnswerActions ? null : inlineStashBadge}
-                  <ComposerFooterPrimaryActions
-                    compact={isComposerPrimaryActionsCompact}
-                    activeContextWindow={activeContextWindow}
-                    activeThreadModelDisplayName={activeThreadModelDisplayName}
-                    pendingAction={pendingPrimaryAction}
-                    isRunning={phase === "running"}
-                    showPlanFollowUpPrompt={
-                      pendingUserInputs.length === 0 && showPlanFollowUpPrompt
+                  {/* Right side: send / stop button */}
+                  <div
+                    data-chat-composer-actions="right"
+                    data-chat-composer-primary-actions-compact={
+                      isComposerPrimaryActionsCompact ? "true" : "false"
                     }
-                    promptHasText={prompt.trim().length > 0}
-                    isSendBusy={isSendBusy}
-                    sendDisabledReason={sendDisabledReason}
-                    isConnecting={isConnecting}
-                    isEnvironmentUnavailable={
-                      environmentUnavailable !== null ||
-                      noProviderAvailable ||
-                      projectSelectionRequired
-                    }
-                    isPreparingWorktree={isPreparingWorktree}
-                    hasSendableContent={composerSendState.hasSendableContent}
-                    preserveComposerFocusOnPointerDown={isMobileViewport}
-                    isPaused={isPaused}
-                    isContinueBusy={isContinueBusy}
-                    showSendWhileRunning
-                    onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                    onInterrupt={handleInterruptPrimaryAction}
-                    onContinue={onContinue}
-                    onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
-                  />
+                    className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
+                  >
+                    {showMobilePendingAnswerActions ? null : inlineTasksBadge}
+                    {showMobilePendingAnswerActions ? null : inlineStashBadge}
+                    <ComposerFooterPrimaryActions
+                      compact={isComposerPrimaryActionsCompact}
+                      activeContextWindow={activeContextWindow}
+                      activeThreadModelDisplayName={activeThreadModelDisplayName}
+                      pendingAction={pendingPrimaryAction}
+                      isRunning={phase === "running"}
+                      showPlanFollowUpPrompt={
+                        pendingUserInputs.length === 0 && showPlanFollowUpPrompt
+                      }
+                      promptHasText={prompt.trim().length > 0}
+                      isSendBusy={isSendBusy}
+                      sendDisabledReason={sendDisabledReason}
+                      isConnecting={isConnecting}
+                      isEnvironmentUnavailable={
+                        environmentUnavailable !== null ||
+                        noProviderAvailable ||
+                        projectSelectionRequired
+                      }
+                      isPreparingWorktree={isPreparingWorktree}
+                      hasSendableContent={composerSendState.hasSendableContent}
+                      preserveComposerFocusOnPointerDown={isMobileViewport}
+                      isPaused={isPaused}
+                      isContinueBusy={isContinueBusy}
+                      showSendWhileRunning
+                      onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                      onInterrupt={handleInterruptPrimaryAction}
+                      {...(onContinue ? { onContinue } : {})}
+                      onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+          <input
+            ref={attachFilesInputRef}
+            accept="image/*,audio/*,video/*"
+            className="hidden"
+            multiple
+            type="file"
+            onChange={onAttachFilesInputChange}
+          />
+          {/* webkitdirectory is not in React's typings; set it on mount. */}
+          <input
+            ref={(element) => {
+              attachFolderInputRef.current = element;
+              element?.setAttribute("webkitdirectory", "");
+            }}
+            className="hidden"
+            multiple
+            type="file"
+            onChange={onAttachFolderInputChange}
+          />
         </div>
-        <input
-          ref={attachFilesInputRef}
-          accept="image/*,audio/*,video/*"
-          className="hidden"
-          multiple
-          type="file"
-          onChange={onAttachFilesInputChange}
-        />
-        {/* webkitdirectory is not in React's typings; set it on mount. */}
-        <input
-          ref={(element) => {
-            attachFolderInputRef.current = element;
-            element?.setAttribute("webkitdirectory", "");
-          }}
-          className="hidden"
-          multiple
-          type="file"
-          onChange={onAttachFolderInputChange}
-        />
       </div>
     </form>
   );

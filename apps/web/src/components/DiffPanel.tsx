@@ -207,8 +207,8 @@ export default function DiffPanel({
     ? `Chat changes through turn ${diffSelection.toTurnCount}`
     : selectedTurnId === null
       ? selectedGitScope === "unstaged"
-        ? "Working tree"
-        : "Branch changes"
+        ? "Workspace unstaged diff"
+        : "Workspace branch diff"
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
@@ -228,8 +228,8 @@ export default function DiffPanel({
   const reviewSectionTitle = selectedTurn
     ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
     : selectedGitScope === "unstaged"
-      ? "Working tree"
-      : "Branch changes";
+      ? "Workspace unstaged diff"
+      : "Workspace branch diff";
   const selectedCheckpointRange = useMemo(
     () =>
       isChatSelection
@@ -553,7 +553,7 @@ export default function DiffPanel({
               }
               onClick={() => selectGitScope("unstaged")}
             >
-              <span>Working tree</span>
+              <span>Workspace unstaged diff</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               className={
@@ -563,7 +563,7 @@ export default function DiffPanel({
               }
               onClick={() => selectGitScope("branch")}
             >
-              <span>Branch changes</span>
+              <span>Workspace branch diff</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               className={

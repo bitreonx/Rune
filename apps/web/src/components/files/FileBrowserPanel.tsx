@@ -163,6 +163,9 @@ export default function FileBrowserPanel({
   onRefreshSelectedFile,
 }: FileBrowserPanelProps) {
   const [scopedToChat, setScopedToChat] = useState(chatDiff !== null && routeThreadKey !== null);
+  useEffect(() => {
+    setScopedToChat(chatDiff !== null && routeThreadKey !== null);
+  }, [chatDiff, routeThreadKey]);
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, "open in file manager");

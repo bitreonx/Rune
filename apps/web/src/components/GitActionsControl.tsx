@@ -1963,6 +1963,13 @@ export default function GitActionsControl({
             </div>
             <div className="space-y-1">
               <p className="text-sm font-medium">Commit message (optional)</p>
+              {activeServerThread &&
+              allFiles.length > 0 &&
+              activeServerThread.chatDiff.files.length === 0 ? (
+                <p className="text-xs text-warning-foreground">
+                  Workspace has changes from another chat.
+                </p>
+              ) : null}
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}

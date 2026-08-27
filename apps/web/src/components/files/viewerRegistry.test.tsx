@@ -62,7 +62,7 @@ describe("viewerRegistry", () => {
     expect(viewer.id).toBe("svg");
   });
 
-  it("falls back to binary viewer for kinds without a registered viewer", () => {
+  it("routes kind: 'text' to the code viewer", () => {
     const viewer = selectViewer(
       describeFile({
         relativePath: "foo.ts",
@@ -70,7 +70,17 @@ describe("viewerRegistry", () => {
         isPreviewSupportedInRuntime: true,
       }),
     );
-    // No text viewer yet, so the binary catch-all wins.
+    expect(viewer.id).toBe("code");
+  });
+
+  it("falls back to binary viewer for kinds without a registered viewer", () => {
+    const viewer = selectViewer(
+      describeFile({
+        relativePath: "release/rune.exe",
+        truncated: false,
+        isPreviewSupportedInRuntime: true,
+      }),
+    );
     expect(viewer.id).toBe("binary-fallback");
   });
 

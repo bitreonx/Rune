@@ -5,6 +5,7 @@ import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
 import type { FileDescriptor, FileKind } from "./viewerDescriptor.ts";
 import { BinaryViewer } from "./viewers/BinaryViewer.tsx";
+import { CodeViewer } from "./viewers/CodeViewer.tsx";
 import { ImageViewer } from "./viewers/ImageViewer.tsx";
 import { JsonViewer } from "./viewers/JsonViewer.tsx";
 import { SvgViewer } from "./viewers/SvgViewer.tsx";
@@ -121,6 +122,12 @@ const imageViewer: Viewer = {
   component: ImageViewerAdapter,
 };
 
+const codeViewer: Viewer = {
+  id: "code",
+  match: (d) => d.kind === "text",
+  component: CodeViewer as unknown as ComponentType<ViewerProps>,
+};
+
 /**
  * The default registry. Each viewer is intentionally lightweight — the
  * real work happens in the imported components (image, markdown, text,
@@ -131,6 +138,7 @@ export const viewerRegistry: ReadonlyArray<Viewer> = [
   imageViewer,
   svgViewer,
   jsonViewer,
+  codeViewer,
   truncatedTextViewer,
   binaryViewer,
 ];

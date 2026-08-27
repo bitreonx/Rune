@@ -8,6 +8,8 @@ import { BinaryViewer } from "./viewers/BinaryViewer.tsx";
 import { CodeViewer } from "./viewers/CodeViewer.tsx";
 import { ImageViewer } from "./viewers/ImageViewer.tsx";
 import { JsonViewer } from "./viewers/JsonViewer.tsx";
+import { MarkdownViewer } from "./viewers/MarkdownViewer.tsx";
+import { PdfViewer } from "./viewers/PdfViewer.tsx";
 import { SvgViewer } from "./viewers/SvgViewer.tsx";
 import { TruncatedTextViewer } from "./viewers/TruncatedTextViewer.tsx";
 import { buildWorkspaceFileRef } from "./filePreviewWorkspaceRef.ts";
@@ -128,6 +130,18 @@ const codeViewer: Viewer = {
   component: CodeViewer as unknown as ComponentType<ViewerProps>,
 };
 
+const markdownViewer: Viewer = {
+  id: "markdown",
+  match: (d) => d.kind === "markdown",
+  component: MarkdownViewer as unknown as ComponentType<ViewerProps>,
+};
+
+const pdfViewer: Viewer = {
+  id: "pdf",
+  match: (d) => d.kind === "pdf",
+  component: PdfViewer as unknown as ComponentType<ViewerProps>,
+};
+
 /**
  * The default registry. Each viewer is intentionally lightweight — the
  * real work happens in the imported components (image, markdown, text,
@@ -136,10 +150,12 @@ const codeViewer: Viewer = {
  */
 export const viewerRegistry: ReadonlyArray<Viewer> = [
   imageViewer,
+  markdownViewer,
   svgViewer,
   jsonViewer,
   codeViewer,
   truncatedTextViewer,
+  pdfViewer,
   binaryViewer,
 ];
 

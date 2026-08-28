@@ -100,9 +100,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --command-shell-inset: 0.5rem;
   --command-content-inset: 1rem;
   --floating-content-inset: 0.75rem;
-  --glass-blur: 12px;
-  --glass-opacity: 80%;
-  --glass-saturation: 1.14;
+  /* Glass is a quiet material, not a second layer of UI. Keep enough surface
+     opacity for text contrast and reserve blur for edges/overlays. */
+  --glass-blur: 10px;
+  --glass-opacity: 88%;
+  --glass-saturation: 1.06;
   --desktop-window-right-resize-inset: 0px;
   --workspace-topbar-height: 52px;
   --workspace-controls-top: 0px;
@@ -116,8 +118,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     --appearance-contrast-target: white;
     --app-scrollbar-thumb: rgb(255 255 255 / 8%);
     --app-scrollbar-thumb-hover: rgb(255 255 255 / 12%);
-    --glass-blur: 16px;
-    --glass-saturation: 1.08;
+    --glass-blur: 12px;
+    --glass-saturation: 1.04;
   }
 }
 
@@ -1947,12 +1949,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-app-sidebar] [data-slot="sidebar-inner"] {
-  border: 1px solid color-mix(in srgb, var(--sidebar-border) 78%, var(--rune-violet-soft));
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 84%, transparent);
   border-radius: 0;
-  background: color-mix(in srgb, var(--rune-sidebar-surface) 86%, transparent);
+  background: color-mix(in srgb, var(--rune-sidebar-surface) 94%, transparent);
   box-shadow: none;
-  -webkit-backdrop-filter: blur(22px) saturate(118%);
-  backdrop-filter: blur(22px) saturate(118%);
+  -webkit-backdrop-filter: blur(10px) saturate(106%);
+  backdrop-filter: blur(10px) saturate(106%);
 
   @variant dark {
     box-shadow: none;
@@ -2224,7 +2226,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   inset: 0;
   z-index: 50;
   border: 0;
-  background: color-mix(in srgb, var(--background) 60%, transparent);
+  background: color-mix(in srgb, var(--background) 72%, transparent);
   backdrop-filter: blur(2px);
   transition: opacity var(--rune-motion-standard) ease;
 }
@@ -2242,7 +2244,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   min-height: 0;
   min-width: 0;
   transform-origin: right center;
-  will-change: opacity, transform, filter;
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(106%);
+  backdrop-filter: blur(10px) saturate(106%);
+  will-change: opacity, transform;
 }
 
 [data-rune-right-panel-host][data-rune-right-panel-state="opening"]
@@ -2258,12 +2263,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 [data-rune-right-panel-host][data-slot="sheet-popup"] {
   translate: none;
   overflow: hidden;
-  border-color: color-mix(in srgb, var(--border) 78%, var(--rune-violet-soft));
-  border-radius: 0;
-  background: color-mix(in srgb, var(--rune-surface-raised) 82%, transparent);
+  border-color: color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 1rem 0 0 1rem;
+  background: color-mix(in srgb, var(--background) 94%, transparent);
   box-shadow: none;
-  -webkit-backdrop-filter: blur(24px) saturate(125%);
-  backdrop-filter: blur(24px) saturate(125%);
+  -webkit-backdrop-filter: blur(10px) saturate(106%);
+  backdrop-filter: blur(10px) saturate(106%);
 }
 
 .rune-right-panel-sheet-flat {
@@ -2292,9 +2297,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-preview-panel-mode] {
-  background: color-mix(in srgb, var(--rune-surface-raised) 72%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(118%);
-  backdrop-filter: blur(20px) saturate(118%);
+  background: var(--background);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 [data-preview-panel-mode="inline"] {
@@ -2302,26 +2307,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-right-panel-tabbar] {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, var(--rune-violet-soft));
-  background: color-mix(in srgb, var(--rune-surface-raised) 68%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(120%);
-  backdrop-filter: blur(18px) saturate(120%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(104%);
+  backdrop-filter: blur(8px) saturate(104%);
 }
 
 [data-right-panel-surface-content] {
-  background: color-mix(in srgb, var(--rune-surface-canvas) 72%, transparent);
+  background: color-mix(in srgb, var(--rune-surface-canvas) 92%, transparent);
 }
 
 @keyframes rune-right-panel-enter {
   from {
     opacity: 0;
     transform: translate3d(1.5rem, 0, 0) scale(0.985);
-    filter: blur(3px);
   }
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
   }
 }
 
@@ -2329,12 +2332,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   from {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
-    filter: blur(0);
   }
   to {
     opacity: 0;
     transform: translate3d(1.25rem, 0, 0) scale(0.985);
-    filter: blur(2px);
   }
 }
 

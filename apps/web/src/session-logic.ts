@@ -884,12 +884,17 @@ function isAgentInternalActivity(activity: OrchestrationThreadActivity): boolean
   return typeof payload.agentId === "string" && payload.agentId.trim().length > 0;
 }
 
+function isTurnTraceActivity(activity: OrchestrationThreadActivity): boolean {
+  return activity.kind === "turn.trace.started" || activity.kind === "turn.trace.request";
+}
+
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
+    if (isTurnTraceActivity(activity)) continue;
     if (activity.kind === "tool.started") continue;
     // Agent task.started rows are CTA seeds: they carry the true spawn turn,
     // which is the batch key (completions of background subagents arrive
@@ -912,7 +917,8 @@ export function deriveWorkLogEntries(
 export function deriveSimplifiedWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
-  return deriveAgentActivityJob(activities).activities.map((activity) => {
+  return deriveAgentActivityJob(activities.filter((activity) => !isTurnTraceActivity(activity))).activities.map(
+    (activity) => {
     const files = [
       ...new Set(
         activity.operations
@@ -962,7 +968,8 @@ export function deriveSimplifiedWorkLogEntries(
             : {}),
       ...(count > 1 ? { toolTitle: `${activity.label} (${count} operations)` } : {}),
     } satisfies WorkLogEntry;
-  });
+    },
+  );
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {

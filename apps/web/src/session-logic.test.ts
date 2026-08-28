@@ -915,6 +915,34 @@ describe("workEntryIndicatesToolFailure", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("keeps opt-in turn trace rows out of the normal work log", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "turn-started",
+        kind: "turn.trace.started",
+        summary: "Turn trace started",
+        tone: "info",
+        turnId: "turn-1",
+        payload: { provider: "openrouter", model: "gpt-test" },
+      }),
+      makeActivity({
+        id: "turn-request",
+        kind: "turn.trace.request",
+        summary: "Request 1",
+        tone: "info",
+        turnId: "turn-1",
+        payload: { requestId: "request-1", requestNumber: 1 },
+      }),
+      makeActivity({
+        id: "visible-complete",
+        kind: "tool.completed",
+        summary: "Tool call complete",
+      }),
+    ]);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["visible-complete"]);
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

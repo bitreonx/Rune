@@ -8,6 +8,7 @@ import {
   type ProviderDriverKind,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ThreadPickerEntry,
 } from "@rune/contracts";
 import {
   BlocksIcon,
@@ -15,6 +16,7 @@ import {
   PackageIcon,
   SettingsIcon,
   UserRoundIcon,
+  GitBranchIcon,
   type LucideIcon,
 } from "lucide-react";
 import { memo, useLayoutEffect, useRef } from "react";
@@ -54,6 +56,13 @@ export type ComposerCommandItem =
       type: "skill";
       provider: ProviderDriverKind;
       skill: ServerProviderSkill;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "thread";
+      thread: ThreadPickerEntry;
       label: string;
       description: string;
     };
@@ -115,13 +124,17 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               {props.isLoading
                 ? props.triggerKind === "skill"
                   ? "Searching workspace skills..."
-                  : "Searching workspace files..."
+                  : props.triggerKind === "thread"
+                    ? "Searching this project’s threads..."
+                    : "Searching workspace files..."
                 : (props.emptyStateText ??
                   (props.triggerKind === "skill"
                     ? "No skills found. Try / to browse provider commands."
                     : props.triggerKind === "path"
                       ? "No matching files or folders."
-                      : "No matching command."))}
+                      : props.triggerKind === "thread"
+                        ? "No matching threads in this project."
+                        : "No matching command."))}
             </p>
           </div>
         )}
@@ -167,6 +180,11 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           kind={props.item.pathKind}
           theme={props.resolvedTheme}
         />
+      ) : null}
+      {props.item.type === "thread" ? (
+        <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-accent/70 text-accent-foreground">
+          <GitBranchIcon className="size-3.5" aria-hidden />
+        </span>
       ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 max-w-[45%] shrink-0 truncate font-sans text-xs font-medium">

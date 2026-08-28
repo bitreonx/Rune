@@ -110,6 +110,7 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
+import { useThreadPicker } from "../../state/queries";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
@@ -259,6 +260,7 @@ import {
   BotIcon,
   CircleAlertIcon,
   FolderOpenIcon,
+  FolderTreeIcon,
   GhostIcon,
   PencilRulerIcon,
   type LucideIcon,
@@ -668,6 +670,8 @@ export interface ChatComposerProps {
   activeTasksProgress: ComposerTasksProgress | null;
   activeTaskSteps: readonly ComposerTaskStep[] | null;
   onOpenTasks: () => void;
+  /** Open the in-app workspace explorer so a user can choose a file to add to chat. */
+  onOpenFiles: () => void;
   activeGoal: string | null;
 
   // Mode
@@ -782,6 +786,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeTasksProgress,
     activeTaskSteps,
     onOpenTasks,
+    onOpenFiles,
     activeGoal,
     runtimeMode,
     interactionMode,
@@ -967,6 +972,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   //   5. First enabled entry overall / default instance for the kind.
   //
   const selectedInstanceId = useMemo<ProviderInstanceId>(() => {
+    const compatibleEntries = providerInstanceEntries.filter(
+      (entry) =>
+        (!lockedProvider || entry.driverKind === lockedProvider) &&
+        (!lockedContinuationGroupKey || entry.continuationGroupKey === lockedContinuationGroupKey),
+    );
     const candidates: Array<string | null | undefined> = [
       composerDraft.activeProvider,
       activeThread?.session?.providerInstanceId,
@@ -975,27 +985,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ];
     for (const candidate of candidates) {
       if (!candidate) continue;
-      const match = providerInstanceEntries.find(
-        (entry) => entry.instanceId === candidate && entry.enabled && entry.isAvailable,
-      );
+      const match = compatibleEntries.find((entry) => entry.instanceId === candidate);
       if (match) {
-        // When locked to a specific driver kind, ignore persisted instance
-        // ids from a different kind or continuation group.
-        if (lockedProvider && match.driverKind !== lockedProvider) continue;
-        if (
-          lockedContinuationGroupKey &&
-          match.continuationGroupKey !== lockedContinuationGroupKey
-        ) {
-          continue;
-        }
-        return match.instanceId;
+        const sameHarnessEntries = compatibleEntries.filter(
+          (entry) => entry.driverKind === match.driverKind,
+        );
+        const resolved = resolveSelectableProviderInstanceEntry(
+          sameHarnessEntries,
+          match.instanceId,
+        );
+        if (resolved) return resolved.instanceId;
       }
     }
-    const compatibleEntries = providerInstanceEntries.filter(
-      (entry) =>
-        (!lockedProvider || entry.driverKind === lockedProvider) &&
-        (!lockedContinuationGroupKey || entry.continuationGroupKey === lockedContinuationGroupKey),
-    );
     const requestedDriverEntries = compatibleEntries.filter(
       (entry) => entry.driverKind === requestedDriverKind,
     );
@@ -1252,6 +1253,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
+  const threadPicker = useThreadPicker({
+    environmentId,
+    activeThreadId,
+    query: composerTrigger?.kind === "thread" ? composerTrigger.query : "",
+  });
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
@@ -1263,6 +1269,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         pathKind: entry.kind,
         label: basenameOfPath(entry.path),
         description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+      }));
+    }
+    if (composerTrigger.kind === "thread") {
+      return threadPicker.matches.map((thread) => ({
+        id: `thread:${thread.threadId}`,
+        type: "thread" as const,
+        thread,
+        label: thread.title,
+        description: `${thread.harness} · ${new Date(thread.updatedAt).toLocaleDateString()}`,
       }));
     }
     if (composerTrigger.kind === "slash-command") {
@@ -1356,6 +1371,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
     selectedProviderStatus,
     settings.showSkillsInSlashMenu,
+    threadPicker.matches,
     workspaceEntries.entries,
   ]);
 
@@ -1421,14 +1437,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
-    composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending;
+    (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
+    (composerTriggerKind === "thread" && threadPicker.isPending);
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }
     return composerTriggerKind === "path"
       ? "No matching files or folders."
-      : "No matching command.";
+      : composerTriggerKind === "thread"
+        ? "No matching threads in this project."
+        : "No matching command.";
   }, [composerTriggerKind]);
 
   // ------------------------------------------------------------------
@@ -1973,6 +1992,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
+      if (item.type === "thread") {
+        const safeTitle = item.thread.title.replaceAll("\\", "\\\\").replaceAll("]", "\\]");
+        const replacement = `[thread:${safeTitle}](thread:${item.thread.threadId}) `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) setComposerHighlightedItemId(null);
+        return;
+      }
       if (item.type === "path") {
         const replacement = `${serializeComposerFileLink(item.path)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -3384,7 +3420,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 answers={activePendingDraftAnswers}
                 questionIndex={activePendingQuestionIndex}
                 onToggleOption={onSelectActivePendingUserInputOption}
-                onAdvance={onAdvanceActivePendingUserInput}
               />
             ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
               <ComposerPlanFollowUpBanner
@@ -3415,7 +3450,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   answers={activePendingDraftAnswers}
                   questionIndex={activePendingQuestionIndex}
                   onToggleOption={onSelectActivePendingUserInputOption}
-                  onAdvance={onAdvanceActivePendingUserInput}
                 />
                 <div className="px-3 pb-3 sm:px-4">
                   <div
@@ -3834,7 +3868,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : "Ask anything, @thread to link a chat, @tag files/folders, or / for commands"
                     }
                     disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
                   />
@@ -3899,7 +3933,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       <MenuTrigger
                         render={
                           <ComposerControl
-                            aria-label="Attach media or folders"
+                            aria-label="Attach files or browse the workspace"
                             className="-ms-2 shrink-0"
                             type="button"
                           />
@@ -3912,8 +3946,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         className="max-w-[calc(100vw-1.5rem)] min-w-52"
                         side="top"
                       >
+                        <MenuItem onClick={onOpenFiles}>
+                          <FolderTreeIcon className="size-4" /> Browse workspace files…
+                        </MenuItem>
                         <MenuItem onClick={() => attachFilesInputRef.current?.click()}>
-                          <PaperclipIcon className="size-4" /> Attach files…
+                          <PaperclipIcon className="size-4" /> Attach from device…
                         </MenuItem>
                         <MenuItem
                           onClick={() => {

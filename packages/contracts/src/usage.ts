@@ -21,9 +21,16 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
  * client renders partial coverage when an environment reports an older version
  * rather than failing the whole page.
  */
-export const USAGE_CONTRACT_VERSION = 4 as const;
+export const USAGE_CONTRACT_VERSION = 5 as const;
 
-export const UsageProviderKind = Schema.Literals(["claude", "codex"]);
+export const UsageProviderKind = Schema.Literals([
+  "claude",
+  "codex",
+  "cursor",
+  "grok",
+  "opencode",
+  "antigravity",
+]);
 export type UsageProviderKind = typeof UsageProviderKind.Type;
 
 /**
@@ -98,6 +105,12 @@ export const UsageBucket = Schema.Struct({
   unpricedRecords: NonNegativeInt,
   /** Distinct transcript sessions that contributed to this cell. */
   sessions: NonNegativeInt,
+  /** Bounded session ids for usage drill-down. */
+  sessionIds: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100))),
+  /** Bounded project keys for usage drill-down. */
+  projectKeys: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100))),
+  /** Session title hints, bounded to the same cell cardinality. */
+  threadTitles: Schema.optional(Schema.Record(Schema.String, TrimmedNonEmptyString)),
 });
 export type UsageBucket = typeof UsageBucket.Type;
 
@@ -157,6 +170,17 @@ export const UsagePricing = Schema.Struct({
   source: TrimmedNonEmptyString,
   fetchedAt: Schema.NullOr(Schema.String),
   knownModels: NonNegativeInt,
+  rates: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        model: TrimmedNonEmptyString,
+        inputPer1M: Schema.Number,
+        outputPer1M: Schema.Number,
+        cacheReadPer1M: Schema.Number,
+        cacheCreationPer1M: Schema.Number,
+      }),
+    ),
+  ),
 });
 export type UsagePricing = typeof UsagePricing.Type;
 

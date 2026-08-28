@@ -62,6 +62,10 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
               accentColor: instance.accentColor,
               enabled: instance.enabled,
               continuationIdentity: instance.continuationIdentity,
+              runtimeManifestFingerprint: instance.runtime?.manifest.fingerprint,
+              serviceConnectionId: instance.runtime?.manifest.connectionId,
+              modelProfileId: instance.runtime?.manifest.modelProfileId,
+              runtimeManifestVersion: instance.runtime?.manifest.manifestVersion,
             }),
       ),
     );

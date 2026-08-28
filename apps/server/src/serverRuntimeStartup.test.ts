@@ -98,6 +98,25 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           searchThreads: () => Effect.succeed({ matches: [] }),
+              listThreadsForPicker: () => Effect.succeed({ matches: [] }),
+              capsulePreview: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadTitle: "t",
+                  claimCount: 0,
+                  tokenEstimate: 0,
+                  topClaimTexts: [],
+                }),
+              capsuleExpand: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadHarness: "unknown",
+                  rawEvent: null,
+                  text: "",
+                  degraded: true,
+                  tokenCount: 0,
+                  claimIdsCovered: [],
+                }),
         }),
         Effect.provideService(AnalyticsService.AnalyticsService, {
           record: () => Effect.void,
@@ -162,6 +181,25 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadDetailById: () => Effect.die("unused"),
         getThreadDetailSnapshot: () => Effect.die("unused"),
         searchThreads: () => Effect.succeed({ matches: [] }),
+              listThreadsForPicker: () => Effect.succeed({ matches: [] }),
+              capsulePreview: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadTitle: "t",
+                  claimCount: 0,
+                  tokenEstimate: 0,
+                  topClaimTexts: [],
+                }),
+              capsuleExpand: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadHarness: "unknown",
+                  rawEvent: null,
+                  text: "",
+                  degraded: true,
+                  tokenCount: 0,
+                  claimIdsCovered: [],
+                }),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -207,6 +245,25 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadDetailById: () => Effect.die("unused"),
         getThreadDetailSnapshot: () => Effect.die("unused"),
         searchThreads: () => Effect.succeed({ matches: [] }),
+              listThreadsForPicker: () => Effect.succeed({ matches: [] }),
+              capsulePreview: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadTitle: "t",
+                  claimCount: 0,
+                  tokenEstimate: 0,
+                  topClaimTexts: [],
+                }),
+              capsuleExpand: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadHarness: "unknown",
+                  rawEvent: null,
+                  text: "",
+                  degraded: true,
+                  tokenCount: 0,
+                  claimIdsCovered: [],
+                }),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -258,6 +315,25 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadDetailById: () => Effect.die("unused"),
         getThreadDetailSnapshot: () => Effect.die("unused"),
         searchThreads: () => Effect.succeed({ matches: [] }),
+              listThreadsForPicker: () => Effect.succeed({ matches: [] }),
+              capsulePreview: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadTitle: "t",
+                  claimCount: 0,
+                  tokenEstimate: 0,
+                  topClaimTexts: [],
+                }),
+              capsuleExpand: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadHarness: "unknown",
+                  rawEvent: null,
+                  text: "",
+                  degraded: true,
+                  tokenCount: 0,
+                  claimIdsCovered: [],
+                }),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,

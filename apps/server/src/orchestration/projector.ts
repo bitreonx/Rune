@@ -59,7 +59,7 @@ function mergeCrossThreadOwnership(
 
   const ownersByPath = new Map<string, OrchestrationFileOwner[]>();
   for (const thread of readModel.threads) {
-    for (const ownership of thread.fileOwnership) {
+    for (const ownership of thread.fileOwnership ?? []) {
       if (!touchedPaths.has(ownership.path)) continue;
       const owners = ownersByPath.get(ownership.path) ?? [];
       for (const owner of ownership.owners) {
@@ -86,7 +86,7 @@ function mergeCrossThreadOwnership(
       if (thread.id === currentThreadId) {
         return {
           ...thread,
-          fileOwnership: thread.fileOwnership.map((entry) => ({
+          fileOwnership: (thread.fileOwnership ?? []).map((entry) => ({
             ...entry,
             owners: ownersByPath.get(entry.path) ?? entry.owners,
           })),
@@ -94,7 +94,7 @@ function mergeCrossThreadOwnership(
       }
       return {
         ...thread,
-        fileOwnership: thread.fileOwnership.map((entry) =>
+        fileOwnership: (thread.fileOwnership ?? []).map((entry) =>
           touchedPaths.has(entry.path)
             ? { ...entry, owners: ownersByPath.get(entry.path) ?? entry.owners }
             : entry,
@@ -653,7 +653,7 @@ export function projectEvent(
             }),
           },
           payload.threadId,
-          aggregated.fileOwnership,
+          thread.fileOwnership ?? [],
         );
       });
 

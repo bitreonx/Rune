@@ -11,6 +11,7 @@ interface PendingActionState {
   questionIndex: number;
   isLastQuestion: boolean;
   canAdvance: boolean;
+  canSkip?: boolean;
   isResponding: boolean;
   isComplete: boolean;
 }
@@ -32,6 +33,7 @@ interface ComposerPrimaryActionsProps {
   isContinueBusy?: boolean;
   showSendWhileRunning?: boolean;
   onPreviousPendingQuestion: () => void;
+  onSkipPendingQuestion?: () => void;
   onInterrupt: () => void;
   onContinue?: () => void;
   onImplementPlanInNewThread: () => void;
@@ -76,6 +78,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isContinueBusy = false,
   showSendWhileRunning = false,
   onPreviousPendingQuestion,
+  onSkipPendingQuestion,
   onInterrupt,
   onContinue = () => {},
   onImplementPlanInNewThread,
@@ -156,6 +159,18 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               Previous
             </Button>
           )
+        ) : null}
+        {pendingAction.canSkip && onSkipPendingQuestion ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full"
+            {...pointerFocusProps}
+            onClick={onSkipPendingQuestion}
+            disabled={pendingAction.isResponding}
+          >
+            Skip
+          </Button>
         ) : null}
         <Button
           type="submit"

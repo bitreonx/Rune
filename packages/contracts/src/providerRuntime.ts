@@ -496,6 +496,8 @@ const RequestResolvedPayload = Schema.Struct({
 export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 
 const UserInputQuestionOption = Schema.Struct({
+  /** Stable option identity for recommendations; legacy adapters may omit it. */
+  id: Schema.optional(TrimmedNonEmptyStringSchema),
   label: TrimmedNonEmptyStringSchema,
   description: TrimmedNonEmptyStringSchema,
 });
@@ -509,11 +511,26 @@ export const UserInputQuestion = Schema.Struct({
   multiSelect: Schema.optional(Schema.Boolean).pipe(
     Schema.withConstructorDefault(Effect.succeed(false)),
   ),
+  /** Option id (or legacy option label) that the provider recommends. */
+  recommendedOptionId: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Whether the composer should expose a free-form answer editor. */
+  allowCustomAnswer: Schema.optional(Schema.Boolean),
+  /** Whether a selected recommendation can be edited before submission. */
+  allowEditSuggestedAnswer: Schema.optional(Schema.Boolean),
+  /** Optional decisions expose an explicit Skip action in the composer. */
+  allowSkip: Schema.optional(Schema.Boolean),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;
 
+export const UserInputRequestPhase = Schema.Literal("waiting-for-user");
+export type UserInputRequestPhase = typeof UserInputRequestPhase.Type;
+
 const UserInputRequestedPayload = Schema.Struct({
   questions: Schema.Array(UserInputQuestion),
+  title: Schema.optional(TrimmedNonEmptyStringSchema),
+  context: Schema.optional(TrimmedNonEmptyStringSchema),
+  blocking: Schema.optional(Schema.Boolean),
+  phase: Schema.optional(UserInputRequestPhase),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 

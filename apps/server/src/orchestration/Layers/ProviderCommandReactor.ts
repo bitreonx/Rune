@@ -28,7 +28,12 @@ import { makeDrainableWorker } from "@rune/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
-import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
+import {
+  ProviderAdapterProcessError,
+  ProviderAdapterRequestError,
+  ProviderAdapterSessionClosedError,
+  ProviderAdapterSessionNotFoundError,
+} from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -48,6 +53,9 @@ import {
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
+const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
+const isProviderAdapterSessionClosedError = Schema.is(ProviderAdapterSessionClosedError);
+const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
 type ProviderIntentEvent = Extract<
@@ -116,7 +124,9 @@ function formatThreadTitleSection(message: ThreadTitleMessage): string | undefin
   }
   const text = message.text.trim();
   const attachmentSummary = (message.attachments ?? [])
-    .map((attachment) => attachment.name)
+    .map((attachment) =>
+      attachment.type === "thread-mention" ? attachment.title : attachment.name,
+    )
     .join(", ");
   const contents = [
     ...(text.length > 0 ? [text] : []),
@@ -204,7 +214,10 @@ function formatThreadTitleContext(messages: ReadonlyArray<ThreadTitleMessage>): 
   const retainedRecent = collectRecentThreadTitleContext(messages, recentContextBudget);
   const pinnedAttachment = firstUserMessage.attachments?.[0];
   const recentAttachments = retainedRecent.attachments.filter(
-    (attachment) => attachment.id !== pinnedAttachment?.id,
+    (attachment) =>
+      attachment.type !== "image" ||
+      pinnedAttachment?.type !== "image" ||
+      attachment.id !== pinnedAttachment.id,
   );
 
   return {
@@ -379,11 +392,15 @@ const make = Effect.gen(function* () {
 
   const formatFailureDetail = (cause: Cause.Cause<unknown>): string => {
     const failReason = cause.reasons.find(Cause.isFailReason);
-    const providerError = isProviderAdapterRequestError(failReason?.error)
-      ? failReason.error
-      : undefined;
-    if (providerError) {
-      return providerError.detail;
+    const error = failReason?.error;
+    if (isProviderAdapterRequestError(error) || isProviderAdapterProcessError(error)) {
+      return error.detail;
+    }
+    if (
+      isProviderAdapterSessionClosedError(error) ||
+      isProviderAdapterSessionNotFoundError(error)
+    ) {
+      return error.message;
     }
     return Cause.pretty(cause);
   };
@@ -650,6 +667,18 @@ const make = Effect.gen(function* () {
                 : mapProviderSessionStatusToOrchestrationStatus(session.status),
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
+            ...(session.serviceConnectionId !== undefined
+              ? { serviceConnectionId: session.serviceConnectionId }
+              : {}),
+            ...(session.modelProfileId !== undefined
+              ? { modelProfileId: session.modelProfileId }
+              : {}),
+            ...(session.runtimeManifestFingerprint !== undefined
+              ? { runtimeManifestFingerprint: session.runtimeManifestFingerprint }
+              : {}),
+            ...(session.runtimeManifestVersion !== undefined
+              ? { runtimeManifestVersion: session.runtimeManifestVersion }
+              : {}),
             runtimeMode: desiredRuntimeMode,
             // Provider turn ids are not orchestration turn ids.
             activeTurnId: null,
@@ -753,8 +782,34 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
+    const threadMentions = normalizedAttachments.filter(
+      (attachment): attachment is Extract<ChatAttachment, { readonly type: "thread-mention" }> =>
+        attachment.type === "thread-mention",
+    );
+    const capsulePreviews = yield* Effect.forEach(threadMentions, (attachment) =>
+      projectionSnapshotQuery.capsulePreview({
+        activeThreadId: input.threadId,
+        sourceThreadId: attachment.threadId,
+        query: input.messageText,
+      }),
+    );
+    const capsuleContext = capsulePreviews
+      .filter((capsule) => capsule.topClaimTexts.length > 0)
+      .map(
+        (capsule) =>
+          `[Referenced thread: ${capsule.threadTitle}]\n${capsule.topClaimTexts
+            .map((text) => `- ${text}`)
+            .join("\n")}\n[End referenced thread]`,
+      )
+      .join("\n\n");
+    const normalizedInput = toNonEmptyProviderInput(
+      [capsuleContext, input.messageText].filter((value) => value.trim().length > 0).join("\n\n"),
+    );
+    const providerAttachments = normalizedAttachments.filter(
+      (attachment): attachment is Exclude<ChatAttachment, { readonly type: "thread-mention" }> =>
+        attachment.type !== "thread-mention",
+    );
     const activeSession = yield* providerService
       .listSessions()
       .pipe(
@@ -786,7 +841,7 @@ const make = Effect.gen(function* () {
     return {
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),
-      ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+      ...(providerAttachments.length > 0 ? { attachments: providerAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     };

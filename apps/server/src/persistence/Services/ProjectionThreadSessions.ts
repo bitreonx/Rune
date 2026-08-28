@@ -13,6 +13,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   TurnId,
+  TrimmedNonEmptyString,
 } from "@rune/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -26,6 +27,10 @@ export const ProjectionThreadSession = Schema.Struct({
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(Schema.String),
   providerInstanceId: Schema.NullOr(ProviderInstanceId),
+  serviceConnectionId: Schema.NullOr(TrimmedNonEmptyString),
+  modelProfileId: Schema.NullOr(TrimmedNonEmptyString),
+  runtimeManifestFingerprint: Schema.NullOr(TrimmedNonEmptyString),
+  runtimeManifestVersion: Schema.NullOr(Schema.Int),
   runtimeMode: RuntimeMode,
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(Schema.String),

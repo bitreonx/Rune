@@ -43,6 +43,7 @@ import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
+import { RuneMark } from "../RuneMark";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -1031,7 +1032,7 @@ export function AppearanceSettingsPanel() {
       <SettingsSection id="appearance" title="Appearance">
         <div className="mx-3 flex items-center gap-3 rounded-xl border border-border/60 bg-card/55 px-3 py-2.5 shadow-sm sm:mx-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-foreground shadow-sm">
-            <img alt="" className="size-7 object-contain" src="/rune-mark.svg" />
+            <RuneMark size="md" showWordmark={false} />
           </div>
           <div className="min-w-0">
             <div className="text-sm font-medium text-foreground">RUNE appearance system</div>

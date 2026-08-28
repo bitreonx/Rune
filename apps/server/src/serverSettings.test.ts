@@ -759,7 +759,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const instanceId = ProviderInstanceId.make("claude_openrouter");
       const codexInstanceId = ProviderInstanceId.make("codex_openrouter");
       const customInstanceId = ProviderInstanceId.make("codex_custom_gateway");
+      const ambiguousInstanceId = ProviderInstanceId.make("codex_ambiguous_openrouter");
+      const boundWithoutEnvironmentId = ProviderInstanceId.make("claude_bound_without_env");
       const serviceId = ServiceId.make("openrouter");
+      const secondaryServiceId = ServiceId.make("openrouter_secondary");
 
       const settings = yield* serverSettings.updateSettings({
         harnesses: {
@@ -770,11 +773,18 @@ it.layer(NodeServices.layer)("server settings", (it) => {
               displayName: "OpenRouter",
               credentialRef: "global-openrouter-key",
             },
+            [secondaryServiceId]: {
+              serviceId: secondaryServiceId,
+              kind: "openrouter",
+              displayName: "OpenRouter secondary",
+              credentialRef: "secondary-openrouter-key",
+            },
           },
         },
         providerInstances: {
           [instanceId]: {
             driver: ProviderDriverKind.make("claudeAgent"),
+            connectionId: serviceId,
             environment: [
               { name: "ANTHROPIC_BASE_URL", value: "https://openrouter.ai/api", sensitive: false },
             ],
@@ -782,6 +792,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
           [codexInstanceId]: {
             driver: ProviderDriverKind.make("codex"),
+            connectionId: secondaryServiceId,
             environment: [
               { name: "OPENAI_BASE_URL", value: "https://openrouter.ai/api/v1", sensitive: false },
             ],
@@ -796,6 +807,18 @@ it.layer(NodeServices.layer)("server settings", (it) => {
                 sensitive: false,
               },
             ],
+            config: {},
+          },
+          [ambiguousInstanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+            environment: [
+              { name: "OPENAI_BASE_URL", value: "https://openrouter.ai/api/v1", sensitive: false },
+            ],
+            config: {},
+          },
+          [boundWithoutEnvironmentId]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            connectionId: serviceId,
             config: {},
           },
         },
@@ -813,14 +836,60 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         settings.providerInstances[codexInstanceId]?.environment?.some(
           (variable) =>
             variable.name === "OPENAI_API_KEY" &&
-            variable.value === "sk-or-global" &&
+            variable.value === "sk-or-secondary" &&
             variable.sensitive === true,
         ) ?? false,
+      );
+      const claudeEnvironment = settings.providerInstances[instanceId]?.environment ?? [];
+      assert.equal(
+        claudeEnvironment.find((variable) => variable.name === "ANTHROPIC_BASE_URL")?.value,
+        "https://openrouter.ai/api",
+      );
+      assert.equal(
+        claudeEnvironment.find((variable) => variable.name === "ANTHROPIC_API_KEY")?.value,
+        "",
+      );
+      assert.equal(
+        claudeEnvironment.find((variable) => variable.name === "OPENROUTER_API_KEY")?.value,
+        "sk-or-global",
+      );
+      assert.equal(
+        claudeEnvironment.find((variable) => variable.name === "CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK")
+          ?.value,
+        "1",
+      );
+      assert.equal(
+        claudeEnvironment.find(
+          (variable) => variable.name === "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+        )?.value,
+        "1",
+      );
+      assert.equal(
+        (settings.providerInstances[codexInstanceId]?.environment ?? []).find(
+          (variable) => variable.name === "OPENAI_BASE_URL",
+        )?.value,
+        "https://openrouter.ai/api/v1",
       );
       assert.isFalse(
         settings.providerInstances[customInstanceId]?.environment?.some(
           (variable) => variable.name === "OPENAI_API_KEY",
         ) ?? false,
+      );
+      assert.isFalse(
+        settings.providerInstances[instanceId]?.environment?.some(
+          (variable) => variable.name === "OPENAI_API_KEY" && variable.value === "sk-or-secondary",
+        ) ?? false,
+      );
+      assert.isFalse(
+        settings.providerInstances[ambiguousInstanceId]?.environment?.some(
+          (variable) => variable.name === "OPENAI_API_KEY",
+        ) ?? false,
+      );
+      assert.equal(
+        settings.providerInstances[boundWithoutEnvironmentId]?.environment?.find(
+          (variable) => variable.name === "ANTHROPIC_AUTH_TOKEN",
+        )?.value,
+        "sk-or-global",
       );
     }).pipe(
       Effect.provide(
@@ -832,7 +901,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
                 get: (name) =>
                   name === "global-openrouter-key"
                     ? Effect.succeed(Option.some(new TextEncoder().encode("sk-or-global")))
-                    : Effect.succeed(Option.none()),
+                    : name === "secondary-openrouter-key"
+                      ? Effect.succeed(Option.some(new TextEncoder().encode("sk-or-secondary")))
+                      : Effect.succeed(Option.none()),
                 set: () => Effect.void,
                 create: () => Effect.void,
                 getOrCreateRandom: () => Effect.succeed(new Uint8Array()),

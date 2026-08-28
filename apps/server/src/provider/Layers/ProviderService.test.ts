@@ -287,11 +287,26 @@ function makeProviderServiceLayer() {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
   const cursor = makeFakeCodexAdapter(CURSOR_DRIVER);
-  const registry = makeAdapterRegistryMock({
+  const baseRegistry = makeAdapterRegistryMock({
     [ProviderDriverKind.make("codex")]: codex.adapter,
     [ProviderDriverKind.make("claudeAgent")]: claude.adapter,
     [ProviderDriverKind.make("cursor")]: cursor.adapter,
   });
+  const manifestFingerprints = new Map<ProviderInstanceId, string>();
+  const registry: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"] = {
+    ...baseRegistry,
+    getInstanceInfo: (instanceId) =>
+      baseRegistry.getInstanceInfo(instanceId).pipe(
+        Effect.map((info) => ({
+          ...info,
+          runtimeManifestFingerprint:
+            manifestFingerprints.get(instanceId) ?? `manifest:${String(instanceId)}`,
+          serviceConnectionId: `service:${String(instanceId)}`,
+          modelProfileId: `profile:${String(instanceId)}`,
+          runtimeManifestVersion: 1,
+        })),
+      ),
+  };
 
   const providerAdapterLayer = Layer.succeed(
     ProviderAdapterRegistry.ProviderAdapterRegistry,
@@ -328,6 +343,7 @@ function makeProviderServiceLayer() {
     codex,
     claude,
     cursor,
+    manifestFingerprints,
     layer,
   };
 }
@@ -940,6 +956,25 @@ routing.layer("ProviderServiceLive routing", (it) => {
         runtimeMode: "full-access",
       });
       assert.equal(session.provider, "codex");
+      assert.equal(session.runtimeManifestFingerprint, "manifest:codex");
+      assert.equal(session.serviceConnectionId, "service:codex");
+      assert.equal(session.modelProfileId, "profile:codex");
+      assert.equal(session.runtimeManifestVersion, 1);
+
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      const persisted = yield* runtimeRepository.getByThreadId({ threadId: session.threadId });
+      assert.isTrue(Option.isSome(persisted));
+      if (Option.isSome(persisted)) {
+        assert.equal(
+          (persisted.value.runtimePayload as { runtimeManifestFingerprint?: string })
+            .runtimeManifestFingerprint,
+          "manifest:codex",
+        );
+        assert.equal(persisted.value.serviceConnectionId, "service:codex");
+        assert.equal(persisted.value.modelProfileId, "profile:codex");
+        assert.equal(persisted.value.runtimeManifestFingerprint, "manifest:codex");
+        assert.equal(persisted.value.runtimeManifestVersion, 1);
+      }
 
       const sessions = yield* provider.listSessions();
       assert.equal(sessions.length, 1);
@@ -1011,6 +1046,60 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.threadId, session.threadId);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("rejects a turn selection that targets a different pinned instance", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-selection-instance-guard");
+
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      routing.codex.sendTurn.mockClear();
+
+      const failure = yield* Effect.flip(
+        provider.sendTurn({
+          threadId,
+          input: "must stay on codex",
+          attachments: [],
+          modelSelection: createModelSelection(claudeAgentInstanceId, "claude-opus-4-6"),
+        }),
+      );
+
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "session is pinned to 'codex'");
+      assert.equal(routing.codex.sendTurn.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("does not recover a session against a changed runtime manifest", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-manifest-pinning");
+
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.stopSession({ threadId });
+      routing.codex.startSession.mockClear();
+      routing.manifestFingerprints.set(codexInstanceId, "manifest:changed");
+
+      const failure = yield* Effect.flip(
+        provider.sendTurn({ threadId, input: "do not silently switch config", attachments: [] }),
+      );
+
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "runtime manifest changed");
+      assert.equal(routing.codex.startSession.mock.calls.length, 0);
+      routing.manifestFingerprints.delete(codexInstanceId);
     }),
   );
 

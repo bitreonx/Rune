@@ -1642,7 +1642,7 @@ export default function ThreadTerminalDrawer({
         data-rune-terminal-surface
         aria-label="RUNE Console"
         className={cn(
-          "thread-terminal-drawer rune-console-surface relative flex min-w-0 flex-col overflow-hidden",
+          "thread-terminal-drawer rune-console-surface surface-glass relative flex min-w-0 flex-col overflow-hidden rounded-2xl shadow-lg shadow-black/10",
           isPanel
             ? "h-full flex-1 border border-border/70"
             : "shrink-0 border border-border/75",
@@ -1692,7 +1692,7 @@ export default function ThreadTerminalDrawer({
       data-rune-terminal-surface
       aria-label="RUNE Console"
       className={cn(
-        "thread-terminal-drawer rune-console-surface relative flex min-w-0 flex-col overflow-hidden",
+        "thread-terminal-drawer rune-console-surface surface-glass relative flex min-w-0 flex-col overflow-hidden rounded-2xl shadow-lg shadow-black/10",
         isPanel
           ? "h-full flex-1 border border-border/70"
           : "shrink-0 border border-border/75",
@@ -1716,7 +1716,7 @@ export default function ThreadTerminalDrawer({
 
       <div
         data-rune-console-toolbar="true"
-        className="flex h-7 shrink-0 items-center justify-between gap-1 border-b border-border/70 pr-1 pl-2"
+        className="flex h-8 shrink-0 items-center justify-between gap-1 border-b border-border/60 bg-background/20 pr-1 pl-2"
       >
         <div className="flex min-w-0 items-center gap-1.5">
           <TerminalSquare className="size-3 shrink-0 text-muted-foreground" aria-hidden />

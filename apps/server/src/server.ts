@@ -65,12 +65,14 @@ import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletion
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
+import { SkillRegistryLive } from "./provider/SkillRegistry.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as RUNEProjectFileLoader from "./project/RUNEProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as WorkspaceFileWatcher from "./workspace/WorkspaceFileWatcher.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
@@ -348,6 +350,7 @@ const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePaths.layer,
   WorkspaceEntriesLayerLive,
   WorkspaceFileSystemLayerLive,
+  WorkspaceFileWatcher.layer,
 );
 
 const ProjectFaviconResolverLayerLive = ProjectFaviconResolver.layer.pipe(
@@ -386,6 +389,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(Keybindings.layer),
   Layer.provideMerge(ProviderRegistryLive),
+  Layer.provideMerge(SkillRegistryLive),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`
   // through this layer. Built-in drivers come from `BUILT_IN_DRIVERS`;

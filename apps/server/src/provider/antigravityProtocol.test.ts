@@ -54,6 +54,50 @@ describe("Antigravity stream protocol", () => {
     });
   });
 
+  it("normalizes the current nested agy event payloads", () => {
+    expect(
+      parseAntigravityStreamLine(
+        JSON.stringify({
+          event: "init",
+          conversation_id: "conv-current",
+          init: { model: "gemini-3.7-flash-low", cwd: "D:\\Apps\\Rune" },
+        }),
+      ),
+    ).toMatchObject({
+      event: "init",
+      conversation_id: "conv-current",
+      model: "gemini-3.7-flash-low",
+    });
+    expect(
+      parseAntigravityStreamLine(
+        JSON.stringify({
+          event: "step_update",
+          step_update: {
+            step_type: "agent_response",
+            text_delta: "OK",
+          },
+        }),
+      ),
+    ).toMatchObject({ event: "step_update", step_type: "agent_response", text_delta: "OK" });
+    expect(
+      parseAntigravityStreamLine(
+        JSON.stringify({
+          event: "result",
+          result: {
+            status: "SUCCESS",
+            response: "OK",
+            usage: { input_tokens: 3, output_tokens: 1 },
+          },
+        }),
+      ),
+    ).toMatchObject({
+      event: "result",
+      status: "SUCCESS",
+      response: "OK",
+      usage: { input_tokens: 3, output_tokens: 1 },
+    });
+  });
+
   it("ignores blank and malformed output rather than taking down the session reader", () => {
     expect(parseAntigravityStreamLine("")).toBeUndefined();
     expect(parseAntigravityStreamLine("not json")).toBeUndefined();

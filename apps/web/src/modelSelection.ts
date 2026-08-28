@@ -23,7 +23,11 @@ import {
   resolveSelectableProvider,
 } from "./providerModels";
 import { ModelEsque } from "./components/chat/providerIconUtils";
-import { type ProviderInstanceEntry, deriveProviderInstanceEntries } from "./providerInstances";
+import {
+  type ProviderInstanceEntry,
+  deriveProviderInstanceEntries,
+  resolveSelectableProviderInstanceEntry,
+} from "./providerInstances";
 import { sortModelsForProviderInstance } from "./modelOrdering";
 
 const MAX_CUSTOM_MODEL_COUNT = 32;
@@ -332,15 +336,13 @@ export function resolveAppModelSelectionState(
     model: DEFAULT_TEXT_GENERATION_MODEL,
   };
   const entries = deriveProviderInstanceEntries(providers);
-  const selectedEntry = entries.find(
-    (entry) => entry.instanceId === selection.instanceId && entry.enabled && entry.isAvailable,
-  );
-  const entry =
-    selectedEntry ?? entries.find((candidate) => candidate.enabled && candidate.isAvailable);
+  const selectedEntry = resolveSelectableProviderInstanceEntry(entries, selection.instanceId);
+  const entry = selectedEntry;
   if (entry) {
     // When the instance changed due to fallback (e.g. selected instance was disabled),
     // don't carry over the old instance's model — use the fallback instance's default.
-    const selectedModel = selectedEntry ? selection.model : null;
+    const selectedModel =
+      selectedEntry?.instanceId === selection.instanceId ? selection.model : null;
     const model =
       resolveAppModelSelectionForInstance(entry.instanceId, settings, providers, selectedModel) ??
       entry.models[0]?.slug ??
@@ -353,7 +355,8 @@ export function resolveAppModelSelectionState(
       provider,
       model,
       models: entry.models,
-      modelOptions: selectedEntry ? selection.options : undefined,
+      modelOptions:
+        selectedEntry?.instanceId === selection.instanceId ? selection.options : undefined,
       planModeEnabled: settings.planModeEnabled,
     });
 

@@ -6,23 +6,17 @@ import {
   squashAtomCommandFailure,
 } from "@rune/client-runtime/state/runtime";
 import {
-  defaultInstanceIdForDriver,
   type EnvironmentId,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
-  type ProviderInstanceConfig,
-  type ProviderInstanceId,
   resolveProviderInstanceEnabled,
 } from "@rune/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
 import {
   getBackgroundActivityPresetSettings,
   resolveServerBackgroundActivitySettings,
 } from "@rune/shared/backgroundActivitySettings";
 import { useNavigate } from "@tanstack/react-router";
-import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
-import * as Result from "effect/Result";
 import {
   CloudIcon,
   LaptopIcon,
@@ -42,7 +36,6 @@ import { usePrimarySessionState } from "../../environments/primary";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
-import { listProviderInstanceSlots, type ResolvedInstanceSlot } from "../../providerInstanceSlots";
 import {
   useEnvironments,
   usePrimaryEnvironmentId,
@@ -86,12 +79,10 @@ import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { AddServiceTile } from "./ClaudeSubscriptionCard";
 import { HarnessesSection } from "./HarnessesSection";
 import { ModelServicesSection } from "./ModelServicesSection";
-import { ProviderInstanceCard } from "./ProviderInstanceCard";
-import { DRIVER_OPTIONS, getDriverOption, getProviderSetupGuide } from "./providerDriverMeta";
+import { DRIVER_OPTIONS, getProviderSetupGuide } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
-  buildProviderInstanceUpdatePatch,
   durationToSeconds,
   normalizeIntervalSeconds,
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
@@ -113,26 +104,6 @@ import {
   resolveRemoteOperateAccess,
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
-
-function withoutProviderInstanceKey<V>(
-  record: Readonly<Record<ProviderInstanceId, V>> | undefined,
-  key: ProviderInstanceId,
-): Record<ProviderInstanceId, V> {
-  const next = { ...record } as Record<ProviderInstanceId, V>;
-  delete next[key];
-  return next;
-}
-
-function withoutProviderInstanceFavorites(
-  favorites: ReadonlyArray<{ readonly provider: ProviderInstanceId; readonly model: string }>,
-  instanceId: ProviderInstanceId,
-) {
-  return favorites.filter((favorite) => favorite.provider !== instanceId);
-}
-
-const PROVIDER_SETTINGS = DRIVER_OPTIONS.map((definition) => ({
-  provider: definition.value,
-}));
 
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
   useRelativeTimeTick();
@@ -399,7 +370,6 @@ export function EnvironmentProviderSettings({
   const [updatingProviderDrivers, setUpdatingProviderDrivers] = useState<
     ReadonlySet<ProviderDriverKind>
   >(() => new Set());
-  const [openInstanceDetails, setOpenInstanceDetails] = useState<Record<string, boolean>>({});
   const refreshingRef = useRef(false);
   const updatingDriversRef = useRef<Set<ProviderDriverKind>>(new Set());
 
@@ -410,14 +380,6 @@ export function EnvironmentProviderSettings({
   const providerUpdateCandidateByInstanceId = useMemo(
     () => new Map(providerUpdateCandidates.map((candidate) => [candidate.instanceId, candidate])),
     [providerUpdateCandidates],
-  );
-  const visibleProviderSettings = PROVIDER_SETTINGS.filter(
-    (providerSettings) =>
-      providerSettings.provider !== "cursor" ||
-      serverProviders.some(
-        (provider) =>
-          provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
-      ),
   );
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenInstanceId = textGenerationModelSelection.instanceId;
@@ -501,104 +463,6 @@ export function EnvironmentProviderSettings({
     [environmentId, updateProvider],
   );
 
-  const slots = listProviderInstanceSlots(
-    settings,
-    visibleProviderSettings.map((providerSettings) => providerSettings.provider),
-  );
-  // Every configured instance is a first-class provider card. Claude services
-  // use the same editor as Codex, Cursor, and the other drivers so models,
-  // credentials, enablement, and account identity are all discoverable in one
-  // place.
-  const rows = slots;
-
-  const updateProviderInstance = (
-    row: ResolvedInstanceSlot,
-    next: ProviderInstanceConfig,
-    options?: {
-      readonly textGenerationModelSelection?: Parameters<
-        typeof buildProviderInstanceUpdatePatch
-      >[0]["textGenerationModelSelection"];
-    },
-  ) => {
-    updateSettings(
-      buildProviderInstanceUpdatePatch({
-        settings,
-        instanceId: row.instanceId,
-        instance: next,
-        driver: row.driver,
-        isDefault: row.isDefault,
-        textGenerationModelSelection: options?.textGenerationModelSelection,
-      }),
-    );
-  };
-
-  const deleteProviderInstance = (id: ProviderInstanceId) => {
-    updateSettings({
-      providerInstances: withoutProviderInstanceKey(settings.providerInstances, id),
-    });
-  };
-
-  const updateProviderModelPreferences = (
-    instanceId: ProviderInstanceId,
-    next: {
-      readonly hiddenModels: ReadonlyArray<string>;
-      readonly modelOrder: ReadonlyArray<string>;
-    },
-  ) => {
-    const hiddenModels = [...new Set(next.hiddenModels.filter((slug) => slug.trim().length > 0))];
-    const modelOrder = [...new Set(next.modelOrder.filter((slug) => slug.trim().length > 0))];
-    const rest = withoutProviderInstanceKey(settings.providerModelPreferences, instanceId);
-    updateSettings({
-      providerModelPreferences:
-        hiddenModels.length === 0 && modelOrder.length === 0
-          ? rest
-          : {
-              ...rest,
-              [instanceId]: {
-                hiddenModels,
-                modelOrder,
-              },
-            },
-    });
-  };
-
-  const updateProviderFavoriteModels = (
-    instanceId: ProviderInstanceId,
-    nextFavoriteModels: ReadonlyArray<string>,
-  ) => {
-    const favoriteModels = [
-      ...new Set(
-        Arr.filterMap(nextFavoriteModels, (slug) => {
-          const trimmedSlug = slug.trim();
-          return trimmedSlug.length > 0 ? Result.succeed(trimmedSlug) : Result.failVoid;
-        }),
-      ),
-    ];
-    updateSettings({
-      favorites: [
-        ...withoutProviderInstanceFavorites(settings.favorites ?? [], instanceId),
-        ...favoriteModels.map((model) => ({ provider: instanceId, model })),
-      ],
-    });
-  };
-
-  const resetDefaultInstance = (driverKind: ProviderDriverKind) => {
-    type LegacyProviderSettings = (typeof settings.providers)[keyof typeof settings.providers];
-    const defaultLegacyProviders = DEFAULT_UNIFIED_SETTINGS.providers as Record<
-      string,
-      LegacyProviderSettings | undefined
-    >;
-    const defaultInstanceId = defaultInstanceIdForDriver(driverKind);
-    const defaultLegacyProvider = defaultLegacyProviders[driverKind];
-    if (defaultLegacyProvider === undefined) return;
-    updateSettings({
-      providers: {
-        ...settings.providers,
-        [driverKind]: defaultLegacyProvider,
-      } as typeof settings.providers,
-      providerInstances: withoutProviderInstanceKey(settings.providerInstances, defaultInstanceId),
-    });
-  };
 
   return (
     <>
@@ -675,36 +539,50 @@ export function EnvironmentProviderSettings({
             readOnly ? "flex flex-col gap-6 opacity-50 select-none" : "flex flex-col gap-6"
           }
         >
-          <HarnessesSection
-            settings={settings}
-            serverProviders={serverProviders}
-            onUpdateSettings={updateSettings}
-            onOpenInstance={(instanceId) =>
-              void navigate({
-                to: "/settings/providers/$instanceId",
-                params: { instanceId },
-                search: { env: String(environmentId) },
-              })
-            }
-            onDeleteInstance={(instanceId) =>
-              deleteProviderInstance(instanceId as any)
-            }
-            onRunUpdate={(driver) => {
-              const candidate = Array.from(providerUpdateCandidateByInstanceId.values()).find(
-                (c) => c.driver === driver,
-              );
-              if (candidate) {
-                void runProviderUpdate(candidate);
-              }
-            }}
-            environmentId={String(environmentId)}
-            readOnly={readOnly}
-          />
+          <nav
+            aria-label="Provider settings sections"
+            className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-border/60 bg-background/95 px-3 py-2 backdrop-blur sm:px-4"
+          >
+            {[
+              ["provider-harnesses", "Harnesses"],
+              ["provider-model-services", "Model Services"],
+            ].map(([id, label]) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
 
-          <ModelServicesSection
-            settings={settings}
-            onUpdateSettings={updateSettings}
-          />
+          <div id="provider-harnesses" className="scroll-mt-14">
+            <HarnessesSection
+              settings={settings}
+              serverProviders={serverProviders}
+              onUpdateSettings={updateSettings}
+              onOpenInstance={(instanceId) =>
+                void navigate({
+                  to: "/settings/providers/$instanceId",
+                  params: { instanceId },
+                  search: { env: String(environmentId) },
+                })
+              }
+              onRunUpdate={(driver) => {
+                const candidate = Array.from(providerUpdateCandidateByInstanceId.values()).find(
+                  (c) => c.driver === driver,
+                );
+                if (candidate) void runProviderUpdate(candidate);
+              }}
+              environmentId={String(environmentId)}
+              readOnly={readOnly}
+            />
+          </div>
+
+          <div id="provider-model-services" className="scroll-mt-14">
+            <ModelServicesSection settings={settings} onUpdateSettings={updateSettings} />
+          </div>
 
           <div className="border-t pt-4">
             <SettingsRow

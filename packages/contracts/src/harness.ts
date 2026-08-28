@@ -16,7 +16,11 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { ProviderInstanceEnvironment, ProviderInstanceId } from "./providerInstance.ts";
+import {
+  ProviderInstanceEnvironment,
+  ProviderInstanceId,
+  ServiceConnectionProtocol,
+} from "./providerInstance.ts";
 
 const SLUG_MAX_CHARS = 64;
 const SLUG_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
@@ -142,6 +146,10 @@ export const MODEL_SERVICE_STATUSES = [
 export const ModelServiceStatus = Schema.Literals(MODEL_SERVICE_STATUSES);
 export type ModelServiceStatus = typeof ModelServiceStatus.Type;
 
+/** How a service exposes its model catalog to a harness. */
+export const ModelCatalogPolicy = Schema.Literals(["static", "discover", "disabled"]);
+export type ModelCatalogPolicy = typeof ModelCatalogPolicy.Type;
+
 /**
  * ModelServiceConfig — configuration for a model service (OpenRouter, API gateway, etc.).
  */
@@ -149,8 +157,12 @@ export const ModelServiceConfig = Schema.Struct({
   serviceId: ServiceId,
   kind: ModelServiceKind,
   displayName: TrimmedNonEmptyString,
+  /** Explicit protocol; runtime routing must not infer this from baseUrl. */
+  protocol: Schema.optionalKey(ServiceConnectionProtocol),
   baseUrl: Schema.optionalKey(TrimmedString),
   credentialRef: Schema.optionalKey(TrimmedString),
+  modelCatalogPolicy: Schema.optionalKey(ModelCatalogPolicy),
+  compatibilityProfileId: Schema.optionalKey(TrimmedNonEmptyString),
   // Wire projection fields (non-secret state populated for client UI)
   hasCredential: Schema.optionalKey(Schema.Boolean),
   maskedLabel: Schema.optionalKey(Schema.String),

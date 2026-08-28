@@ -1,4 +1,5 @@
 import { ProviderDriverKind } from "@rune/contracts";
+import { getProviderBrand, PROVIDER_BRANDS } from "@rune/shared/providerBrands";
 import {
   AntigravityIcon,
   ClaudeAI,
@@ -26,42 +27,34 @@ import { PROVIDER_OPTIONS } from "../../session-logic";
  * `PROVIDER_ICON_BY_PROVIDER[harness.kind as any]` without TypeScript
  * complaining; the harness string keys never collide with driver kinds.
  */
-export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind | string, Icon>> = {
-  [ProviderDriverKind.make("codex")]: OpenAI,
-  [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
-  [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
-  [ProviderDriverKind.make("opencode")]: OpenCodeIcon,
-  [ProviderDriverKind.make("cursor")]: CursorIcon,
-  [ProviderDriverKind.make("grok")]: GrokIcon,
-  [ProviderDriverKind.make("openaiApi")]: OpenAI,
-  [ProviderDriverKind.make("openrouter")]: OpenRouterIcon,
-  /** Rune Native harness in the AddHarnessDialog picker. */
-  runeNative: RuneMarkIcon,
-};
-
-export const SERVICE_ICON_BY_KIND: Record<string, Icon> = {
-  openrouter: OpenRouterIcon,
+const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"], Icon> = {
+  rune: RuneMarkIcon,
   openai: OpenAI,
-  anthropic: ClaudeAI,
+  claude: ClaudeAI,
+  antigravity: AntigravityIcon,
+  opencode: OpenCodeIcon,
+  cursor: CursorIcon,
+  grok: GrokIcon,
+  openrouter: OpenRouterIcon,
   google: Gemini,
-  gemini: Gemini,
   deepseek: DeepSeekIcon,
   xai: xAIIcon,
-  grok: GrokIcon,
-  "custom-openai-compatible": OpenAI,
-  "custom-anthropic-compatible": ClaudeAI,
 };
 
+export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind | string, Icon>> =
+  Object.fromEntries(
+    Object.values(PROVIDER_BRANDS).map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
+  );
+
+export const SERVICE_ICON_BY_KIND: Record<string, Icon> = Object.fromEntries(
+  Object.values(PROVIDER_BRANDS)
+    .filter((brand) => brand.source === "service")
+    .map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
+);
+
 export function getProviderOrServiceIcon(kind: string): Icon | null {
-  const driverKind = ProviderDriverKind.make(kind);
-  if (PROVIDER_ICON_BY_PROVIDER[driverKind]) {
-    return PROVIDER_ICON_BY_PROVIDER[driverKind]!;
-  }
-  const lower = kind.toLowerCase();
-  if (SERVICE_ICON_BY_KIND[lower]) {
-    return SERVICE_ICON_BY_KIND[lower]!;
-  }
-  return null;
+  const brand = getProviderBrand(kind);
+  return brand ? ICON_BY_KEY[brand.iconKey] : null;
 }
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {

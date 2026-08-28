@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
+import * as PlatformError from "effect/PlatformError";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AntigravitySettings } from "@rune/contracts";
@@ -137,7 +138,65 @@ it.layer(Layer.mergeAll(NodeServices.layer))("Antigravity provider health", (it)
     }),
   );
 
-  it.effect("keeps the verified CLI ready when model discovery exceeds its soft timeout", () =>
+  it.effect("reuses a recent model catalog when discovery temporarily fails", () =>
+    Effect.gen(function* () {
+      const binaryPath = process.execPath;
+      const discovered = yield* checkAntigravityProviderStatus(
+        decodeSettings({ binaryPath }),
+      ).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          makeProbeSpawner("gemini-3.7-flash-high\tGemini 3.7 Flash (High)\nclaude-sonnet-4-6\tClaude Sonnet 4.6\n"),
+        ),
+      );
+      expect(discovered.status).toBe("ready");
+
+      const fallback = yield* checkAntigravityProviderStatus(
+        decodeSettings({ binaryPath }),
+      ).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          makeProbeSpawner("Fetching available models...\n"),
+        ),
+      );
+
+      expect(fallback.status).toBe("warning");
+      expect(fallback.auth.status).toBe("authenticated");
+      expect(fallback.message).toContain("last-known-good");
+      expect(fallback.models.map((model) => model.slug)).toEqual([
+        "gemini-3.7-flash-high",
+        "claude-sonnet-4-6",
+      ]);
+    }),
+  );
+
+  it.effect("reports an explicit missing CLI path as not installed", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* checkAntigravityProviderStatus(
+        decodeSettings({ binaryPath: "C:\\definitely-missing\\agy.exe" }),
+      ).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() =>
+            Effect.fail(
+              PlatformError.systemError({
+                _tag: "NotFound",
+                module: "ChildProcess",
+                method: "spawn",
+                description: "configured agy path not found",
+              }),
+            ),
+          ),
+        ),
+      );
+
+      expect(snapshot.message).toContain("Configured Antigravity CLI path");
+      expect(snapshot.installed).toBe(false);
+      expect(snapshot.status).toBe("error");
+    }),
+  );
+
+  it.effect("keeps the verified CLI usable but marks model discovery timeout as warning", () =>
     Effect.gen(function* () {
       const snapshot = yield* checkAntigravityProviderStatus(
         decodeSettings({ binaryPath: "agy" }),
@@ -147,10 +206,10 @@ it.layer(Layer.mergeAll(NodeServices.layer))("Antigravity provider health", (it)
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, makeSlowModelsSpawner()),
       );
 
-      expect(snapshot.status).toBe("ready");
+      expect(snapshot.status).toBe("warning");
       expect(snapshot.installed).toBe(true);
       expect(snapshot.models[0]?.slug).toBe("gemini-3.7-flash-high");
-      expect(snapshot.message).toContain("using the configured default model");
+      expect(snapshot.message).toContain("model discovery timed out");
     }),
   );
 });

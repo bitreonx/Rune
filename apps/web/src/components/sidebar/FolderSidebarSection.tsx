@@ -57,6 +57,21 @@ function folderCount(
   }).length;
 }
 
+function folderProjectCount(
+  folder: FolderRecord,
+  state: ThreadOrganizationState,
+  threadFolderByKey: Readonly<Record<string, string | null>>,
+  threadProjectKeysByThreadKey: Readonly<Record<string, string>>,
+): number {
+  const ids = folderAndDescendantIds(state, folder.id);
+  return new Set(
+    Object.entries(threadFolderByKey)
+      .filter(([, folderId]) => folderId !== null && ids.has(folderId))
+      .map(([threadKey]) => threadProjectKeysByThreadKey[threadKey])
+      .filter((projectKey): projectKey is string => Boolean(projectKey)),
+  ).size;
+}
+
 export function FolderSidebarSection(props: FolderSidebarSectionProps) {
   const organization = useThreadOrganizationStore();
   const [showEmptyFolders, setShowEmptyFolders] = useLocalStorage(
@@ -108,6 +123,14 @@ export function FolderSidebarSection(props: FolderSidebarSectionProps) {
   const selectedFolderDescendants = selectedFolder
     ? folderAndDescendantIds(organization, selectedFolder.id)
     : new Set<string>();
+  const selectedFolderProjectCount = selectedFolder
+    ? folderProjectCount(
+        selectedFolder,
+        organization,
+        organization.threadFolderByKey,
+        props.threadProjectKeysByThreadKey,
+      )
+    : 0;
   const parentChoices = useMemo(
     () =>
       Object.values(organization.folders)
@@ -194,6 +217,7 @@ export function FolderSidebarSection(props: FolderSidebarSectionProps) {
           )}
           style={{ paddingInlineStart: `${depth * 12 + 4}px` }}
           data-rune-folder-design={folder.defaultDesign?.preset ?? "slate-minimal"}
+          title={folder.description || undefined}
         >
           {children.length > 0 ? (
             <button
@@ -217,7 +241,13 @@ export function FolderSidebarSection(props: FolderSidebarSectionProps) {
             className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-pressed={selected}
           >
-            <FolderIcon className="size-4 shrink-0 text-[var(--rune-folder-accent)]" />
+            {folder.icon ? (
+              <span className="size-4 shrink-0 text-center text-xs leading-4" aria-hidden>
+                {folder.icon}
+              </span>
+            ) : (
+              <FolderIcon className="size-4 shrink-0 text-[var(--rune-folder-accent)]" />
+            )}
             <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
             <span className="shrink-0 font-mono text-[10px] tabular-nums text-sidebar-muted-foreground/60">
               {count}
@@ -344,7 +374,13 @@ export function FolderSidebarSection(props: FolderSidebarSectionProps) {
           data-rune-folder-details
         >
           <div className="mb-2 flex items-start gap-2">
-            <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--rune-folder-accent)]" />
+            {selectedFolder.icon ? (
+              <span className="mt-0.5 size-4 shrink-0 text-center text-xs leading-4" aria-hidden>
+                {selectedFolder.icon}
+              </span>
+            ) : (
+              <FolderIcon className="mt-0.5 size-4 shrink-0 text-[var(--rune-folder-accent)]" />
+            )}
             <div className="min-w-0 flex-1">
               <input
                 value={editingName}
@@ -360,8 +396,7 @@ export function FolderSidebarSection(props: FolderSidebarSectionProps) {
                   organization.threadFolderByKey,
                   props.threadProjectKeysByThreadKey,
                   props.projectScopeKeys,
-                )}{" "}
-                threads
+                )} threads · {selectedFolderProjectCount} projects
               </div>
             </div>
             <Button
@@ -384,6 +419,25 @@ export function FolderSidebarSection(props: FolderSidebarSectionProps) {
             rows={2}
             className="mb-2 w-full resize-none rounded-md border border-sidebar-border/60 bg-sidebar/35 px-2 py-1.5 text-[11px] text-sidebar-foreground outline-none placeholder:text-sidebar-muted-foreground/45 focus:border-sidebar-ring focus:ring-2 focus:ring-sidebar-ring/20"
           />
+          <label className="mb-2 flex items-center gap-2 text-[11px] text-sidebar-muted-foreground">
+            <span className="size-3.5 text-center text-xs leading-3.5" aria-hidden>
+              {selectedFolder.icon ?? "□"}
+            </span>
+            <span className="flex-1">Folder icon</span>
+            <input
+              key={selectedFolder.id}
+              defaultValue={selectedFolder.icon ?? ""}
+              maxLength={2}
+              onBlur={(event) =>
+                organization.updateFolder(selectedFolder.id, {
+                  icon: event.target.value.trim().slice(0, 2) || null,
+                })
+              }
+              aria-label="Folder icon"
+              placeholder="□"
+              className="w-12 rounded-md border border-sidebar-border/70 bg-sidebar-control-surface px-1.5 py-1 text-center text-xs text-sidebar-foreground outline-none focus:ring-2 focus:ring-sidebar-ring/25"
+            />
+          </label>
           <label className="flex items-center gap-2 text-[11px] text-sidebar-muted-foreground">
             <PaletteIcon className="size-3.5 text-[var(--rune-folder-accent)]" />
             <span className="flex-1">Folder style</span>

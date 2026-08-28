@@ -1,6 +1,7 @@
 import type { UsageProviderKind } from "@rune/contracts";
 
 import { ClaudeAI, type Icon, OpenAI } from "../Icons";
+import { SparklesIcon } from "lucide-react";
 
 type UsageProviderPresentation = {
   readonly label: string;
@@ -24,6 +25,10 @@ export const PROVIDER_PRESENTATION = {
     color: "#d97757",
     mark: ClaudeAI,
   },
+  cursor: { label: "Cursor", color: "#7c8cff", mark: SparklesIcon },
+  grok: { label: "Grok", color: "#8b9bb4", mark: SparklesIcon },
+  opencode: { label: "OpenCode", color: "#9b8cff", mark: SparklesIcon },
+  antigravity: { label: "Antigravity", color: "#4da3ff", mark: SparklesIcon },
 } satisfies Record<UsageProviderKind, UsageProviderPresentation>;
 
 /** Stable provider reading order across charts, summaries, tables, and hover rows. */

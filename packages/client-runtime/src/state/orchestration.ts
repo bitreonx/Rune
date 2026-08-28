@@ -1,4 +1,4 @@
-import { ORCHESTRATION_WS_METHODS } from "@rune/contracts";
+import { CROSS_THREAD_WS_METHODS, ORCHESTRATION_WS_METHODS } from "@rune/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
@@ -38,6 +38,23 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       tag: ORCHESTRATION_WS_METHODS.searchThreads,
       staleTimeMs: 30_000,
       idleTtlMs: 60_000,
+    }),
+    threadListForPicker: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:thread-picker",
+      tag: CROSS_THREAD_WS_METHODS.listForPicker,
+      staleTimeMs: 5_000,
+      idleTtlMs: 30_000,
+    }),
+    capsulePreview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:capsule-preview",
+      tag: CROSS_THREAD_WS_METHODS.capsulePreview,
+      staleTimeMs: 5_000,
+      idleTtlMs: 30_000,
+    }),
+    capsuleExpand: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:capsule-expand",
+      tag: CROSS_THREAD_WS_METHODS.capsuleExpand,
+      staleTimeMs: 0,
     }),
     agentChat: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:agent-chat",

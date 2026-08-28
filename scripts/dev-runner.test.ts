@@ -159,6 +159,30 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    it.effect("prepends the workspace-local Vite+ shim for direct Windows launches", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:desktop",
+          baseEnv: {
+            PATH: "C:\\Windows\\System32",
+            PATHEXT: ".COM;.EXE;.BAT;.CMD",
+          },
+          serverOffset: 0,
+          webOffset: 0,
+          runeHome: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.ok(env.PATH?.toLowerCase().includes("node_modules\\.bin"));
+        assert.ok(env.PATH?.endsWith("C:\\Windows\\System32"));
+      }),
+    );
+
     it.effect("allows browser auto-open to be explicitly enabled", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({

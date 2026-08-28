@@ -193,6 +193,9 @@ export class UsageAggregator {
         records: bucket.records,
         unpricedRecords: bucket.unpricedRecords,
         sessions: bucket.sessions.size,
+        sessionIds: [...bucket.sessions].slice(0, 100),
+        projectKeys: [],
+        threadTitles: {},
       });
     }
     // Stable ordering keeps payloads diffable and snapshot tests meaningful.

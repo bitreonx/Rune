@@ -40,10 +40,10 @@ export function RightPanelSheet(props: {
         className={cn(
           "rune-right-panel-host flex min-h-0 min-w-0 overflow-hidden",
           props.mode === "sheet"
-            ? cn(RIGHT_PANEL_SHEET_CLASS_NAME, "fixed inset-y-0 right-0 z-[51]")
+            ? cn(RIGHT_PANEL_SHEET_CLASS_NAME, "fixed inset-y-0 right-0 z-[51] rounded-l-2xl")
             : props.maximized
               ? "flex-1"
-              : "shrink-0 border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))]",
+              : "shrink-0 rounded-2xl border border-[color-mix(in_srgb,var(--border)_78%,var(--rune-violet-soft))]",
           props.maximized && "rune-right-panel-maximized",
           runePanelTransitionClass(motionState),
         )}
@@ -52,7 +52,7 @@ export function RightPanelSheet(props: {
         data-rune-right-panel-maximized={props.maximized ? "true" : "false"}
       >
         <div
-          className="rune-right-panel-surface flex min-h-0 min-w-0 flex-1 flex-col"
+          className="rune-right-panel-surface surface-glass flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden shadow-2xl shadow-black/15"
           data-rune-right-panel-surface
           data-rune-right-panel-surface-state={motionState}
           data-right-panel-surface-content

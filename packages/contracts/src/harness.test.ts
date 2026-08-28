@@ -81,8 +81,11 @@ describe("Harness contracts", () => {
       serviceId: "openrouter_personal",
       kind: "openrouter",
       displayName: "OpenRouter Personal",
+      protocol: "openai-chat",
       baseUrl: "https://openrouter.ai/api/v1",
       credentialRef: "model-service:openrouter_personal:api-key",
+      modelCatalogPolicy: "discover",
+      compatibilityProfileId: "openrouter-openai-v1",
       hasCredential: true,
       maskedLabel: "sk-or-v1-••••••••1234",
       status: "connected",
@@ -90,6 +93,9 @@ describe("Harness contracts", () => {
 
     expect(service.serviceId).toBe("openrouter_personal");
     expect(service.kind).toBe("openrouter");
+    expect(service.protocol).toBe("openai-chat");
+    expect(service.modelCatalogPolicy).toBe("discover");
+    expect(service.compatibilityProfileId).toBe("openrouter-openai-v1");
     expect(service.hasCredential).toBe(true);
     expect(service.status).toBe("connected");
   });

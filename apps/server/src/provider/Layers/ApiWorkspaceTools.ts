@@ -37,6 +37,7 @@ export const workspaceSnapshotTool: NativeToolDef = {
     "Return a bounded workspace structure and status summary without reading file contents.",
   parametersJsonSchema: { type: "object", properties: {} },
   requiresApproval: false,
+  dedupeSafeRead: true,
   execute: (_args, ctx) =>
     safe(
       ctx.workspaceEntries
@@ -65,6 +66,7 @@ export const searchManyTool: NativeToolDef = {
     required: ["queries"],
   },
   requiresApproval: false,
+  dedupeSafeRead: true,
   execute: (args, ctx) => {
     const queries = Array.isArray(args.queries)
       ? args.queries
@@ -121,6 +123,7 @@ export const readManyTool: NativeToolDef = {
     required: ["files"],
   },
   requiresApproval: false,
+  dedupeSafeRead: true,
   execute: (args, ctx) => {
     const files = Array.isArray(args.files)
       ? args.files.map(asRecord).slice(0, MAX_BATCH_ITEMS)

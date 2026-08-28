@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { collectComposerInlineTokens } from "./composerInlineTokens.ts";
+import {
+  collectComposerInlineTokens,
+  collectComposerThreadMentions,
+} from "./composerInlineTokens.ts";
+
+describe("collectComposerThreadMentions", () => {
+  it("parses and locates canonical thread references", () => {
+    expect(collectComposerThreadMentions("Use [thread:Auth fix](thread:thread-123) now")).toEqual([
+      {
+        type: "thread-mention",
+        threadId: "thread-123",
+        title: "Auth fix",
+        source: "[thread:Auth fix](thread:thread-123)",
+        start: 4,
+        end: 40,
+      },
+    ]);
+  });
+});
 
 describe("collectComposerInlineTokens", () => {
   it("collects file links, mentions, and skills with source ranges", () => {

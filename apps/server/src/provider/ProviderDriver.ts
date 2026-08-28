@@ -34,6 +34,7 @@ import type * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { ProviderAdapterError, ProviderDriverError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
+import type { CompiledProviderInstanceRuntime } from "./ProviderInstanceRuntime.ts";
 
 /**
  * Static metadata advertised by a driver. Used for default presentation
@@ -68,6 +69,8 @@ export interface ProviderInstance {
   readonly displayName: string | undefined;
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
+  /** Exact, secret-free runtime identity used to build this instance. */
+  readonly runtime?: CompiledProviderInstanceRuntime;
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
@@ -101,6 +104,8 @@ export interface ProviderDriverCreateInput<Config> {
   readonly environment: ProviderInstanceEnvironment;
   readonly enabled: boolean;
   readonly config: Config;
+  /** Compiled by the registry; optional for third-party drivers during rollout. */
+  readonly runtime?: CompiledProviderInstanceRuntime;
 }
 
 /**

@@ -37,6 +37,12 @@ export const ProviderSession = Schema.Struct({
   // populates it (post-slice-4), routing flips to instance-id-only and the
   // legacy `provider` field is removed.
   providerInstanceId: Schema.optional(ProviderInstanceId),
+  /** Fingerprint of the compiled instance manifest used by this session. */
+  runtimeManifestFingerprint: Schema.optional(TrimmedNonEmptyString),
+  /** Immutable routing pins copied from the instance manifest at start. */
+  serviceConnectionId: Schema.optional(TrimmedNonEmptyString),
+  modelProfileId: Schema.optional(TrimmedNonEmptyString),
+  runtimeManifestVersion: Schema.optional(Schema.Int),
   status: ProviderSessionStatus,
   runtimeMode: RuntimeMode,
   cwd: Schema.optional(TrimmedNonEmptyString),

@@ -2,27 +2,26 @@ import { useState } from "react";
 import {
   BUILT_IN_HARNESS_DEFINITIONS,
   HarnessKind,
+  ProviderDriverKind,
   type HarnessProfileConfig,
   ProfileId,
   type ServerProvider,
   type ServerSettings,
 } from "@rune/contracts";
-import {
-  PlusIcon,
-  ChevronRightIcon,
-  SparklesIcon,
-} from "lucide-react";
+import { PlusIcon, ChevronRightIcon, SparklesIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { AddHarnessDialog } from "./AddHarnessDialog";
 import { cn } from "../../lib/utils";
+import { ProviderSetupNotice } from "./ProviderSetupNotice";
+import { StatusBadge } from "./StatusBadge";
+import { resolveProviderStatusKey } from "./providerStatus";
 
 export function HarnessesSection(props: {
   settings: ServerSettings;
   serverProviders?: ReadonlyArray<ServerProvider>;
   onUpdateSettings: (patch: Partial<ServerSettings>) => void;
   onOpenInstance?: (instanceId: string) => void;
-  onDeleteInstance?: (instanceId: string) => void;
   onRunUpdate?: (driver: string) => void;
   environmentId?: string;
   readOnly?: boolean;
@@ -78,9 +77,12 @@ export function HarnessesSection(props: {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold tracking-tight text-foreground">Coding Harnesses</h3>
+          <h3 className="text-base font-semibold tracking-tight text-foreground">
+            Coding Harnesses
+          </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Run coding agents using their native harnesses, accounts, tools, subagents and execution environments.
+            One calm place to connect harnesses, accounts, models, tools, subagents, and execution
+            environments.
           </p>
         </div>
         {!props.readOnly ? (
@@ -112,111 +114,67 @@ export function HarnessesSection(props: {
               kindProfiles.some((p) => String(p.instanceId) === String(sp.instanceId)),
           );
 
-          const isInstalled = liveProvider?.installed ?? false;
-          const isWarning = liveProvider?.status === "warning";
-          const isError = liveProvider?.status === "error";
-          const authStatus = liveProvider?.auth?.status;
           const isEnabled = kindProfiles.some((p) => p.enabled);
-
-          let statusBadge = (
-            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-muted text-muted-foreground">
-              <span className="size-1.5 rounded-full bg-muted-foreground/50" />
-              Needs setup
-            </span>
-          );
-
-          let subtitle = "CLI not configured · Click to set up";
-
-          if (hasProfiles) {
-            if (!isEnabled) {
-              statusBadge = (
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-muted text-muted-foreground">
-                  <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-                  Disabled
-                </span>
-              );
-              subtitle = `${instanceCount} instance${instanceCount === 1 ? "" : "s"} · Disabled`;
-            } else if (isError) {
-              statusBadge = (
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-destructive/10 text-destructive">
-                  <span className="size-1.5 rounded-full bg-destructive" />
-                  Error
-                </span>
-              );
-              subtitle = liveProvider?.message || "Health check failed";
-            } else if (authStatus === "unauthenticated") {
-              statusBadge = (
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                  <span className="size-1.5 rounded-full bg-amber-500" />
-                  Sign-in required
-                </span>
-              );
-              subtitle = "Sign in to authenticate session";
-            } else if (isWarning) {
-              statusBadge = (
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                  <span className="size-1.5 rounded-full bg-amber-500" />
-                  Needs attention
-                </span>
-              );
-              subtitle = liveProvider?.message || "Configuration requires review";
-            } else {
-              statusBadge = (
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  Ready
-                </span>
-              );
-              const names = kindProfiles.map((p) => p.displayName).filter(Boolean);
-              subtitle = `${instanceCount} instance${instanceCount === 1 ? "" : "s"}${names.length > 0 ? `: ${names.slice(0, 3).join(" · ")}` : ""}`;
-            }
-          } else if (isInstalled) {
-            statusBadge = (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                <span className="size-1.5 rounded-full bg-emerald-500" />
-                CLI detected
-              </span>
-            );
-            subtitle = "CLI installed · Click to configure";
-          }
+          const statusKey = resolveProviderStatusKey(liveProvider, {
+            driver: ProviderDriverKind.make(String(kind)),
+            enabled: hasProfiles ? isEnabled : true,
+          });
+          const subtitle = hasProfiles
+            ? !isEnabled
+              ? `${instanceCount} connection${instanceCount === 1 ? "" : "s"} · Disabled`
+              : (liveProvider?.message ??
+                `${instanceCount} connection${instanceCount === 1 ? "" : "s"} configured`)
+            : liveProvider?.installed
+              ? "CLI installed · Click to configure"
+              : "No instance yet · Click to set up";
 
           const IconComp = PROVIDER_ICON_BY_PROVIDER[kind as any];
 
           return (
-            <button
-              key={kind}
-              type="button"
-              onClick={() => handleCardClick(kind, kindProfiles)}
-              className={cn(
-                "group flex items-center justify-between rounded-xl border border-border/60 bg-card p-3.5 text-left transition-all",
-                "hover:border-border hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring",
-              )}
-            >
-              <div className="flex items-center gap-3 min-w-0 pr-2">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/80 text-foreground ring-1 ring-border/50 transition-colors group-hover:bg-muted">
-                  {IconComp ? (
-                    <IconComp className="size-5" />
-                  ) : (
-                    <SparklesIcon className="size-5" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm leading-tight text-foreground truncate">
-                      {def.displayName}
-                    </span>
+            <div key={kind} className="flex min-w-0 flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => handleCardClick(kind, kindProfiles)}
+                className={cn(
+                  "group flex min-w-0 items-center justify-between rounded-xl border border-border/60 bg-card p-3.5 text-left transition-[background-color,border-color,transform] duration-200 ease-out",
+                  "hover:-translate-y-px hover:border-border hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring",
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-3 pr-2">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/80 text-foreground ring-1 ring-border/50 transition-colors group-hover:bg-muted">
+                    {IconComp ? (
+                      <IconComp className="size-5" />
+                    ) : (
+                      <SparklesIcon className="size-5" />
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {subtitle}
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm leading-tight text-foreground truncate">
+                        {def.displayName}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{subtitle}</p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {statusBadge}
-                <ChevronRightIcon className="size-4 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-              </div>
-            </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  {statusKey === "pending" ? (
+                    <span
+                      className="size-1.5 rounded-full bg-muted-foreground/45"
+                      aria-label="Provider status pending"
+                    />
+                  ) : (
+                    <StatusBadge statusKey={statusKey} />
+                  )}
+                  <ChevronRightIcon className="size-4 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </div>
+              </button>
+              <ProviderSetupNotice
+                driver={ProviderDriverKind.make(String(kind))}
+                provider={liveProvider}
+              />
+            </div>
           );
         })}
       </div>

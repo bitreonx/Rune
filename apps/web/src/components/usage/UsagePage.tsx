@@ -3,6 +3,7 @@ import { CheckIcon, RefreshCwIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { DailyTotals, HourlyTotals } from "@rune/shared/usageMerge";
+import { deriveUsageCoverage } from "@rune/shared/usageCoverage";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -75,6 +76,15 @@ export function UsagePage() {
     [isPast24Hours, merged.daily, merged.hourly],
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
+  const coverageNotices = useMemo(
+    () =>
+      activeProviders.flatMap((provider) => {
+        const coverage = deriveUsageCoverage(merged, provider);
+        if (coverage.kind === "cost-available") return [];
+        return [{ provider, coverage }];
+      }),
+    [activeProviders, merged],
+  );
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
 
   const selectWindow = (days: number) => {
@@ -270,6 +280,20 @@ export function UsagePage() {
                         </div>
                       );
                     })}
+                    {coverageNotices.length > 0 ? (
+                      <div className="flex flex-col gap-1 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                        {coverageNotices.map(({ provider, coverage }) => (
+                          <span key={provider}>
+                            {PROVIDER_PRESENTATION[provider].label}:{" "}
+                            {coverage.kind === "token-usage-available"
+                              ? "Token totals are tracked; per-call cost is unavailable."
+                              : coverage.kind === "session-usage-available"
+                                ? "Session count is tracked; token and cost telemetry is unavailable."
+                                : coverage.note}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3">
@@ -558,10 +582,7 @@ function UsageDeviceStrip({
           );
         }
         return (
-          <span
-            key={environment.environmentId}
-            className="animate-status-pulse text-muted-foreground"
-          >
+          <span key={environment.environmentId} className="text-muted-foreground">
             {environment.label}…
           </span>
         );

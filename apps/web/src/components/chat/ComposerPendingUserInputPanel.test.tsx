@@ -30,7 +30,6 @@ function renderPanel() {
       answers={{}}
       questionIndex={0}
       onToggleOption={() => {}}
-      onAdvance={() => {}}
     />,
   );
 }

@@ -72,6 +72,16 @@ function toRuntimeBinding(
           // persistence so hot routing code never has to infer an instance
           // from a driver kind.
           providerInstanceId: runtime.providerInstanceId ?? defaultInstanceIdForDriver(provider),
+          ...(runtime.serviceConnectionId != null
+            ? { serviceConnectionId: runtime.serviceConnectionId }
+            : {}),
+          ...(runtime.modelProfileId != null ? { modelProfileId: runtime.modelProfileId } : {}),
+          ...(runtime.runtimeManifestFingerprint != null
+            ? { runtimeManifestFingerprint: runtime.runtimeManifestFingerprint }
+            : {}),
+          ...(runtime.runtimeManifestVersion != null
+            ? { runtimeManifestVersion: runtime.runtimeManifestVersion }
+            : {}),
           adapterKey: runtime.adapterKey,
           runtimeMode: runtime.runtimeMode,
           status: runtime.status,
@@ -130,6 +140,13 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
         threadId: resolvedThreadId,
         providerName: binding.provider,
         providerInstanceId,
+        serviceConnectionId:
+          binding.serviceConnectionId ?? existingRuntime?.serviceConnectionId ?? null,
+        modelProfileId: binding.modelProfileId ?? existingRuntime?.modelProfileId ?? null,
+        runtimeManifestFingerprint:
+          binding.runtimeManifestFingerprint ?? existingRuntime?.runtimeManifestFingerprint ?? null,
+        runtimeManifestVersion:
+          binding.runtimeManifestVersion ?? existingRuntime?.runtimeManifestVersion ?? null,
         adapterKey:
           binding.adapterKey ??
           (providerChanged ? binding.provider : (existingRuntime?.adapterKey ?? binding.provider)),

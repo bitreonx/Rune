@@ -111,6 +111,10 @@
       "types": "./src/state/runtime.ts",
       "default": "./src/state/runtime.ts"
     },
+    "./state/turnTrace": {
+      "types": "./src/state/turnTrace.ts",
+      "default": "./src/state/turnTrace.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"

@@ -57,6 +57,8 @@ import Migration0041 from "./Migrations/041_AuthSessionClientConnection.ts";
 import Migration0042 from "./Migrations/042_ProjectionThreadsTemporary.ts";
 import Migration0043 from "./Migrations/043_ProjectionThreadsTemporaryDeletionSnooze.ts";
 import Migration0044 from "./Migrations/044_ProjectionThreadsChatDiff.ts";
+import Migration0045 from "./Migrations/045_ProjectionClaims.ts";
+import Migration0046 from "./Migrations/046_ProviderSessionRuntimeRoutingPins.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -113,6 +115,8 @@ export const migrationEntries = [
   [42, "ProjectionThreadsTemporary", Migration0042],
   [43, "ProjectionThreadsTemporaryDeletionSnooze", Migration0043],
   [44, "ProjectionThreadsChatDiff", Migration0044],
+  [45, "ProjectionClaims", Migration0045],
+  [46, "ProviderSessionRuntimeRoutingPins", Migration0046],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

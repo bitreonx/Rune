@@ -35,8 +35,10 @@ export interface NativeToolDef {
    * Gated tools pause the turn with an approval request before executing;
    * safe tools run unattended. The policy mapping that decides whether a
    * gated tool actually waits lives in the adapter.
-   */
+  */
   readonly requiresApproval: boolean;
+  /** Marks a read-only tool whose identical calls may share one observation. */
+  readonly dedupeSafeRead?: boolean;
   /** Marks a tool whose successful output is usable as completion evidence. */
   readonly verificationTool?: boolean;
   /** Marks a tool that can make prior verification stale. */
@@ -159,6 +161,7 @@ export const readFileTool: NativeToolDef = {
     required: ["path"],
   },
   requiresApproval: false,
+  dedupeSafeRead: true,
   execute: (args, ctx) => {
     const offset = optionalIntArg(args.offset);
     const limit = optionalIntArg(args.limit);
@@ -196,6 +199,7 @@ export const listDirTool: NativeToolDef = {
     required: ["path"],
   },
   requiresApproval: false,
+  dedupeSafeRead: true,
   execute: (args, ctx) => {
     const target = stringArg(args.path) || ".";
     const listing =
@@ -234,6 +238,7 @@ export const searchTool: NativeToolDef = {
     required: ["query"],
   },
   requiresApproval: false,
+  dedupeSafeRead: true,
   execute: (args, ctx) =>
     ctx.workspaceEntries
       .searchContents({

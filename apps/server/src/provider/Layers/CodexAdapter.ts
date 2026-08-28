@@ -1796,7 +1796,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   const resolveAttachment = Effect.fn("resolveAttachment")(function* (
     input: ProviderSendTurnInput,
-    attachment: NonNullable<ProviderSendTurnInput["attachments"]>[number],
+    attachment: Extract<
+      NonNullable<ProviderSendTurnInput["attachments"]>[number],
+      { type: "image" }
+    >,
   ) {
     const attachmentPath = resolveAttachmentPath({
       attachmentsDir: serverConfig.attachmentsDir,
@@ -1828,7 +1831,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   const sendTurn: CodexAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
     const codexAttachments = yield* Effect.forEach(
-      input.attachments ?? [],
+      (input.attachments ?? []).filter((attachment) => attachment.type === "image"),
       (attachment) => resolveAttachment(input, attachment),
       { concurrency: 1 },
     );

@@ -1,18 +1,10 @@
 import { useState } from "react";
-import {
-  type ModelServiceConfig,
-  type ServerSettings,
-  ServiceId,
-} from "@rune/contracts";
-import {
-  GlobeIcon,
-  PlusIcon,
-  ChevronRightIcon,
-  LayersIcon,
-} from "lucide-react";
+import { type ModelServiceConfig, type ServerSettings, ServiceId } from "@rune/contracts";
+import { GlobeIcon, PlusIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { AddServiceDialog } from "./AddServiceDialog";
 import { cn } from "../../lib/utils";
+import { getProviderOrServiceIcon } from "../chat/providerIconUtils";
 
 export function ModelServicesSection(props: {
   settings: ServerSettings;
@@ -54,7 +46,8 @@ export function ModelServicesSection(props: {
         <div>
           <h3 className="text-base font-semibold tracking-tight text-foreground">API Providers</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Connect model APIs for RUNE Native and for harness instances that support external model routing.
+            Connect model APIs for RUNE Native and for harness instances that support external model
+            routing.
           </p>
         </div>
         {!props.readOnly ? (
@@ -76,7 +69,8 @@ export function ModelServicesSection(props: {
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/10 py-6 px-4 text-center">
           <GlobeIcon className="size-6 text-muted-foreground/60 mb-2" />
           <p className="text-xs text-muted-foreground max-w-sm mb-3">
-            Connect OpenRouter or another API provider to power RUNE Native or compatible coding harnesses.
+            Connect OpenRouter or another API provider to power RUNE Native or compatible coding
+            harnesses.
           </p>
           {!props.readOnly ? (
             <Button
@@ -98,6 +92,8 @@ export function ModelServicesSection(props: {
           {services.map((service) => {
             const usingProfiles = getProfilesUsingService(service.serviceId);
             const isConnected = Boolean(service.hasCredential || service.status === "connected");
+            const ServiceIcon =
+              getProviderOrServiceIcon(String(service.serviceId)) ?? GlobeIcon;
 
             return (
               <button
@@ -114,7 +110,7 @@ export function ModelServicesSection(props: {
               >
                 <div className="flex items-center gap-3 min-w-0 pr-2">
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/80 text-foreground ring-1 ring-border/50 transition-colors group-hover:bg-muted">
-                    <GlobeIcon className="size-5 text-blue-500" />
+                    <ServiceIcon className="size-5 text-blue-500" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -134,15 +130,13 @@ export function ModelServicesSection(props: {
                   <span
                     className={cn(
                       "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      isConnected
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                      isConnected ? "bg-success/10 text-success" : "bg-warning/10 text-warning",
                     )}
                   >
                     <span
                       className={cn(
                         "size-1.5 rounded-full",
-                        isConnected ? "bg-emerald-500" : "bg-amber-500",
+                        isConnected ? "bg-success" : "bg-warning",
                       )}
                     />
                     {isConnected ? "Connected" : "Needs key"}

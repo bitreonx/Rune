@@ -32,6 +32,8 @@ import {
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationSearchThreadsError,
+  CrossThreadError,
+  CROSS_THREAD_WS_METHODS,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   type ProjectId,
@@ -44,6 +46,9 @@ import {
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
+  ProjectCreateEntryError,
+  ProjectRenameEntryError,
+  ProjectDeleteEntryError,
   ProviderUploadFeedbackError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
@@ -81,12 +86,16 @@ import {
 } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionCrossThreadBoundaryError } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as SkillRegistry from "./provider/SkillRegistry.ts";
+
+const isProjectionCrossThreadBoundaryError = Schema.is(ProjectionCrossThreadBoundaryError);
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import { normalizeProviderAgentChatSnapshot } from "./provider/agentChat.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
@@ -102,6 +111,7 @@ import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/Atta
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as WorkspaceFileWatcher from "./workspace/WorkspaceFileWatcher.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
@@ -464,6 +474,7 @@ const makeWsRpcLayer = (
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+      const skillRegistry = yield* SkillRegistry.SkillRegistry;
       const providerService = yield* ProviderService.ProviderService;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
@@ -473,6 +484,7 @@ const makeWsRpcLayer = (
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+      const workspaceFileWatcher = yield* WorkspaceFileWatcher.WorkspaceFileWatcher;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
@@ -1314,6 +1326,67 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "orchestration" },
           ),
+        [CROSS_THREAD_WS_METHODS.listForPicker]: (input) =>
+          observeRpcEffect(
+            CROSS_THREAD_WS_METHODS.listForPicker,
+            projectionSnapshotQuery.listThreadsForPicker(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CrossThreadError({
+                    message: "Failed to list threads for picker",
+                    reason: "source_thread_deleted",
+                    ...(isProjectionCrossThreadBoundaryError(cause) ? { cause } : {}),
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [CROSS_THREAD_WS_METHODS.capsulePreview]: (input) =>
+          observeRpcEffect(
+            CROSS_THREAD_WS_METHODS.capsulePreview,
+            projectionSnapshotQuery
+              .capsulePreview({
+                activeThreadId: input.activeThreadId,
+                sourceThreadId: input.threadId,
+                query: input.query,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new CrossThreadError({
+                      message: isProjectionCrossThreadBoundaryError(cause)
+                        ? cause.message
+                        : "Failed to preview capsule",
+                      reason: "source_thread_deleted",
+                    }),
+                ),
+              ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [CROSS_THREAD_WS_METHODS.capsuleExpand]: (input) =>
+          observeRpcEffect(
+            CROSS_THREAD_WS_METHODS.capsuleExpand,
+            projectionSnapshotQuery
+              .capsuleExpand({
+                activeThreadId: input.activeThreadId,
+                sourceThreadId: input.threadId,
+                messageId: input.messageId,
+                before: input.range?.before ?? 0,
+                after: input.range?.after ?? 0,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new CrossThreadError({
+                      message: isProjectionCrossThreadBoundaryError(cause)
+                        ? cause.message
+                        : "Failed to expand message",
+                      reason: "source_thread_deleted",
+                    }),
+                ),
+              ),
+            { "rpc.aggregate": "orchestration" },
+          ),
         [ORCHESTRATION_WS_METHODS.getAgentChat]: (input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getAgentChat,
@@ -1748,6 +1821,18 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.skillsList]: (_input) =>
+          observeRpcEffect(WS_METHODS.skillsList, skillRegistry.list, {
+            "rpc.aggregate": "skills",
+          }),
+        [WS_METHODS.skillsRefresh]: (_input) =>
+          observeRpcEffect(WS_METHODS.skillsRefresh, skillRegistry.refresh, {
+            "rpc.aggregate": "skills",
+          }),
+        [WS_METHODS.skillsGetBody]: (input) =>
+          observeRpcEffect(WS_METHODS.skillsGetBody, skillRegistry.getBody(input.id), {
+            "rpc.aggregate": "skills",
+          }),
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetTraceDiagnostics,
@@ -2059,6 +2144,60 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsCreateEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsCreateEntry,
+            workspaceFileSystem.createEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectCreateEntryError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsRenameEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsRenameEntry,
+            workspaceFileSystem.renameEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectRenameEntryError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsDeleteEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsDeleteEntry,
+            workspaceFileSystem.deleteEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectDeleteEntryError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.subscribeProjectFileEvents]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeProjectFileEvents,
+            workspaceFileWatcher.streamEvents({ cwd: input.cwd }),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, externalLauncher.launchEditor(input), {
             "rpc.aggregate": "workspace",
@@ -2151,9 +2290,14 @@ const makeWsRpcLayer = (
                   resource: input.resource,
                 });
               }
+              // The caller's own root wins when provided: the explorer browses a
+              // specific cwd, which can be a nested workspace or a worktree that
+              // differs from the thread's project root.
+              const workspaceRoot =
+                input.resource.cwd ?? thread.value.worktreePath ?? project.value.workspaceRoot;
               return yield* issueAssetUrl({
                 resource: input.resource,
-                workspaceRoot: thread.value.worktreePath ?? project.value.workspaceRoot,
+                workspaceRoot,
               });
             }),
             { "rpc.aggregate": "workspace" },

@@ -61,6 +61,16 @@ import {
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
+  CapsulePreviewRequest,
+  CapsulePreviewResponse,
+  CROSS_THREAD_WS_METHODS,
+  CrossThreadError,
+  ExpandRequest,
+  ExpandResponse,
+  ThreadListForPickerInput,
+  ThreadListForPickerResult,
+} from "./crossThread.ts";
+import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -131,6 +141,17 @@ import {
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
+  ProjectCreateEntryError,
+  ProjectCreateEntryInput,
+  ProjectCreateEntryResult,
+  ProjectRenameEntryError,
+  ProjectRenameEntryInput,
+  ProjectRenameEntryResult,
+  ProjectDeleteEntryError,
+  ProjectDeleteEntryInput,
+  ProjectDeleteEntryResult,
+  ProjectFileEventsBatch,
+  ProjectFileEventsInput,
 } from "./project.ts";
 import {
   TerminalAttachInput,
@@ -209,6 +230,14 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  SkillGetBodyInput,
+  SkillBodyResult,
+  SkillRegistryError,
+  SkillRegistryListInput,
+  SkillRegistryRefreshInput,
+  SkillRegistrySnapshot,
+} from "./skills.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -221,6 +250,10 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsCreateEntry: "projects.createEntry",
+  projectsRenameEntry: "projects.renameEntry",
+  projectsDeleteEntry: "projects.deleteEntry",
+  subscribeProjectFileEvents: "subscribe.projectFileEvents",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -296,6 +329,11 @@ export const WS_METHODS = {
   serverReportHostPowerState: "server.reportHostPowerState",
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
+
+  // Provider-neutral skills registry
+  skillsList: "skills.list",
+  skillsRefresh: "skills.refresh",
+  skillsGetBody: "skills.getBody",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -414,6 +452,24 @@ export const WsServerDiscoverSourceControlRpc = Rpc.make(WS_METHODS.serverDiscov
   payload: Schema.Struct({}),
   success: SourceControlDiscoveryResult,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsSkillsListRpc = Rpc.make(WS_METHODS.skillsList, {
+  payload: SkillRegistryListInput,
+  success: SkillRegistrySnapshot,
+  error: Schema.Union([SkillRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsRefreshRpc = Rpc.make(WS_METHODS.skillsRefresh, {
+  payload: SkillRegistryRefreshInput,
+  success: SkillRegistrySnapshot,
+  error: Schema.Union([SkillRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSkillsGetBodyRpc = Rpc.make(WS_METHODS.skillsGetBody, {
+  payload: SkillGetBodyInput,
+  success: SkillBodyResult,
+  error: Schema.Union([SkillRegistryError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerGetTraceDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetTraceDiagnostics, {
@@ -676,6 +732,34 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   success: ProjectWriteFileResult,
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
+
+export const WsProjectsCreateEntryRpc = Rpc.make(WS_METHODS.projectsCreateEntry, {
+  payload: ProjectCreateEntryInput,
+  success: ProjectCreateEntryResult,
+  error: Schema.Union([ProjectCreateEntryError, EnvironmentAuthorizationError]),
+});
+
+export const WsProjectsRenameEntryRpc = Rpc.make(WS_METHODS.projectsRenameEntry, {
+  payload: ProjectRenameEntryInput,
+  success: ProjectRenameEntryResult,
+  error: Schema.Union([ProjectRenameEntryError, EnvironmentAuthorizationError]),
+});
+
+export const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry, {
+  payload: ProjectDeleteEntryInput,
+  success: ProjectDeleteEntryResult,
+  error: Schema.Union([ProjectDeleteEntryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSubscribeProjectFileEventsRpc = Rpc.make(
+  WS_METHODS.subscribeProjectFileEvents,
+  {
+    payload: ProjectFileEventsInput,
+    success: ProjectFileEventsBatch,
+    error: EnvironmentAuthorizationError,
+    stream: true,
+  },
+);
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
@@ -959,6 +1043,24 @@ export const WsOrchestrationSearchThreadsRpc = Rpc.make(ORCHESTRATION_WS_METHODS
   error: Schema.Union([OrchestrationSearchThreadsError, EnvironmentAuthorizationError]),
 });
 
+export const WsThreadListForPickerRpc = Rpc.make(CROSS_THREAD_WS_METHODS.listForPicker, {
+  payload: ThreadListForPickerInput,
+  success: ThreadListForPickerResult,
+  error: Schema.Union([CrossThreadError, EnvironmentAuthorizationError]),
+});
+
+export const WsThreadCapsulePreviewRpc = Rpc.make(CROSS_THREAD_WS_METHODS.capsulePreview, {
+  payload: CapsulePreviewRequest,
+  success: CapsulePreviewResponse,
+  error: Schema.Union([CrossThreadError, EnvironmentAuthorizationError]),
+});
+
+export const WsThreadCapsuleExpandRpc = Rpc.make(CROSS_THREAD_WS_METHODS.capsuleExpand, {
+  payload: ExpandRequest,
+  success: ExpandResponse,
+  error: Schema.Union([CrossThreadError, EnvironmentAuthorizationError]),
+});
+
 export const WsOrchestrationGetAgentChatRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getAgentChat, {
   payload: OrchestrationRpcSchemas.getAgentChat.input,
   success: OrchestrationRpcSchemas.getAgentChat.output,
@@ -1076,6 +1178,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetResourceTelemetryHistoryRpc,
   WsServerRetryResourceTelemetryRpc,
   WsServerGetUsageSummaryRpc,
+  WsSkillsListRpc,
+  WsSkillsRefreshRpc,
+  WsSkillsGetBodyRpc,
   WsServerSignalProcessRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
@@ -1108,6 +1213,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsCreateEntryRpc,
+  WsProjectsRenameEntryRpc,
+  WsProjectsDeleteEntryRpc,
+  WsSubscribeProjectFileEventsRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,
@@ -1160,6 +1269,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationGetChatDiffRpc,
   WsOrchestrationSearchThreadsRpc,
+  WsThreadListForPickerRpc,
+  WsThreadCapsulePreviewRpc,
+  WsThreadCapsuleExpandRpc,
   WsOrchestrationGetAgentChatRpc,
   WsOrchestrationSendAgentMessageRpc,
   WsOrchestrationInterruptAgentMessageRpc,

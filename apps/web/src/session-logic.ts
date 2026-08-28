@@ -144,6 +144,10 @@ export interface PendingUserInput {
   requestId: ApprovalRequestId;
   createdAt: string;
   questions: ReadonlyArray<UserInputQuestion>;
+  title?: string;
+  context?: string;
+  blocking?: boolean;
+  phase?: "waiting-for-user";
 }
 
 export interface ActivePlanState {
@@ -516,6 +520,7 @@ function parseUserInputQuestions(
             return null;
           }
           return {
+            ...(typeof optionRecord.id === "string" ? { id: optionRecord.id } : {}),
             label: optionRecord.label,
             description: optionRecord.description,
           };
@@ -530,6 +535,16 @@ function parseUserInputQuestions(
         question: question.question,
         options,
         multiSelect: question.multiSelect === true,
+        ...(typeof question.recommendedOptionId === "string"
+          ? { recommendedOptionId: question.recommendedOptionId }
+          : {}),
+        ...(typeof question.allowCustomAnswer === "boolean"
+          ? { allowCustomAnswer: question.allowCustomAnswer }
+          : {}),
+        ...(typeof question.allowEditSuggestedAnswer === "boolean"
+          ? { allowEditSuggestedAnswer: question.allowEditSuggestedAnswer }
+          : {}),
+        ...(typeof question.allowSkip === "boolean" ? { allowSkip: question.allowSkip } : {}),
       };
     })
     .filter((question): question is UserInputQuestion => question !== null);
@@ -562,6 +577,10 @@ export function derivePendingUserInputs(
         requestId,
         createdAt: activity.createdAt,
         questions,
+        ...(typeof payload?.title === "string" ? { title: payload.title } : {}),
+        ...(typeof payload?.context === "string" ? { context: payload.context } : {}),
+        ...(typeof payload?.blocking === "boolean" ? { blocking: payload.blocking } : {}),
+        ...(payload?.phase === "waiting-for-user" ? { phase: payload.phase } : {}),
       });
       continue;
     }
@@ -1998,7 +2017,10 @@ export function inferCheckpointTurnCountByTurnId(
   return result;
 }
 
-export function derivePhase(session: ThreadSession | null): SessionPhase {
+export function derivePhase(
+  session: ThreadSession | null,
+  hasPendingUserInput = false,
+): SessionPhase {
   if (
     !session ||
     session.status === "stopped" ||
@@ -2008,6 +2030,8 @@ export function derivePhase(session: ThreadSession | null): SessionPhase {
     return "disconnected";
   }
   if (session.status === "starting") return "connecting";
-  if (session.status === "running") return "running";
+  if (session.status === "running") {
+    return hasPendingUserInput ? "waiting-for-user" : "running";
+  }
   return "ready";
 }

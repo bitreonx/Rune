@@ -350,6 +350,8 @@ export const runAgenticTurn = (
           `The agent exceeded the provider request budget (${requestStart.snapshot.maxRequests} requests).`,
         );
       }
+      let requestNumber = requestStart.requestNumber;
+      let isRetry = false;
       const systemPrompt = compileSystemPrompt({
         identity: defaultIdentity,
         toolGuidance: defaultToolGuidance,
@@ -423,6 +425,8 @@ export const runAgenticTurn = (
               ),
             );
           }
+          requestNumber = retryRequest.requestNumber;
+          isRetry = true;
           return deps.httpPost(url, body);
         }),
       );
@@ -460,7 +464,7 @@ export const runAgenticTurn = (
       );
 
       const requestId = RuntimeRequestId.make(
-        `${String(input.turnId)}:request:${requestStart.requestNumber}`,
+        `${String(input.turnId)}:request:${requestNumber}`,
       );
       yield* Effect.flatMap(deps.stamp, (stamp) =>
         deps.publish({
@@ -473,8 +477,8 @@ export const runAgenticTurn = (
           requestId,
           payload: {
             requestId,
-            requestNumber: requestStart.requestNumber,
-            retry: false,
+            requestNumber,
+            retry: isRetry,
             ...(roundUsage !== undefined
               ? {
                   ...(toUsageSnapshot(roundUsage).inputTokens !== undefined
@@ -537,14 +541,20 @@ export const runAgenticTurn = (
       });
       contextLedger.add(messages[messages.length - 1]!);
       const observations = yield* scheduleToolCalls(
-        calls.map((call) => ({
-          id: call.id,
-          name: call.name,
-          arguments: parseToolArgs(call.arguments) ?? {},
-          rawArguments: call.arguments,
-          mutation:
-            offered.find((tool) => tool.name === call.name)?.invalidatesVerification === true,
-        })),
+        calls.map((call) => {
+          const tool = offered.find((candidate) => candidate.name === call.name);
+          const argumentsObject = parseToolArgs(call.arguments) ?? {};
+          return {
+            id: call.id,
+            name: call.name,
+            arguments: argumentsObject,
+            rawArguments: call.arguments,
+            mutation: tool?.invalidatesVerification === true,
+            ...(tool?.dedupeSafeRead === true
+              ? { dedupeKey: fingerprintToolCall(call.name, argumentsObject) }
+              : {}),
+          };
+        }),
         {
           maxConcurrentSafeTools: 8,
           execute: (call) =>

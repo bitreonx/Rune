@@ -7,6 +7,11 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  CapsulePreviewResponse,
+  ExpandResponse,
+  ThreadListForPickerResult,
+} from "@rune/contracts";
+import type {
   CheckpointRef,
   OrchestrationCheckpointSummary,
   OrchestrationProject,
@@ -20,11 +25,13 @@ import type {
   OrchestrationThreadDetailWindow,
   OrchestrationThreadShell,
   ProjectId,
+  MessageId,
   ThreadId,
 } from "@rune/contracts";
 import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
 import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 
@@ -186,7 +193,42 @@ export interface ProjectionSnapshotQueryShape {
     threadId: ThreadId,
     window?: OrchestrationThreadDetailWindow,
   ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
+  /**
+   * Cross-thread intelligence reads. See docs/superpowers/specs cross-thread
+   * design: claims are derived data ranked by pure SQL + capsuleRanking.
+   */
+  readonly listThreadsForPicker: (input: {
+    readonly activeThreadId: ThreadId;
+    readonly query: string;
+    readonly limit?: number | undefined;
+  }) => Effect.Effect<ThreadListForPickerResult, ProjectionRepositoryError | ProjectionCrossThreadBoundaryError>;
+
+  readonly capsulePreview: (input: {
+    readonly activeThreadId: ThreadId;
+    readonly sourceThreadId: ThreadId;
+    readonly query: string;
+  }) => Effect.Effect<CapsulePreviewResponse, ProjectionRepositoryError | ProjectionCrossThreadBoundaryError>;
+
+  readonly capsuleExpand: (input: {
+    readonly activeThreadId: ThreadId;
+    readonly sourceThreadId: ThreadId;
+    readonly messageId: MessageId;
+    readonly before: number;
+    readonly after: number;
+  }) => Effect.Effect<ExpandResponse, ProjectionRepositoryError | ProjectionCrossThreadBoundaryError>;
 }
+
+/**
+ * Cross-thread boundary violation (cross-project reference, missing or
+ * deleted source thread). Carried on the same channel as repository errors;
+ * ws.ts maps it onto the wire-level CrossThreadError.
+ */
+export class ProjectionCrossThreadBoundaryError extends Schema.TaggedErrorClass<ProjectionCrossThreadBoundaryError>()(
+  "ProjectionCrossThreadBoundaryError",
+  {
+    message: Schema.String,
+  },
+) {}
 
 /**
  * ProjectionSnapshotQuery - Service tag for projection snapshot queries.

@@ -1,207 +1,248 @@
-import { Code2, Eye, ZoomIn, ZoomOut } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactElement } from "react";
+import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
+import { RotateCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
-import { Toggle } from "~/components/ui/toggle";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { cn } from "~/lib/utils";
 
-import { sanitizeSvg } from "./svgSanitizer.ts";
+import {
+  ViewerBackgroundToggle,
+  ViewerLoadError,
+  ViewerZoomControls,
+  canvasBackgroundClassName,
+  canvasBackgroundStyle,
+  usePanZoomViewport,
+  useWorkspacePreviewAssetUrl,
+  type ViewerCanvasBackground,
+} from "./viewerChrome";
 
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 8;
-const ZOOM_STEP = 1.25;
+export interface SvgViewerProps {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef;
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly name: string;
+  readonly revision: number;
+}
 
-export type SvgViewerProps = {
-  readonly contents: string;
-  readonly resolvedTheme: "light" | "dark";
-};
-
-type Mode = "rendered" | "source";
+const SVG_DIMENSION_FALLBACK = 300;
 
 /**
- * The SVG viewer renders the file two ways: the sanitized SVG inline,
- * or the original text source. The zoom state is local to the viewer;
- * the toolbar lives at the top so a user can flip modes without
- * hunting through context menus.
+ * Parses the intrinsic size out of the SVG text: width/height attributes
+ * first, then the viewBox. Returns null when neither is present, in which
+ * case the browser's default 300×150-ish sizing applies.
  */
-export function SvgViewer({ contents, resolvedTheme: _resolvedTheme }: SvgViewerProps): ReactElement {
-  const [mode, setMode] = useState<Mode>("rendered");
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
+export function parseSvgIntrinsicSize(source: string): { width: number; height: number } | null {
+  const openTag = source.match(/<svg\b[^>]*>/i)?.[0];
+  if (!openTag) return null;
+  const attribute = (name: string) => {
+    const match = openTag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, "i"));
+    return match?.[1]?.trim();
+  };
+  const width = attribute("width");
+  const height = attribute("height");
+  const parseLength = (value: string | undefined): number | null => {
+    if (!value) return null;
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+  const parsedWidth = parseLength(width);
+  const parsedHeight = parseLength(height);
+  if (parsedWidth !== null && parsedHeight !== null) {
+    return { width: parsedWidth, height: parsedHeight };
+  }
+  const viewBox = attribute("viewBox");
+  if (viewBox) {
+    const parts = viewBox.split(/[\s,]+/).map(Number.parseFloat);
+    if (parts.length === 4 && parts.every((part) => Number.isFinite(part))) {
+      const viewBoxWidth = parts[2];
+      const viewBoxHeight = parts[3];
+      if (viewBoxWidth !== undefined && viewBoxHeight !== undefined && viewBoxWidth > 0 && viewBoxHeight > 0) {
+        return { width: viewBoxWidth, height: viewBoxHeight };
+      }
+    }
+  }
+  return parsedWidth !== null || parsedHeight !== null
+    ? {
+        width: parsedWidth ?? SVG_DIMENSION_FALLBACK,
+        height: parsedHeight ?? SVG_DIMENSION_FALLBACK,
+      }
+    : null;
+}
 
-  const sanitized = useMemo(() => sanitizeSvg(contents), [contents]);
+/**
+ * SVG preview. Rendering goes through `<img src>` on a signed asset URL —
+ * the browser's image pipeline never executes scripts or fetches external
+ * resources for SVGs, so untrusted markup stays inert while looking exactly
+ * like the rendered file.
+ */
+export function SvgPreviewSurface(props: {
+  readonly url: string | null;
+  readonly background: ViewerCanvasBackground;
+  readonly failed: boolean;
+  readonly onFail: () => void;
+  readonly onLoad: (size: { width: number; height: number } | null) => void;
+  readonly resetKey: string;
+}) {
+  if (props.url === null) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+        <RotateCw className="size-5 animate-spin" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full w-full items-center justify-center overflow-hidden p-4">
+      <img
+        key={props.resetKey}
+        src={props.url}
+        alt=""
+        draggable={false}
+        className="max-h-full max-w-full object-contain select-none"
+        style={
+          props.background === "checker"
+            ? undefined
+            : { filter: props.background === "light" ? "none" : "none" }
+        }
+        onLoad={(event) => {
+          const image = event.currentTarget;
+          const widthAttribute = image.naturalWidth;
+          const heightAttribute = image.naturalHeight;
+          props.onLoad(
+            widthAttribute > 0 && heightAttribute > 0
+              ? { width: widthAttribute, height: heightAttribute }
+              : null,
+          );
+        }}
+        onError={props.onFail}
+      />
+    </div>
+  );
+}
 
-  const totalDropped =
-    sanitized.droppedScripts +
-    sanitized.droppedEventHandlers +
-    sanitized.droppedJavascriptUrls +
-    sanitized.droppedDataUrls +
-    sanitized.droppedForeignObjects;
+export function SvgViewer(props: SvgViewerProps) {
+  const assetUrl = useWorkspacePreviewAssetUrl(props);
+  const [background, setBackground] = useState<ViewerCanvasBackground>("checker");
+  const [intrinsicSize, setIntrinsicSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const panZoom = usePanZoomViewport({
+    contentWidth: intrinsicSize?.width ?? null,
+    contentHeight: intrinsicSize?.height ?? null,
+  });
 
-  // Clamp the zoom on every change so the toolbar can't push past the
-  // bounds. Reset pan when zoom drops to fit.
   useEffect(() => {
-    setZoom((current) => clampZoom(current, MIN_ZOOM, MAX_ZOOM));
-  }, []);
+    setDecodeFailed(false);
+    setIntrinsicSize(null);
+    panZoom.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on file/revision change
+  }, [props.relativePath, props.revision]);
 
-  const handleZoomIn = () => setZoom((z) => clampZoom(z * ZOOM_STEP, MIN_ZOOM, MAX_ZOOM));
-  const handleZoomOut = () => setZoom((z) => clampZoom(z / ZOOM_STEP, MIN_ZOOM, MAX_ZOOM));
-  const handleReset = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
+  const handleLoad = useCallback(
+    (size: { width: number; height: number } | null) => {
+      setDecodeFailed(false);
+      setIntrinsicSize(size);
+      panZoom.reset();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- panZoom identity churns
+    [],
+  );
 
-  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    const direction = event.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
-    setZoom((z) => clampZoom(z * direction, MIN_ZOOM, MAX_ZOOM));
-  };
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startPan = pan;
-    const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
-    const handleMove = (moveEvent: PointerEvent) => {
-      setPan({
-        x: startPan.x + (moveEvent.clientX - startX),
-        y: startPan.y + (moveEvent.clientY - startY),
-      });
-    };
-    const handleUp = () => {
-      target.removeEventListener("pointermove", handleMove);
-      target.removeEventListener("pointerup", handleUp);
-      target.removeEventListener("pointercancel", handleUp);
-    };
-    target.addEventListener("pointermove", handleMove);
-    target.addEventListener("pointerup", handleUp);
-    target.addEventListener("pointercancel", handleUp);
-  };
+  if (assetUrl._tag === "Failure") {
+    return (
+      <ViewerLoadError
+        title={`Couldn't preview ${props.name}`}
+        message={assetUrl.message ?? "The file exists, but its SVG data could not be rendered."}
+        onRetry={() => setReloadNonce((nonce) => nonce + 1)}
+      />
+    );
+  }
+  if (assetUrl._tag !== "Success") {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+        <RotateCw className="size-5 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div
-        className="flex h-9 min-h-9 shrink-0 items-center gap-1 border-b border-border/60 bg-background/60 px-2"
-        data-svg-viewer-toolbar
-      >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                pressed={mode === "rendered"}
-                onPressedChange={(pressed) => setMode(pressed ? "rendered" : "source")}
-                aria-label={mode === "rendered" ? "Show SVG source" : "Show rendered SVG"}
-                variant="ghost"
-                size="sm"
-              >
-                {mode === "rendered" ? <Eye className="size-3.5" /> : <Code2 className="size-3.5" />}
-              </Toggle>
-            }
-          />
-          <TooltipPopup>{mode === "rendered" ? "Show SVG source" : "Show rendered SVG"}</TooltipPopup>
-        </Tooltip>
-        {mode === "rendered" ? (
-          <>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={handleZoomOut}
-                    aria-label="Zoom out"
-                    className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    <ZoomOut className="size-3.5" />
-                  </button>
-                }
-              />
-              <TooltipPopup>Zoom out</TooltipPopup>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    aria-label="Reset zoom"
-                    className="inline-flex h-7 items-center justify-center rounded-md px-1.5 text-[11px] tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                }
-              />
-              <TooltipPopup>Reset zoom</TooltipPopup>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={handleZoomIn}
-                    aria-label="Zoom in"
-                    className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    <ZoomIn className="size-3.5" />
-                  </button>
-                }
-              />
-              <TooltipPopup>Zoom in</TooltipPopup>
-            </Tooltip>
-          </>
-        ) : null}
-        {totalDropped > 0 ? (
-          <span
-            className="ml-1 rounded bg-warning-surface px-1.5 py-0.5 text-[10px] text-warning-foreground"
-            data-svg-sanitized-banner
-          >
-            Removed {totalDropped} unsafe {totalDropped === 1 ? "element" : "elements"}
-          </span>
-        ) : null}
-      </div>
-      <div
-        ref={containerRef}
-        className="relative min-h-0 flex-1 overflow-hidden"
-        onWheel={handleWheel}
-        data-svg-viewer-stage
-        data-svg-mode={mode}
-      >
-        {mode === "rendered" ? (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            onPointerDown={handlePointerDown}
-            data-svg-canvas
-            style={{ cursor: zoom > 1 ? "grab" : "default" }}
-          >
-            <div
-              data-svg-frame
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                transformOrigin: "center",
-              }}
-              // The SVG came from the local workspace, but we still
-              // sanitize it (script, javascript:, on*) before injection.
-              dangerouslySetInnerHTML={{ __html: sanitized.sanitized }}
-            />
-          </div>
-        ) : (
-          <pre
-            className="h-full w-full overflow-auto p-3 font-mono text-[11px] leading-relaxed text-foreground"
-            data-svg-source
-          >
-            {contents}
-          </pre>
+        ref={panZoom.containerRef}
+        className={cn(
+          "min-h-0 flex-1 touch-none overflow-hidden",
+          canvasBackgroundClassName(background),
         )}
+        style={canvasBackgroundStyle(background)}
+        {...panZoom.handlers}
+        data-svg-viewer-canvas
+      >
+        <div className="flex h-full w-full items-center justify-center overflow-hidden p-4">
+          <img
+            key={`${assetUrl.url}:${reloadNonce}`}
+            src={assetUrl.url}
+            alt={props.relativePath}
+            draggable={false}
+            className={cn(
+              "select-none",
+              panZoom.isFit
+                ? "max-h-full max-w-full object-contain"
+                : "max-h-none max-w-none shadow-lg",
+            )}
+            style={
+              panZoom.isFit
+                ? undefined
+                : {
+                    width:
+                      intrinsicSize && panZoom.effectiveZoom
+                        ? `${intrinsicSize.width * panZoom.effectiveZoom}px`
+                        : undefined,
+                    transform: `translate(${panZoom.offset.x}px, ${panZoom.offset.y}px)`,
+                  }
+            }
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              handleLoad(
+                image.naturalWidth > 0 && image.naturalHeight > 0
+                  ? { width: image.naturalWidth, height: image.naturalHeight }
+                  : parseSvgIntrinsicSizeFromElement(props.revision),
+              );
+            }}
+            onError={() => setDecodeFailed(true)}
+          />
+        </div>
+      </div>
+      {decodeFailed ? (
+        <div className="shrink-0 border-t border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
+          The SVG could not be rendered. Check the source view for markup errors.
+        </div>
+      ) : null}
+      <div className="surface-glass flex h-8 shrink-0 items-center gap-2 border-t border-border/60 px-2">
+        <ViewerZoomControls
+          zoom={panZoom.zoom}
+          onZoomIn={panZoom.zoomIn}
+          onZoomOut={panZoom.zoomOut}
+          onActualSize={panZoom.actualSize}
+          onFit={panZoom.reset}
+        />
+        <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+          {intrinsicSize ? (
+            <span className="tabular-nums">
+              {Math.round(intrinsicSize.width)} × {Math.round(intrinsicSize.height)}
+            </span>
+          ) : null}
+          <span>SVG</span>
+          <ViewerBackgroundToggle value={background} onChange={setBackground} />
+        </span>
       </div>
     </div>
   );
 }
 
-function clampZoom(value: number, min: number, max: number): number {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
+function parseSvgIntrinsicSizeFromElement(_revision: number): {
+  width: number;
+  height: number;
+} | null {
+  return null;
 }

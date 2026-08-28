@@ -1,5 +1,5 @@
 import type { UsageProviderKind } from "@rune/contracts";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { DailyTotals, HourlyTotals } from "@rune/shared/usageMerge";
 import {
@@ -58,10 +58,11 @@ function buildPeriodColumns(
   periods: readonly string[],
   byPeriod: ReadonlyMap<string, DailyTotals | HourlyTotals>,
   metric: UsageChartMetric,
+  providers: readonly UsageProviderKind[],
 ): readonly DayColumn[] {
   return periods.map((period) => {
     const entry = byPeriod.get(period);
-    const bands = PROVIDER_ORDER.map((provider) => ({
+    const bands = providers.map((provider) => ({
       provider,
       value: valueFor(entry, provider, metric),
     }));
@@ -184,7 +185,10 @@ export function buildDayColumns(
   byDay: ReadonlyMap<string, DailyTotals>,
   metric: UsageChartMetric,
 ): readonly DayColumn[] {
-  return buildPeriodColumns(days, byDay, metric);
+  const activeProviders = PROVIDER_ORDER.filter((provider) =>
+    [...byDay.values()].some((entry) => entry.byProvider.has(provider)),
+  );
+  return buildPeriodColumns(days, byDay, metric, activeProviders);
 }
 
 export function UsageProviderChart({
@@ -210,6 +214,14 @@ export function UsageProviderChart({
   const plotRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const hoverPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverFrameRef = useRef<number | null>(null);
+  const pendingHoverRef = useRef<{ index: number; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverFrameRef.current !== null) cancelAnimationFrame(hoverFrameRef.current);
+    };
+  }, []);
 
   const { paths, ticks, stepX, toY, series } = useMemo(() => {
     if (periods.length === 0) {
@@ -222,7 +234,7 @@ export function UsageProviderChart({
       };
     }
 
-    const columns = buildPeriodColumns(periods, byPeriod, metric);
+    const columns = buildPeriodColumns(periods, byPeriod, metric, providers);
     // The scale tops out at the largest single provider-period, not the sum:
     // layered series each measure from zero, so a combined peak would leave
     // the plot permanently half empty.
@@ -238,7 +250,7 @@ export function UsageProviderChart({
       max === 0 ? VIEW_HEIGHT : VIEW_HEIGHT - (value / max) * (VIEW_HEIGHT - PLOT_TOP);
 
     const built = providers.map((provider) => {
-      const providerIndex = PROVIDER_ORDER.indexOf(provider);
+      const providerIndex = providers.indexOf(provider);
       const line = curvePath(
         smoothCurve(
           columns.map((column, periodIndex) => ({
@@ -316,9 +328,20 @@ export function UsageProviderChart({
       const localY = Math.min(bounds.height, Math.max(0, event.clientY - bounds.top));
       const fraction = localX / bounds.width;
       const index = Math.round(fraction * (periods.length - 1));
-      hoverPositionRef.current = { x: localX, y: localY };
-      positionTooltip();
-      setHoverIndex(Math.min(periods.length - 1, Math.max(0, index)));
+      pendingHoverRef.current = {
+        index: Math.min(periods.length - 1, Math.max(0, index)),
+        x: localX,
+        y: localY,
+      };
+      if (hoverFrameRef.current === null) {
+        hoverFrameRef.current = requestAnimationFrame(() => {
+          hoverFrameRef.current = null;
+          const pending = pendingHoverRef.current;
+          if (pending === null) return;
+          hoverPositionRef.current = { x: pending.x, y: pending.y };
+          setHoverIndex(pending.index);
+        });
+      }
     },
     [periods.length, positionTooltip],
   );
@@ -353,6 +376,11 @@ export function UsageProviderChart({
           className="relative h-56 flex-1"
           onMouseMove={handleMove}
           onMouseLeave={() => {
+            if (hoverFrameRef.current !== null) {
+              cancelAnimationFrame(hoverFrameRef.current);
+              hoverFrameRef.current = null;
+            }
+            pendingHoverRef.current = null;
             hoverPositionRef.current = null;
             setHoverIndex(null);
           }}

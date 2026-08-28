@@ -12,6 +12,15 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
   bookmark: [{ tag: "path", attrs: { d: "m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" } }],
   "chevron-right": [{ tag: "path", attrs: { d: "m9 19 7-7-7-7" } }],
   "chevron-down": [{ tag: "path", attrs: { d: "m6 9 6 6 6-6" } }],
+  "file-plus": [
+    { tag: "path", attrs: { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" } },
+    { tag: "path", attrs: { d: "M14 2v6h6" } },
+    { tag: "path", attrs: { d: "M12 18v-6M9 15h6" } },
+  ],
+  "folder-plus": [
+    { tag: "path", attrs: { d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" } },
+    { tag: "path", attrs: { d: "M12 11v6M9 14h6" } },
+  ],
   "external-link": [
     { tag: "path", attrs: { d: "M15 3h6v6" } },
     { tag: "path", attrs: { d: "m10 14 11-11" } },
@@ -77,6 +86,12 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "path", attrs: { d: "M12 8v6" } },
     { tag: "path", attrs: { d: "M9 11h6" } },
   ],
+  palette: [
+    { tag: "path", attrs: { d: "M12 3a9 9 0 1 0 0 18h1.5a1.5 1.5 0 0 0 0-3H12a3 3 0 0 1 0-6h4.5a4.5 4.5 0 0 0 0-9Z" } },
+    { tag: "circle", attrs: { cx: "7.5", cy: "10.5", r: "0.5" } },
+    { tag: "circle", attrs: { cx: "9", cy: "6.5", r: "0.5" } },
+    { tag: "circle", attrs: { cx: "14", cy: "6.5", r: "0.5" } },
+  ],
   pin: [
     { tag: "path", attrs: { d: "M12 17v5" } },
     {
@@ -125,6 +140,10 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "path", attrs: { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" } },
     { tag: "line", attrs: { x1: "10", x2: "10", y1: "11", y2: "17" } },
     { tag: "line", attrs: { x1: "14", x2: "14", y1: "11", y2: "17" } },
+  ],
+  "rotate-ccw": [
+    { tag: "path", attrs: { d: "M1 4v6h6" } },
+    { tag: "path", attrs: { d: "M3.51 15a9 9 0 1 0 .49-5" } },
   ],
 };
 

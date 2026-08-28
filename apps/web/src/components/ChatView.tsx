@@ -14,7 +14,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
@@ -27,6 +27,7 @@ import {
   connectionStatusTitle,
   type EnvironmentConnectionPresentation,
 } from "@rune/client-runtime/connection";
+import { collectComposerThreadMentions } from "@rune/shared/composerInlineTokens";
 import { wasBootstrapThreadDeleted } from "@rune/client-runtime/errors";
 import {
   changeRequestAutoSettles,
@@ -207,7 +208,10 @@ import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
-import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
+import {
+  NO_PROVIDER_MODEL_SELECTION,
+  resolveSelectableProviderInstance,
+} from "../providerInstances";
 import {
   useClientSettings,
   useClientSettingsHydrated,
@@ -346,6 +350,7 @@ import {
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
   shouldDockDraftHeroForSubmission,
+  shouldConfirmHistoricalMessageRewind,
   shouldInterruptRunningTurnBeforeSend,
   shouldQueueRunningComposerSubmission,
   shouldRewindBeforeEditedUserMessageSend,
@@ -1475,6 +1480,7 @@ function ChatViewContent(props: ChatViewProps) {
   const [pendingUserMessageEdit, setPendingUserMessageEdit] = useState<{
     messageId: MessageId;
     turnCount: number;
+    hasFileChangesAfter: boolean;
   } | null>(null);
   const pendingUserMessageEditRef = useRef(pendingUserMessageEdit);
   pendingUserMessageEditRef.current = pendingUserMessageEdit;
@@ -2503,7 +2509,6 @@ function ChatViewContent(props: ChatViewProps) {
     selectedProviderByThreadId ?? threadProvider,
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
-  const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () =>
@@ -2533,6 +2538,7 @@ function ChatViewContent(props: ChatViewProps) {
     () => derivePendingUserInputs(threadActivities),
     [threadActivities],
   );
+  const phase = derivePhase(activeThread?.session ?? null, pendingUserInputs.length > 0);
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
     () =>
@@ -2695,7 +2701,7 @@ function ChatViewContent(props: ChatViewProps) {
     const attachmentIds = new Set<string>();
     for (const message of serverMessages ?? []) {
       for (const attachment of message.attachments ?? []) {
-        attachmentIds.add(attachment.id);
+        if (attachment.type === "image") attachmentIds.add(attachment.id);
       }
     }
     return [...attachmentIds];
@@ -2728,6 +2734,7 @@ function ChatViewContent(props: ChatViewProps) {
       return {
         ...message,
         attachments: message.attachments.map((attachment) => {
+          if (attachment.type !== "image") return attachment;
           const previewUrl = serverAttachmentUrlById.get(attachment.id);
           return previewUrl ? { ...attachment, previewUrl } : attachment;
         }),
@@ -2925,8 +2932,12 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return byTurnId;
   }, [turnDiffSummaries]);
-  const revertTurnCountByUserMessageId = useMemo(() => {
+  const {
+    revertTurnCountByUserMessageId,
+    historicalMessageHasFileChangesById,
+  } = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
+    const fileChangesByUserMessageId = new Map<MessageId, boolean>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
       const entry = timelineEntries[index];
       if (!entry || entry.kind !== "message" || entry.message.role !== "user") {
@@ -2951,11 +2962,15 @@ function ChatViewContent(props: ChatViewProps) {
           break;
         }
         byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
+        fileChangesByUserMessageId.set(entry.message.id, summary.files.length > 0);
         break;
       }
     }
 
-    return byUserMessageId;
+    return {
+      revertTurnCountByUserMessageId: byUserMessageId,
+      historicalMessageHasFileChangesById: fileChangesByUserMessageId,
+    };
   }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
 
   const gitCwd = activeProject
@@ -2988,15 +3003,27 @@ function ChatViewContent(props: ChatViewProps) {
     activeThread?.modelSelection.instanceId ??
     activeProject?.defaultModelSelection?.instanceId ??
     null;
+  const effectiveActiveProviderInstanceId = useMemo(() => {
+    if (activeThread?.session || !activeProviderInstanceId) {
+      return activeProviderInstanceId;
+    }
+    return (
+      resolveSelectableProviderInstance(providerStatuses, activeProviderInstanceId) ??
+      activeProviderInstanceId
+    );
+  }, [activeProviderInstanceId, activeThread?.session, providerStatuses]);
   const activeProviderStatus = useMemo(() => {
-    if (activeProviderInstanceId) {
+    if (effectiveActiveProviderInstanceId) {
       return (
-        providerStatuses.find((status) => status.instanceId === activeProviderInstanceId) ?? null
+        providerStatuses.find(
+          (status) => status.instanceId === effectiveActiveProviderInstanceId,
+        ) ??
+        null
       );
     }
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
-  }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
+  }, [effectiveActiveProviderInstanceId, providerStatuses, selectedProvider]);
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -3205,10 +3232,31 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
     setIsContinuingTurn(true);
+    const controllerTurnId = promptQueue.activeTurnId;
+    if (controllerTurnId !== null) {
+      updatePromptQueue(activeThread.id, {
+        type: "continue-requested",
+        turnId: controllerTurnId,
+        now: new Date().toISOString(),
+      });
+    }
     try {
       const continued = await continueAfterRestart();
       if (continued) {
         setIsTurnPaused(false);
+        if (controllerTurnId !== null) {
+          updatePromptQueue(activeThread.id, {
+            type: "continue-confirmed",
+            turnId: controllerTurnId,
+            now: new Date().toISOString(),
+          });
+        }
+      } else if (controllerTurnId !== null) {
+        updatePromptQueue(activeThread.id, {
+          type: "set-execution",
+          status: "paused",
+          activeTurnId: controllerTurnId,
+        });
       }
     } finally {
       setIsContinuingTurn(false);
@@ -3220,7 +3268,9 @@ function ChatViewContent(props: ChatViewProps) {
     isContinuingTurn,
     isSendBusy,
     isServerThread,
+    promptQueue.activeTurnId,
     phase,
+    updatePromptQueue,
   ]);
 
   const autoContinueAttemptedRef = useRef<string | null>(null);
@@ -3743,6 +3793,10 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeProject, activeThreadRef],
   );
+  const openFilesSurface = useCallback(() => {
+    if (!activeThreadRef || !activeProject) return;
+    useRightPanelStore.getState().open(activeThreadRef, "files");
+  }, [activeProject, activeThreadRef]);
   // The thread's own change request, placed against the project it belongs to. Without a
   // project there is nothing to resolve it against, so the caller falls back to the browser.
   const threadRepository = activeProject?.repositoryIdentity?.displayName ?? null;
@@ -5545,7 +5599,11 @@ function ChatViewContent(props: ChatViewProps) {
   const onRevertToTurnCount = useCallback(
     async (
       turnCount: number,
-      rewind?: { mode: UserMessageRewindMode; restoredPromptText?: string },
+      rewind?: {
+        mode: UserMessageRewindMode;
+        restoredPromptText?: string;
+        hasFileChangesAfter?: boolean;
+      },
     ) => {
       const localApi = readLocalApi();
       if (!localApi || !activeThread || isRevertingCheckpoint) return;
@@ -5561,8 +5619,16 @@ function ChatViewContent(props: ChatViewProps) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
       }
-      const confirmation = buildUserMessageRewindConfirmation(rewind?.mode ?? "delete", turnCount);
-      const confirmed = await localApi.dialogs.confirm(confirmation.message, confirmation.options);
+      const mode = rewind?.mode ?? "delete";
+      const hasFileChangesAfter = rewind?.hasFileChangesAfter ?? true;
+      const requiresConfirmation = shouldConfirmHistoricalMessageRewind({
+        mode,
+        hasFileChangesAfter,
+      });
+      const confirmation = buildUserMessageRewindConfirmation(mode, turnCount);
+      const confirmed = requiresConfirmation
+        ? await localApi.dialogs.confirm(confirmation.message, confirmation.options)
+        : true;
       if (!confirmed) {
         return;
       }
@@ -5610,6 +5676,7 @@ function ChatViewContent(props: ChatViewProps) {
       scheduleComposerFocus,
       setComposerDraftPrompt,
       setThreadError,
+      shouldConfirmHistoricalMessageRewind,
     ],
   );
 
@@ -5948,6 +6015,18 @@ function ChatViewContent(props: ChatViewProps) {
       messageTextWithPreviewAnnotations,
       composerReviewCommentsSnapshot,
     );
+    const threadAttachments = Array.from(
+      new Map(
+        collectComposerThreadMentions(messageTextForSend).map(({ threadId, title }) => [
+          threadId,
+          {
+            type: "thread-mention" as const,
+            threadId: ThreadId.make(threadId),
+            title,
+          },
+        ]),
+      ).values(),
+    );
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
@@ -5977,7 +6056,13 @@ function ChatViewContent(props: ChatViewProps) {
         hasPendingEdit: pendingEdit !== null,
       })
     ) {
-      enqueueQueuedPrompt(threadIdForSend, promptForSend.trim());
+      if (sendInFlightRef.current) return;
+      sendInFlightRef.current = true;
+      try {
+        enqueueQueuedPrompt(threadIdForSend, promptForSend.trim());
+      } finally {
+        sendInFlightRef.current = false;
+      }
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
@@ -5993,13 +6078,15 @@ function ChatViewContent(props: ChatViewProps) {
     // second click cannot race the same lifecycle.
     sendInFlightRef.current = true;
     if (pendingEdit) {
-      const localApi = readLocalApi();
-      if (!localApi) {
-        sendInFlightRef.current = false;
-        return;
-      }
+      const requiresConfirmation = shouldConfirmHistoricalMessageRewind({
+        mode: "edit",
+        hasFileChangesAfter: pendingEdit.hasFileChangesAfter,
+      });
+      const localApi = requiresConfirmation ? readLocalApi() : null;
       const confirmation = buildUserMessageRewindConfirmation("edit", pendingEdit.turnCount);
-      const confirmed = await localApi.dialogs.confirm(confirmation.message, confirmation.options);
+      const confirmed = requiresConfirmation && localApi
+        ? await localApi.dialogs.confirm(confirmation.message, confirmation.options)
+        : !requiresConfirmation;
       if (!shouldRewindBeforeEditedUserMessageSend({ hasPendingEdit: true, confirmed })) {
         // Keep the edited prompt in the composer when the user declines.
         sendInFlightRef.current = false;
@@ -6109,7 +6196,7 @@ function ChatViewContent(props: ChatViewProps) {
           dataUrl: await readFileAsDataUrl(image.file),
         };
       }),
-    );
+    ).then((images) => [...images, ...threadAttachments]);
     const optimisticAttachments = composerImagesSnapshot.map((image) => ({
       type: "image" as const,
       id: image.id,
@@ -6143,7 +6230,9 @@ function ChatViewContent(props: ChatViewProps) {
         id: messageIdForSend,
         role: "user",
         text: outgoingMessageText,
-        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
+        ...(optimisticAttachments.length > 0 || threadAttachments.length > 0
+          ? { attachments: [...optimisticAttachments, ...threadAttachments] }
+          : {}),
         turnId: null,
         createdAt: messageCreatedAt,
         updatedAt: messageCreatedAt,
@@ -6543,11 +6632,32 @@ function ChatViewContent(props: ChatViewProps) {
 
   const onInterrupt = async () => {
     if (!activeThread) return;
+    const controllerTurnId =
+      promptQueue.activeTurnId ?? activeThread.session?.activeTurnId ?? null;
+    if (controllerTurnId !== null) {
+      updatePromptQueue(activeThread.id, {
+        type: "set-execution",
+        status: "running",
+        activeTurnId: controllerTurnId,
+      });
+      updatePromptQueue(activeThread.id, {
+        type: "pause-requested",
+        turnId: controllerTurnId,
+        now: new Date().toISOString(),
+      });
+    }
     const result = await interruptThreadTurn({
       environmentId,
       input: buildThreadTurnInterruptInput(activeThread),
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      if (controllerTurnId !== null) {
+        updatePromptQueue(activeThread.id, {
+          type: "set-execution",
+          status: "running",
+          activeTurnId: controllerTurnId,
+        });
+      }
       const error = squashAtomCommandFailure(result);
       setThreadError(
         activeThread.id,
@@ -6557,6 +6667,13 @@ function ChatViewContent(props: ChatViewProps) {
     }
     if (result._tag === "Success") {
       setIsTurnPaused(true);
+      if (controllerTurnId !== null) {
+        updatePromptQueue(activeThread.id, {
+          type: "pause-confirmed",
+          turnId: controllerTurnId,
+          now: new Date().toISOString(),
+        });
+      }
     }
   };
 
@@ -6634,32 +6751,32 @@ function ChatViewContent(props: ChatViewProps) {
       if (!activePendingUserInput) {
         return;
       }
+      const question =
+        (activePendingProgress?.activeQuestion?.id === questionId
+          ? activePendingProgress.activeQuestion
+          : undefined) ?? activePendingUserInput.questions.find((entry) => entry.id === questionId);
+      if (!question) {
+        return;
+      }
+      const nextDraft = togglePendingUserInputOptionSelection(
+        question,
+        activePendingDraftAnswers[questionId],
+        optionLabel,
+      );
       setPendingUserInputAnswersByRequestId((existing) => {
-        const question =
-          (activePendingProgress?.activeQuestion?.id === questionId
-            ? activePendingProgress.activeQuestion
-            : undefined) ??
-          activePendingUserInput.questions.find((entry) => entry.id === questionId);
-        if (!question) {
-          return existing;
-        }
-
         return {
           ...existing,
           [activePendingUserInput.requestId]: {
             ...existing[activePendingUserInput.requestId],
-            [questionId]: togglePendingUserInputOptionSelection(
-              question,
-              existing[activePendingUserInput.requestId]?.[questionId],
-              optionLabel,
-            ),
+            [questionId]: nextDraft,
           },
         };
       });
-      promptRef.current = "";
-      composerRef.current?.resetCursorState({ cursor: 0 });
+      const nextPrompt = nextDraft.customAnswer ?? "";
+      promptRef.current = nextPrompt;
+      composerRef.current?.resetCursorState({ cursor: nextPrompt.length, prompt: nextPrompt });
     },
-    [activePendingProgress?.activeQuestion, activePendingUserInput, composerRef],
+    [activePendingDraftAnswers, activePendingProgress?.activeQuestion, activePendingUserInput, composerRef],
   );
 
   const onChangeActivePendingUserInputCustomAnswer = useCallback(
@@ -6698,6 +6815,28 @@ function ChatViewContent(props: ChatViewProps) {
 
   const onAdvanceActivePendingUserInput = useCallback(() => {
     if (!activePendingUserInput || !activePendingProgress) {
+      return;
+    }
+    if (!activePendingProgress.canAdvance) {
+      return;
+    }
+    if (activePendingProgress.isLastQuestion) {
+      if (activePendingResolvedAnswers) {
+        void onRespondToUserInput(activePendingUserInput.requestId, activePendingResolvedAnswers);
+      }
+      return;
+    }
+    setActivePendingUserInputQuestionIndex(activePendingProgress.questionIndex + 1);
+  }, [
+    activePendingProgress,
+    activePendingResolvedAnswers,
+    activePendingUserInput,
+    onRespondToUserInput,
+    setActivePendingUserInputQuestionIndex,
+  ]);
+
+  const onSkipActivePendingUserInput = useCallback(() => {
+    if (!activePendingUserInput || !activePendingProgress?.canSkip) {
       return;
     }
     if (activePendingProgress.isLastQuestion) {
@@ -7200,6 +7339,8 @@ function ChatViewContent(props: ChatViewProps) {
   // the callback references stay fully stable and never bust context identity.
   const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
   revertTurnCountRef.current = revertTurnCountByUserMessageId;
+  const historicalMessageHasFileChangesRef = useRef(historicalMessageHasFileChangesById);
+  historicalMessageHasFileChangesRef.current = historicalMessageHasFileChangesById;
   const onRevertToTurnCountRef = useRef(onRevertToTurnCount);
   onRevertToTurnCountRef.current = onRevertToTurnCount;
   const resolveRewindTurnCount = useCallback((messageId: MessageId): number | null => {
@@ -7212,8 +7353,10 @@ function ChatViewContent(props: ChatViewProps) {
       if (targetTurnCount === null) {
         return;
       }
-      pendingUserMessageEditRef.current = { messageId, turnCount: targetTurnCount };
-      setPendingUserMessageEdit({ messageId, turnCount: targetTurnCount });
+      const hasFileChangesAfter =
+        historicalMessageHasFileChangesRef.current.get(messageId) ?? true;
+      pendingUserMessageEditRef.current = { messageId, turnCount: targetTurnCount, hasFileChangesAfter };
+      setPendingUserMessageEdit({ messageId, turnCount: targetTurnCount, hasFileChangesAfter });
       setComposerDraftPrompt(composerDraftTarget, messageText);
       composerRef.current?.resetCursorState({
         cursor: messageText.length,
@@ -7230,7 +7373,11 @@ function ChatViewContent(props: ChatViewProps) {
       if (targetTurnCount === null) {
         return;
       }
-      void onRevertToTurnCountRef.current(targetTurnCount);
+      void onRevertToTurnCountRef.current(targetTurnCount, {
+        mode: "delete",
+        hasFileChangesAfter:
+          historicalMessageHasFileChangesRef.current.get(messageId) ?? true,
+      });
     },
     [resolveRewindTurnCount],
   );
@@ -7690,6 +7837,7 @@ function ChatViewContent(props: ChatViewProps) {
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
                             onOpenTasks={addTasksSurface}
+                            onOpenFiles={openFilesSurface}
                             activeGoal={activeGoal || null}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}

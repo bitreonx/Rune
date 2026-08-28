@@ -81,6 +81,22 @@ describe("resolvePendingUserInputAnswer", () => {
 });
 
 describe("togglePendingUserInputOptionSelection", () => {
+  it("loads a single-select suggestion into the editable answer", () => {
+    const draft = togglePendingUserInputOptionSelection(
+      singleSelectQuestion,
+      undefined,
+      "Orchestration-first",
+    );
+
+    expect(draft).toEqual({
+      customAnswer: "Orchestration-first",
+      selectedOptionLabels: ["Orchestration-first"],
+    });
+    expect(resolvePendingUserInputAnswer(singleSelectQuestion, draft)).toBe(
+      "Orchestration-first",
+    );
+  });
+
   it("toggles options for multi-select questions", () => {
     expect(togglePendingUserInputOptionSelection(multiSelectQuestion, undefined, "Server")).toEqual(
       {

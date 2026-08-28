@@ -230,7 +230,10 @@ export function shouldInterruptRunningTurnBeforeSend(input: {
   isSendBusy: boolean;
   sendInFlight: boolean;
 }): boolean {
-  return input.phase === "running" && !input.isSendBusy && !input.sendInFlight;
+  // A normal Send is queued while a turn is running. Interruption is only
+  // allowed through the explicit Pause or Steer controls.
+  void input;
+  return false;
 }
 
 export function shouldQueueRunningComposerSubmission(input: {
@@ -450,6 +453,18 @@ export function buildExpiredTerminalContextToastCopy(
 }
 
 export type UserMessageRewindMode = "edit" | "delete" | "turn";
+
+/**
+ * A chat-only historical edit/delete has no workspace state to restore, so
+ * it can use the existing checkpoint command without a destructive prompt.
+ * Any file-bearing history still requires an explicit confirmation.
+ */
+export function shouldConfirmHistoricalMessageRewind(input: {
+  mode: UserMessageRewindMode;
+  hasFileChangesAfter: boolean;
+}): boolean {
+  return input.mode === "turn" || input.hasFileChangesAfter;
+}
 
 /**
  * Rewinding a user message reuses the checkpoint revert pipeline: files and

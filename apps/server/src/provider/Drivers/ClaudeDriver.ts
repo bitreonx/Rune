@@ -116,7 +116,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
   },
   configSchema: ClaudeSettings,
   defaultConfig: (): ClaudeSettings => decodeClaudeSettings({}),
-  create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
+  create: ({ instanceId, displayName, accentColor, environment, enabled, config, runtime }) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -126,11 +126,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
+      const effectiveConfig = {
+        ...config,
+        ...(runtime?.manifest.configHome !== undefined
+          ? { homePath: runtime.manifest.configHome }
+          : {}),
+        enabled,
+      } satisfies ClaudeSettings;
       const fallbackContinuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,
       });
-      const effectiveConfig = { ...config, enabled } satisfies ClaudeSettings;
       const maintenanceCapabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
         binaryPath: effectiveConfig.binaryPath,
         env: processEnv,

@@ -45,6 +45,25 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getThreadDetailById: () => Effect.die("unused"),
     getThreadDetailSnapshot: () => Effect.die("unused"),
     searchThreads: () => Effect.succeed({ matches: [] }),
+              listThreadsForPicker: () => Effect.succeed({ matches: [] }),
+              capsulePreview: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadTitle: "t",
+                  claimCount: 0,
+                  tokenEstimate: 0,
+                  topClaimTexts: [],
+                }),
+              capsuleExpand: () =>
+                Effect.succeed({
+                  threadId: "" as never,
+                  threadHarness: "unknown",
+                  rawEvent: null,
+                  text: "",
+                  degraded: true,
+                  tokenCount: 0,
+                  claimIdsCovered: [],
+                }),
   });
 
 const makeTerminalManagerLayer = (

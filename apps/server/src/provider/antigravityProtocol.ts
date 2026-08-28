@@ -34,6 +34,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const MODEL_SLUG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const MODEL_LIST_LABELS = new Set(["model", "models", "name", "names", "slug", "slugs"]);
+
+function addModel(
+  models: AntigravityModelListEntry[],
+  seen: Set<string>,
+  slugValue: unknown,
+  nameValue?: unknown,
+): void {
+  if (typeof slugValue !== "string") return;
+  const slug = slugValue.trim();
+  if (!MODEL_SLUG_PATTERN.test(slug) || MODEL_LIST_LABELS.has(slug.toLowerCase())) return;
+  if (seen.has(slug)) return;
+  const name = typeof nameValue === "string" && nameValue.trim() ? nameValue.trim() : slug;
+  seen.add(slug);
+  models.push({ slug, name });
+}
+
+function collectJsonModels(
+  value: unknown,
+  models: AntigravityModelListEntry[],
+  seen: Set<string>,
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectJsonModels(item, models, seen);
+    return;
+  }
+  if (!isRecord(value)) {
+    if (typeof value === "string" && value.includes("-")) addModel(models, seen, value);
+    return;
+  }
+
+  const slug =
+    value.id ?? value.slug ?? value.model ?? value.model_id ?? value.modelId ?? value.identifier;
+  const name = value.display_name ?? value.displayName ?? value.name ?? value.label;
+  addModel(models, seen, slug, name);
+  for (const child of Object.values(value)) {
+    if (Array.isArray(child) || isRecord(child)) collectJsonModels(child, models, seen);
+  }
+}
+
 /** Parse one line from `agy --output-format stream-json`. */
 export function parseAntigravityStreamLine(line: string): AntigravityStreamEvent | undefined {
   const trimmed = line.trim();
@@ -52,7 +93,16 @@ export function parseAntigravityStreamLine(line: string): AntigravityStreamEvent
     return undefined;
   }
 
-  return decoded as AntigravityStreamEvent;
+  // `agy` currently wraps the event-specific fields under a property matching
+  // the event name (for example, `{ event: "result", result: { status } }`).
+  // Older builds emitted those fields at the top level. Normalize both shapes
+  // here so the adapter has one protocol boundary and still retains the full
+  // provider payload for diagnostics.
+  const nested = decoded[event];
+  return {
+    ...decoded,
+    ...(isRecord(nested) ? nested : {}),
+  } as AntigravityStreamEvent;
 }
 
 /**
@@ -111,6 +161,16 @@ export function parseAntigravityModelList(output: string): AntigravityModelListE
   const seen = new Set<string>();
   const models: AntigravityModelListEntry[] = [];
 
+  const trimmedOutput = output.trim();
+  if (trimmedOutput) {
+    try {
+      collectJsonModels(JSON.parse(trimmedOutput), models, seen);
+    } catch {
+      // Some CLI versions prefix a JSON catalog with human-readable notices.
+      // The line parser below still handles the table format in that case.
+    }
+  }
+
   for (const rawLine of output.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -121,16 +181,17 @@ export function parseAntigravityModelList(output: string): AntigravityModelListE
 
     if (!name) {
       const match = line.match(/^([A-Za-z0-9][A-Za-z0-9._/-]*)\s{2,}(.+?)\s*$/);
-      if (!match?.[1] || !match[2]) continue;
-      slug = match[1];
-      name = match[2];
+      if (match?.[1] && match[2]) {
+        slug = match[1];
+        name = match[2];
+      } else if (line.includes("-") || line.includes("/") || line.includes(".")) {
+        name = slug;
+      } else {
+        continue;
+      }
     }
 
-    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(slug) || !name || seen.has(slug)) {
-      continue;
-    }
-    seen.add(slug);
-    models.push({ slug, name });
+    addModel(models, seen, slug, name);
   }
 
   return models;

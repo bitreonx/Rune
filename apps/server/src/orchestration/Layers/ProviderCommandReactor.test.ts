@@ -942,7 +942,7 @@ describe("ProviderCommandReactor", () => {
     expect(message).toContain("[Earlier content truncated]");
     expect(message).toContain("image.png");
     expect(message).toHaveLength(8_000);
-    expect(input.attachments?.map((attachment) => attachment.id)).toEqual([
+    expect(input.attachments?.map((a) => (a.type === "image" ? a.id : a.threadId))).toEqual([
       "opening-context-image",
       "recent-context-image",
     ]);

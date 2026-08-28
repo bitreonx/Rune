@@ -17,6 +17,7 @@ export interface PendingUserInputProgress {
   isLastQuestion: boolean;
   isComplete: boolean;
   canAdvance: boolean;
+  canSkip: boolean;
 }
 
 function normalizeDraftAnswer(value: string | undefined): string | null {
@@ -97,7 +98,10 @@ export function togglePendingUserInputOptionSelection(
   }
 
   return {
-    customAnswer: "",
+    // A suggestion is an editable answer, not a fire-and-forget choice. Keep
+    // the normalized option as a fallback as well so clearing the editor
+    // restores the suggestion without losing the selection.
+    customAnswer: optionLabel,
     selectedOptionLabels: [optionLabel],
   };
 }
@@ -111,6 +115,10 @@ export function buildPendingUserInputAnswers(
   for (const question of questions) {
     const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
     if (!answer) {
+      if (question.allowSkip) {
+        answers[question.id] = question.multiSelect ? [] : "";
+        continue;
+      }
       return null;
     }
     answers[question.id] = answer;
@@ -167,6 +175,7 @@ export function derivePendingUserInputProgress(
     answeredQuestionCount,
     isLastQuestion,
     isComplete: buildPendingUserInputAnswers(questions, draftAnswers) !== null,
-    canAdvance: Boolean(resolvedAnswer),
+    canAdvance: Boolean(resolvedAnswer) || Boolean(activeQuestion?.allowSkip),
+    canSkip: !resolvedAnswer && Boolean(activeQuestion?.allowSkip),
   };
 }

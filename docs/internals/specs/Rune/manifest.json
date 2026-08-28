@@ -1,0 +1,214 @@
+{
+  "name": "RUNE MASTER SPEC",
+  "version": "4.0",
+  "entrypoint": "00-START-HERE.md",
+  "status_file": "STATUS.md",
+  "tasks": [
+    {
+      "id": "T00",
+      "file": "tasks/T00-baseline-safety-and-release-contract.md",
+      "title": "Baseline, safety, requirement ledger, and real-app gate",
+      "depends_on": []
+    },
+    {
+      "id": "T01",
+      "file": "tasks/T01-provider-instances-and-runtime-routing.md",
+      "title": "Provider instances, service connections, runtime manifests, and multi-account routing",
+      "depends_on": [
+        "T00"
+      ]
+    },
+    {
+      "id": "T02",
+      "file": "tasks/T02-antigravity-integration.md",
+      "title": "Antigravity lifecycle, recovery, real icon, and live verification",
+      "depends_on": [
+        "T00",
+        "T01"
+      ]
+    },
+    {
+      "id": "T03",
+      "file": "tasks/T03-rune-native-harness.md",
+      "title": "RUNE Native end-to-end harness",
+      "depends_on": [
+        "T00",
+        "T01"
+      ]
+    },
+    {
+      "id": "T04",
+      "file": "tasks/T04-execution-controller-queue-steer-edit.md",
+      "title": "Execution controller: Queue, Steer, Pause, Continue, Stop, Edit, Delete",
+      "depends_on": [
+        "T00"
+      ]
+    },
+    {
+      "id": "T05",
+      "file": "tasks/T05-structured-asker-and-grill-ux.md",
+      "title": "Structured composer asker and provider-neutral Grill UX",
+      "depends_on": [
+        "T00",
+        "T04"
+      ]
+    },
+    {
+      "id": "T06",
+      "file": "tasks/T06-plan-spec-and-orchestration.md",
+      "title": "ASK \u2192 SPEC \u2192 PLAN \u2192 BUILD \u2192 REVIEW operating system",
+      "depends_on": [
+        "T00",
+        "T01",
+        "T04",
+        "T05"
+      ]
+    },
+    {
+      "id": "T07",
+      "file": "tasks/T07-skills-registry-and-mattpocock-pack.md",
+      "title": "RUNE Skill Registry + Matt Pocock engineering workflow integration",
+      "depends_on": [
+        "T00",
+        "T05",
+        "T06"
+      ]
+    },
+    {
+      "id": "T08",
+      "file": "tasks/T08-real-child-agent-threads.md",
+      "title": "Codex-class real child-agent threads",
+      "depends_on": [
+        "T00",
+        "T01",
+        "T04"
+      ]
+    },
+    {
+      "id": "T09",
+      "file": "tasks/T09-live-agent-activity-and-diffs.md",
+      "title": "Codex-class live Agent Activity + Cursor-class change visibility",
+      "depends_on": [
+        "T00",
+        "T04"
+      ]
+    },
+    {
+      "id": "T10",
+      "file": "tasks/T10-chat-scoped-change-ownership.md",
+      "title": "Thread/turn change ownership, checkpoints, rewind, and diff truth",
+      "depends_on": [
+        "T00",
+        "T04",
+        "T08"
+      ]
+    },
+    {
+      "id": "T11",
+      "file": "tasks/T11-actions-and-learned-actions.md",
+      "title": "Actions 2.0 + Learned Actions",
+      "depends_on": [
+        "T00",
+        "T04",
+        "T06"
+      ]
+    },
+    {
+      "id": "T12",
+      "file": "tasks/T12-environment-files-panels-and-actions-surface.md",
+      "title": "Environment quick panel, right rail, files, servers, and action surfaces",
+      "depends_on": [
+        "T00",
+        "T10",
+        "T11"
+      ]
+    },
+    {
+      "id": "T13",
+      "file": "tasks/T13-settings-provider-management-ui.md",
+      "title": "Provider management UX and settings cleanup",
+      "depends_on": [
+        "T00",
+        "T01",
+        "T02",
+        "T03"
+      ]
+    },
+    {
+      "id": "T14",
+      "file": "tasks/T14-usage-turn-trace-and-performance.md",
+      "title": "Usage, Turn Trace, request accounting, and performance",
+      "depends_on": [
+        "T00",
+        "T03",
+        "T09"
+      ]
+    },
+    {
+      "id": "T15",
+      "file": "tasks/T15-brand-assets-and-provider-icons.md",
+      "title": "RUNE assets and canonical Provider Brand Registry",
+      "depends_on": [
+        "T00"
+      ]
+    },
+    {
+      "id": "T16",
+      "file": "tasks/T16-competitive-harvest-and-future-security.md",
+      "title": "Competitive feature harvest + future security architecture reservation",
+      "depends_on": [
+        "T00"
+      ]
+    },
+    {
+      "id": "T17",
+      "file": "tasks/T17-chat-surface-dashboard-shell-and-ui-quality.md",
+      "title": "Chat surface, dashboard shell, visual system, and anti-slop quality",
+      "depends_on": [
+        "T00",
+        "T04",
+        "T09",
+        "T12"
+      ]
+    },
+    {
+      "id": "T18",
+      "file": "tasks/T18-verification-benchmarks-and-packaged-release.md",
+      "title": "Full regression matrix, benchmarks, packaged desktop verification, and reports",
+      "depends_on": [
+        "T00",
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05",
+        "T06",
+        "T07",
+        "T08",
+        "T09",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T17"
+      ]
+    },
+    {
+      "id": "T19",
+      "file": "tasks/T19-dabt-scale-dogfood.md",
+      "title": "DABT-scale developer dogfood benchmark",
+      "depends_on": [
+        "T03",
+        "T04",
+        "T08",
+        "T09",
+        "T11",
+        "T14",
+        "T18"
+      ]
+    }
+  ],
+  "archive": "archive/RUNE-MASTER-v3.6.md"
+}

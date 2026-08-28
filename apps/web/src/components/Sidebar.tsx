@@ -1,4 +1,3 @@
-import { autoAnimate } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -111,6 +110,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
+import { useTick } from "../hooks/useTick";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
   useProjects,
@@ -259,16 +259,11 @@ function JumpHintBadge(props: { label: string }) {
 // Self-ticking so only this span re-renders each second, not the whole row.
 function WorkingDuration(props: { startedAt: string | null }) {
   const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (Number.isNaN(startedMs)) return;
-    const id = window.setInterval(() => setTick((tick) => tick + 1), 1_000);
-    return () => window.clearInterval(id);
-  }, [startedMs]);
+  const now = useTick();
   if (Number.isNaN(startedMs)) return null;
   return (
     <span className="font-mono tabular-nums">
-      {formatWorkingDurationLabel(Date.now() - startedMs)}
+      {formatWorkingDurationLabel(now - startedMs)}
     </span>
   );
 }
@@ -1266,11 +1261,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // a useful hierarchy nor a reliable hover cue. Status now lives in the row
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
-    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
+    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left outline-none select-none transition-colors duration-150",
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground"
+      ? "bg-sidebar-row-active text-sidebar-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
       : isSelected
-        ? "bg-sidebar-row-selected text-sidebar-foreground"
+        ? "bg-sidebar-row-selected text-sidebar-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-sidebar-foreground/60"
         : shouldRecede
           ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
           : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
@@ -3672,11 +3667,6 @@ export default function Sidebar() {
     setShowJumpHints(shouldShowJumpHintsNow);
   }, [shouldShowJumpHintsNow]);
 
-  const attachListAutoAnimateRef = useCallback((node: HTMLUListElement | null) => {
-    if (!node) return;
-    autoAnimate(node, { duration: 150, easing: "ease-out" });
-  }, []);
-
   // New thread defaults to the project you're in (active thread's project,
   // falling back to the top project) — same resolution the command palette
   // uses. The command palette already offers a "New thread in..." submenu
@@ -4015,7 +4005,6 @@ export default function Sidebar() {
               timeout={400}
             >
               <ul
-                ref={attachListAutoAnimateRef}
                 role="list"
                 className="flex flex-col gap-px"
                 data-rune-sidebar-section="thread-list"

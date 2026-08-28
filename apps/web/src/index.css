@@ -432,18 +432,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   }
 }
 
-@keyframes rune-splash-status {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 @utility rune-splash-shell {
   animation: rune-splash-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -452,14 +440,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   animation: rune-splash-enter 700ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@utility rune-splash-status-dot {
-  animation: rune-splash-status 1.4s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .rune-splash-shell,
-  .rune-splash-mark,
-  .rune-splash-status-dot {
+  .rune-splash-mark {
     animation: none;
   }
 }

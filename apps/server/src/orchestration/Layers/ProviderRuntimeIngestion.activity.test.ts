@@ -142,3 +142,54 @@ describe("runtimeEventToActivities tool streaming persistence", () => {
     expect(payload.data).toEqual(streamingData);
   });
 });
+
+describe("runtimeEventToActivities turn trace", () => {
+  it("projects model attribution and one compact request record", () => {
+    const started = {
+      ...base,
+      type: "turn.started",
+      eventId: EventId.make("evt-turn-started"),
+      providerInstanceId: "gateway-1",
+      turnId: "turn-1",
+      payload: { model: "gpt-test", effort: "high" },
+    } satisfies ProviderRuntimeEvent;
+    const request = {
+      ...base,
+      type: "api.request.usage",
+      eventId: EventId.make("evt-request-usage"),
+      providerInstanceId: "gateway-1",
+      turnId: "turn-1",
+      payload: {
+        requestId: "request-1",
+        requestNumber: 1,
+        retry: true,
+        inputTokens: 100,
+        outputTokens: 20,
+        cachedInputTokens: 80,
+        reasoningTokens: 5,
+        timeToFirstByteMs: 120,
+        streamDurationMs: 800,
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    expect(runtimeEventToActivities(started)[0]).toMatchObject({
+      kind: "turn.trace.started",
+      turnId: "turn-1",
+      payload: {
+        provider: "codex",
+        providerInstanceId: "gateway-1",
+        model: "gpt-test",
+      },
+    });
+    expect(runtimeEventToActivities(request)[0]).toMatchObject({
+      kind: "turn.trace.request",
+      summary: "Request 1 retried",
+      payload: {
+        requestId: "request-1",
+        retry: true,
+        timeToFirstByteMs: 120,
+        streamDurationMs: 800,
+      },
+    });
+  });
+});

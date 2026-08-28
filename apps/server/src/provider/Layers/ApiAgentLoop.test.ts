@@ -477,6 +477,16 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
 
       expect(attempts).toBe(2);
       expect(result.finalText).toBe("after retry");
+      const usage = harness.published.filter((event) => event.type === "api.request.usage");
+      expect(usage).toHaveLength(1);
+      expect(usage[0]).toMatchObject({
+        type: "api.request.usage",
+        payload: {
+          requestId: `${String(TURN_ID)}:request:2`,
+          requestNumber: 2,
+          retry: true,
+        },
+      });
     }),
   );
 

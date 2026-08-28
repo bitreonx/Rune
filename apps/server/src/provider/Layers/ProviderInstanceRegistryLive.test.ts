@@ -200,6 +200,13 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
       expect(personal!.adapter).not.toBe(work!.adapter);
       expect(personal!.textGeneration).not.toBe(work!.textGeneration);
       expect(personal!.snapshot).not.toBe(work!.snapshot);
+      expect(personal!.runtime?.manifest.instanceId).toBe(personalId);
+      expect(work!.runtime?.manifest.instanceId).toBe(workId);
+      expect(personal!.runtime?.manifest.configHome).toBe("/home/julius/.codex_personal");
+      expect(work!.runtime?.manifest.configHome).toBe("/home/julius/.codex");
+      expect(personal!.runtime?.manifest.fingerprint).not.toBe(
+        work!.runtime?.manifest.fingerprint,
+      );
 
       // Snapshots identify themselves by instanceId + driver — this is
       // what makes per-instance routing distinguishable downstream.

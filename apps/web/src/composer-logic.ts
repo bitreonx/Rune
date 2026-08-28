@@ -1,7 +1,7 @@
 import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "skill";
+export type ComposerTriggerKind = "path" | "slash-command" | "skill" | "thread";
 export type ComposerSlashCommand = "model" | "plan" | "default" | "goal";
 export type ComposerSubmissionIntent = "foreground" | "background";
 
@@ -260,6 +260,15 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   }
   if (!token.startsWith("@")) {
     return null;
+  }
+
+  if (token.toLowerCase().startsWith("@thread:")) {
+    return {
+      kind: "thread",
+      query: token.slice("@thread:".length),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
   }
 
   return {

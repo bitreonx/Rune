@@ -1,4 +1,5 @@
 import { Path, Svg } from "react-native-svg";
+import { getProviderBrand } from "@rune/shared/providerBrands";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 
 type ProviderIconProps = {
@@ -11,8 +12,20 @@ export function ProviderIcon(props: ProviderIconProps) {
   const isDarkMode = themeAppearance === "dark";
   const size = props.size ?? 16;
   const mono = isDarkMode ? "#e5e5e5" : "#171717";
+  const iconKey = getProviderBrand(props.provider)?.iconKey;
 
-  if (props.provider === "claudeAgent") {
+  if (iconKey === "rune") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 1024 1024" fill="none">
+        <Path
+          fill={mono}
+          d="M56.83 89.38v134.33l600.77 2.51L56 755.23v179.39l392.17-316.23 282.86 279.52 236.97.83-133.5-140.17-238.64-225.29-51.74-1.67 381.33-332.09V89.38H56.83Z"
+        />
+      </Svg>
+    );
+  }
+
+  if (iconKey === "claude") {
     return (
       <Svg width={size} height={size} viewBox="0 0 256 257" fill="none">
         <Path
@@ -23,7 +36,7 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  if (props.provider === "grok") {
+  if (iconKey === "grok") {
     const fill = isDarkMode ? "#F5F5F5" : "#0F0F0F";
     return (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -39,7 +52,7 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  if (props.provider === "cursor") {
+  if (iconKey === "cursor") {
     return (
       <Svg width={size} height={size} viewBox="0 0 466.73 532.09" fill="none">
         <Path
@@ -50,7 +63,7 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  if (props.provider === "opencode") {
+  if (iconKey === "opencode") {
     return (
       <Svg width={size} height={size} viewBox="0 0 32 40" fill="none">
         <Path d="M24 32H8V16H24V32Z" fill={isDarkMode ? "#4B4646" : "#CFCECD"} />
@@ -59,7 +72,7 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  if (props.provider === "antigravity") {
+  if (iconKey === "antigravity") {
     return (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Path
@@ -71,7 +84,10 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
-  // codex (and unknown drivers)
+  // Codex/OpenAI uses the OpenAI mark. Unknown identities stay empty rather
+  // than being misrepresented as Codex.
+  if (iconKey !== "openai") return null;
+
   return (
     <Svg width={size} height={size} viewBox="0 0 256 260" fill="none">
       <Path

@@ -432,6 +432,65 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "turn.started": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "turn.trace.started",
+          summary: "Turn trace started",
+          payload: {
+            provider: event.provider,
+            ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
+            ...(event.payload.model ? { model: event.payload.model } : {}),
+            ...(event.payload.effort ? { effort: event.payload.effort } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "api.request.usage": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "turn.trace.request",
+          summary: `Request ${event.payload.requestNumber}${event.payload.retry ? " retried" : ""}`,
+          payload: {
+            requestId: event.payload.requestId,
+            requestNumber: event.payload.requestNumber,
+            retry: event.payload.retry,
+            provider: event.provider,
+            ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
+            ...(event.payload.inputTokens !== undefined
+              ? { inputTokens: event.payload.inputTokens }
+              : {}),
+            ...(event.payload.outputTokens !== undefined
+              ? { outputTokens: event.payload.outputTokens }
+              : {}),
+            ...(event.payload.cachedInputTokens !== undefined
+              ? { cachedInputTokens: event.payload.cachedInputTokens }
+              : {}),
+            ...(event.payload.reasoningTokens !== undefined
+              ? { reasoningTokens: event.payload.reasoningTokens }
+              : {}),
+            ...(event.payload.timeToFirstByteMs !== undefined
+              ? { timeToFirstByteMs: event.payload.timeToFirstByteMs }
+              : {}),
+            ...(event.payload.streamDurationMs !== undefined
+              ? { streamDurationMs: event.payload.streamDurationMs }
+              : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "runtime.error": {
       return [
         {
@@ -518,8 +577,8 @@ export function runtimeEventToActivities(
           kind: "user-input.requested",
           summary: "User input requested",
           payload: {
+            ...event.payload,
             ...(event.requestId ? { requestId: event.requestId } : {}),
-            questions: event.payload.questions,
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

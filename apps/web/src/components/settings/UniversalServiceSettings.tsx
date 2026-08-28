@@ -1,19 +1,71 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type KeyboardEvent } from "react";
 import {
   type ProviderDriverKind,
   type ProviderInstanceEnvironmentVariable,
   type ServerSettings,
 } from "@rune/contracts";
-import { Globe2Icon, KeyRoundIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
+import { Globe2Icon, ShieldCheckIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { cn } from "../../lib/utils";
-import { OPENROUTER_LOGO_URL } from "../../claudeServices";
 
-export type ServiceConnectionMode = "native" | "openrouter" | "api-provider" | "custom";
+export type ServiceConnectionMode = "native" | "openrouter" | "custom";
+
+export interface ServiceConnectionValidation {
+  readonly baseUrl: string | null;
+  readonly credential: string | null;
+}
+
+export function validateServiceConnection(
+  connection: Pick<
+    ReturnType<typeof readInstanceServiceConnection>,
+    "mode" | "baseUrl" | "apiKey" | "hasStoredKey"
+  >,
+): ServiceConnectionValidation {
+  if (connection.mode === "native") {
+    return { baseUrl: null, credential: null };
+  }
+
+  const credentialError =
+    connection.apiKey.trim().length === 0 && !connection.hasStoredKey
+      ? connection.mode === "openrouter"
+        ? "Add an OpenRouter API key or connect a shared OpenRouter service."
+        : "Add a credential for this gateway, or leave the field empty only if the gateway is public."
+      : null;
+
+  if (connection.mode === "openrouter") {
+    return { baseUrl: null, credential: credentialError };
+  }
+
+  const trimmedBaseUrl = connection.baseUrl.trim();
+  if (trimmedBaseUrl.length === 0) {
+    return {
+      baseUrl: "Add a base URL before using this Custom Gateway.",
+      credential: credentialError,
+    };
+  }
+
+  try {
+    const parsed = new URL(trimmedBaseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return {
+        baseUrl: "Use an HTTP or HTTPS gateway URL.",
+        credential: credentialError,
+      };
+    }
+  } catch {
+    return { baseUrl: "Enter a valid HTTP or HTTPS gateway URL.", credential: credentialError };
+  }
+
+  return { baseUrl: null, credential: credentialError };
+}
+
+export function serviceConnectionModeLabel(mode: ServiceConnectionMode): string {
+  return mode === "native" ? "Native account" : mode === "openrouter" ? "OpenRouter" : "Custom Gateway";
+}
 
 function isOpenRouterEndpoint(value: string): boolean {
   try {
@@ -71,12 +123,24 @@ export function readInstanceServiceConnection(
 export function UniversalServiceSettings(props: {
   driverKind: ProviderDriverKind;
   idPrefix: string;
+  /** The instance owns this connection; it is not a global provider switch. */
+  instanceId?: string;
+  instanceLabel?: string;
   environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>;
   settings: ServerSettings;
   onChange: (nextEnvironment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void;
   onOpenAddApiProvider?: () => void;
 }) {
-  const { driverKind, idPrefix, environment, settings, onChange } = props;
+  const {
+    driverKind,
+    idPrefix,
+    instanceId,
+    instanceLabel,
+    environment,
+    settings,
+    onChange,
+    onOpenAddApiProvider,
+  } = props;
   const driver = String(driverKind);
   const isClaude = driver === "claudeAgent" || driver === "claude";
 
@@ -87,6 +151,18 @@ export function UniversalServiceSettings(props: {
 
   const connectedServices = Object.values(settings.harnesses?.services ?? {});
   const openRouterService = connectedServices.find((s) => s.kind === "openrouter");
+  const validation = validateServiceConnection(connection);
+
+  const moveConnectionMode = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    event.preventDefault();
+    const modes: ServiceConnectionMode[] = ["native", "openrouter", "custom"];
+    const currentIndex = Math.max(0, modes.indexOf(connection.mode ?? "native"));
+    const offset = event.key === "ArrowRight" ? 1 : -1;
+    const next = modes[(currentIndex + offset + modes.length) % modes.length]!;
+    setConnectionMode(next);
+    document.getElementById(`${idPrefix}-mode-${next}`)?.focus();
+  };
 
   const setConnectionMode = (mode: ServiceConnectionMode) => {
     const urlVarName = isClaude ? "ANTHROPIC_BASE_URL" : "OPENAI_BASE_URL";
@@ -154,11 +230,35 @@ export function UniversalServiceSettings(props: {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-3.5 py-3 shadow-[0_14px_36px_-28px_hsl(var(--foreground)/0.6)] backdrop-blur-xl">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-foreground">Connection identity</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            This connection belongs to <span className="font-medium text-foreground">{instanceLabel ?? "this instance"}</span> only.
+            Changing it will not reroute another instance.
+          </p>
+        </div>
+        {instanceId ? (
+          <code className="max-w-full truncate rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[10px] text-muted-foreground" aria-label="Provider instance ID">
+            {instanceId}
+          </code>
+        ) : null}
+      </div>
+
       {/* Radio Cards */}
-      <div className="grid gap-2.5 sm:grid-cols-3">
+      <div
+        className="grid gap-2.5 sm:grid-cols-3"
+        role="radiogroup"
+        aria-label="Service connection"
+      >
         {/* Native Account */}
         <button
+          id={`${idPrefix}-mode-native`}
           type="button"
+          role="radio"
+          aria-checked={connection.mode === "native"}
+          tabIndex={connection.mode === "native" ? 0 : -1}
+          onKeyDown={moveConnectionMode}
           onClick={() => setConnectionMode("native")}
           className={cn(
             "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
@@ -183,7 +283,12 @@ export function UniversalServiceSettings(props: {
 
         {/* OpenRouter Gateway */}
         <button
+          id={`${idPrefix}-mode-openrouter`}
           type="button"
+          role="radio"
+          aria-checked={connection.mode === "openrouter"}
+          tabIndex={connection.mode === "openrouter" ? 0 : -1}
+          onKeyDown={moveConnectionMode}
           onClick={() => setConnectionMode("openrouter")}
           className={cn(
             "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
@@ -202,7 +307,7 @@ export function UniversalServiceSettings(props: {
             <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
               OpenRouter
               {openRouterService ? (
-                <span className="rounded bg-emerald-500/10 px-1 py-0.2 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="rounded bg-success/10 px-1 py-0.2 text-[9px] font-medium text-success">
                   Connected
                 </span>
               ) : null}
@@ -215,7 +320,12 @@ export function UniversalServiceSettings(props: {
 
         {/* Custom Gateway */}
         <button
+          id={`${idPrefix}-mode-custom`}
           type="button"
+          role="radio"
+          aria-checked={connection.mode === "custom"}
+          tabIndex={connection.mode === "custom" ? 0 : -1}
+          onKeyDown={moveConnectionMode}
           onClick={() => setConnectionMode("custom")}
           className={cn(
             "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
@@ -241,14 +351,14 @@ export function UniversalServiceSettings(props: {
 
       {/* Details for OpenRouter Mode */}
       {connection.mode === "openrouter" ? (
-        <div className="rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-3">
+        <div className="rounded-xl border border-border/60 bg-card/60 p-3.5 shadow-[0_14px_36px_-28px_hsl(var(--foreground)/0.6)] backdrop-blur-xl space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-medium text-foreground">
               <Globe2Icon className="size-4 text-blue-500" />
               <span>OpenRouter Routing</span>
             </div>
             {openRouterService?.hasCredential ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+              <span className="inline-flex items-center gap-1 text-[11px] text-success">
                 <ShieldCheckIcon className="size-3.5" />
                 Using global OpenRouter credential
               </span>
@@ -270,11 +380,23 @@ export function UniversalServiceSettings(props: {
                 value={connection.apiKey}
                 onCommit={updateApiKey}
                 className="font-mono text-xs"
+                aria-invalid={validation.credential !== null}
+                aria-describedby={validation.credential ? `${idPrefix}-openrouter-key-error` : undefined}
               />
               <p className="text-[11px] text-muted-foreground">
                 Enter your key once here or connect OpenRouter in Settings → API Providers to share
                 across all profiles.
               </p>
+              {validation.credential ? (
+                <p id={`${idPrefix}-openrouter-key-error`} className="text-[11px] text-destructive" role="alert">
+                  {validation.credential}
+                </p>
+              ) : null}
+              {!connection.hasStoredKey && onOpenAddApiProvider ? (
+                <Button type="button" size="xs" variant="outline" onClick={onOpenAddApiProvider}>
+                  Connect OpenRouter
+                </Button>
+              ) : null}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
@@ -287,7 +409,7 @@ export function UniversalServiceSettings(props: {
 
       {/* Details for Custom Gateway Mode */}
       {connection.mode === "custom" ? (
-        <div className="rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-3">
+        <div className="rounded-xl border border-border/60 bg-card/60 p-3.5 shadow-[0_14px_36px_-28px_hsl(var(--foreground)/0.6)] backdrop-blur-xl space-y-3">
           <div className="space-y-1.5">
             <label
               htmlFor={`${idPrefix}-custom-url`}
@@ -301,7 +423,14 @@ export function UniversalServiceSettings(props: {
               value={connection.baseUrl}
               onCommit={updateBaseUrl}
               className="font-mono text-xs"
+              aria-invalid={validation.baseUrl !== null}
+              aria-describedby={validation.baseUrl ? `${idPrefix}-custom-url-error` : undefined}
             />
+            {validation.baseUrl ? (
+              <p id={`${idPrefix}-custom-url-error`} className="text-[11px] text-destructive" role="alert">
+                {validation.baseUrl}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
@@ -318,7 +447,14 @@ export function UniversalServiceSettings(props: {
               value={connection.apiKey}
               onCommit={updateApiKey}
               className="font-mono text-xs"
+              aria-invalid={validation.credential !== null}
+              aria-describedby={validation.credential ? `${idPrefix}-custom-key-error` : undefined}
             />
+            {validation.credential ? (
+              <p id={`${idPrefix}-custom-key-error`} className="text-[11px] text-destructive" role="alert">
+                {validation.credential}
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}

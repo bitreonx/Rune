@@ -12,7 +12,10 @@ import { HttpClient } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { createModelCapabilities } from "@rune/shared/model";
-import { resolveSpawnCommand } from "@rune/shared/shell";
+import {
+  CommandResolutionError,
+  resolveSpawnCommand,
+} from "@rune/shared/shell";
 import {
   buildSelectOptionDescriptor,
   buildServerProvider,
@@ -40,6 +43,14 @@ const VERSION_PROBE_TIMEOUT_MS = 4_000;
 // prints the table. Give that network-backed operation a reasonable window,
 // but never make catalog enrichment a prerequisite for using the CLI.
 const MODEL_PROBE_TIMEOUT_MS = 30_000;
+const MODEL_CATALOG_CACHE_TTL_MS = 5 * 60 * 1_000;
+
+interface LastKnownGoodModelCatalog {
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly checkedAtMs: number;
+}
+
+const lastKnownGoodCatalogs = new Map<string, LastKnownGoodModelCatalog>();
 
 export interface AntigravityProviderProbeOptions {
   readonly modelProbeTimeoutMs?: number | undefined;
@@ -93,6 +104,10 @@ function authFailureMessage(output: string): boolean {
   );
 }
 
+function isAntigravityCommandMissingCause(error: unknown): boolean {
+  return isCommandMissingCause(error) || error instanceof CommandResolutionError;
+}
+
 function modelDisplayName(slug: string, fallbackName: string | undefined): string {
   return fallbackName?.trim() || slug;
 }
@@ -119,13 +134,26 @@ function modelsFromDiscovery(
   return antigravityModelsFromSettings(customModels, builtInModels);
 }
 
+function readLastKnownGoodCatalog(
+  binary: string,
+  checkedAtMs: number,
+): ReadonlyArray<ServerProviderModel> | undefined {
+  const cached = lastKnownGoodCatalogs.get(binary);
+  if (!cached) return undefined;
+  if (checkedAtMs - cached.checkedAtMs > MODEL_CATALOG_CACHE_TTL_MS) {
+    lastKnownGoodCatalogs.delete(binary);
+    return undefined;
+  }
+  return cached.models;
+}
+
 function runAntigravityCommand(
   settings: AntigravitySettings,
   args: ReadonlyArray<string>,
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   return Effect.gen(function* () {
-    const binary = settings.binaryPath || "agy";
+    const binary = settings.binaryPath?.trim() || "agy";
     const spawnCommand = yield* resolveSpawnCommand(binary, [...args], { env: environment });
     return yield* spawnAndCollect(
       binary,
@@ -141,7 +169,8 @@ export function buildInitialAntigravityProviderSnapshot(
   settings: AntigravitySettings,
 ): Effect.Effect<ServerProviderDraft> {
   return Effect.gen(function* () {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
+    const checkedAtTime = yield* DateTime.now;
+    const checkedAt = DateTime.formatIso(checkedAtTime);
     const models = antigravityModelsFromSettings(settings.customModels);
     return buildServerProvider({
       presentation: ANTIGRAVITY_PRESENTATION,
@@ -173,15 +202,16 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
     environment: NodeJS.ProcessEnv = process.env,
     probeOptions: AntigravityProviderProbeOptions = {},
   ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
-    const fallbackModels = antigravityModelsFromSettings(settings.customModels);
+    const checkedAtTime = yield* DateTime.now;
+    const checkedAt = DateTime.formatIso(checkedAtTime);
+    const configuredFallbackModels = antigravityModelsFromSettings(settings.customModels);
 
     if (!settings.enabled) {
       return buildServerProvider({
         presentation: ANTIGRAVITY_PRESENTATION,
         enabled: false,
         checkedAt,
-        models: fallbackModels,
+        models: configuredFallbackModels,
         probe: {
           installed: false,
           version: null,
@@ -191,6 +221,15 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         },
       });
     }
+
+    const binary = settings.binaryPath?.trim() || "agy";
+    const cachedCatalog = readLastKnownGoodCatalog(
+      binary,
+      DateTime.toEpochMillis(yield* DateTime.now),
+    );
+    const fallbackModels = cachedCatalog
+      ? antigravityModelsFromSettings(settings.customModels, cachedCatalog)
+      : configuredFallbackModels;
 
     const versionResult = yield* runAntigravityCommand(settings, ["--version"], environment).pipe(
       Effect.timeoutOption(VERSION_PROBE_TIMEOUT_MS),
@@ -206,12 +245,14 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         checkedAt,
         models: fallbackModels,
         probe: {
-          installed: !isCommandMissingCause(error),
+          installed: !isAntigravityCommandMissingCause(error),
           version: null,
           status: "error",
           auth: { status: "unknown" },
-          message: isCommandMissingCause(error)
-            ? "Antigravity CLI (`agy`) is not installed or not on PATH."
+          message: isAntigravityCommandMissingCause(error)
+            ? settings.binaryPath?.trim()
+              ? `Configured Antigravity CLI path '${settings.binaryPath.trim()}' was not found.`
+              : "Antigravity CLI (`agy`) is not installed or not on PATH."
             : "Failed to execute the Antigravity CLI health check.",
         },
       });
@@ -273,7 +314,9 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
           version,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Antigravity CLI is installed, but model discovery failed.",
+          message: cachedCatalog
+            ? "Antigravity CLI is installed, but model discovery failed; using the last-known-good model catalog."
+            : "Antigravity CLI is installed, but model discovery failed.",
         },
       });
     }
@@ -287,13 +330,11 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         probe: {
           installed: true,
           version,
-          // Model enumeration is an optional, network-backed enhancement.
-          // The verified CLI is still usable with the configured fallback
-          // model, so a slow catalog must not make the provider unavailable.
-          status: "ready",
+          status: "warning",
           auth: { status: "unknown" },
-          message:
-            "Antigravity CLI is ready. Model discovery is still running slowly, so RUNE is using the configured default model.",
+          message: cachedCatalog
+            ? "Antigravity model discovery timed out; using the last-known-good model catalog."
+            : "Antigravity model discovery timed out; using the configured default model until it can be refreshed.",
         },
       });
     }
@@ -320,10 +361,17 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
     }
 
     const discoveredModels = parseAntigravityModelList(modelsOutput.stdout);
-    const models =
-      discoveredModels.length > 0
-        ? modelsFromDiscovery(settings.customModels, modelsOutput.stdout)
-        : fallbackModels;
+    const discoveredCatalog =
+      discoveredModels.length > 0 ? modelsFromDiscovery(undefined, modelsOutput.stdout) : undefined;
+    if (discoveredCatalog) {
+      lastKnownGoodCatalogs.set(binary, {
+        models: discoveredCatalog,
+        checkedAtMs: DateTime.toEpochMillis(checkedAtTime),
+      });
+    }
+    const models = discoveredCatalog
+      ? antigravityModelsFromSettings(settings.customModels, discoveredCatalog)
+      : fallbackModels;
     const needsAuth = authFailureMessage(combinedOutput);
     return buildServerProvider({
       presentation: ANTIGRAVITY_PRESENTATION,
@@ -337,7 +385,7 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
         auth: {
           status: needsAuth
             ? "unauthenticated"
-            : discoveredModels.length > 0
+            : discoveredModels.length > 0 || cachedCatalog
               ? "authenticated"
               : "unknown",
         },
@@ -347,7 +395,11 @@ export const checkAntigravityProviderStatus = Effect.fn("checkAntigravityProvide
                 "Antigravity CLI needs authentication. Run `agy` once in a terminal to sign in.",
             }
           : discoveredModels.length === 0
-            ? { message: "Antigravity CLI returned no usable models." }
+            ? {
+                message: cachedCatalog
+                  ? "Antigravity CLI returned no usable models; using the last-known-good model catalog."
+                  : "Antigravity CLI returned no usable models.",
+              }
             : {}),
       },
     });

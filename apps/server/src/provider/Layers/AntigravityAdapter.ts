@@ -16,9 +16,11 @@ import { resolveSpawnCommand } from "@rune/shared/shell";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -28,8 +30,10 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
+  ProviderAdapterSessionClosedError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
+  type ProviderAdapterErrorStage,
   type ProviderAdapterError,
 } from "../Errors.ts";
 import type {
@@ -47,16 +51,22 @@ import {
 } from "../antigravityProtocol.ts";
 
 const PROVIDER = ProviderDriverKind.make("antigravity");
+const MAX_STDERR_TAIL_CHARS = 8_000;
+const MAX_FAILURE_TOMBSTONES = 256;
+const SESSION_READY_TIMEOUT_MS = 30_000;
 
 type AntigravityEffort = "low" | "medium" | "high";
 
 export interface AntigravityAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
   readonly instanceId?: ProviderInstanceId;
+  /** Testable bound for the provider init handshake; production defaults to 30s. */
+  readonly sessionReadyTimeoutMs?: number;
 }
 
 interface AntigravitySessionContext {
   readonly threadId: ThreadId;
+  readonly generation: number;
   readonly scope: Scope.Closeable;
   readonly child: ChildProcessSpawner.ChildProcessHandle;
   readonly turns: ProviderThreadTurnSnapshot[];
@@ -65,6 +75,8 @@ interface AntigravitySessionContext {
   currentEffort: AntigravityEffort | undefined;
   readonly ready: Deferred.Deferred<void, ProviderAdapterProcessError>;
   readonly expectedConversationId: string | undefined;
+  stderrTail: string;
+  failure: ProviderAdapterProcessError | undefined;
   activeTurnId: TurnId | undefined;
   responseTextSeen: boolean;
   stopped: boolean;
@@ -81,14 +93,121 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+const SENSITIVE_DIAGNOSTIC_KEY =
+  /^(?:authorization|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret|credential)s?$/i;
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(
+      /((?:authorization|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret|credential)s?\s*[:=]\s*)(?:Bearer\s+)?[^\s"',}]+/gi,
+      "$1[redacted]",
+    )
+    .replace(
+      /((?:["'])(?:authorization|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret|credential)s?(?:["'])\s*:\s*["'])[^"']*(["'])/gi,
+      "$1[redacted]$2",
+    );
+}
+
+function sanitizeDiagnosticValue(value: unknown, depth = 0): unknown {
+  if (depth > 6) return "[truncated]";
+  if (typeof value === "string") return redactSensitiveText(value).slice(0, MAX_STDERR_TAIL_CHARS);
+  if (Array.isArray(value)) {
+    return value.slice(0, 64).map((entry) => sanitizeDiagnosticValue(entry, depth + 1));
+  }
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, 128)
+      .map(([key, entry]) => [
+        key,
+        SENSITIVE_DIAGNOSTIC_KEY.test(key)
+          ? "[redacted]"
+          : sanitizeDiagnosticValue(entry, depth + 1),
+      ]),
+  );
+}
+
 function serializeDiagnostic(value: unknown): string | undefined {
-  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "string") {
+    const redacted = redactSensitiveText(value).trim();
+    return redacted.slice(0, MAX_STDERR_TAIL_CHARS) || undefined;
+  }
   try {
-    const serialized = JSON.stringify(value);
+    const serialized = JSON.stringify(sanitizeDiagnosticValue(value));
     return serialized === undefined ? undefined : serialized;
   } catch {
     return undefined;
   }
+}
+
+function redactStderrTail(value: string): string {
+  return redactSensitiveText(value).replace(/\r/g, "").slice(-MAX_STDERR_TAIL_CHARS).trim();
+}
+
+function causeClass(cause: unknown): string | undefined {
+  if (cause instanceof Error && cause.name.trim()) return cause.name.trim();
+  if (cause === undefined || cause === null) return undefined;
+  return typeof cause;
+}
+
+function makeProcessFailure(input: {
+  readonly threadId: ThreadId;
+  readonly providerInstanceId?: ProviderInstanceId;
+  readonly generation?: number;
+  readonly stage: ProviderAdapterErrorStage;
+  readonly detail: string;
+  readonly recoverable?: boolean;
+  readonly cause?: unknown;
+  readonly stderrTail?: string;
+  readonly exitCode?: number;
+}): ProviderAdapterProcessError {
+  const detail = redactSensitiveText(input.detail).trim();
+  return new ProviderAdapterProcessError({
+    provider: PROVIDER,
+    threadId: input.threadId,
+    detail,
+    ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
+    ...(input.generation !== undefined ? { generation: input.generation } : {}),
+    stage: input.stage,
+    ...(input.recoverable !== undefined ? { recoverable: input.recoverable } : {}),
+    ...(causeClass(input.cause) ? { causeClass: causeClass(input.cause) } : {}),
+    safeMessage: detail,
+    ...(input.stderrTail ? { stderrTail: redactStderrTail(input.stderrTail) } : {}),
+    ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+    occurredAt: DateTime.formatIso(DateTime.nowUnsafe()),
+    ...(input.cause !== undefined ? { cause: input.cause } : {}),
+  });
+}
+
+function classifyFailureStage(
+  detail: string,
+  fallback: ProviderAdapterErrorStage,
+): ProviderAdapterErrorStage {
+  if (
+    /\b(?:auth(?:entication|enticated)?|sign(?:ed)?[- ]?in|log[- ]?in|credential|unauthori[sz]ed|forbidden)\b/i.test(
+      detail,
+    )
+  ) {
+    return "authentication";
+  }
+  if (
+    /(?:\b(?:model|engine)\b.{0,80}\b(?:not found|unavailable|invalid|unsupported|does not exist)\b|\b(?:not found|unavailable|invalid|unsupported|does not exist)\b.{0,80}\b(?:model|engine)\b)/i.test(
+      detail,
+    )
+  ) {
+    return "model-discovery";
+  }
+  return fallback;
+}
+
+function appendStderrTail(ctx: AntigravitySessionContext, chunk: string): void {
+  const next = redactStderrTail(`${ctx.stderrTail}${chunk}`);
+  ctx.stderrTail = next;
+}
+
+function stderrDetail(ctx: AntigravitySessionContext): string {
+  const stderr = redactStderrTail(ctx.stderrTail);
+  return stderr ? ` Provider output:\n${stderr}` : "";
 }
 
 function readEffort(
@@ -129,6 +248,19 @@ export function makeAntigravityAdapter(
     const sessions = new Map<ThreadId, AntigravitySessionContext>();
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
     const boundInstanceId = options.instanceId;
+    const sessionReadyTimeoutMs = Math.max(
+      0,
+      options.sessionReadyTimeoutMs ?? SESSION_READY_TIMEOUT_MS,
+    );
+    const generationByThread = new Map<ThreadId, number>();
+    const failureByThread = new Map<ThreadId, ProviderAdapterProcessError>();
+    const rememberFailure = (threadId: ThreadId, failure: ProviderAdapterProcessError): void => {
+      if (!failureByThread.has(threadId) && failureByThread.size >= MAX_FAILURE_TOMBSTONES) {
+        const oldestThreadId = failureByThread.keys().next().value;
+        if (oldestThreadId !== undefined) failureByThread.delete(oldestThreadId);
+      }
+      failureByThread.set(threadId, failure);
+    };
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
     const randomUUID = (method: string) =>
@@ -159,21 +291,38 @@ export function makeAntigravityAdapter(
       return {
         source: "antigravity.cli" as const,
         ...(messageType ? { messageType } : {}),
-        payload: event,
+        payload: sanitizeDiagnosticValue(event) as Record<string, unknown>,
       };
     };
 
     const requireSession = (
       threadId: ThreadId,
-    ): Effect.Effect<AntigravitySessionContext, ProviderAdapterSessionNotFoundError> => {
+    ): Effect.Effect<
+      AntigravitySessionContext,
+      | ProviderAdapterProcessError
+      | ProviderAdapterSessionClosedError
+      | ProviderAdapterSessionNotFoundError
+    > => {
+      const failure = failureByThread.get(threadId);
+      if (failure) {
+        return Effect.fail(failure);
+      }
       const ctx = sessions.get(threadId);
-      if (!ctx || ctx.stopped) {
+      if (ctx && ctx.stopped) {
+        return Effect.fail(new ProviderAdapterSessionClosedError({ provider: PROVIDER, threadId }));
+      }
+      if (!ctx) {
         return Effect.fail(
           new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId }),
         );
       }
       return Effect.succeed(ctx);
     };
+
+    const isCurrentContext = (ctx: AntigravitySessionContext): boolean =>
+      sessions.get(ctx.threadId) === ctx &&
+      generationByThread.get(ctx.threadId) === ctx.generation &&
+      !ctx.stopped;
 
     const appendTurnItem = (ctx: AntigravitySessionContext, turnId: TurnId, item: unknown) => {
       const index = ctx.turns.findIndex((entry) => entry.id === turnId);
@@ -212,6 +361,7 @@ export function makeAntigravityAdapter(
 
     const processStreamEvent = (ctx: AntigravitySessionContext, event: Record<string, unknown>) =>
       Effect.gen(function* () {
+        if (!isCurrentContext(ctx)) return;
         switch (event.event) {
           case "init": {
             const conversationId = stringValue(event.conversation_id);
@@ -220,12 +370,20 @@ export function makeAntigravityAdapter(
               ctx.expectedConversationId !== undefined &&
               ctx.expectedConversationId !== conversationId
             ) {
-              const resumeError = new ProviderAdapterProcessError({
-                provider: PROVIDER,
+              const resumeError = makeProcessFailure({
                 threadId: ctx.threadId,
+                ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+                generation: ctx.generation,
+                stage: "resume",
+                recoverable: true,
                 detail:
                   "Antigravity CLI initialized a different conversation than the persisted resume cursor.",
+                stderrTail: ctx.stderrTail,
               });
+              ctx.failure = resumeError;
+              ctx.stopped = true;
+              rememberFailure(ctx.threadId, resumeError);
+              sessions.delete(ctx.threadId);
               ctx.session = {
                 ...ctx.session,
                 status: "error",
@@ -241,6 +399,14 @@ export function makeAntigravityAdapter(
                 raw: rawFor(event),
                 payload: { state: "error", reason: resumeError.message },
               });
+              yield* offerRuntimeEvent({
+                type: "session.exited",
+                ...(yield* makeEventStamp()),
+                provider: PROVIDER,
+                threadId: ctx.threadId,
+                payload: { exitKind: "error", recoverable: true, reason: resumeError.detail },
+              });
+              yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
               return;
             }
             ctx.currentModel = model ?? ctx.currentModel;
@@ -344,6 +510,30 @@ export function makeAntigravityAdapter(
               ...(usage !== undefined ? { usage } : {}),
               raw: event,
             });
+            if (state === "failed" && errorMessage) {
+              const safeMessage = redactSensitiveText(errorMessage).trim();
+              yield* offerRuntimeEvent({
+                type: "runtime.error",
+                ...(yield* makeEventStamp()),
+                provider: PROVIDER,
+                threadId: ctx.threadId,
+                turnId,
+                raw: rawFor(event),
+                payload: {
+                  message: safeMessage,
+                  class: "provider_error",
+                  detail: {
+                    provider: PROVIDER,
+                    ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+                    generation: ctx.generation,
+                    stage: classifyFailureStage(errorMessage, "provider-stream"),
+                    recoverable: true,
+                    safeMessage,
+                    ...(ctx.stderrTail ? { stderrTail: redactStderrTail(ctx.stderrTail) } : {}),
+                  },
+                },
+              });
+            }
             ctx.activeTurnId = undefined;
             ctx.responseTextSeen = false;
             ctx.session = {
@@ -376,24 +566,58 @@ export function makeAntigravityAdapter(
       exitCode: number | undefined,
     ): Effect.Effect<void, never> =>
       Effect.gen(function* () {
+        if (
+          sessions.get(ctx.threadId) !== ctx ||
+          generationByThread.get(ctx.threadId) !== ctx.generation
+        ) {
+          return;
+        }
         if (ctx.stopped) return;
         ctx.stopped = true;
+        // The stderr reader continuously appends to a bounded tail. Do not
+        // wait for stderr EOF here: a provider can close its exit signal before
+        // closing stderr, and lifecycle failure reporting must never stall on
+        // an unclosed diagnostic stream.
+        const stderr = redactStderrTail(ctx.stderrTail);
+        const detail = `Antigravity CLI exited before completing the current lifecycle${exitCode === undefined ? "" : ` (code ${exitCode})`}.${stderr ? ` Provider output:\n${stderr}` : ""}`;
+        const failure = makeProcessFailure({
+          threadId: ctx.threadId,
+          ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+          generation: ctx.generation,
+          stage: classifyFailureStage(
+            `${detail}\n${stderr}`,
+            ctx.activeTurnId ? "provider-stream" : "process-initialization",
+          ),
+          recoverable: exitCode !== 0,
+          detail,
+          stderrTail: ctx.stderrTail,
+          ...(exitCode !== undefined ? { exitCode } : {}),
+        });
+        ctx.failure = failure;
+        rememberFailure(ctx.threadId, failure);
         sessions.delete(ctx.threadId);
-        yield* Deferred.fail(
-          ctx.ready,
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId: ctx.threadId,
-            detail: `Antigravity CLI exited before initialization${exitCode === undefined ? "" : ` (code ${exitCode})`}.`,
-          }),
-        ).pipe(Effect.ignore);
+        yield* Deferred.fail(ctx.ready, failure).pipe(Effect.ignore);
         const activeTurnId = ctx.activeTurnId;
         if (activeTurnId) {
           yield* emitTurnCompleted(ctx, activeTurnId, "failed", {
-            errorMessage: `Antigravity CLI exited before completing the turn${exitCode === undefined ? "" : ` (code ${exitCode})`}.`,
+            errorMessage: detail,
           });
           ctx.activeTurnId = undefined;
         }
+        ctx.session = {
+          ...ctx.session,
+          status: "error",
+          activeTurnId: undefined,
+          lastError: detail,
+          updatedAt: yield* nowIso,
+        };
+        yield* offerRuntimeEvent({
+          type: "session.state.changed",
+          ...(yield* makeEventStamp()),
+          provider: PROVIDER,
+          threadId: ctx.threadId,
+          payload: { state: "error", reason: detail },
+        });
         yield* offerRuntimeEvent({
           type: "session.exited",
           ...(yield* makeEventStamp()),
@@ -402,9 +626,7 @@ export function makeAntigravityAdapter(
           payload: {
             exitKind: exitCode === 0 ? "graceful" : "error",
             recoverable: exitCode !== 0,
-            ...(exitCode === undefined
-              ? { reason: "Antigravity CLI process exited without an exit code." }
-              : { reason: `Antigravity CLI exited with code ${exitCode}.` }),
+            reason: detail,
           },
         });
         yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
@@ -433,7 +655,7 @@ export function makeAntigravityAdapter(
         );
         ctx.stderrFiber = yield* ctx.child.stderr.pipe(
           Stream.decodeText(),
-          Stream.runForEach((_chunk) => Effect.void),
+          Stream.runForEach((chunk) => Effect.sync(() => appendStderrTail(ctx, chunk))),
           Effect.catchCause((cause) =>
             Effect.logWarning("Antigravity CLI stderr reader stopped.", {
               threadId: ctx.threadId,
@@ -459,7 +681,9 @@ export function makeAntigravityAdapter(
       ctx: AntigravitySessionContext,
       options?: {
         readonly turnState?: "interrupted" | "cancelled";
+        readonly exitKind?: "graceful" | "error";
         readonly reason?: string;
+        readonly diagnostic?: Readonly<Record<string, unknown>>;
       },
     ): Effect.Effect<void, ProviderAdapterRequestError> =>
       Effect.gen(function* () {
@@ -491,12 +715,30 @@ export function makeAntigravityAdapter(
           ctx.activeTurnId = undefined;
         }
         yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
+        const exitKind = options?.exitKind ?? "graceful";
+        if (exitKind === "error") {
+          yield* offerRuntimeEvent({
+            type: "session.state.changed",
+            ...(yield* makeEventStamp()),
+            provider: PROVIDER,
+            threadId: ctx.threadId,
+            payload: {
+              state: "error",
+              ...(options?.reason ? { reason: options.reason } : {}),
+              ...(options?.diagnostic ? { detail: options.diagnostic } : {}),
+            },
+          });
+        }
         yield* offerRuntimeEvent({
           type: "session.exited",
           ...(yield* makeEventStamp()),
           provider: PROVIDER,
           threadId: ctx.threadId,
-          payload: { exitKind: "graceful", reason: options?.reason },
+          payload: {
+            exitKind,
+            ...(exitKind === "error" ? { recoverable: true } : {}),
+            ...(options?.reason ? { reason: options.reason } : {}),
+          },
         });
       });
 
@@ -510,19 +752,9 @@ export function makeAntigravityAdapter(
             new ProviderAdapterRequestError({
               provider: PROVIDER,
               method: "stream/user",
-              detail: "Failed to write a user turn to the Antigravity CLI process.",
+              detail: `Failed to write a user turn to the Antigravity CLI process.${stderrDetail(ctx)}`,
               cause,
             }),
-        ),
-        Effect.catchCause((cause) =>
-          Effect.fail(
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "stream/user",
-              detail: "The Antigravity CLI stdin stream closed unexpectedly.",
-              cause,
-            }),
-          ),
         ),
       );
 
@@ -560,6 +792,9 @@ export function makeAntigravityAdapter(
 
         const existing = sessions.get(input.threadId);
         if (existing) yield* stopSessionInternal(existing);
+        failureByThread.delete(input.threadId);
+        const generation = (generationByThread.get(input.threadId) ?? 0) + 1;
+        generationByThread.set(input.threadId, generation);
 
         const sessionScope = yield* Scope.make("sequential");
         let sessionScopeTransferred = false;
@@ -581,12 +816,18 @@ export function makeAntigravityAdapter(
         ).pipe(
           Effect.mapError(
             (cause) =>
-              new ProviderAdapterProcessError({
-                provider: PROVIDER,
+              makeProcessFailure({
                 threadId: input.threadId,
+                ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+                generation,
+                stage: "binary-discovery",
+                recoverable: true,
                 detail: "Failed to resolve the Antigravity CLI command.",
                 cause,
               }),
+          ),
+          Effect.tapError((failure) =>
+            Effect.sync(() => rememberFailure(input.threadId, failure)),
           ),
         );
         const child = yield* childProcessSpawner
@@ -600,12 +841,18 @@ export function makeAntigravityAdapter(
           .pipe(
             Effect.mapError(
               (cause) =>
-                new ProviderAdapterProcessError({
-                  provider: PROVIDER,
+                makeProcessFailure({
                   threadId: input.threadId,
+                  ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+                  generation,
+                  stage: "process-spawn",
+                  recoverable: true,
                   detail: `Failed to start Antigravity CLI '${binary}'.`,
                   cause,
                 }),
+            ),
+            Effect.tapError((failure) =>
+              Effect.sync(() => rememberFailure(input.threadId, failure)),
             ),
           );
 
@@ -630,6 +877,7 @@ export function makeAntigravityAdapter(
         };
         const ctx: AntigravitySessionContext = {
           threadId: input.threadId,
+          generation,
           scope: sessionScope,
           child,
           turns: [],
@@ -638,6 +886,8 @@ export function makeAntigravityAdapter(
           currentEffort: effort.value,
           ready,
           expectedConversationId: resumeConversationId,
+          stderrTail: "",
+          failure: undefined,
           activeTurnId: undefined,
           responseTextSeen: false,
           stopped: false,
@@ -704,7 +954,44 @@ export function makeAntigravityAdapter(
         // is still initializing. Waiting on the init event also guarantees
         // that the durable conversation id is available before RUNE persists
         // the turn start.
-        yield* Deferred.await(ctx.ready);
+        const ready = yield* Deferred.await(ctx.ready).pipe(
+          Effect.timeoutOption(Duration.millis(sessionReadyTimeoutMs)),
+        );
+        if (Option.isNone(ready)) {
+          const failure = makeProcessFailure({
+            threadId: input.threadId,
+            ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+            generation: ctx.generation,
+            stage: "process-initialization",
+            recoverable: true,
+            detail:
+              `Antigravity CLI did not initialize within ${sessionReadyTimeoutMs / 1000} seconds.${stderrDetail(ctx)}`,
+            stderrTail: ctx.stderrTail,
+          });
+          ctx.failure = failure;
+          ctx.session = {
+            ...ctx.session,
+            status: "error",
+            lastError: failure.detail,
+            updatedAt: yield* nowIso,
+          };
+          rememberFailure(input.threadId, failure);
+          yield* stopSessionInternal(ctx, {
+            exitKind: "error",
+            reason: failure.detail,
+            diagnostic: {
+              provider: PROVIDER,
+              ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+              generation: failure.generation,
+              stage: failure.stage,
+              recoverable: failure.recoverable,
+              safeMessage: failure.safeMessage,
+              ...(failure.stderrTail ? { stderrTail: failure.stderrTail } : {}),
+              ...(failure.occurredAt ? { occurredAt: failure.occurredAt } : {}),
+            },
+          }).pipe(Effect.ignore);
+          return yield* failure;
+        }
 
         const modelSelection =
           input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
@@ -759,18 +1046,43 @@ export function makeAntigravityAdapter(
 
         const writeResult = yield* writeUserMessage(ctx, text).pipe(Effect.result);
         if (writeResult._tag === "Failure") {
+          const failure = makeProcessFailure({
+            threadId: input.threadId,
+            ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
+            generation: ctx.generation,
+            stage: "turn-dispatch",
+            recoverable: true,
+            detail: writeResult.failure.detail,
+            cause: writeResult.failure,
+            stderrTail: ctx.stderrTail,
+          });
+          ctx.failure = failure;
+          rememberFailure(input.threadId, failure);
+          ctx.stopped = true;
+          sessions.delete(input.threadId);
+          const failedTurnId = ctx.activeTurnId;
           ctx.activeTurnId = undefined;
           ctx.session = {
             ...ctx.session,
             status: "error",
             activeTurnId: undefined,
-            lastError: writeResult.failure.message,
+            lastError: failure.message,
             updatedAt: yield* nowIso,
           };
-          yield* emitTurnCompleted(ctx, turnId, "failed", {
-            errorMessage: writeResult.failure.message,
+          if (failedTurnId) {
+            yield* emitTurnCompleted(ctx, failedTurnId, "failed", {
+              errorMessage: failure.detail,
+            });
+          }
+          yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
+          yield* offerRuntimeEvent({
+            type: "session.exited",
+            ...(yield* makeEventStamp()),
+            provider: PROVIDER,
+            threadId: input.threadId,
+            payload: { exitKind: "error", recoverable: true, reason: failure.detail },
           });
-          return yield* writeResult.failure;
+          return yield* failure;
         }
 
         return {

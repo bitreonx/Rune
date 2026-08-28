@@ -3,6 +3,44 @@ import * as Schema from "effect/Schema";
 import type { CheckpointServiceError } from "../checkpointing/Errors.ts";
 
 /**
+ * The stage at which a provider adapter operation stopped. Keep this
+ * provider-neutral so the orchestration layer can preserve a useful cause
+ * without parsing provider-specific error strings.
+ */
+export const ProviderAdapterErrorStage = Schema.Literals([
+  "binary-discovery",
+  "version-probe",
+  "authentication",
+  "model-discovery",
+  "session-prepare",
+  "process-spawn",
+  "process-initialization",
+  "turn-prepare",
+  "turn-dispatch",
+  "provider-stream",
+  "provider-hook",
+  "transcript-read",
+  "tool-projection",
+  "turn-settlement",
+  "interrupt",
+  "resume",
+  "restart",
+]);
+export type ProviderAdapterErrorStage = typeof ProviderAdapterErrorStage.Type;
+
+const ProviderAdapterDiagnosticFields = {
+  stage: Schema.optional(ProviderAdapterErrorStage),
+  providerInstanceId: Schema.optional(Schema.String),
+  generation: Schema.optional(Schema.Int),
+  recoverable: Schema.optional(Schema.Boolean),
+  causeClass: Schema.optional(Schema.String),
+  safeMessage: Schema.optional(Schema.String),
+  stderrTail: Schema.optional(Schema.String),
+  exitCode: Schema.optional(Schema.Int),
+  occurredAt: Schema.optional(Schema.String),
+};
+
+/**
  * ProviderAdapterValidationError - Invalid adapter API input.
  */
 export class ProviderAdapterValidationError extends Schema.TaggedErrorClass<ProviderAdapterValidationError>()(
@@ -60,6 +98,7 @@ export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<Provide
     provider: Schema.String,
     method: Schema.String,
     detail: Schema.String,
+    ...ProviderAdapterDiagnosticFields,
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -77,6 +116,7 @@ export class ProviderAdapterProcessError extends Schema.TaggedErrorClass<Provide
     provider: Schema.String,
     threadId: Schema.String,
     detail: Schema.String,
+    ...ProviderAdapterDiagnosticFields,
     cause: Schema.optional(Schema.Defect()),
   },
 ) {

@@ -1,5 +1,6 @@
 import type {
   ChatImageAttachment as ContractChatImageAttachment,
+  ChatThreadAttachment as ContractChatThreadAttachment,
   OrchestrationCheckpointFile,
   OrchestrationCheckpointSummary,
   OrchestrationLatestTurn,
@@ -16,7 +17,12 @@ import type {
   EnvironmentThreadShell,
 } from "@rune/client-runtime/state/shell";
 
-export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
+export type SessionPhase =
+  | "disconnected"
+  | "connecting"
+  | "ready"
+  | "running"
+  | "waiting-for-user";
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
 export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
@@ -35,7 +41,8 @@ export interface ChatImageAttachment extends ContractChatImageAttachment {
   readonly previewUrl?: string;
 }
 
-export type ChatAttachment = ChatImageAttachment;
+export type ChatThreadAttachment = ContractChatThreadAttachment;
+export type ChatAttachment = ChatImageAttachment | ChatThreadAttachment;
 
 export interface ChatMessage extends Omit<OrchestrationMessage, "attachments"> {
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;

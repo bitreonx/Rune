@@ -94,7 +94,7 @@ describe("brand-assets", () => {
       "assets/prod/app-icon.icon",
     ]);
     expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/rune-blueprint-/);
-    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/nightly-/);
-    expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/black-/);
+    expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/rune-nightly-/);
+    expect(BRAND_ASSET_PATHS.productionMacIconPng).toMatch(/^assets\/prod\/rune-black-/);
   });
 });

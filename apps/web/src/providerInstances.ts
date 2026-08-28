@@ -434,6 +434,21 @@ export function resolveSelectableProviderInstanceEntry(
   if (instanceId !== undefined) {
     const requested = entries.find((entry) => entry.instanceId === instanceId);
     if (requested && isSelectableProviderInstanceEntry(requested)) {
+      // A legacy/default instance can remain persisted on a project after the
+      // user creates a working secondary account (for example Claude Code via
+      // OpenRouter). If that requested slot is not healthy, prefer a ready
+      // sibling of the same harness instead of launching the broken native
+      // login and showing "Please run /login". A ready requested slot always
+      // remains authoritative, so an intentional native choice is preserved.
+      if (requested.isDefault && requested.status !== "ready") {
+        const readySibling = entries.find(
+          (entry) =>
+            entry.driverKind === requested.driverKind &&
+            !entry.isDefault &&
+            isProviderInstancePickerReady(entry),
+        );
+        if (readySibling) return readySibling;
+      }
       return requested;
     }
   }

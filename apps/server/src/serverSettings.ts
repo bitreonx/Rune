@@ -51,6 +51,7 @@ import {
   isModelSelectionProviderEnabled,
 } from "@rune/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import { deriveHarnessProfileProviderInstances } from "./provider/ProviderInstanceProfile.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@rune/shared/serverSettings";
 
@@ -62,7 +63,7 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
- * Materialize a connected global OpenRouter service into the environment
+ * Materialize a connected OpenRouter service into the environment
  * variable understood by the selected CLI harness. The settings UI stores a
  * service credential by reference so it can be shared without exposing the
  * secret; Claude Code and Codex still need their provider-specific variable at
@@ -72,6 +73,7 @@ const materializeOpenRouterHarnessCredential = (input: {
   readonly settings: ServerSettings;
   readonly instanceId: string;
   readonly driver: string;
+  readonly connectionId?: string;
   readonly environment: ProviderInstanceEnvironmentVariable[];
   readonly secretStore: ServerSecretStore.ServerSecretStore["Service"];
 }): Effect.Effect<ProviderInstanceEnvironmentVariable[], ServerSettingsError> =>
@@ -84,36 +86,49 @@ const materializeOpenRouterHarnessCredential = (input: {
     const credentialName = isClaude ? "ANTHROPIC_AUTH_TOKEN" : "OPENAI_API_KEY";
     const baseUrl =
       input.environment.find((variable) => variable.name === baseUrlName)?.value ?? "";
+    const allServices = Object.values(input.settings.harnesses.services);
+    const boundService =
+      input.connectionId === undefined
+        ? undefined
+        : allServices.find((candidate) => String(candidate.serviceId) === input.connectionId);
     let isOpenRouterEndpoint = false;
-    try {
-      const hostname = new URL(baseUrl).hostname.toLowerCase();
-      isOpenRouterEndpoint = hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
-    } catch {
-      // Invalid/custom URLs are left untouched; the provider will surface its
-      // normal validation error instead of receiving an unrelated credential.
+
+    // A current instance binding is the source of truth. In particular, do
+    // not infer a managed gateway from a URL string: custom gateways can use
+    // the same protocol and an empty/incomplete form must not borrow another
+    // connection's secret.
+    let service = boundService?.kind === "openrouter" ? boundService : undefined;
+    if (input.connectionId === undefined) {
+      try {
+        const hostname = new URL(baseUrl).hostname.toLowerCase();
+        isOpenRouterEndpoint =
+          hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
+      } catch {
+        // Invalid/custom URLs are left untouched; the provider will surface
+        // its normal validation error instead of receiving an unrelated
+        // credential.
+      }
+      const legacyServices = allServices.filter((candidate) => candidate.kind === "openrouter");
+      // Compatibility bridge for old settings with no explicit binding. It
+      // is intentionally unavailable once the configuration is ambiguous.
+      service =
+        isOpenRouterEndpoint && legacyServices.length === 1 ? legacyServices[0] : undefined;
+      if (!service) {
+        if (isOpenRouterEndpoint) {
+          const legacyCredential = input.environment.find(
+            (variable) => variable.name === "OPENROUTER_API_KEY",
+          );
+          if (legacyCredential && legacyCredential.value.trim().length > 0) {
+            return [
+              ...input.environment,
+              { name: credentialName, value: legacyCredential.value, sensitive: true },
+            ];
+          }
+        }
+      }
     }
-    if (!isOpenRouterEndpoint) return input.environment;
-
-    const existingCredential = input.environment.find(
-      (variable) => variable.name === credentialName,
-    );
-    if (existingCredential && existingCredential.value.trim().length > 0) return input.environment;
-
-    // Preserve compatibility with the older per-instance OpenRouter field,
-    // while exposing the provider-native variable to the child CLI.
-    const legacyCredential = input.environment.find(
-      (variable) => variable.name === "OPENROUTER_API_KEY",
-    );
-    if (legacyCredential && legacyCredential.value.trim().length > 0) {
-      return [
-        ...input.environment,
-        { name: credentialName, value: legacyCredential.value, sensitive: true },
-      ];
-    }
-
-    const service = Object.values(input.settings.harnesses.services).find(
-      (candidate) => candidate.kind === "openrouter",
-    );
+    // A bound connection that is missing or points at a non-OpenRouter
+    // service must not fall back to an arbitrary global service.
     if (!service) return input.environment;
     const secretName = service.credentialRef ?? `model-service:${service.serviceId}:api-key`;
     const secret = yield* input.secretStore.get(secretName).pipe(
@@ -129,10 +144,27 @@ const materializeOpenRouterHarnessCredential = (input: {
       ),
     );
     if (Option.isNone(secret)) return input.environment;
-    return [
-      ...input.environment,
-      { name: credentialName, value: textDecoder.decode(secret.value), sensitive: true },
-    ];
+    const credential = textDecoder.decode(secret.value);
+    const values = new Map(input.environment.map((variable) => [variable.name, variable]));
+    const set = (name: string, value: string, sensitive = false) =>
+      values.set(name, { name, value, sensitive });
+
+    // OpenRouter's Anthropic-compatible endpoint is /api, while its OpenAI
+    // compatibility endpoint is /api/v1. These are mandatory profile values,
+    // not user-entered URL heuristics.
+    if (isClaude) {
+      set("ANTHROPIC_BASE_URL", "https://openrouter.ai/api");
+      set("ANTHROPIC_AUTH_TOKEN", credential, true);
+      set("ANTHROPIC_API_KEY", "");
+      set("OPENROUTER_API_KEY", credential, true);
+      set("CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK", "1");
+      set("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "1");
+    } else {
+      set("OPENAI_BASE_URL", "https://openrouter.ai/api/v1");
+      set("OPENAI_API_KEY", credential, true);
+      set("OPENROUTER_API_KEY", credential, true);
+    }
+    return [...values.values()];
   });
 
 /**
@@ -442,11 +474,11 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const providerInstances: Record<string, ProviderInstanceConfig> = {
         ...settings.providerInstances,
+        ...deriveHarnessProfileProviderInstances(settings),
       };
-      for (const [instanceId, instance] of Object.entries(settings.providerInstances)) {
-        if (!instance.environment) continue;
+      for (const [instanceId, instance] of Object.entries(providerInstances)) {
         const environment: ProviderInstanceEnvironmentVariable[] = [];
-        for (const variable of instance.environment) {
+        for (const variable of instance.environment ?? []) {
           if (!variable.sensitive || !variable.valueRedacted) {
             environment.push(variable);
             continue;
@@ -474,13 +506,55 @@ const make = Effect.gen(function* () {
           settings,
           instanceId,
           driver: String(instance.driver),
+          ...(instance.connectionId !== undefined ? { connectionId: instance.connectionId } : {}),
           environment,
           secretStore,
         });
-        providerInstances[instanceId] = {
-          ...instance,
-          environment: materializedEnvironment,
-        } satisfies ProviderInstanceConfig;
+        const boundService =
+          instance.connectionId === undefined
+            ? undefined
+            : Object.values(settings.harnesses.services).find(
+                (candidate) => String(candidate.serviceId) === instance.connectionId,
+              );
+        const isManagedConnection = boundService !== undefined && boundService.kind !== "native";
+        const compatibilityProfileId =
+          instance.compatibilityProfileId ??
+          boundService?.compatibilityProfileId ??
+          (boundService?.kind === "openrouter"
+            ? `${String(instance.driver)}-openrouter`
+            : undefined);
+        const protocol =
+          instance.protocol ??
+          boundService?.protocol ??
+          (boundService?.kind === "openrouter"
+            ? String(instance.driver) === "claudeAgent"
+              ? "anthropic-compatible"
+              : String(instance.driver) === "codex"
+                ? "openai-responses"
+                : undefined
+            : undefined);
+        if (
+          instance.environment !== undefined ||
+          materializedEnvironment.length > 0 ||
+          boundService !== undefined
+        ) {
+          providerInstances[instanceId] = {
+            ...instance,
+            environment: materializedEnvironment,
+            ...(isManagedConnection && instance.authMode === undefined
+              ? { authMode: "rune-managed" as const }
+              : {}),
+            ...(isManagedConnection && instance.runtimeHomePolicy === undefined
+              ? { runtimeHomePolicy: "isolated" as const }
+              : {}),
+            ...(compatibilityProfileId !== undefined ? { compatibilityProfileId } : {}),
+            ...(compatibilityProfileId !== undefined &&
+            instance.compatibilityProfileVersion === undefined
+              ? { compatibilityProfileVersion: "1" }
+              : {}),
+            ...(protocol !== undefined ? { protocol } : {}),
+          } satisfies ProviderInstanceConfig;
+        }
       }
       return {
         ...settings,

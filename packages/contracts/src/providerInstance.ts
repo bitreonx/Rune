@@ -35,7 +35,7 @@
  */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 const PROVIDER_SLUG_MAX_CHARS = 64;
 /**
@@ -112,6 +112,58 @@ export type ProviderInstanceEnvironmentVariable = typeof ProviderInstanceEnviron
 export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironmentVariable);
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
+/** How a provider instance obtains credentials at process launch. */
+export const ProviderInstanceAuthMode = Schema.Literals(["native", "rune-managed"]);
+export type ProviderInstanceAuthMode = typeof ProviderInstanceAuthMode.Type;
+
+/** Whether the instance may use the host's native provider home. */
+export const ProviderInstanceRuntimeHomePolicy = Schema.Literals(["native", "isolated"]);
+export type ProviderInstanceRuntimeHomePolicy = typeof ProviderInstanceRuntimeHomePolicy.Type;
+
+/** Protocol selected by a bound service connection. */
+export const ServiceConnectionProtocol = Schema.Literals([
+  "anthropic-compatible",
+  "openai-responses",
+  "openai-chat",
+  "provider-native",
+]);
+export type ServiceConnectionProtocol = typeof ServiceConnectionProtocol.Type;
+
+const ProviderInstanceRuntimeCredentialSource = Schema.Literals([
+  "native",
+  "service-credential",
+  "environment",
+  "none",
+]);
+
+/**
+ * Secret-free description of the exact runtime inputs used for one instance.
+ * Environment values never cross this contract; only names and hashes do.
+ */
+export const ProviderInstanceRuntimeManifest = Schema.Struct({
+  manifestVersion: Schema.Literal(1),
+  instanceId: ProviderInstanceId,
+  driver: ProviderDriverKind,
+  connectionId: Schema.optional(TrimmedNonEmptyString),
+  protocol: Schema.optional(ServiceConnectionProtocol),
+  binaryPath: Schema.optional(TrimmedNonEmptyString),
+  cwd: Schema.optional(TrimmedNonEmptyString),
+  configHome: Schema.optional(TrimmedNonEmptyString),
+  runtimeHomePolicy: ProviderInstanceRuntimeHomePolicy,
+  modelProfileId: Schema.optional(TrimmedNonEmptyString),
+  modelBindings: Schema.Record(Schema.String, Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  environmentKeys: Schema.Array(ProviderInstanceEnvironmentVariableName),
+  environmentHash: TrimmedNonEmptyString,
+  fingerprint: TrimmedNonEmptyString,
+  credentialSource: ProviderInstanceRuntimeCredentialSource,
+  compatibilityProfileId: Schema.optional(TrimmedNonEmptyString),
+  compatibilityProfileVersion: Schema.optional(TrimmedNonEmptyString),
+  generatedAt: IsoDateTime,
+});
+export type ProviderInstanceRuntimeManifest = typeof ProviderInstanceRuntimeManifest.Type;
+
 /**
  * Envelope shape for a provider instance configuration in `ServerSettings`.
  *
@@ -125,6 +177,19 @@ export const ProviderInstanceConfig = Schema.Struct({
   driver: ProviderDriverKind,
   displayName: Schema.optional(TrimmedNonEmptyString),
   accentColor: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Explicit binding to one configured service connection. This is optional
+   * only for migration-era settings; when present it is authoritative and
+   * runtime materialization must not fall back to a global service.
+  */
+  connectionId: Schema.optional(TrimmedNonEmptyString),
+  authMode: Schema.optional(ProviderInstanceAuthMode),
+  runtimeHomePolicy: Schema.optional(ProviderInstanceRuntimeHomePolicy),
+  modelProfileId: Schema.optional(TrimmedNonEmptyString),
+  compatibilityProfileId: Schema.optional(TrimmedNonEmptyString),
+  compatibilityProfileVersion: Schema.optionalKey(TrimmedNonEmptyString),
+  protocol: Schema.optionalKey(ServiceConnectionProtocol),
+  modelBindings: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),

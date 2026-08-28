@@ -1,4 +1,8 @@
-import type { ServerProvider, ServerProviderVersionAdvisory } from "@rune/contracts";
+import type {
+  ProviderDriverKind,
+  ServerProvider,
+  ServerProviderVersionAdvisory,
+} from "@rune/contracts";
 import { APP_BASE_NAME } from "../../branding";
 
 /**
@@ -6,21 +10,46 @@ import { APP_BASE_NAME } from "../../branding";
  * the default-driver card and per-instance cards share the same language.
  */
 export const PROVIDER_STATUS_STYLES = {
-  disabled: {
-    dot: "bg-amber-400",
-  },
-  error: {
-    dot: "bg-destructive",
-  },
-  ready: {
-    dot: "bg-success",
-  },
-  warning: {
-    dot: "bg-warning",
+  pending: { dot: "bg-muted-foreground/45", tone: "text-muted-foreground", label: null },
+  "not-installed": { dot: "bg-destructive", tone: "text-destructive", label: "Not installed" },
+  unauthenticated: { dot: "bg-warning", tone: "text-warning", label: "Sign in to enable" },
+  ready: { dot: "bg-success", tone: "text-success", label: "Ready" },
+  error: { dot: "bg-destructive", tone: "text-destructive", label: "Error" },
+  "headless-restricted": {
+    dot: "bg-info",
+    tone: "text-info",
+    label: "Headless mode",
   },
 } as const;
 
 export type ProviderStatusKey = keyof typeof PROVIDER_STATUS_STYLES;
+
+/**
+ * Collapse the provider wire snapshot into the small vocabulary the settings
+ * UI can actually act on. `enabled` intentionally stays outside this mapping:
+ * disabling an instance is a control, not a health state.
+ */
+export function resolveProviderStatusKey(
+  provider: ServerProvider | undefined,
+  input?: { readonly driver?: ProviderDriverKind; readonly enabled?: boolean },
+): ProviderStatusKey {
+  if (provider === undefined || input?.enabled === false) return "pending";
+  if (!provider.installed) return "not-installed";
+  if (provider.auth.status === "unauthenticated") return "unauthenticated";
+  if (provider.status === "error") return "error";
+  if (String(input?.driver ?? provider.driver) === "antigravity" && provider.status === "ready") {
+    return "headless-restricted";
+  }
+  return provider.status === "ready"
+    ? "ready"
+    : provider.status === "warning"
+      ? "error"
+      : "pending";
+}
+
+export function providerStatusLabel(status: ProviderStatusKey): string | null {
+  return PROVIDER_STATUS_STYLES[status].label;
+}
 
 /**
  * Derive the headline + detail copy shown under a provider's name in the
@@ -41,7 +70,7 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
       headline: "Disabled",
       detail:
         provider.message ??
-          `This provider is installed but disabled for new sessions in ${APP_BASE_NAME}.`,
+        `This provider is installed but disabled for new sessions in ${APP_BASE_NAME}.`,
     };
   }
   if (!provider.installed) {

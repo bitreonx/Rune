@@ -138,6 +138,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       canonicalCommand.message.attachments,
       (attachment) =>
         Effect.gen(function* () {
+          // Thread mentions are cross-thread references, not uploads; the
+          // server resolves them at turn start, nothing to claim on disk.
+          if (attachment.type === "thread-mention") {
+            return attachment;
+          }
           if (!("dataUrl" in attachment)) {
             const claim = planAttachmentClaim({
               attachmentsDir: serverConfig.attachmentsDir,
@@ -279,6 +284,7 @@ export const cleanupFailedUploadedAttachments = Effect.fn(
     const original = command.message.attachments[index];
     if (
       !original ||
+      original.type === "thread-mention" ||
       "dataUrl" in original ||
       parseThreadSegmentFromAttachmentId(original.id) !== PENDING_ATTACHMENT_THREAD_SEGMENT
     ) {

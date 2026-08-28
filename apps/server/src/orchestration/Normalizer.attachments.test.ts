@@ -52,6 +52,19 @@ function turnStartCommand(input: {
   };
 }
 
+
+function expectImage(
+  attachment:
+    | { readonly type: "image"; readonly id: string }
+    | { readonly type: "thread-mention" }
+    | undefined,
+): { readonly id: string } {
+  if (attachment === undefined || attachment.type !== "image") {
+    throw new Error("Expected an image attachment.");
+  }
+  return attachment;
+}
+
 describe("normalizeDispatchCommand attachments", () => {
   it.effect("preserves inline image attachments from existing mobile clients", () =>
     Effect.gen(function* () {
@@ -66,6 +79,9 @@ describe("normalizeDispatchCommand attachments", () => {
       }
 
       const attachment = normalized.message.attachments[0]!;
+      if (attachment.type !== "image") {
+        throw new Error("Expected an image attachment.");
+      }
       expect(attachment.id.startsWith("thread-1-")).toBe(true);
       expect(
         NodeFS.readFileSync(NodePath.join(config.attachmentsDir, `${attachment.id}.png`)),
@@ -89,7 +105,11 @@ describe("normalizeDispatchCommand attachments", () => {
         throw new Error("Expected a thread.turn.start command.");
       }
 
-      const attachmentId = normalized.message.attachments[0]!.id;
+      const firstAttachment = normalized.message.attachments[0]!;
+      if (firstAttachment.type !== "image") {
+        throw new Error("Expected an image attachment.");
+      }
+      const attachmentId = firstAttachment.id;
       expect(attachmentId.startsWith("thread-1-")).toBe(true);
       expect(attachmentId).not.toBe(`thread-1-${attachmentUuid}`);
       expect(NodeFS.existsSync(pendingPath)).toBe(true);
@@ -120,7 +140,11 @@ describe("normalizeDispatchCommand attachments", () => {
       }
 
       expect(normalized.message.attachments).toHaveLength(2);
-      expect(normalized.message.attachments[1]?.id.startsWith("thread-1-")).toBe(true);
+      const secondAttachment = normalized.message.attachments[1]!;
+      if (secondAttachment.type !== "image") {
+        throw new Error("Expected an image attachment.");
+      }
+      expect(secondAttachment.id.startsWith("thread-1-")).toBe(true);
     }).pipe(Effect.provide(testLayer)),
   );
 
@@ -141,9 +165,11 @@ describe("normalizeDispatchCommand attachments", () => {
       if (first.type !== "thread.turn.start") {
         throw new Error("Expected a thread.turn.start command.");
       }
-      NodeFS.rmSync(
-        NodePath.join(config.attachmentsDir, `${first.message.attachments[0]!.id}.png`),
-      );
+      const firstImage = first.message.attachments[0]!;
+      if (firstImage.type !== "image") {
+        throw new Error("Expected an image attachment.");
+      }
+      NodeFS.rmSync(NodePath.join(config.attachmentsDir, `${firstImage.id}.png`));
 
       const retried = yield* normalizeDispatchCommand(
         turnStartCommand({
@@ -154,7 +180,7 @@ describe("normalizeDispatchCommand attachments", () => {
       if (retried.type !== "thread.turn.start") {
         throw new Error("Expected a thread.turn.start command.");
       }
-      expect(retried.message.attachments[0]?.id.startsWith("thread-retry-")).toBe(true);
+      expect(expectImage(retried.message.attachments[0]).id.startsWith("thread-retry-")).toBe(true);
     }).pipe(Effect.provide(testLayer)),
   );
 
@@ -176,11 +202,11 @@ describe("normalizeDispatchCommand attachments", () => {
 
       const inlinePath = NodePath.join(
         config.attachmentsDir,
-        `${normalized.message.attachments[0]!.id}.png`,
+        `${expectImage(normalized.message.attachments[0]).id}.png`,
       );
       const claimedPath = NodePath.join(
         config.attachmentsDir,
-        `${normalized.message.attachments[1]!.id}.png`,
+        `${expectImage(normalized.message.attachments[1]).id}.png`,
       );
       yield* cleanupFailedUploadedAttachments(command, normalized);
 
@@ -205,7 +231,7 @@ describe("normalizeDispatchCommand attachments", () => {
 
       const claimedPath = NodePath.join(
         config.attachmentsDir,
-        `${normalized.message.attachments[0]!.id}.png`,
+        `${expectImage(normalized.message.attachments[0]).id}.png`,
       );
       NodeFS.rmSync(pendingPath);
 
@@ -234,11 +260,11 @@ describe("normalizeDispatchCommand attachments", () => {
 
       const failedPath = NodePath.join(
         config.attachmentsDir,
-        `${failed.message.attachments[0]!.id}.png`,
+        `${expectImage(failed.message.attachments[0]).id}.png`,
       );
       const succeededPath = NodePath.join(
         config.attachmentsDir,
-        `${succeeded.message.attachments[0]!.id}.png`,
+        `${expectImage(succeeded.message.attachments[0]).id}.png`,
       );
       expect(failedPath).not.toBe(succeededPath);
 

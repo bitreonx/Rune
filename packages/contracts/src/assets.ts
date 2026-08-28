@@ -6,59 +6,21 @@ import {
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   ProjectFaviconPath,
 } from "./orchestration.ts";
-import {
-  workspaceFileRefFrom,
-  WorkspaceFileRef,
-} from "./workspaceFileRef.ts";
 
 const ASSET_PATH_MAX_LENGTH = 1024;
-
-const isAbsolutePath = (value: string): boolean =>
-  /^\//.test(value) || /^[A-Za-z]:[\\/]/.test(value);
-
-// Compute the relative path between two absolute paths, returning the result in
-// POSIX form regardless of platform. Returns null if either side is not
-// absolute or if the result would escape the root.
-const relativePosix = (root: string, absolute: string): string | null => {
-  if (!isAbsolutePath(root) || !isAbsolutePath(absolute)) return null;
-  const normRoot = root.replaceAll("\\", "/");
-  const normPath = absolute.replaceAll("\\", "/");
-  const rootSegments = normRoot.replace(/\/+$/, "").split("/");
-  const pathSegments = normPath.split("/");
-  let common = 0;
-  while (
-    common < rootSegments.length &&
-    common < pathSegments.length &&
-    rootSegments[common] === pathSegments[common]
-  ) {
-    common += 1;
-  }
-  const up = rootSegments.length - common;
-  const down = pathSegments.slice(common);
-  if (down.length === 0) return null;
-  const rel = [...Array(up).fill(".."), ...down].join("/");
-  if (rel.startsWith("/") || rel.split("/").includes("..") && up === 0) {
-    return null;
-  }
-  // Reject results that would escape upward (e.g. ../foo or ../../foo).
-  if (rel.split("/").filter((s) => s === "..").length > up) {
-    return null;
-  }
-  return rel;
-};
 
 export const AssetResource = Schema.Union([
   Schema.TaggedStruct("workspace-file", {
     threadId: ThreadId,
-    // Canonical identity for the file. When present, the server uses
-    // ref.relativePath directly and ref.workspaceRoot as the canonical root —
-    // never `path.relative` math. New clients should always send `ref`.
-    ref: Schema.optional(WorkspaceFileRef),
-    // Legacy field kept for one release. When `ref` is absent, the server
-    // resolves this against the workspace root supplied by the WS handler.
-    path: Schema.optional(
-      TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
-    ),
+    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+    /**
+     * The workspace root the caller is actually browsing. Without it the
+     * server falls back to the thread's project root, which is wrong for
+     * nested workspaces and worktree-backed threads and is what made
+     * monorepo image previews fail. Callers that know their root must send
+     * it; the server validates the path stays inside it either way.
+     */
+    cwd: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH))),
   }),
   Schema.TaggedStruct("attachment", {
     attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
@@ -85,43 +47,6 @@ export const AssetCreateUrlResult = Schema.Struct({
   ),
 });
 export type AssetCreateUrlResult = typeof AssetCreateUrlResult.Type;
-
-type WorkspaceFileResource = Extract<AssetResource, { _tag: "workspace-file" }>;
-
-/**
- * Returns the canonical WorkspaceFileRef for a workspace-file resource, or
- * null if the resource is not a workspace-file. When `ref` is present, that is
- * the source of truth. Otherwise, when the legacy `path` is absolute and a
- * fallback workspace root is supplied, a ref is synthesised by relativising
- * `path` against the root (POSIX semantics, normalising platform separators).
- * Returns null when the resource has no `ref` and no usable absolute `path`.
- */
-export const extractWorkspaceFileRef = (
-  resource: AssetResource,
-  fallbackWorkspaceRoot?: string,
-): WorkspaceFileRef | null => {
-  if (resource._tag !== "workspace-file") return null;
-  if (resource.ref) return resource.ref;
-  if (!fallbackWorkspaceRoot || !resource.path) return null;
-  const relative = relativePosix(fallbackWorkspaceRoot, resource.path);
-  if (relative === null) return null;
-  // The ref must pass WorkspaceFileRefPath validation (no traversal, no
-  // leading slash, etc.). Migration fails closed if the resulting path is bad.
-  try {
-    Schema.decodeUnknownSync(WorkspaceFileRef)({
-      workspaceId: "legacy",
-      workspaceRoot: fallbackWorkspaceRoot,
-      relativePath: relative,
-    });
-  } catch {
-    return null;
-  }
-  return workspaceFileRefFrom({
-    workspaceId: "legacy",
-    workspaceRoot: fallbackWorkspaceRoot,
-    relativePath: relative,
-  });
-};
 
 export const ATTACHMENT_UPLOAD_URL_TTL_MS = 10 * 60_000;
 

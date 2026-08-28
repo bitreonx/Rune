@@ -41,7 +41,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { DriverOption } from "./providerDriverMeta";
-import { ProviderSetupNotice } from "./ProviderSetupNotice";
+import { StatusBadge } from "./StatusBadge";
 import { ProviderEnvironmentSection } from "./ProviderEnvironmentSection";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
@@ -58,6 +58,7 @@ import {
   getProviderSummary,
   getProviderVersionLabel,
   type ProviderStatusKey,
+  resolveProviderStatusKey,
 } from "./providerStatus";
 
 /**
@@ -214,11 +215,10 @@ export function ProviderInstanceCard({
   isUpdating = false,
 }: ProviderInstanceCardProps) {
   const enabled = resolveProviderInstanceEnabled(instance);
-  // The server-reported status wins when present; otherwise fall back to
-  // "disabled"/"warning" based on the local `enabled` flag so the dot
-  // reflects the persisted intent even before the first probe completes.
-  const statusKey: ProviderStatusKey =
-    (liveProvider?.status as ProviderStatusKey | undefined) ?? (enabled ? "warning" : "disabled");
+  const statusKey: ProviderStatusKey = resolveProviderStatusKey(liveProvider, {
+    driver: instance.driver,
+    enabled,
+  });
   const statusStyle = PROVIDER_STATUS_STYLES[statusKey];
   const rawSummary = getProviderSummary(liveProvider);
   const authEmail = liveProvider?.auth.email;
@@ -402,7 +402,10 @@ export function ProviderInstanceCard({
   );
 
   const authRowNode = (
-    <p className="flex min-w-0 flex-wrap items-center gap-x-1 text-[13px] leading-[1.45] text-muted-foreground/80">
+    <p
+      className="flex min-w-0 flex-wrap items-center gap-x-1 text-[13px] leading-[1.45] text-muted-foreground/80"
+      aria-live="polite"
+    >
       {hasAuthenticatedEmail ? (
         <>
           <span>Authenticated as</span>
@@ -458,7 +461,7 @@ export function ProviderInstanceCard({
                         )}
                         aria-label="Update available — view details"
                       >
-                        <ArrowUpCircleIcon className="size-3.5 [animation:bounce_2.4s_ease-in-out_infinite] motion-reduce:animate-none" />
+                        <ArrowUpCircleIcon className="size-3.5" />
                       </Button>
                     }
                   />
@@ -540,7 +543,18 @@ export function ProviderInstanceCard({
               {titleTailNode}
             </div>
             {authRowNode}
-            <ProviderSetupNotice driver={instance.driver} provider={liveProvider} />
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge statusKey={statusKey} />
+              {liveProvider?.checkedAt ? (
+                <span className="text-[11px] text-muted-foreground/60">
+                  Checked{" "}
+                  {new Date(liveProvider.checkedAt).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
             <Button
@@ -579,8 +593,12 @@ export function ProviderInstanceCard({
                   onCommit={updateDisplayName}
                   placeholder={driverOption?.label ?? "Instance label"}
                   spellCheck={false}
+                  aria-describedby={`provider-instance-${instanceId}-display-name-help`}
                 />
-                <span className="mt-1 block text-xs text-muted-foreground">
+                <span
+                  id={`provider-instance-${instanceId}-display-name-help`}
+                  className="mt-1 block text-xs text-muted-foreground"
+                >
                   Optional label shown in the provider list.
                 </span>
               </label>

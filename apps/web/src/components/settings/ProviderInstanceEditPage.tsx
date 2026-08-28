@@ -56,13 +56,14 @@ import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderSetupNotice } from "./ProviderSetupNotice";
+import { StatusBadge } from "./StatusBadge";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeServices";
 import { getDriverOption } from "./providerDriverMeta";
 import {
   PROVIDER_STATUS_STYLES,
   getProviderSummary,
-  type ProviderStatusKey,
+  resolveProviderStatusKey,
 } from "./providerStatus";
 import { buildProviderInstanceUpdatePatch } from "./SettingsPanels.logic";
 import {
@@ -188,8 +189,10 @@ function ProviderInstanceEditContent(props: {
   const isClaude = String(slot.driver) === String(CLAUDE_SUBSCRIPTION_DRIVER);
 
   const enabled = resolveProviderInstanceEnabled(instance);
-  const statusKey: ProviderStatusKey =
-    (entry?.snapshot.status as ProviderStatusKey | undefined) ?? (enabled ? "warning" : "disabled");
+  const statusKey = resolveProviderStatusKey(entry?.snapshot, {
+    driver: slot.driver,
+    enabled,
+  });
   const summary = getProviderSummary(entry?.snapshot);
   const displayName = instance.displayName?.trim() || driverOption?.label || String(slot.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
@@ -423,13 +426,7 @@ function ProviderInstanceEditContent(props: {
                   {String(instanceId)}
                 </code>
               ) : null}
-              <Badge variant="outline" className="gap-1.5 font-normal text-muted-foreground">
-                <span
-                  className={cn("size-1.5 rounded-full", PROVIDER_STATUS_STYLES[statusKey].dot)}
-                  aria-hidden
-                />
-                {summary.headline}
-              </Badge>
+              <StatusBadge statusKey={statusKey} className="bg-background" />
             </div>
           </div>
           <ProviderSetupNotice driver={slot.driver} provider={entry?.snapshot} />
@@ -465,9 +462,10 @@ function ProviderInstanceEditContent(props: {
               const candidateEntry = props.serverProviders.find(
                 (provider) => provider.instanceId === candidate.instanceId,
               );
-              const candidateStatus =
-                (candidateEntry?.status as ProviderStatusKey | undefined) ??
-                (resolveProviderInstanceEnabled(candidate.instance) ? "warning" : "disabled");
+              const candidateStatus = resolveProviderStatusKey(candidateEntry, {
+                driver: candidate.driver,
+                enabled: resolveProviderInstanceEnabled(candidate.instance),
+              });
               const candidateName =
                 candidate.instance.displayName?.trim() ||
                 getDriverOption(candidate.driver)?.label ||
@@ -570,6 +568,8 @@ function ProviderInstanceEditContent(props: {
                 <UniversalServiceSettings
                   driverKind={slot.driver}
                   idPrefix={`edit-page-${String(instanceId)}-service`}
+                  instanceId={String(instanceId)}
+                  instanceLabel={displayName}
                   environment={instance.environment ?? []}
                   settings={settings}
                   onChange={updateEnvironment}

@@ -28,6 +28,10 @@ export interface ProviderRuntimeBinding {
   readonly resumeCursor?: unknown | null;
   readonly runtimePayload?: unknown | null;
   readonly runtimeMode?: RuntimeMode;
+  readonly serviceConnectionId?: string;
+  readonly modelProfileId?: string;
+  readonly runtimeManifestFingerprint?: string;
+  readonly runtimeManifestVersion?: number;
 }
 
 export interface ProviderRuntimeBindingWithMetadata extends ProviderRuntimeBinding {

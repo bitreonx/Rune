@@ -10,9 +10,15 @@
 import * as NodeFSP from "node:fs/promises";
 
 import type {
+  ProjectCreateEntryInput,
+  ProjectCreateEntryResult,
+  ProjectDeleteEntryInput,
+  ProjectDeleteEntryResult,
   ProjectReadFileAtHeadResult,
   ProjectReadFileInput,
   ProjectReadFileResult,
+  ProjectRenameEntryInput,
+  ProjectRenameEntryResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "@rune/contracts";
@@ -20,6 +26,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
@@ -45,6 +52,9 @@ export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<W
       "close",
       "make-directory",
       "write-file",
+      "create-directory",
+      "rename",
+      "delete",
     ]),
     cause: Schema.Defect(),
   },
@@ -159,6 +169,36 @@ export class WorkspaceFileSystem extends Context.Service<
       input: ProjectReadFileInput,
     ) => Effect.Effect<
       ProjectReadFileAtHeadResult,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    /**
+     * Create an empty file or a directory inside the workspace root. Fails
+     * when the entry already exists unless `allowExisting` is set.
+     */
+    readonly createEntry: (
+      input: ProjectCreateEntryInput,
+    ) => Effect.Effect<
+      ProjectCreateEntryResult,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    /**
+     * Rename a file or directory within its own directory. The new name is a
+     * single segment, so renames can never move entries across directories.
+     */
+    readonly renameEntry: (
+      input: ProjectRenameEntryInput,
+    ) => Effect.Effect<
+      ProjectRenameEntryResult,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
+    /**
+     * Delete a file, or a directory when `recursive` allows it. Rejects
+     * deleting the workspace root itself.
+     */
+    readonly deleteEntry: (
+      input: ProjectDeleteEntryInput,
+    ) => Effect.Effect<
+      ProjectDeleteEntryResult,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
   }
@@ -485,7 +525,257 @@ export const make = Effect.gen(function* () {
     return results;
   });
 
-  return WorkspaceFileSystem.of({ readFile, writeFile, writeFiles, readFileAtHead });
+  const createEntry: WorkspaceFileSystem["Service"]["createEntry"] = Effect.fn(
+    "WorkspaceFileSystem.createEntry",
+  )(function* (input) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    if (target.relativePath === "") {
+      return yield* new WorkspacePathNotFileError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: target.absolutePath,
+      });
+    }
+
+    const existing = Option.getOrNull(
+      yield* fileSystem.stat(target.absolutePath).pipe(Effect.option),
+    );
+    if (existing !== null) {
+      // Directories are mkdir-p idempotent; files must not be silently clobbered.
+      if (input.kind === "directory") {
+        return { relativePath: target.relativePath };
+      }
+      return yield* new WorkspaceFileSystemOperationError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: target.absolutePath,
+        operationPath: target.absolutePath,
+        operation: input.kind === "directory" ? "create-directory" : "write-file",
+        cause: new Error("An entry already exists at this path."),
+      });
+    }
+
+    if (input.kind === "directory") {
+      yield* fileSystem
+        .makeDirectory(target.absolutePath, { recursive: true })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new WorkspaceFileSystemOperationError({
+                workspaceRoot: input.cwd,
+                relativePath: input.relativePath,
+                resolvedPath: target.absolutePath,
+                operationPath: target.absolutePath,
+                operation: "create-directory",
+                cause,
+              }),
+          ),
+        );
+    } else {
+      // Same parent-creation the editor's save path uses, so a "new file" in a
+      // not-yet-existing folder behaves like typing the file into an editor.
+      yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: path.dirname(target.absolutePath),
+              operation: "make-directory",
+              cause,
+            }),
+        ),
+      );
+      yield* fileSystem.writeFileString(target.absolutePath, "").pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: target.absolutePath,
+              operation: "write-file",
+              cause,
+            }),
+        ),
+      );
+    }
+
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath: target.relativePath };
+  });
+
+  const renameEntry: WorkspaceFileSystem["Service"]["renameEntry"] = Effect.fn(
+    "WorkspaceFileSystem.renameEntry",
+  )(function* (input) {
+    if (input.newName.includes("/") || input.newName.includes("\\") || input.newName.includes("\0")) {
+      return yield* new WorkspaceFileSystemOperationError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: input.newName,
+        operationPath: input.newName,
+        operation: "rename",
+        cause: new Error("The new name must be a single path segment."),
+      });
+    }
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    if (target.relativePath === "") {
+      return yield* new WorkspacePathNotFileError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: target.absolutePath,
+      });
+    }
+
+    const lastSeparator = target.relativePath.lastIndexOf("/");
+    const nextRelative =
+      lastSeparator >= 0
+        ? `${target.relativePath.slice(0, lastSeparator)}/${input.newName}`
+        : input.newName;
+    const renamedTarget = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: nextRelative,
+    });
+
+    const stat = yield* fileSystem.stat(target.absolutePath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new WorkspaceFileSystemOperationError({
+            workspaceRoot: input.cwd,
+            relativePath: input.relativePath,
+            resolvedPath: target.absolutePath,
+            operationPath: target.absolutePath,
+            operation: "stat",
+            cause,
+          }),
+      ),
+    );
+    if (stat.type !== "Directory" && stat.type !== "File") {
+      return yield* new WorkspacePathNotFileError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: target.absolutePath,
+      });
+    }
+    const destinationStat = Option.getOrNull(
+      yield* fileSystem.stat(renamedTarget.absolutePath).pipe(Effect.option),
+    );
+    if (destinationStat !== null) {
+      return yield* new WorkspaceFileSystemOperationError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: renamedTarget.absolutePath,
+        operationPath: renamedTarget.absolutePath,
+        operation: "rename",
+        cause: new Error("An entry already exists at the destination."),
+      });
+    }
+
+    yield* Effect.tryPromise({
+      try: () => NodeFSP.rename(target.absolutePath, renamedTarget.absolutePath),
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: renamedTarget.absolutePath,
+          operationPath: target.absolutePath,
+          operation: "rename",
+          cause,
+        }),
+    });
+
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath: renamedTarget.relativePath };
+  });
+
+  const deleteEntry: WorkspaceFileSystem["Service"]["deleteEntry"] = Effect.fn(
+    "WorkspaceFileSystem.deleteEntry",
+  )(function* (input) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    if (target.relativePath === "") {
+      return yield* new WorkspacePathNotFileError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: target.absolutePath,
+      });
+    }
+
+    const stat = yield* fileSystem.stat(target.absolutePath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new WorkspaceFileSystemOperationError({
+            workspaceRoot: input.cwd,
+            relativePath: input.relativePath,
+            resolvedPath: target.absolutePath,
+            operationPath: target.absolutePath,
+            operation: "stat",
+            cause,
+          }),
+      ),
+    );
+    if (stat.type === "Directory") {
+      if (input.recursive !== true) {
+        return yield* new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: target.absolutePath,
+          operationPath: target.absolutePath,
+          operation: "delete",
+          cause: new Error("Directory is not empty; recursive deletion was not requested."),
+        });
+      }
+      yield* fileSystem.remove(target.absolutePath, { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: target.absolutePath,
+              operation: "delete",
+              cause,
+            }),
+        ),
+      );
+    } else {
+      yield* fileSystem.remove(target.absolutePath, { force: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: target.absolutePath,
+              operation: "delete",
+              cause,
+            }),
+        ),
+      );
+    }
+
+    yield* workspaceEntries.refresh(input.cwd);
+    return { relativePath: target.relativePath };
+  });
+  return WorkspaceFileSystem.of({
+    readFile,
+    writeFile,
+    writeFiles,
+    readFileAtHead,
+    createEntry,
+    renameEntry,
+    deleteEntry,
+  });
 });
+
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

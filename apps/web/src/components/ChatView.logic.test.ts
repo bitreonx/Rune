@@ -38,6 +38,7 @@ import {
   shouldDockDraftHeroForSubmission,
   shouldInterruptRunningTurnBeforeSend,
   shouldQueueRunningComposerSubmission,
+  shouldConfirmHistoricalMessageRewind,
   shouldRewindBeforeEditedUserMessageSend,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -80,6 +81,18 @@ describe("draft hero submission transition", () => {
         backgroundSubmissionPending: true,
       }),
     ).toBeNull();
+  });
+});
+
+describe("running submission safety", () => {
+  it("never turns a normal running send into an implicit interruption", () => {
+    expect(
+      shouldInterruptRunningTurnBeforeSend({
+        phase: "running",
+        isSendBusy: false,
+        sendInFlight: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -489,6 +502,26 @@ describe("buildUserMessageRewindConfirmation", () => {
   });
 });
 
+describe("historical message rewind boundary", () => {
+  it("does not add a destructive confirmation for chat-only edit/delete", () => {
+    expect(
+      shouldConfirmHistoricalMessageRewind({ mode: "edit", hasFileChangesAfter: false }),
+    ).toBe(false);
+    expect(
+      shouldConfirmHistoricalMessageRewind({ mode: "delete", hasFileChangesAfter: false }),
+    ).toBe(false);
+  });
+
+  it("requires confirmation when files or a turn-card rewind are involved", () => {
+    expect(
+      shouldConfirmHistoricalMessageRewind({ mode: "edit", hasFileChangesAfter: true }),
+    ).toBe(true);
+    expect(
+      shouldConfirmHistoricalMessageRewind({ mode: "turn", hasFileChangesAfter: false }),
+    ).toBe(true);
+  });
+});
+
 describe("composer send lifecycle", () => {
   it("queues a plain prompt behind an acknowledged running turn", () => {
     expect(
@@ -523,14 +556,14 @@ describe("composer send lifecycle", () => {
     ).toBe(false);
   });
 
-  it("interrupts an acknowledged running turn before sending a new prompt", () => {
+  it("does not interrupt an acknowledged running turn before sending a new prompt", () => {
     expect(
       shouldInterruptRunningTurnBeforeSend({
         phase: "running",
         isSendBusy: false,
         sendInFlight: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("does not interrupt while the send is already in flight or the turn is idle", () => {

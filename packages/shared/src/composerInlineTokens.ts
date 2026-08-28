@@ -18,6 +18,15 @@ export interface CollectComposerInlineTokensOptions {
   readonly preserveTrailingFrom?: ReadonlyArray<ComposerInlineToken>;
 }
 
+export interface ComposerThreadMention {
+  readonly type: "thread-mention";
+  readonly threadId: string;
+  readonly title: string;
+  readonly source: string;
+  readonly start: number;
+  readonly end: number;
+}
+
 const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s)/g;
 const MENTION_TOKEN_REGEX = /(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s@"]+))(?=\s)/g;
 /**
@@ -40,6 +49,33 @@ const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 // Autocomplete emits canonical file links, so ambiguous bare @scope/package text stays a package.
 const SCOPED_PACKAGE_REFERENCE_REGEX =
   /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*(?:\/[^\s@"]+)*$/;
+const THREAD_MENTION_TOKEN_REGEX = new RegExp(
+  `(^|\\s)\\[thread:((?:\\\\.|[^\\]\\\\]){1,500})\\]\\(thread:([a-zA-Z0-9_-]+)\\)(?=\\s|$)`,
+  "g",
+);
+
+/** Read the canonical picker token without treating it as a filesystem link. */
+export function collectComposerThreadMentions(text: string): ReadonlyArray<ComposerThreadMention> {
+  const matches: ComposerThreadMention[] = [];
+  for (const match of text.matchAll(THREAD_MENTION_TOKEN_REGEX)) {
+    const fullMatch = match[0] ?? "";
+    const prefix = match[1] ?? "";
+    const title = (match[2] ?? "").replace(/\\(.)/g, "$1").trim();
+    const threadId = match[3] ?? "";
+    if (!title || !threadId) continue;
+    const start = (match.index ?? 0) + prefix.length;
+    const end = start + fullMatch.length - prefix.length;
+    matches.push({
+      type: "thread-mention",
+      threadId,
+      title,
+      source: text.slice(start, end),
+      start,
+      end,
+    });
+  }
+  return matches;
+}
 
 function collectMentionTokens(text: string): ComposerInlineToken[] {
   const matches: ComposerInlineToken[] = [];

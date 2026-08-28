@@ -251,7 +251,11 @@ layer("044_ProjectionThreadsChatDiff", (it) => {
 
   it.effect("registers migration 44 in numeric order", () =>
     Effect.sync(() => {
-      assert.deepStrictEqual(migrationManifest.at(-1), [44, "ProjectionThreadsChatDiff"]);
+      const migration44 = migrationManifest.find(([id]) => id === 44);
+      assert.deepStrictEqual(migration44, [44, "ProjectionThreadsChatDiff"]);
+      assert.isTrue(
+        migrationManifest.every((entry, index) => index === 0 || entry[0] > migrationManifest[index - 1]![0]),
+      );
     }),
   );
 });

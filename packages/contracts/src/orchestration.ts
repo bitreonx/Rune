@@ -11,6 +11,7 @@ import {
   ClientSurface,
   CommandId,
   EventId,
+  ForwardCompatibleArray,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -207,7 +208,16 @@ const UploadChatImageAttachment = Schema.Struct({
 });
 export type UploadChatImageAttachment = typeof UploadChatImageAttachment.Type;
 
-export const ChatAttachment = Schema.Union([ChatImageAttachment]);
+// A cross-thread reference inserted by the composer's @thread picker. Not an
+// upload; the server resolves it into the turn's capsule at turn start.
+export const ChatThreadAttachment = Schema.Struct({
+  type: Schema.Literal("thread-mention"),
+  threadId: ThreadId,
+  title: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+});
+export type ChatThreadAttachment = typeof ChatThreadAttachment.Type;
+
+export const ChatAttachment = Schema.Union([ChatImageAttachment, ChatThreadAttachment]);
 export type ChatAttachment = typeof ChatAttachment.Type;
 const UploadChatAttachment = Schema.Union([UploadChatImageAttachment]);
 export type UploadChatAttachment = typeof UploadChatAttachment.Type;
@@ -292,7 +302,7 @@ export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
-  attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  attachments: Schema.optional(ForwardCompatibleArray(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   // Present only on messages the UI must not render, e.g. the invisible
@@ -340,6 +350,11 @@ export const OrchestrationSession = Schema.Struct({
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(TrimmedNonEmptyString),
   providerInstanceId: Schema.optional(ProviderInstanceId),
+  /** Immutable routing pins copied from the provider session. */
+  serviceConnectionId: Schema.optional(TrimmedNonEmptyString),
+  modelProfileId: Schema.optional(TrimmedNonEmptyString),
+  runtimeManifestFingerprint: Schema.optional(TrimmedNonEmptyString),
+  runtimeManifestVersion: Schema.optional(Schema.Int),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
@@ -1412,7 +1427,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   messageId: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
-  attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  attachments: Schema.optional(ForwardCompatibleArray(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   hidden: Schema.optional(Schema.Literal(true)),

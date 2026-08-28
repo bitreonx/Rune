@@ -19,6 +19,10 @@
       "types": "./src/model.ts",
       "import": "./src/model.ts"
     },
+    "./providerBrands": {
+      "types": "./src/providerBrands.ts",
+      "import": "./src/providerBrands.ts"
+    },
     "./advertisedEndpoint": {
       "types": "./src/advertisedEndpoint.ts",
       "import": "./src/advertisedEndpoint.ts"
@@ -103,6 +107,10 @@
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
     },
+    "./actions": {
+      "types": "./src/actions.ts",
+      "import": "./src/actions.ts"
+    },
     "./threadEnvMode": {
       "types": "./src/threadEnvMode.ts",
       "import": "./src/threadEnvMode.ts"
@@ -179,6 +187,10 @@
       "types": "./src/composerInlineTokens.ts",
       "import": "./src/composerInlineTokens.ts"
     },
+    "./usageCoverage": {
+      "types": "./src/usageCoverage.ts",
+      "import": "./src/usageCoverage.ts"
+    },
     "./terminalLabels": {
       "types": "./src/terminalLabels.ts",
       "import": "./src/terminalLabels.ts"
@@ -202,6 +214,10 @@
     "./filePreview": {
       "types": "./src/filePreview.ts",
       "import": "./src/filePreview.ts"
+    },
+    "./fileKind": {
+      "types": "./src/fileKind.ts",
+      "import": "./src/fileKind.ts"
     },
     "./chatList": {
       "types": "./src/chatList.ts",

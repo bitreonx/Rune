@@ -2,12 +2,9 @@ import { defaultInstanceIdForDriver, ProviderDriverKind } from "@rune/contracts"
 import { ChevronRightIcon, PlusIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
-import {
-  instanceBadgePresentation,
-  type ProviderInstanceEntry,
-} from "../../providerInstances";
+import { instanceBadgePresentation, type ProviderInstanceEntry } from "../../providerInstances";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { PROVIDER_STATUS_STYLES, type ProviderStatusKey } from "./providerStatus";
+import { PROVIDER_STATUS_STYLES, resolveProviderStatusKey } from "./providerStatus";
 
 /**
  * Card for one Claude subscription (IDE) provider in Settings → Providers.
@@ -23,9 +20,10 @@ export function ClaudeSubscriptionCard(props: {
   const { entry } = props;
   // The server-reported status wins when present; otherwise fall back based
   // on the enabled intent so the dot reads correctly before the first probe.
-  const statusKey: ProviderStatusKey =
-    (entry.snapshot.status as ProviderStatusKey | undefined) ??
-    (entry.enabled ? "warning" : "disabled");
+  const statusKey = resolveProviderStatusKey(entry.snapshot, {
+    driver: entry.driverKind,
+    enabled: entry.enabled,
+  });
   const badge = instanceBadgePresentation(entry, [entry]);
   const isCustom =
     String(entry.instanceId) !== String(defaultInstanceIdForDriver(entry.driverKind));

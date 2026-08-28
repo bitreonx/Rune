@@ -4,7 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind, ThreadId } from "@rune/contracts";
+import { ProviderDriverKind, ProviderInstanceId, ThreadId } from "@rune/contracts";
 import { it, assert } from "@effect/vitest";
 import { assertSome } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
@@ -119,6 +119,31 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
           model: "gpt-5-codex",
           activeTurnId: "turn-1",
         });
+      }
+    }));
+
+  it("persists immutable routing pins as first-class runtime fields", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = ThreadId.make("thread-routing-pins");
+
+      yield* directory.upsert({
+        provider: ProviderDriverKind.make("claudeAgent"),
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("claude_openrouter"),
+        serviceConnectionId: "openrouter_main",
+        modelProfileId: "claude-openrouter-default",
+        runtimeManifestFingerprint: "manifest-fingerprint",
+        runtimeManifestVersion: 1,
+      });
+
+      const binding = yield* directory.getBinding(threadId);
+      assert.equal(Option.isSome(binding), true);
+      if (Option.isSome(binding)) {
+        assert.equal(binding.value.serviceConnectionId, "openrouter_main");
+        assert.equal(binding.value.modelProfileId, "claude-openrouter-default");
+        assert.equal(binding.value.runtimeManifestFingerprint, "manifest-fingerprint");
+        assert.equal(binding.value.runtimeManifestVersion, 1);
       }
     }));
 

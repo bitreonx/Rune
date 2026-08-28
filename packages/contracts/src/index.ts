@@ -36,3 +36,6 @@ export * from "./harness.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./relay.ts";
 export * from "./rpc.ts";
+export * from "./crossThread.ts";
+export * from "./skills.ts";
+export * from "./actions.ts";

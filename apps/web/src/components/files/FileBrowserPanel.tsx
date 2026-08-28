@@ -7,8 +7,17 @@ import type {
 import type { ContextMenuItem, EnvironmentId, ProjectEntry } from "@rune/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
-import { ChevronsDownUp, ChevronsUpDown, ExternalLink, RotateCw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  ExternalLink,
+  FilePlus2,
+  FolderPlus,
+  PenLine,
+  RotateCw,
+  Trash2,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   isAtomCommandInterrupted,
@@ -26,6 +35,8 @@ import { cn, getLocalFileManagerName } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { RUNE_PIERRE_ICONS } from "~/pierre-icons";
 import { shellEnvironment } from "~/state/shell";
+import { projectEnvironment } from "~/state/projects";
+import { useWorkspaceFileEvents } from "~/state/projectFileEvents";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { fileTreeAreaState } from "./fileTreeArea";
@@ -150,6 +161,15 @@ function FileSearchField(props: {
   );
 }
 
+function failureDescription(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "An error occurred.";
+}
+
+/** The workspace runs on the web too, so CRUD prompts fall back to window UI. */
+function promptForName(title: string, initialValue: string): Promise<string | null> {
+  return Promise.resolve(window.prompt(`${title}:`, initialValue));
+}
+
 export default function FileBrowserPanel({
   environmentId,
   cwd,
@@ -170,6 +190,9 @@ export default function FileBrowserPanel({
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, "open in file manager");
+  const createEntry = useAtomCommand(projectEnvironment.createEntry, "create file or folder");
+  const renameEntry = useAtomCommand(projectEnvironment.renameEntry, "rename entry");
+  const deleteEntry = useAtomCommand(projectEnvironment.deleteEntry, "delete entry");
   const fileManagerName = getLocalFileManagerName(navigator.platform);
   const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
   const openInFileManager = async (path: string) => {
@@ -192,6 +215,13 @@ export default function FileBrowserPanel({
   useLiveRefresh(entriesQuery.refresh, {
     key: `workspace-files:${environmentId}:${cwd}`,
   });
+  // Server-pushed filesystem events (agent writes, CRUD) refresh the tree
+  // immediately; useLiveRefresh stays as the polling safety net.
+  const entriesRefreshRef = useRef(entriesQuery.refresh);
+  entriesRefreshRef.current = entriesQuery.refresh;
+  useWorkspaceFileEvents(environmentId, cwd, useCallback(() => {
+    entriesRefreshRef.current();
+  }, []));
   const entries = entriesQuery.data?.entries ?? [];
   const chatScoped = routeThreadKey !== null && chatDiff !== null && scopedToChat;
   const visibleEntries = useMemo(() => {
@@ -285,16 +315,43 @@ export default function FileBrowserPanel({
           ]
         : []),
       {
+        id: "new-file",
+        label: "New file…",
+        icon: "file-plus",
+        separatorBefore: true,
+      },
+      {
+        id: "new-folder",
+        label: "New folder…",
+        icon: "folder-plus",
+      },
+      {
+        id: "rename-entry",
+        label: "Rename…",
+        icon: "pencil",
+        separatorBefore: true,
+      },
+      {
+        id: "delete-entry",
+        label: `Delete ${item.kind === "directory" ? "folder" : "file"}…`,
+        icon: "trash",
+        destructive: true,
+      },
+      {
         id: "open-in-explorer",
         label: `Open in ${fileManagerName}`,
         icon: "external-link",
-        separatorBefore: item.kind === "file",
+        separatorBefore: true,
+      },
+      {
+        id: "copy-path",
+        label: "Copy relative path",
+        icon: "copy",
       },
       {
         id: "copy-mention",
         label: "Copy mention",
         icon: "copy",
-        separatorBefore: item.kind === "directory",
       },
       { id: "add-to-chat", label: "Add to chat", icon: "message-square-plus" },
     ];
@@ -321,6 +378,84 @@ export default function FileBrowserPanel({
           toastManager.add({
             type: "error",
             title: "Failed to copy mention",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          });
+        }
+        return;
+      }
+      if (clicked === "new-file" || clicked === "new-folder") {
+        const name = await promptForName(
+          clicked === "new-file" ? "New file" : "New folder",
+          "untitled",
+        );
+        if (!name) return;
+        const parentRelative = item.kind === "directory" ? relativePath : entryTarget;
+        const result = await createEntry({
+          environmentId,
+          input: {
+            cwd,
+            relativePath: parentRelative ? `${parentRelative}/${name}` : name,
+            kind: clicked === "new-file" ? "file" : "directory",
+          },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          toastManager.add({
+            type: "error",
+            title: `Could not create ${clicked === "new-file" ? "file" : "folder"}`,
+            description: failureDescription(squashAtomCommandFailure(result)),
+          });
+          return;
+        }
+        if (clicked === "new-file") onOpenFile(parentRelative ? `${parentRelative}/${name}` : name);
+        return;
+      }
+      if (clicked === "rename-entry") {
+        const oldName = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+        const name = await promptForName("Rename", oldName);
+        if (!name || name === oldName) return;
+        const result = await renameEntry({
+          environmentId,
+          input: { cwd, relativePath, newName: name },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          toastManager.add({
+            type: "error",
+            title: "Could not rename",
+            description: failureDescription(squashAtomCommandFailure(result)),
+          });
+        }
+        return;
+      }
+      if (clicked === "delete-entry") {
+        const confirmed = window.confirm(
+          `Delete ${relativePath}${item.kind === "directory" ? " and everything inside it" : ""}?`,
+        );
+        if (!confirmed) return;
+        const result = await deleteEntry({
+          environmentId,
+          input: {
+            cwd,
+            relativePath,
+            ...(item.kind === "directory" ? { recursive: true } : {}),
+          },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          toastManager.add({
+            type: "error",
+            title: "Could not delete",
+            description: failureDescription(squashAtomCommandFailure(result)),
+          });
+        }
+        return;
+      }
+      if (clicked === "copy-path") {
+        try {
+          await writeTextToClipboard(relativePath);
+          toastManager.add({ type: "success", title: "Path copied", description: relativePath });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to copy path",
             description: error instanceof Error ? error.message : "An error occurred.",
           });
         }
@@ -524,7 +659,7 @@ export default function FileBrowserPanel({
   return (
     <div
       ref={panelRef}
-      className="flex min-h-0 flex-1 flex-col bg-background/90"
+      className="surface-glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background/55 shadow-lg shadow-black/10"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
       <div

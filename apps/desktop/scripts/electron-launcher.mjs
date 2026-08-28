@@ -21,8 +21,18 @@ export const APP_BUNDLE_ID = isDevelopment
   : "dev.rune.desktop";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["rune-dev"] : ["rune"];
 const LAUNCHER_VERSION = 15;
-const developmentMacIconPngPath = NodePath.join(repoRoot, "assets", "dev", "rune-macos-1024.png");
-const productionMacIconPngPath = NodePath.join(repoRoot, "assets", "prod", "rune-macos-1024.png");
+const developmentMacIconPngPath = NodePath.join(
+  repoRoot,
+  "assets",
+  "dev",
+  "rune-blueprint-macos-1024.png",
+);
+const productionMacIconPngPath = NodePath.join(
+  repoRoot,
+  "assets",
+  "prod",
+  "rune-black-macos-1024.png",
+);
 // oxlint-disable-next-line rune/no-global-process-runtime -- Standalone launcher script has no Effect runtime.
 const hostPlatform = NodeOS.platform();
 

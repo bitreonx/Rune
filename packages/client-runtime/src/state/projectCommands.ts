@@ -1,5 +1,11 @@
-import { type EnvironmentId, type ProjectReadFileResult, WS_METHODS } from "@rune/contracts";
+import {
+  type EnvironmentId,
+  type ProjectFileEventsBatch,
+  type ProjectReadFileResult,
+  WS_METHODS,
+} from "@rune/contracts";
 import * as Crypto from "effect/Crypto";
+import * as Stream from "effect/Stream";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
@@ -7,7 +13,10 @@ import {
   createEnvironmentCommand,
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
+import type { EnvironmentRpcInput } from "../rpc/client.ts";
+import { subscribe } from "../rpc/client.ts";
 import {
   type CreateProjectInput,
   type DeleteProjectInput,
@@ -80,6 +89,16 @@ export function createProjectEnvironmentAtoms<R, E>(
     }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
+    fileEvents: createEnvironmentSubscriptionAtomFamily(runtime, {
+      label: "environment-data:projects:file-events",
+      subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.subscribeProjectFileEvents>) =>
+        subscribe(WS_METHODS.subscribeProjectFileEvents, input).pipe(
+          Stream.mapAccum(
+            () => null as ProjectFileEventsBatch | null,
+            (_current, batch: ProjectFileEventsBatch) => [batch, [batch]] as const,
+          ),
+        ),
+    }),
     create: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:project:create",
       execute: (input: CreateProjectInput) => createProject(input),
@@ -101,6 +120,36 @@ export function createProjectEnvironmentAtoms<R, E>(
     writeFile: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:write-file",
       tag: WS_METHODS.projectsWriteFile,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+    }),
+    createEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:create-entry",
+      tag: WS_METHODS.projectsCreateEntry,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+    }),
+    renameEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:rename-entry",
+      tag: WS_METHODS.projectsRenameEntry,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+    }),
+    deleteEntry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:delete-entry",
+      tag: WS_METHODS.projectsDeleteEntry,
       scheduler: fileScheduler,
       concurrency: {
         mode: "serial",

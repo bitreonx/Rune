@@ -53,6 +53,7 @@ import * as Stream from "effect/Stream";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "../builtInDrivers.ts";
+import { deriveHarnessProfileProviderInstances } from "../ProviderInstanceProfile.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderInstanceRegistryMutator } from "../Services/ProviderInstanceRegistryMutator.ts";
 import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistryLive.ts";
@@ -73,7 +74,10 @@ import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistry
 export const deriveProviderInstanceConfigMap = (
   settings: ServerSettings,
 ): ProviderInstanceConfigMap => {
-  const merged: Record<string, ProviderInstanceConfig> = { ...settings.providerInstances };
+  const merged: Record<string, ProviderInstanceConfig> = {
+    ...settings.providerInstances,
+    ...deriveHarnessProfileProviderInstances(settings),
+  };
 
   for (const driver of BUILT_IN_DRIVERS) {
     const instanceId = defaultInstanceIdForDriver(driver.driverKind);
@@ -96,6 +100,8 @@ export const deriveProviderInstanceConfigMap = (
 
     merged[instanceId] = {
       driver: driver.driverKind,
+      authMode: "native",
+      runtimeHomePolicy: "native",
       config: legacyConfig,
     };
   }

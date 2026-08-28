@@ -112,6 +112,65 @@ describe("orchestration projector", () => {
     ]);
   });
 
+  it("accepts a message for a legacy thread without file ownership", async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const created = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "legacy-thread",
+          occurredAt: now,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "legacy-thread",
+            projectId: "project-1",
+            title: "legacy",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+    const legacy = {
+      ...created,
+      threads: created.threads.map((thread) => ({ ...thread, fileOwnership: undefined })),
+    } as unknown as typeof created;
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        legacy,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "legacy-thread",
+          occurredAt: "2026-01-01T00:00:01.000Z",
+          commandId: "cmd-message",
+          payload: {
+            threadId: "legacy-thread",
+            messageId: "message-1",
+            role: "user",
+            text: "hello",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-01-01T00:00:01.000Z",
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.messages[0]?.text).toBe("hello");
+    expect(next.threads[0]?.fileOwnership).toEqual([]);
+  });
+
   it("fails when event payload cannot be decoded by runtime schema", async () => {
     const now = "2026-01-01T00:00:00.000Z";
     const model = createEmptyReadModel(now);

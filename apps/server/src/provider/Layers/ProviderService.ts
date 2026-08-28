@@ -142,6 +142,10 @@ function toRuntimePayloadFromSession(
   session: ProviderSession,
   extra?: {
     readonly modelSelection?: unknown;
+    readonly serviceConnectionId?: string;
+    readonly modelProfileId?: string;
+    readonly runtimeManifestFingerprint?: string;
+    readonly runtimeManifestVersion?: number;
     readonly lastRuntimeEvent?: string;
     readonly lastRuntimeEventAt?: string;
   },
@@ -152,6 +156,16 @@ function toRuntimePayloadFromSession(
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
+    ...(extra?.serviceConnectionId !== undefined
+      ? { serviceConnectionId: extra.serviceConnectionId }
+      : {}),
+    ...(extra?.modelProfileId !== undefined ? { modelProfileId: extra.modelProfileId } : {}),
+    ...(extra?.runtimeManifestFingerprint !== undefined
+      ? { runtimeManifestFingerprint: extra.runtimeManifestFingerprint }
+      : {}),
+    ...(extra?.runtimeManifestVersion !== undefined
+      ? { runtimeManifestVersion: extra.runtimeManifestVersion }
+      : {}),
     ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
     ...(extra?.lastRuntimeEventAt !== undefined
       ? { lastRuntimeEventAt: extra.lastRuntimeEventAt }
@@ -179,6 +193,42 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPersistedManifestFingerprint(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+): string | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const value = "runtimeManifestFingerprint" in runtimePayload
+    ? runtimePayload.runtimeManifestFingerprint
+    : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readPersistedRoutingString(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+  key: "serviceConnectionId" | "modelProfileId",
+): string | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const record = runtimePayload as Record<string, unknown>;
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readPersistedManifestVersion(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+): number | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const value = "runtimeManifestVersion" in runtimePayload
+    ? runtimePayload.runtimeManifestVersion
+    : undefined;
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 const dieOnMissingBindingInstanceId = (
@@ -318,11 +368,29 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ),
         );
 
+  const requireSelectionInstance = (
+    operation: string,
+    selection: ModelSelection | undefined,
+    instanceId: ProviderInstanceId,
+  ): Effect.Effect<void, ProviderValidationError> =>
+    selection === undefined || selection.instanceId === instanceId
+      ? Effect.void
+      : Effect.fail(
+          toValidationError(
+            operation,
+            `Model selection is bound to provider instance '${selection.instanceId}', but the session is pinned to '${instanceId}'.`,
+          ),
+        );
+
   const upsertSessionBinding = (
     session: ProviderSession,
     threadId: ThreadId,
     extra?: {
       readonly modelSelection?: unknown;
+      readonly serviceConnectionId?: string;
+      readonly modelProfileId?: string;
+      readonly runtimeManifestFingerprint?: string;
+      readonly runtimeManifestVersion?: number;
       readonly lastRuntimeEvent?: string;
       readonly lastRuntimeEventAt?: string;
     },
@@ -332,14 +400,39 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         "ProviderService.upsertSessionBinding",
         session,
       );
+      const instanceInfo = yield* registry.getInstanceInfo(providerInstanceId);
+      const runtimeManifestFingerprint =
+        extra?.runtimeManifestFingerprint ??
+        session.runtimeManifestFingerprint ??
+        instanceInfo.runtimeManifestFingerprint;
+      const serviceConnectionId =
+        extra?.serviceConnectionId ??
+        session.serviceConnectionId ??
+        instanceInfo.serviceConnectionId;
+      const modelProfileId =
+        extra?.modelProfileId ?? session.modelProfileId ?? instanceInfo.modelProfileId;
+      const runtimeManifestVersion =
+        extra?.runtimeManifestVersion ??
+        session.runtimeManifestVersion ??
+        instanceInfo.runtimeManifestVersion;
       yield* directory.upsert({
         threadId,
         provider: session.provider,
         providerInstanceId,
         runtimeMode: session.runtimeMode,
         status: toRuntimeStatus(session),
+        ...(serviceConnectionId !== undefined ? { serviceConnectionId } : {}),
+        ...(modelProfileId !== undefined ? { modelProfileId } : {}),
+        ...(runtimeManifestFingerprint !== undefined ? { runtimeManifestFingerprint } : {}),
+        ...(runtimeManifestVersion !== undefined ? { runtimeManifestVersion } : {}),
         ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
-        runtimePayload: toRuntimePayloadFromSession(session, extra),
+        runtimePayload: toRuntimePayloadFromSession(session, {
+          ...extra,
+          ...(serviceConnectionId !== undefined ? { serviceConnectionId } : {}),
+          ...(modelProfileId !== undefined ? { modelProfileId } : {}),
+          ...(runtimeManifestFingerprint !== undefined ? { runtimeManifestFingerprint } : {}),
+          ...(runtimeManifestVersion !== undefined ? { runtimeManifestVersion } : {}),
+        }),
       });
     });
 
@@ -478,6 +571,29 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
     return yield* Effect.gen(function* () {
       const adapter = yield* registry.getByInstance(bindingInstanceId);
+      const instanceInfo = yield* registry.getInstanceInfo(bindingInstanceId);
+      const pinnedManifestFingerprint = readPersistedManifestFingerprint(
+        input.binding.runtimePayload,
+      );
+      if (
+        pinnedManifestFingerprint !== undefined &&
+        instanceInfo.runtimeManifestFingerprint !== undefined &&
+        pinnedManifestFingerprint !== instanceInfo.runtimeManifestFingerprint
+      ) {
+        return yield* toValidationError(
+          input.operation,
+          `Provider instance '${bindingInstanceId}' runtime manifest changed while thread '${input.binding.threadId}' was pinned. Start a new session to apply the new configuration.`,
+        );
+      }
+      const pinnedServiceConnectionId =
+        readPersistedRoutingString(input.binding.runtimePayload, "serviceConnectionId") ??
+        instanceInfo.serviceConnectionId;
+      const pinnedModelProfileId =
+        readPersistedRoutingString(input.binding.runtimePayload, "modelProfileId") ??
+        instanceInfo.modelProfileId;
+      const pinnedManifestVersion =
+        readPersistedManifestVersion(input.binding.runtimePayload) ??
+        instanceInfo.runtimeManifestVersion;
       const hasResumeCursor =
         input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined;
       const hasActiveSession = yield* adapter.hasSession(input.binding.threadId);
@@ -487,16 +603,42 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           (session) => session.threadId === input.binding.threadId,
         );
         if (existing) {
+          const existingWithRouting = {
+            ...existing,
+            providerInstanceId: bindingInstanceId,
+            ...(pinnedServiceConnectionId !== undefined
+              ? { serviceConnectionId: pinnedServiceConnectionId }
+              : {}),
+            ...(pinnedModelProfileId !== undefined ? { modelProfileId: pinnedModelProfileId } : {}),
+            ...(pinnedManifestFingerprint !== undefined
+              ? { runtimeManifestFingerprint: pinnedManifestFingerprint }
+              : {}),
+            ...(pinnedManifestVersion !== undefined
+              ? { runtimeManifestVersion: pinnedManifestVersion }
+              : {}),
+          } satisfies ProviderSession;
           yield* upsertSessionBinding(
-            { ...existing, providerInstanceId: bindingInstanceId },
+            existingWithRouting,
             input.binding.threadId,
+            {
+              ...(pinnedServiceConnectionId !== undefined
+                ? { serviceConnectionId: pinnedServiceConnectionId }
+                : {}),
+              ...(pinnedModelProfileId !== undefined ? { modelProfileId: pinnedModelProfileId } : {}),
+              ...(pinnedManifestFingerprint !== undefined
+                ? { runtimeManifestFingerprint: pinnedManifestFingerprint }
+                : {}),
+              ...(pinnedManifestVersion !== undefined
+                ? { runtimeManifestVersion: pinnedManifestVersion }
+                : {}),
+            },
           );
           yield* analytics.record("provider.session.recovered", {
             provider: existing.provider,
             strategy: "adopt-existing",
             hasResumeCursor: existing.resumeCursor !== undefined,
           });
-          return { adapter, session: existing } as const;
+          return { adapter, session: existingWithRouting } as const;
         }
       }
 
@@ -515,7 +657,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
-
+      yield* requireSelectionInstance(
+        input.operation,
+        persistedModelSelection,
+        bindingInstanceId,
+      );
       yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
       const resumed = yield* adapter
         .startSession({
@@ -536,16 +682,42 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         );
       }
 
+      const resumedWithRouting = {
+          ...resumed,
+          providerInstanceId: bindingInstanceId,
+          ...(pinnedServiceConnectionId !== undefined
+            ? { serviceConnectionId: pinnedServiceConnectionId }
+            : {}),
+          ...(pinnedModelProfileId !== undefined ? { modelProfileId: pinnedModelProfileId } : {}),
+          ...(pinnedManifestFingerprint !== undefined
+            ? { runtimeManifestFingerprint: pinnedManifestFingerprint }
+            : {}),
+          ...(pinnedManifestVersion !== undefined
+            ? { runtimeManifestVersion: pinnedManifestVersion }
+            : {}),
+        } satisfies ProviderSession;
       yield* upsertSessionBinding(
-        { ...resumed, providerInstanceId: bindingInstanceId },
+        resumedWithRouting,
         input.binding.threadId,
+        {
+          ...(pinnedServiceConnectionId !== undefined
+            ? { serviceConnectionId: pinnedServiceConnectionId }
+            : {}),
+          ...(pinnedModelProfileId !== undefined ? { modelProfileId: pinnedModelProfileId } : {}),
+          ...(pinnedManifestFingerprint !== undefined
+            ? { runtimeManifestFingerprint: pinnedManifestFingerprint }
+            : {}),
+          ...(pinnedManifestVersion !== undefined
+            ? { runtimeManifestVersion: pinnedManifestVersion }
+            : {}),
+        },
       );
       yield* analytics.record("provider.session.recovered", {
         provider: resumed.provider,
         strategy: hasResumeCursor ? "resume-thread" : "fresh-session",
         hasResumeCursor: resumed.resumeCursor !== undefined,
       });
-      return { adapter, session: resumed } as const;
+      return { adapter, session: resumedWithRouting } as const;
     }).pipe(
       withMetrics({
         counter: providerSessionsTotal,
@@ -560,6 +732,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     readonly threadId: ThreadId;
     readonly operation: string;
     readonly allowRecovery: boolean;
+    readonly modelSelection?: ModelSelection;
   }) {
     const bindingOption = yield* directory.getBinding(input.threadId);
     const binding = Option.getOrUndefined(bindingOption);
@@ -570,6 +743,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
     const instanceId = yield* requireBindingInstanceId(input.operation, binding);
+    yield* requireSelectionInstance(input.operation, input.modelSelection, instanceId);
     const adapter = yield* registry.getByInstance(instanceId);
 
     const hasRequestedSession = yield* adapter.hasSession(input.threadId);
@@ -670,6 +844,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             `Provider instance '${resolvedInstanceId}' belongs to driver '${resolvedProvider}', not '${parsed.provider}'.`,
           );
         }
+        yield* requireSelectionInstance(
+          "ProviderService.startSession",
+          parsed.modelSelection,
+          resolvedInstanceId,
+        );
         const input = {
           ...parsed,
           threadId,
@@ -732,6 +911,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const sessionWithInstance = {
           ...session,
           providerInstanceId: resolvedInstanceId,
+          ...(instanceInfo.serviceConnectionId !== undefined
+            ? { serviceConnectionId: instanceInfo.serviceConnectionId }
+            : {}),
+          ...(instanceInfo.modelProfileId !== undefined
+            ? { modelProfileId: instanceInfo.modelProfileId }
+            : {}),
+          ...(instanceInfo.runtimeManifestFingerprint !== undefined
+            ? { runtimeManifestFingerprint: instanceInfo.runtimeManifestFingerprint }
+            : {}),
+          ...(instanceInfo.runtimeManifestVersion !== undefined
+            ? { runtimeManifestVersion: instanceInfo.runtimeManifestVersion }
+            : {}),
         };
 
         yield* stopStaleSessionsForThread({
@@ -800,6 +991,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     // the overhead is bounded. Unresolvable ids are skipped here and surface
     // as adapter errors when the file is read for inlining.
     const attachmentPathLines = attachments.flatMap((attachment) => {
+      if (attachment.type !== "image") return [];
       const attachmentPath = resolveAttachmentPath({
         attachmentsDir: serverConfig.attachmentsDir,
         attachment,
@@ -835,6 +1027,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         threadId: input.threadId,
         operation: "ProviderService.sendTurn",
         allowRecovery: true,
+        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       });
       metricProvider = routed.adapter.provider;
       metricModel = input.modelSelection?.model;

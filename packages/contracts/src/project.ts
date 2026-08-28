@@ -243,6 +243,9 @@ export const ProjectFileOperation = Schema.Literals([
   "close",
   "make-directory",
   "write-file",
+  "create-directory",
+  "rename",
+  "delete",
 ]);
 export type ProjectFileOperation = typeof ProjectFileOperation.Type;
 
@@ -343,3 +346,156 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
     } as any);
   }
 }
+
+const PROJECT_ENTRY_NAME_MAX_LENGTH = 255;
+
+/** A single path segment — separator characters are rejected server-side. */
+export const ProjectEntryName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_ENTRY_NAME_MAX_LENGTH),
+);
+
+export const ProjectCreateEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  /** Full workspace-relative path of the new entry, e.g. `src/assets/hero.png`. */
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  kind: Schema.Literals(["file", "directory"]),
+  /** Fail instead of silently succeeding when the entry already exists. */
+  allowExisting: Schema.optional(Schema.Boolean),
+});
+export type ProjectCreateEntryInput = typeof ProjectCreateEntryInput.Type;
+
+export const ProjectCreateEntryResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectCreateEntryResult = typeof ProjectCreateEntryResult.Type;
+
+export class ProjectCreateEntryError extends Schema.TaggedErrorClass<ProjectCreateEntryError>()(
+  "ProjectCreateEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to create '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export const ProjectRenameEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  /** The new file or folder name only — renames never move an entry between directories. */
+  newName: ProjectEntryName,
+});
+export type ProjectRenameEntryInput = typeof ProjectRenameEntryInput.Type;
+
+export const ProjectRenameEntryResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectRenameEntryResult = typeof ProjectRenameEntryResult.Type;
+
+export class ProjectRenameEntryError extends Schema.TaggedErrorClass<ProjectRenameEntryError>()(
+  "ProjectRenameEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to rename '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export const ProjectDeleteEntryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  /** Delete an entire directory tree. Required for directories with contents. */
+  recursive: Schema.optional(Schema.Boolean),
+});
+export type ProjectDeleteEntryInput = typeof ProjectDeleteEntryInput.Type;
+
+export const ProjectDeleteEntryResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectDeleteEntryResult = typeof ProjectDeleteEntryResult.Type;
+
+export class ProjectDeleteEntryError extends Schema.TaggedErrorClass<ProjectDeleteEntryError>()(
+  "ProjectDeleteEntryError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ??
+        `Failed to delete '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+export const ProjectFileEventKind = Schema.Literals([
+  "changed",
+  "created",
+  "removed",
+]);
+export type ProjectFileEventKind = typeof ProjectFileEventKind.Type;
+
+export const ProjectFileEvent = Schema.Struct({
+  /** Workspace-relative, posix-normalized paths of the affected entries. */
+  paths: Schema.Array(TrimmedNonEmptyString),
+  kind: ProjectFileEventKind,
+  at: NonNegativeInt,
+});
+export type ProjectFileEvent = typeof ProjectFileEvent.Type;
+
+export const ProjectFileEventsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectFileEventsInput = typeof ProjectFileEventsInput.Type;
+
+/**
+ * Batched workspace filesystem events. The server debounces raw watcher
+ * noise; each event groups the paths that changed within one debounce window.
+ */
+export const ProjectFileEventsBatch = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  events: Schema.Array(ProjectFileEvent),
+});
+export type ProjectFileEventsBatch = typeof ProjectFileEventsBatch.Type;

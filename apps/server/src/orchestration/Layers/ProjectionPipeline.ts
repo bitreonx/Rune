@@ -346,7 +346,11 @@ function collectThreadAttachmentRelativePaths(
       if (!attachmentThreadSegment || attachmentThreadSegment !== threadSegment) {
         continue;
       }
-      relativePaths.add(attachmentRelativePath(attachment));
+      const relativePath = attachmentRelativePath(attachment);
+      if (relativePath === null) {
+        continue;
+      }
+      relativePaths.add(relativePath);
     }
   }
   return relativePaths;
@@ -1247,6 +1251,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         status: event.payload.session.status,
         providerName: event.payload.session.providerName,
         providerInstanceId: event.payload.session.providerInstanceId ?? null,
+        serviceConnectionId: event.payload.session.serviceConnectionId ?? null,
+        modelProfileId: event.payload.session.modelProfileId ?? null,
+        runtimeManifestFingerprint: event.payload.session.runtimeManifestFingerprint ?? null,
+        runtimeManifestVersion: event.payload.session.runtimeManifestVersion ?? null,
         runtimeMode: event.payload.session.runtimeMode,
         activeTurnId: event.payload.session.activeTurnId,
         lastError: event.payload.session.lastError,

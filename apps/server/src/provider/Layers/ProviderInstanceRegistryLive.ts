@@ -42,6 +42,7 @@ import {
   type ServerProvider,
 } from "@rune/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
@@ -53,6 +54,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import { buildUnavailableProviderSnapshot } from "../unavailableProviderSnapshot.ts";
+import { compileProviderInstanceRuntime } from "../ProviderInstanceRuntime.ts";
 import {
   ProviderInstanceRegistry,
   type ProviderInstanceRegistryShape,
@@ -166,6 +168,18 @@ const buildEntry = <R>(input: {
     }
 
     const typedConfig = decodeResult.success;
+    const runtime = compileProviderInstanceRuntime({
+      instanceId,
+      driver: entry.driver,
+      entry,
+      typedConfig,
+      generatedAt: DateTime.formatIso(yield* DateTime.now),
+      ...(entry.protocol !== undefined ? { protocol: entry.protocol } : {}),
+      ...(entry.compatibilityProfileVersion !== undefined
+        ? { compatibilityProfileVersion: entry.compatibilityProfileVersion }
+        : {}),
+      ...(entry.modelBindings !== undefined ? { modelBindings: entry.modelBindings } : {}),
+    });
     const childScope = yield* Scope.make();
     // Attach the child scope to the registry's parent scope: if the
     // registry scope closes, each surviving instance's child scope is
@@ -179,9 +193,10 @@ const buildEntry = <R>(input: {
         instanceId,
         displayName: entry.displayName,
         accentColor: entry.accentColor,
-        environment: entry.environment ?? [],
+        environment: runtime.environmentOverrides,
         enabled: resolveEntryEnabled(entry, typedConfig),
         config: typedConfig,
+        runtime,
       })
       .pipe(Effect.provideService(Scope.Scope, childScope), Effect.result);
     if (createResult._tag === "Failure") {
@@ -206,7 +221,7 @@ const buildEntry = <R>(input: {
     return {
       kind: "live" as const,
       live: {
-        instance: createResult.success,
+        instance: { ...createResult.success, runtime },
         scope: childScope,
         entry,
       },

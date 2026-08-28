@@ -94,3 +94,7 @@ export const ApprovalRequestId = makeEntityId("ApprovalRequestId");
 export type ApprovalRequestId = typeof ApprovalRequestId.Type;
 export const CheckpointRef = makeEntityId("CheckpointRef");
 export type CheckpointRef = typeof CheckpointRef.Type;
+export const ClaimId = makeEntityId("ClaimId");
+export type ClaimId = typeof ClaimId.Type;
+export const CapsuleReferenceId = makeEntityId("CapsuleReferenceId");
+export type CapsuleReferenceId = typeof CapsuleReferenceId.Type;

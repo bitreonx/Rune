@@ -1025,8 +1025,12 @@ export function deriveEffectiveComposerModelState(input: {
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
+  const baseSelection = input.threadModelSelection ?? input.projectModelSelection;
   const baseModelCandidate =
-    input.threadModelSelection?.model ?? input.projectModelSelection?.model ?? null;
+    baseSelection &&
+    (!input.selectedInstanceId || baseSelection.instanceId === input.selectedInstanceId)
+      ? baseSelection.model
+      : null;
   const baseModel =
     (input.selectedInstanceId
       ? resolveAppModelSelectionForInstance(
@@ -1052,7 +1056,10 @@ export function deriveEffectiveComposerModelState(input: {
     ? input.draft?.modelSelectionByProvider?.[input.selectedInstanceId]
     : undefined;
   const legacySelection =
-    input.draft?.modelSelectionByProvider?.[ProviderInstanceId.make(input.selectedProvider)];
+    input.selectedInstanceId === undefined ||
+    input.selectedInstanceId === ProviderInstanceId.make(input.selectedProvider)
+      ? input.draft?.modelSelectionByProvider?.[ProviderInstanceId.make(input.selectedProvider)]
+      : undefined;
   const activeSelection = instanceSelection ?? legacySelection;
   const activeSelectionInstanceId = instanceSelection
     ? (input.selectedInstanceId ?? ProviderInstanceId.make(input.selectedProvider))

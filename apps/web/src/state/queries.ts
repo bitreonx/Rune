@@ -15,6 +15,7 @@ import type {
   ProjectContentMatch,
   ProjectEntryKind,
   ThreadId,
+  ThreadPickerEntry,
   VcsListRefsResult,
   VcsRef,
 } from "@rune/contracts";
@@ -36,6 +37,7 @@ const COMPOSER_PATH_SEARCH_LIMIT = 80;
 const PROJECT_CONTENT_SEARCH_DEBOUNCE_MS = 120;
 const PROJECT_CONTENT_SEARCH_LIMIT = 500;
 const THREAD_SEARCH_DEBOUNCE_MS = 200;
+const THREAD_PICKER_DEBOUNCE_MS = 120;
 const VCS_REF_LIST_LIMIT = 100;
 const EMPTY_REFS: ReadonlyArray<VcsRef> = [];
 const EMPTY_CONTENT_MATCHES: ReadonlyArray<ProjectContentMatch> = [];
@@ -100,6 +102,31 @@ export function useThreadSearch(
   return {
     matches: isDebouncing ? EMPTY_THREAD_SEARCH_MATCHES : result.matches,
     isPending: canSearch && (isDebouncing || result.isLoading),
+  };
+}
+
+export function useThreadPicker(target: {
+  readonly environmentId: EnvironmentId;
+  readonly activeThreadId: ThreadId | null;
+  readonly query: string;
+}): {
+  readonly matches: ReadonlyArray<ThreadPickerEntry>;
+  readonly isPending: boolean;
+} {
+  const normalizedQuery = target.query.trim();
+  const debouncedQuery = useDebouncedValue(normalizedQuery, THREAD_PICKER_DEBOUNCE_MS);
+  const settled = target.activeThreadId !== null && normalizedQuery === debouncedQuery;
+  const result = useEnvironmentQuery(
+    settled && target.activeThreadId !== null
+      ? orchestrationEnvironment.threadListForPicker({
+          environmentId: target.environmentId,
+          input: { activeThreadId: target.activeThreadId, query: debouncedQuery, limit: 20 },
+        })
+      : null,
+  );
+  return {
+    matches: result.data?.matches ?? [],
+    isPending: settled ? result.isPending : target.activeThreadId !== null,
   };
 }
 

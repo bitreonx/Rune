@@ -71,7 +71,7 @@ export function parseThreadSegmentFromAttachmentId(attachmentId: string): string
   return match[1]?.toLowerCase() ?? null;
 }
 
-export function attachmentRelativePath(attachment: ChatAttachment): string {
+export function attachmentRelativePath(attachment: ChatAttachment): string | null {
   switch (attachment.type) {
     case "image": {
       const extension = inferImageExtension({
@@ -80,6 +80,10 @@ export function attachmentRelativePath(attachment: ChatAttachment): string {
       });
       return `${attachment.id}${extension}`;
     }
+    // Thread mentions are cross-thread references, not uploaded artifacts;
+    // there is no on-disk path to resolve.
+    case "thread-mention":
+      return null;
   }
 }
 
@@ -87,9 +91,13 @@ export function resolveAttachmentPath(input: {
   readonly attachmentsDir: string;
   readonly attachment: ChatAttachment;
 }): string | null {
+  const relativePath = attachmentRelativePath(input.attachment);
+  if (relativePath === null) {
+    return null;
+  }
   return resolveAttachmentRelativePath({
     attachmentsDir: input.attachmentsDir,
-    relativePath: attachmentRelativePath(input.attachment),
+    relativePath,
   });
 }
 

@@ -113,14 +113,18 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
   },
   configSchema: CodexSettings,
   defaultConfig: (): CodexSettings => decodeCodexSettings({}),
-  create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
+  create: ({ instanceId, displayName, accentColor, environment, enabled, config, runtime }) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
-      const homeLayout = yield* resolveCodexHomeLayout(config);
+      const configWithRuntimeHome =
+        runtime?.manifest.configHome === undefined
+          ? config
+          : { ...config, homePath: runtime.manifest.configHome };
+      const homeLayout = yield* resolveCodexHomeLayout(configWithRuntimeHome);
       const continuationIdentity = codexContinuationIdentity(homeLayout);
       const stampIdentity = withInstanceIdentity({
         instanceId,
@@ -140,7 +144,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         ),
       );
       const effectiveConfig = {
-        ...config,
+        ...configWithRuntimeHome,
         enabled,
         homePath: homeLayout.effectiveHomePath ?? "",
       } satisfies CodexSettings;

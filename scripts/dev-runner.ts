@@ -304,6 +304,20 @@ interface CreateDevRunnerEnvInput {
   readonly devUrl: URL | undefined;
 }
 
+function prependPathEntry(
+  environment: NodeJS.ProcessEnv,
+  entry: string,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const pathKey = environment.PATH !== undefined ? "PATH" : environment.Path !== undefined ? "Path" : "PATH";
+  const inheritedPath = environment.PATH ?? environment.Path ?? environment.path;
+  const delimiter = platform === "win32" ? ";" : ":";
+  return {
+    ...environment,
+    [pathKey]: [entry, inheritedPath].filter((value): value is string => value !== undefined && value.length > 0).join(delimiter),
+  };
+}
+
 export function createDevRunnerEnv({
   mode,
   baseEnv,
@@ -318,6 +332,7 @@ export function createDevRunnerEnv({
   devUrl,
 }: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
   return Effect.gen(function* () {
+    const path = yield* Path.Path;
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
     // Precedence (--home-dir > worktree .rune > ambient RUNE_HOME) is resolved
@@ -326,6 +341,7 @@ export function createDevRunnerEnv({
     const resolvedBaseDir = yield* resolveBaseDir(configuredBaseDir);
     const isDesktopMode = mode === "dev:desktop";
 
+    const devRunnerBinPath = yield* path.fromFileUrl(new URL("../node_modules/.bin", import.meta.url));
     const output: NodeJS.ProcessEnv = {
       ...baseEnv,
       PORT: String(webPort),
@@ -333,6 +349,7 @@ export function createDevRunnerEnv({
         devUrl?.toString() ??
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
     };
+    Object.assign(output, prependPathEntry(output, devRunnerBinPath));
 
     if (configuredBaseDir !== undefined) {
       output.RUNE_HOME = resolvedBaseDir;

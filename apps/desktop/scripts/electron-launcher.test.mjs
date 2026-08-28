@@ -99,12 +99,12 @@ describe("electron development launcher", () => {
 
     assert.match(
       development.sourceIconPath.replaceAll(NodePath.sep, "/"),
-      /assets\/dev\/rune-macos-1024\.png$/,
+      /assets\/dev\/rune-blueprint-macos-1024\.png$/,
     );
     assert.equal(development.generatedIconPath, NodePath.join("/runtime", "icon-dev.icns"));
     assert.match(
       production.sourceIconPath.replaceAll(NodePath.sep, "/"),
-      /assets\/prod\/rune-macos-1024\.png$/,
+      /assets\/prod\/rune-black-macos-1024\.png$/,
     );
     assert.equal(production.generatedIconPath, NodePath.join("/runtime", "icon-prod.icns"));
   });

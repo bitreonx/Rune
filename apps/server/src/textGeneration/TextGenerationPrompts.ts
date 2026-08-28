@@ -157,9 +157,12 @@ interface PromptFromMessageInput {
 }
 
 function buildPromptFromMessage(input: PromptFromMessageInput): string {
-  const attachmentLines = (input.attachments ?? []).map(
-    (attachment) => `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
-  );
+  const attachmentLines = (input.attachments ?? [])
+    .filter((attachment) => attachment.type === "image")
+    .map(
+      (attachment) =>
+        `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
+    );
 
   const promptSections = [
     input.instruction,
@@ -287,9 +290,12 @@ function preserveMessageEnd(message: string): string {
 
 function threadTitlePromptSuffix(input: ThreadTitlePromptInput): string {
   const additionalInstructions = policyInstruction(input.policy?.threadTitleInstructions);
-  const attachmentLines = (input.attachments ?? []).map(
-    (attachment) => `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
-  );
+  const attachmentLines = (input.attachments ?? [])
+    .filter((attachment) => attachment.type === "image")
+    .map(
+      (attachment) =>
+        `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
+    );
 
   let suffix = "";
   if (additionalInstructions.length > 0) {

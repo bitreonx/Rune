@@ -213,6 +213,40 @@ export function surfaceShortcutTargetsTypingContext(
   );
 }
 
+/**
+ * Resolve the next tab in the panel tablist without coupling keyboard behavior
+ * to the rendered tab buttons. Keeping this pure makes the wrap-around and
+ * Home/End behavior easy to exercise without mounting the full panel shell.
+ */
+export function rightPanelTabIndexForKey(input: {
+  key: string;
+  activeIndex: number;
+  tabCount: number;
+}): number | null {
+  if (
+    input.tabCount <= 0 ||
+    input.activeIndex < 0 ||
+    input.activeIndex >= input.tabCount
+  ) {
+    return null;
+  }
+
+  switch (input.key) {
+    case "ArrowRight":
+    case "ArrowDown":
+      return (input.activeIndex + 1) % input.tabCount;
+    case "ArrowLeft":
+    case "ArrowUp":
+      return (input.activeIndex - 1 + input.tabCount) % input.tabCount;
+    case "Home":
+      return 0;
+    case "End":
+      return input.tabCount - 1;
+    default:
+      return null;
+  }
+}
+
 function DisabledReasonTooltip(props: { reason: string; trigger: ReactElement }) {
   return (
     <Tooltip>
@@ -811,6 +845,32 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     [props],
   );
 
+  const focusSurfaceTab = useCallback((index: number) => {
+    tabListRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-right-panel-tab-index="${index}"]`)
+      ?.focus();
+  }, []);
+
+  const handleSurfaceTabKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, activeIndex: number) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      const nextIndex = rightPanelTabIndexForKey({
+        key: event.key,
+        activeIndex,
+        tabCount: props.surfaces.length,
+      });
+      if (nextIndex === null) return;
+      const nextSurface = props.surfaces[nextIndex];
+      if (!nextSurface) return;
+      event.preventDefault();
+      props.onActivate(nextSurface);
+      // Activation can update the selected tab on the next render. Focus the
+      // roving tab after that update so keyboard users keep their place.
+      window.requestAnimationFrame(() => focusSurfaceTab(nextIndex));
+    },
+    [focusSurfaceTab, props],
+  );
+
   useEffect(() => {
     const activeTab = tabListRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -843,7 +903,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           data-right-panel-tab-list
         >
           <div className="flex h-full w-max min-w-full items-center gap-1">
-            {props.surfaces.map((surface) => {
+            {props.surfaces.map((surface, surfaceIndex) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
               const title = surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
@@ -860,6 +920,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 <div
                   key={surface.id}
                   data-active-tab={active}
+                  data-rune-right-panel-tab
                   onMouseDown={handleTabMouseDown}
                   onAuxClick={(event) => handleTabAuxClick(event, surface)}
                   onContextMenu={(event) => void handleTabContextMenu(event, surface)}
@@ -892,9 +953,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <button
-                            type="button"
-                            className="cursor-pointer flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted"
+                        <button
+                          type="button"
+                          className="cursor-pointer flex size-6 shrink-0 items-center justify-center rounded-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             aria-label={audio === "muted" ? `Unmute ${title}` : `Mute ${title}`}
                             onClick={(event) => {
                               // Sibling of the close button, inside a tab that
@@ -921,8 +982,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       render={
                         <button
                           type="button"
-                          className="cursor-pointer flex min-w-0 items-center"
+                          className="cursor-pointer flex min-h-8 min-w-0 items-center focus-visible:outline-none"
                           onClick={() => props.onActivate(surface)}
+                          onKeyDown={(event) => handleSurfaceTabKeyDown(event, surfaceIndex)}
+                          role="tab"
+                          aria-selected={active}
+                          tabIndex={active ? 0 : -1}
+                          data-right-panel-tab-index={surfaceIndex}
                         >
                           <span className="truncate">{title}</span>
                         </button>

@@ -37,6 +37,11 @@ export interface ProviderInstanceRoutingInfo {
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
   readonly continuationIdentity: ProviderContinuationIdentity;
+  /** Fingerprint of the compiled launch manifest used by this instance. */
+  readonly runtimeManifestFingerprint?: string | undefined;
+  readonly serviceConnectionId?: string | undefined;
+  readonly modelProfileId?: string | undefined;
+  readonly runtimeManifestVersion?: number | undefined;
 }
 
 /**

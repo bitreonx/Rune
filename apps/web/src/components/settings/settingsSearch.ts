@@ -84,6 +84,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "appearance",
   },
   {
+    id: "setting-shell-sidebar-background",
+    title: "Sidebar background",
+    to: "/settings/appearance",
+  },
+  {
+    id: "setting-shell-chat-background",
+    title: "Chat background",
+    to: "/settings/appearance",
+  },
+  {
     id: "interface-font",
     title: "Interface font",
     to: "/settings/appearance",

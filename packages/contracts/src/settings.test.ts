@@ -159,6 +159,49 @@ describe("ClientSettings sidebar", () => {
   });
 });
 
+describe("ClientSettings shell surfaces", () => {
+  it("defaults to the theme-driven surface on both sidebar and chat", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.shellSidebarBackground).toBe("default");
+    expect(settings.shellChatBackground).toBe("default");
+    expect(DEFAULT_CLIENT_SETTINGS.shellSidebarBackground).toBe("default");
+    expect(DEFAULT_CLIENT_SETTINGS.shellChatBackground).toBe("default");
+  });
+
+  it.each(["#fff", "#FFFF", "#ffffff", "#ffffffff", "#0a0a0a", "#112233aa"])(
+    "accepts a hex color of varying width: %s",
+    (color) => {
+      expect(decodeClientSettings({ shellSidebarBackground: color }).shellSidebarBackground).toBe(
+        color,
+      );
+      expect(decodeClientSettings({ shellChatBackground: color }).shellChatBackground).toBe(color);
+    },
+  );
+
+  it("round-trips the patch type with an explicit hex", () => {
+    expect(
+      decodeClientSettingsPatch({ shellSidebarBackground: "#0a0a0a" }).shellSidebarBackground,
+    ).toBe("#0a0a0a");
+    expect(
+      decodeClientSettingsPatch({ shellChatBackground: "#112233" }).shellChatBackground,
+    ).toBe("#112233");
+  });
+
+  it.each(["#zzz", "red", "#1", "#12345", "#123456789", "rgb(0,0,0)"])(
+    "rejects malformed hex values: %s",
+    (value) => {
+      expect(() => decodeClientSettings({ shellSidebarBackground: value })).toThrow();
+      expect(() => decodeClientSettings({ shellChatBackground: value })).toThrow();
+    },
+  );
+
+  it("accepts an explicit reset to 'default' through the patch", () => {
+    expect(
+      decodeClientSettingsPatch({ shellSidebarBackground: "default" }).shellSidebarBackground,
+    ).toBe("default");
+  });
+});
+
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults text generation to Luna at low reasoning effort", () => {
     expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({

@@ -136,6 +136,23 @@ export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "pill";
 
 /**
+ * A user-tunable shell surface color. Either `"default"` (theme-driven) or a
+ * 3-, 4-, 6-, or 8-digit hex string. Hex form accepts shorthand and alpha
+ * (`#fff`, `#ffff`, `#ffffff`, `#ffffffff`) so users can paste values copied
+ * from design tools. The shell is the only place these are consumed; theme
+ * import/export is unaffected.
+ */
+export const ShellSurfaceHexColor = TrimmedString.check(
+  Schema.isPattern(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/),
+);
+export const ShellSurfaceColor = Schema.Union([
+  Schema.Literal("default"),
+  ShellSurfaceHexColor,
+]);
+export type ShellSurfaceColor = typeof ShellSurfaceColor.Type;
+export const DEFAULT_SHELL_SURFACE_COLOR: ShellSurfaceColor = "default";
+
+/**
  * A user-chosen font family (a single name or a comma-separated list). Empty
  * means "use the app default"; clients compose their own fallback stacks.
  */
@@ -269,6 +286,15 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
+  ),
+  // User-tunable shell surface colors. `"default"` keeps the theme-driven
+  // surface; any other value is treated as a literal hex color and applied
+  // to the named surface by the shell chrome.
+  shellSidebarBackground: ShellSurfaceColor.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SHELL_SURFACE_COLOR)),
+  ),
+  shellChatBackground: ShellSurfaceColor.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SHELL_SURFACE_COLOR)),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -1075,6 +1101,8 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
+  shellSidebarBackground: Schema.optionalKey(ShellSurfaceColor),
+  shellChatBackground: Schema.optionalKey(ShellSurfaceColor),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });

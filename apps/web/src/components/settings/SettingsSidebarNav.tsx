@@ -299,7 +299,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter
-        className="border-t border-sidebar-border/70 bg-[var(--rune-sidebar-surface-subtle)] p-[var(--sidebar-content-inset)]"
+        className="bg-[var(--rune-sidebar-surface-subtle)] p-[var(--sidebar-content-inset)]"
         data-rune-page-transition-chrome="settings-sidebar"
         data-rune-sidebar-section="utility"
       >

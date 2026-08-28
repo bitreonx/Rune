@@ -62,7 +62,7 @@ export const ThreadSidebarRail = memo(function ThreadSidebarRail(props: {
       <SidebarHeader
         data-rune-sidebar-section="workspace"
         className={cn(
-          "h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center justify-center border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] px-0 py-0",
+          "h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center justify-center bg-[var(--rune-sidebar-surface)] px-0 py-0",
           props.isElectron && "drag-region",
         )}
       >

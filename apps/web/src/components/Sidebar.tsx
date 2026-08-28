@@ -4005,7 +4005,7 @@ export default function Sidebar() {
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup
-            className="rune-sidebar-toolbar relative z-[1] gap-1 border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
+            className="rune-sidebar-toolbar relative z-[1] gap-1 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
             data-rune-sidebar-section="search"
           >
             <div className="flex items-center gap-1">

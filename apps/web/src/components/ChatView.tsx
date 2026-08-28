@@ -77,6 +77,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Ref,
 } from "react";
 import { flushSync } from "react-dom";
@@ -2095,6 +2096,7 @@ function ChatViewContent(props: ChatViewProps) {
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const simplifiedActivity = useClientSettings((settings) => settings.simplifiedActivity);
   const showDeveloperTrace = useClientSettings((settings) => settings.showDeveloperTrace);
+  const shellChatBackground = useClientSettings((settings) => settings.shellChatBackground);
   const clientSettingsHydrated = useClientSettingsHydrated();
   const [pendingFileSurfaceIdsByProject, setPendingFileSurfaceIdsByProject] = useState<
     ReadonlyMap<string, ReadonlySet<string>>
@@ -8277,6 +8279,11 @@ function ChatViewContent(props: ChatViewProps) {
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
+        style={
+          shellChatBackground === "default"
+            ? undefined
+            : ({ "--shell-surface": shellChatBackground } as CSSProperties)
+        }
       >
         {/* Top bar */}
         <WorkspacePageHeader

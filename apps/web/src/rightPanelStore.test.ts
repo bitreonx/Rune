@@ -267,6 +267,16 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("keeps environment as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "environment");
+    useRightPanelStore.getState().open(refA, "environment");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "environment",
+      surfaces: [{ id: "environment", kind: "environment" }],
+    });
+  });
+
   it("replaces the standalone explorer with peer file surfaces", () => {
     useRightPanelStore.getState().open(refA, "files");
     useRightPanelStore.getState().openFile(refA, "src/index.ts");

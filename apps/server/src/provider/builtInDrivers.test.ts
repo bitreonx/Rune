@@ -6,4 +6,8 @@ describe("built-in provider drivers", () => {
   it("registers Antigravity as a first-class provider driver", () => {
     expect(BUILT_IN_DRIVERS.some((driver) => driver.driverKind === "antigravity")).toBe(true);
   });
+
+  it("registers Rune Native as a runnable provider driver", () => {
+    expect(BUILT_IN_DRIVERS.some((driver) => driver.driverKind === "runeNative")).toBe(true);
+  });
 });

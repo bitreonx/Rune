@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
+  ProjectListDirectoryResult,
   ProjectListEntriesResult,
   ProjectReadFileResult,
 } from "@rune/contracts";
@@ -15,6 +16,12 @@ import { useProjectPathSearch } from "~/state/queries";
 import { executeAtomQuery } from "@rune/client-runtime/state/runtime";
 
 const EMPTY_PROJECT_FILE_PATH = "";
+const EMPTY_PROJECT_ENTRIES_QUERY_ATOM = Atom.make(
+  AsyncResult.initial<ProjectListEntriesResult, never>(false),
+).pipe(Atom.withLabel("project-entries-query:empty"));
+const EMPTY_PROJECT_DIRECTORY_QUERY_ATOM = Atom.make(
+  AsyncResult.initial<ProjectListDirectoryResult, never>(false),
+).pipe(Atom.withLabel("project-directory-query:empty"));
 const EMPTY_PROJECT_FILE_QUERY_ATOM = Atom.make(
   AsyncResult.initial<ProjectReadFileResult, never>(false),
 ).pipe(Atom.withLabel("project-file-query:empty"));
@@ -36,6 +43,25 @@ interface ProjectQueryState<A> {
 
 export function getProjectEntriesQueryAtom(environmentId: EnvironmentId, cwd: string) {
   return projectEnvironment.listEntries({ environmentId, input: { cwd } });
+}
+
+export function getProjectDirectoryQueryAtom(
+  environmentId: EnvironmentId,
+  cwd: string,
+  directory: string,
+) {
+  return projectEnvironment.listDirectory({
+    environmentId,
+    input: { cwd, directory },
+  });
+}
+
+export function refreshProjectDirectoryQuery(
+  environmentId: EnvironmentId,
+  cwd: string,
+  directory: string,
+): void {
+  appAtomRegistry.refresh(getProjectDirectoryQueryAtom(environmentId, cwd, directory));
 }
 
 export function getProjectFileQueryAtom(
@@ -129,8 +155,33 @@ function errorMessage<A>(result: AsyncResult.AsyncResult<A, unknown>): string | 
 export function useProjectEntriesQuery(
   environmentId: EnvironmentId,
   cwd: string,
+  options: { readonly enabled?: boolean } = {},
 ): ProjectQueryState<ProjectListEntriesResult> {
-  const atom = getProjectEntriesQueryAtom(environmentId, cwd);
+  const atom =
+    options.enabled === false
+      ? EMPTY_PROJECT_ENTRIES_QUERY_ATOM
+      : getProjectEntriesQueryAtom(environmentId, cwd);
+  const result = useAtomValue(atom);
+  const refreshAtom = useAtomRefresh(atom);
+  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  return {
+    data: Option.getOrNull(AsyncResult.value(result)),
+    error: errorMessage(result),
+    isPending: result.waiting,
+    refresh,
+  };
+}
+
+export function useProjectDirectoryQuery(
+  environmentId: EnvironmentId,
+  cwd: string,
+  directory: string,
+  options: { readonly enabled?: boolean } = {},
+): ProjectQueryState<ProjectListDirectoryResult> {
+  const atom =
+    options.enabled === false
+      ? EMPTY_PROJECT_DIRECTORY_QUERY_ATOM
+      : getProjectDirectoryQueryAtom(environmentId, cwd, directory);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);

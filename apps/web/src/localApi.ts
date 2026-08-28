@@ -1,6 +1,13 @@
-import type { ConfirmDialogOptions, ContextMenuItem, LocalApi } from "@rune/contracts";
+import type {
+  ChoiceDialogOption,
+  ChoiceDialogOptions,
+  ConfirmDialogOptions,
+  ContextMenuItem,
+  LocalApi,
+} from "@rune/contracts";
 
 import { requestConfirmDialog } from "./confirmDialog";
+import { requestChoiceDialog } from "./choiceDialog";
 import { dismissContextMenu, showContextMenuFallback } from "./contextMenuFallback";
 import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientPersistenceStorage";
 import { resetRequestLatencyStateForTests } from "./rpc/requestLatencyState";
@@ -17,6 +24,11 @@ function createBrowserLocalApi(): LocalApi {
       confirm: async (message, options?: ConfirmDialogOptions) => {
         return requestConfirmDialog(message, options) ?? false;
       },
+      choose: async (
+        message: string,
+        choices: readonly ChoiceDialogOption[],
+        options?: ChoiceDialogOptions,
+      ) => requestChoiceDialog(message, choices, options) ?? null,
     },
     shell: {
       openExternal: async (url) => {

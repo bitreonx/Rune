@@ -482,6 +482,132 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("keeps malformed persisted scoped changes out of the UI failure path", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          baseline_checkpoint_ref,
+          baseline_captured_at,
+          baseline_source,
+          created_at,
+          updated_at,
+          archived_at,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          deleted_at,
+          chat_diff_json,
+          chat_diff_through_turn_count,
+          file_ownership_json
+        )
+        VALUES (
+          'thread-malformed-scoped-changes',
+          'project-1',
+          'Malformed scoped changes',
+          '{"provider":"codex","model":"gpt-5"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          NULL,
+          'legacy-baseline-ref',
+          NULL,
+          'invalid-source',
+          '2026-08-28T00:00:00.000Z',
+          '2026-08-28T00:00:01.000Z',
+          NULL,
+          NULL,
+          0,
+          0,
+          0,
+          NULL,
+          '{',
+          -1,
+          'not-json'
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_sessions (
+          thread_id,
+          status,
+          provider_name,
+          provider_session_id,
+          provider_thread_id,
+          service_connection_id,
+          model_profile_id,
+          runtime_manifest_fingerprint,
+          runtime_manifest_version,
+          runtime_mode,
+          active_turn_id,
+          last_error,
+          updated_at
+        )
+        VALUES (
+          'thread-malformed-scoped-changes',
+          'running',
+          'codex',
+          'provider-session-1',
+          'provider-thread-1',
+          'service-1',
+          'profile-1',
+          'manifest-1',
+          7,
+          'full-access',
+          NULL,
+          NULL,
+          '2026-08-28T00:00:02.000Z'
+        )
+      `;
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+      assert.deepStrictEqual(snapshot.threads[0]?.chatDiff.files, []);
+      assert.deepStrictEqual(snapshot.threads[0]?.fileOwnership, []);
+      assert.deepStrictEqual(snapshot.threads[0]?.session, {
+        threadId: ThreadId.make("thread-malformed-scoped-changes"),
+        status: "running",
+        providerName: "codex",
+        serviceConnectionId: "service-1",
+        modelProfileId: "profile-1",
+        runtimeManifestFingerprint: "manifest-1",
+        runtimeManifestVersion: 7,
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: "2026-08-28T00:00:02.000Z",
+      });
+
+      const commandReadModel = yield* snapshotQuery.getCommandReadModel();
+      assert.deepStrictEqual(commandReadModel.threads[0]?.baseline, null);
+      assert.deepStrictEqual(commandReadModel.threads[0]?.chatDiff.files, []);
+      assert.deepStrictEqual(commandReadModel.threads[0]?.fileOwnership, []);
+      assert.equal(commandReadModel.threads[0]?.session?.serviceConnectionId, "service-1");
+
+      const detail = yield* snapshotQuery.getThreadDetailById(
+        ThreadId.make("thread-malformed-scoped-changes"),
+      );
+      assert.equal(detail._tag, "Some");
+      if (detail._tag === "Some") {
+        assert.deepStrictEqual(detail.value.chatDiff.files, []);
+        assert.deepStrictEqual(detail.value.fileOwnership, []);
+      }
+    }),
+  );
+
   it.effect("keeps archived threads out of the main shell snapshot", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

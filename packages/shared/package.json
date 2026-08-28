@@ -246,6 +246,42 @@
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"
+    },
+    "./plan": {
+      "types": "./src/plan.ts",
+      "import": "./src/plan.ts"
+    },
+    "./traceLedger": {
+      "types": "./src/traceLedger.ts",
+      "import": "./src/traceLedger.ts"
+    },
+    "./actionPreconditions": {
+      "types": "./src/actionPreconditions.ts",
+      "import": "./src/actionPreconditions.ts"
+    },
+    "./actionVerification": {
+      "types": "./src/actionVerification.ts",
+      "import": "./src/actionVerification.ts"
+    },
+    "./historicalMutationPolicy": {
+      "types": "./src/historicalMutationPolicy.ts",
+      "import": "./src/historicalMutationPolicy.ts"
+    },
+    "./grill": {
+      "types": "./src/grill.ts",
+      "import": "./src/grill.ts"
+    },
+    "./planScheduler": {
+      "types": "./src/planScheduler.ts",
+      "import": "./src/planScheduler.ts"
+    },
+    "./learnedActions": {
+      "types": "./src/learnedActions.ts",
+      "import": "./src/learnedActions.ts"
+    },
+    "./commandRegistry": {
+      "types": "./src/commandRegistry.ts",
+      "import": "./src/commandRegistry.ts"
     }
   },
   "scripts": {

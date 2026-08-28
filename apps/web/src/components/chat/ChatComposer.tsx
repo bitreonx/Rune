@@ -21,6 +21,7 @@ import {
 } from "@rune/contracts";
 import type { EnvironmentConnectionPresentation } from "@rune/client-runtime/connection";
 import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
+import { availableRuneCommands } from "@rune/shared/commandRegistry";
 import { createModelSelection, normalizeModelSlug } from "@rune/shared/model";
 import {
   memo,
@@ -1281,40 +1282,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }));
     }
     if (composerTrigger.kind === "slash-command") {
-      const builtInSlashCommandItems = [
-        {
-          id: "slash:model",
-          type: "slash-command",
-          command: "model",
-          label: "/model",
-          description: "Switch response model for this thread",
+      const builtInSlashCommandItems = availableRuneCommands(planModeUiEnabled).flatMap(
+        (command) => {
+          const item = {
+            id: `slash:${command.id}`,
+            type: "slash-command" as const,
+            command: command.id,
+            label: command.label,
+            description: command.description,
+          } satisfies Extract<ComposerCommandItem, { type: "slash-command" }>;
+          return command.id === "grill"
+            ? [
+                item,
+                {
+                  ...item,
+                  id: "slash:grill-me",
+                  label: "/grill-me",
+                  description: "Open the provider-neutral structured Grill workflow",
+                },
+              ]
+            : [item];
         },
-        {
-          id: "slash:goal",
-          type: "slash-command",
-          command: "goal",
-          label: "/goal",
-          description: "Set, view, or clear the active task goal",
-        },
-        ...(planModeUiEnabled
-          ? ([
-              {
-                id: "slash:plan",
-                type: "slash-command",
-                command: "plan",
-                label: "/plan",
-                description: "Switch this thread into plan mode",
-              },
-              {
-                id: "slash:default",
-                type: "slash-command",
-                command: "default",
-                label: "/default",
-                description: "Switch this thread back to normal build mode",
-              },
-            ] as const)
-          : []),
-      ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
+      );
       const slashMenuSkills = getProviderSkillsForSlashMenu(
         selectedProviderStatus?.skills ?? [],
         settings.showSkillsInSlashMenu,
@@ -2043,6 +2032,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "/goal ", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
           });
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
+        if (item.command === "grill") {
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            "$grill-me ",
+            {
+              expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+            },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
+        if (item.command === "build" || item.command === "review") {
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            item.command === "build" ? "/build " : "/review ",
+            {
+              expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+            },
+          );
           if (applied) setComposerHighlightedItemId(null);
           return;
         }

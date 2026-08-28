@@ -15,6 +15,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
 
 export const RIGHT_PANEL_KINDS = [
+  "environment",
   "diff",
   "files",
   "file",
@@ -27,6 +28,7 @@ export const RIGHT_PANEL_KINDS = [
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
 export type RightPanelSurface =
+  | { id: "environment"; kind: "environment" }
   | { id: `browser:${string}`; kind: "preview"; resourceId: string }
   | { id: "browser:new"; kind: "preview"; resourceId: null }
   | {
@@ -70,7 +72,7 @@ const RIGHT_PANEL_STORAGE_KEY = "rune:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
 // v10 keys pull-request surfaces by reference instead of a singleton tab.
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
-const RIGHT_PANEL_STORAGE_VERSION = 11;
+const RIGHT_PANEL_STORAGE_VERSION = 12;
 
 /**
  * The pull-request list's shared panel (see PULL_REQUESTS_PANEL_ID in the route) is session
@@ -82,6 +84,8 @@ export interface ThreadRightPanelState {
   isOpen: boolean;
   activeSurfaceId: string | null;
   surfaces: RightPanelSurface[];
+  /** Durable child-agent selection; the activity inspector can reopen the same child after reload. */
+  selectedAgentId?: string;
 }
 
 interface RightPanelStoreState {
@@ -136,6 +140,8 @@ const singletonSurface = (
   kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
 ): RightPanelSurface => {
   switch (kind) {
+    case "environment":
+      return { id: "environment", kind };
     case "diff":
       return { id: "diff", kind };
     case "files":
@@ -361,7 +367,20 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
               // first survivor instead of rendering an open empty panel.
               const activeSurfaceId =
                 persistedActiveSurfaceId ?? (isOpen ? (surfaces[0]?.id ?? null) : null);
-              return [threadKey, { isOpen, surfaces, activeSurfaceId }];
+              const selectedAgentId =
+                typeof validThreadState?.selectedAgentId === "string" &&
+                validThreadState.selectedAgentId.trim().length > 0
+                  ? validThreadState.selectedAgentId
+                  : undefined;
+              return [
+                threadKey,
+                {
+                  isOpen,
+                  surfaces,
+                  activeSurfaceId,
+                  ...(selectedAgentId === undefined ? {} : { selectedAgentId }),
+                },
+              ];
             }),
         )
       : {};
@@ -385,9 +404,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         })),
       focusAgent: (ref, agentId) =>
         set((state) => ({
-          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
-            upsertSurface(current, singletonSurface("agents")),
-          ),
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => ({
+            ...upsertSurface(current, singletonSurface("agents")),
+            selectedAgentId: agentId,
+          })),
           focusedAgentIdByThreadKey: {
             ...state.focusedAgentIdByThreadKey,
             [scopedThreadKey(ref)]: agentId,
@@ -398,7 +418,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           const threadKey = scopedThreadKey(ref);
           if (!(threadKey in state.focusedAgentIdByThreadKey)) return state;
           const { [threadKey]: _removed, ...rest } = state.focusedAgentIdByThreadKey;
-          return { focusedAgentIdByThreadKey: rest };
+          return {
+            byThreadKey: updateThread(state.byThreadKey, threadKey, (current) => {
+              if (!("selectedAgentId" in current)) return current;
+              const { selectedAgentId: _removedSelection, ...withoutSelection } = current;
+              return withoutSelection;
+            }),
+            focusedAgentIdByThreadKey: rest,
+          };
         }),
       openBrowser: (ref, tabId) =>
         set((state) => ({
@@ -694,6 +721,25 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           ),
         ),
       }),
+      merge: (persisted, current) => {
+        const restored = persisted as Partial<RightPanelStoreState>;
+        const restoredFocus = Object.fromEntries(
+          Object.entries(restored.byThreadKey ?? {}).flatMap(([threadKey, threadState]) =>
+            typeof threadState?.selectedAgentId === "string" &&
+            threadState.selectedAgentId.trim().length > 0
+              ? [[threadKey, threadState.selectedAgentId] as const]
+              : [],
+          ),
+        );
+        return {
+          ...current,
+          ...restored,
+          focusedAgentIdByThreadKey: {
+            ...current.focusedAgentIdByThreadKey,
+            ...restoredFocus,
+          },
+        };
+      },
       migrate: migratePersistedRightPanelState,
     },
   ),

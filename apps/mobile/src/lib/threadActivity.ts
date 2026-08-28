@@ -35,6 +35,10 @@ export interface PendingUserInput {
   readonly requestId: ApprovalRequestId;
   readonly createdAt: string;
   readonly questions: ReadonlyArray<UserInputQuestion>;
+  readonly title?: string;
+  readonly context?: string;
+  readonly blocking?: boolean;
+  readonly phase?: "waiting-for-user";
 }
 
 export interface PendingUserInputDraftAnswer {
@@ -214,6 +218,9 @@ function parseUserInputQuestions(
             return null;
           }
           return {
+            ...(typeof record.id === "string" && record.id.trim().length > 0
+              ? { id: record.id }
+              : {}),
             label: record.label,
             description: record.description,
           };
@@ -222,12 +229,25 @@ function parseUserInputQuestions(
       if (options.length === 0) {
         return null;
       }
+      const recommendedOptionId =
+        typeof question.recommendedOptionId === "string" &&
+        question.recommendedOptionId.trim().length > 0
+          ? question.recommendedOptionId
+          : undefined;
       return {
         id: question.id,
         header: question.header,
         question: question.question,
         options,
         multiSelect: question.multiSelect === true,
+        ...(recommendedOptionId === undefined ? {} : { recommendedOptionId }),
+        ...(typeof question.allowCustomAnswer === "boolean"
+          ? { allowCustomAnswer: question.allowCustomAnswer }
+          : {}),
+        ...(typeof question.allowEditSuggestedAnswer === "boolean"
+          ? { allowEditSuggestedAnswer: question.allowEditSuggestedAnswer }
+          : {}),
+        ...(typeof question.allowSkip === "boolean" ? { allowSkip: question.allowSkip } : {}),
       };
     })
     .filter((question): question is UserInputQuestion => question !== null);
@@ -255,7 +275,7 @@ function normalizeSelectedOptionLabels(
   );
 }
 
-function resolvePendingUserInputAnswer(
+export function resolvePendingUserInputAnswer(
   question: UserInputQuestion,
   draft: PendingUserInputDraftAnswer | undefined,
 ): string | ReadonlyArray<string> | null {
@@ -1480,6 +1500,10 @@ export function derivePendingUserInputs(
         : null;
     const requestId = parseApprovalRequestId(payload?.requestId);
     const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
+    const title = typeof payload?.title === "string" ? payload.title.trim() : undefined;
+    const context = typeof payload?.context === "string" ? payload.context.trim() : undefined;
+    const blocking = typeof payload?.blocking === "boolean" ? payload.blocking : undefined;
+    const phase = payload?.phase === "waiting-for-user" ? ("waiting-for-user" as const) : undefined;
 
     if (activity.kind === "user-input.requested" && requestId) {
       const questions = parseUserInputQuestions(payload);
@@ -1490,6 +1514,10 @@ export function derivePendingUserInputs(
         requestId,
         createdAt: activity.createdAt,
         questions,
+        ...(title ? { title } : {}),
+        ...(context ? { context } : {}),
+        ...(blocking === undefined ? {} : { blocking }),
+        ...(phase === undefined ? {} : { phase }),
       });
       continue;
     }
@@ -1572,6 +1600,10 @@ export function buildPendingUserInputAnswers(
   for (const question of questions) {
     const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
     if (!answer) {
+      if (question.allowSkip) {
+        answers[question.id] = question.multiSelect ? [] : "";
+        continue;
+      }
       return null;
     }
     answers[question.id] = answer;

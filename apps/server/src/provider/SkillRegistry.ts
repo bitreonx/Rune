@@ -13,7 +13,7 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import { parse as parseYaml } from "yaml";
 
 import { ServerConfig } from "../config.ts";
@@ -21,11 +21,15 @@ import { getMattPocockMetadata, MATT_POCOCK_PACK } from "./mattPocockPack.ts";
 
 const BODY_CACHE_TTL_MS = 60_000;
 const SKILL_FILE = "SKILL.md";
-const COMPATIBILITY_ROOTS = [".agents/skills", ".cursor/skills", ".claude/skills", ".codex/skills"] as const;
-
-type ScalarOrList = string | ReadonlyArray<string> | undefined;
+const COMPATIBILITY_ROOTS = [
+  ".agents/skills",
+  ".cursor/skills",
+  ".claude/skills",
+  ".codex/skills",
+] as const;
 
 export interface SkillCandidate {
+  readonly slug: string;
   readonly name: string;
   readonly description: string;
   readonly source: string;
@@ -47,7 +51,9 @@ export interface SkillCandidate {
 
 export interface SkillDiscoveryAdapter {
   readonly id: string;
-  discover: () => Effect.Effect<ReadonlyArray<SkillCandidate>, SkillRegistryError>;
+  readonly discover:
+    | Effect.Effect<ReadonlyArray<SkillCandidate>, SkillRegistryError>
+    | (() => Effect.Effect<ReadonlyArray<SkillCandidate>, SkillRegistryError>);
 }
 
 interface RegisteredSkill extends SkillCandidate {
@@ -74,8 +80,9 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function normalizeList(value: ScalarOrList): string[] {
-  if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === "string");
+function normalizeList(value: unknown): string[] {
+  if (Array.isArray(value))
+    return value.filter((entry): entry is string => typeof entry === "string");
   return typeof value === "string" ? [value] : [];
 }
 
@@ -92,12 +99,47 @@ function parseFrontmatter(body: string): Record<string, unknown> {
 
 function isWithin(root: string, candidate: string): boolean {
   const relative = NodePath.relative(root, candidate);
-  return relative === "" || (relative !== ".." && !relative.startsWith(`..${NodePath.sep}`) && !NodePath.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (relative !== ".." &&
+      !relative.startsWith(`..${NodePath.sep}`) &&
+      !NodePath.isAbsolute(relative))
+  );
+}
+
+async function hashSkillDirectory(
+  directory: string,
+  skillFilePath: string,
+  skillFileContents: string,
+): Promise<string> {
+  const files = [{ path: SKILL_FILE, contents: skillFileContents }];
+  const visit = async (currentDirectory: string, relativeDirectory: string): Promise<void> => {
+    const entries = await NodeFS.readdir(currentDirectory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink()) continue;
+      const absolutePath = NodePath.join(currentDirectory, entry.name);
+      const relativePath = NodePath.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath, relativePath);
+      } else if (entry.isFile() && absolutePath !== skillFilePath) {
+        const contents = await NodeFS.readFile(absolutePath, "utf8").catch(() => undefined);
+        if (contents !== undefined) files.push({ path: relativePath, contents });
+      }
+    }
+  };
+  await visit(directory, "");
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  const hash = NodeCrypto.createHash("sha256");
+  for (const file of files) {
+    hash.update(file.path).update("\0").update(file.contents).update("\0");
+  }
+  return hash.digest("hex");
 }
 
 function toWire(skill: RegisteredSkill): SkillRegistrySkill {
   return {
     id: skill.id,
+    slug: skill.slug,
     name: skill.name,
     description: skill.description,
     version: skill.version,
@@ -120,7 +162,9 @@ function toWire(skill: RegisteredSkill): SkillRegistrySkill {
   };
 }
 
-function makeSourceRoots(projectCwd: string): ReadonlyArray<{ readonly path: string; readonly scope: SkillScope; readonly id: string }> {
+function makeSourceRoots(
+  projectCwd: string,
+): ReadonlyArray<{ readonly path: string; readonly scope: SkillScope; readonly id: string }> {
   const projectRoots = COMPATIBILITY_ROOTS.map((relative) => ({
     path: NodePath.resolve(projectCwd, relative),
     scope: "project" as const,
@@ -135,33 +179,70 @@ function makeSourceRoots(projectCwd: string): ReadonlyArray<{ readonly path: str
   return [...projectRoots, ...personalRoots];
 }
 
-function makeFilesystemAdapter(root: { path: string; scope: SkillScope; id: string }): SkillDiscoveryAdapter {
+function makeFilesystemAdapter(
+  root: { path: string; scope: SkillScope; id: string },
+  projectCwd: string,
+): SkillDiscoveryAdapter {
   return {
     id: root.id,
     discover: Effect.tryPromise({
       try: async () => {
         const rootRealPath = await NodeFS.realpath(root.path).catch(() => undefined);
         if (!rootRealPath) return [];
-        const entries = await NodeFS.readdir(rootRealPath, { withFileTypes: true });
+        const projectRealPath = await NodeFS.realpath(projectCwd).catch(() => undefined);
+        if (
+          root.scope === "project" &&
+          (!projectRealPath || !isWithin(projectRealPath, rootRealPath))
+        ) {
+          return [];
+        }
+        const entries = await NodeFS.readdir(rootRealPath, { withFileTypes: true }).catch(() => []);
         const candidates: SkillCandidate[] = [];
         for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
           if (!entry.isDirectory()) continue;
-          const sourcePath = NodePath.join(rootRealPath, entry.name, SKILL_FILE);
-          const contents = await NodeFS.readFile(sourcePath, "utf8").catch(() => undefined);
+          const skillDirectory = NodePath.join(rootRealPath, entry.name);
+          const skillDirectoryRealPath = await NodeFS.realpath(skillDirectory).catch(
+            () => undefined,
+          );
+          if (!skillDirectoryRealPath || !isWithin(rootRealPath, skillDirectoryRealPath)) continue;
+          const sourcePath = NodePath.join(skillDirectory, SKILL_FILE);
+          const sourceRealPath = await NodeFS.realpath(sourcePath).catch(() => undefined);
+          if (!sourceRealPath || !isWithin(skillDirectoryRealPath, sourceRealPath)) continue;
+          const contents = await NodeFS.readFile(sourceRealPath, "utf8").catch(() => undefined);
           if (contents === undefined) continue;
+          const slug = slugify(entry.name);
+          if (!slug) continue;
           const frontmatter = parseFrontmatter(contents);
-          const name = typeof frontmatter.name === "string" && frontmatter.name.trim() ? frontmatter.name.trim() : entry.name;
+          const name =
+            typeof frontmatter.name === "string" && frontmatter.name.trim()
+              ? frontmatter.name.trim()
+              : entry.name;
           const metadata = getMattPocockMetadata(name);
-          const siblingEntries = await NodeFS.readdir(NodePath.dirname(sourcePath), { withFileTypes: true }).catch(() => []);
-          const names = (directory: string) => siblingEntries.filter((item) => item.isDirectory() && item.name === directory).length > 0 ? [directory] : [];
+          const metadataDependencies =
+            metadata !== undefined && "dependencies" in metadata
+              ? metadata.dependencies
+              : undefined;
+          const siblingEntries = await NodeFS.readdir(skillDirectoryRealPath, {
+            withFileTypes: true,
+          }).catch(() => []);
+          const names = (directory: string) =>
+            siblingEntries.some((item) => item.isDirectory() && item.name === directory)
+              ? [directory]
+              : [];
           candidates.push({
+            slug,
             name,
-            description: typeof frontmatter.description === "string" ? frontmatter.description.trim() : "",
+            description:
+              typeof frontmatter.description === "string" ? frontmatter.description.trim() : "",
             source: metadata ? MATT_POCOCK_PACK.source : "local-filesystem",
             sourceAdapter: root.id,
-            sourcePath,
+            sourcePath: sourceRealPath,
             scope: root.scope,
-            contentHash: NodeCrypto.createHash("sha256").update(contents).digest("hex"),
+            contentHash: await hashSkillDirectory(
+              skillDirectoryRealPath,
+              NodePath.join(skillDirectoryRealPath, SKILL_FILE),
+              contents,
+            ),
             explicitOnly: frontmatter["disable-model-invocation"] === true,
             aliases: normalizeList(frontmatter.aliases),
             requiredTools: normalizeList(frontmatter["allowed-tools"]),
@@ -169,14 +250,21 @@ function makeFilesystemAdapter(root: { path: string; scope: SkillScope; id: stri
             references: names("references"),
             scripts: names("scripts"),
             assets: names("assets"),
-            ...(metadata?.name ? { license: MATT_POCOCK_PACK.license } : typeof frontmatter.license === "string" ? { license: frontmatter.license } : {}),
+            ...(metadata?.name
+              ? { license: MATT_POCOCK_PACK.license }
+              : typeof frontmatter.license === "string"
+                ? { license: frontmatter.license }
+                : {}),
             compatibility: normalizeList(frontmatter.compatibility),
-            dependencies: metadata?.dependencies ? [...metadata.dependencies] : normalizeList(frontmatter.dependencies),
+            dependencies: metadataDependencies
+              ? [...metadataDependencies]
+              : normalizeList(frontmatter.dependencies),
           });
         }
         return candidates;
       },
-      catch: (cause) => new SkillRegistryError({ kind: "discovery-failed", message: String(cause) }),
+      catch: (cause) =>
+        new SkillRegistryError({ kind: "discovery-failed", message: String(cause) }),
     }),
   };
 }
@@ -184,7 +272,12 @@ function makeFilesystemAdapter(root: { path: string; scope: SkillScope; id: stri
 export interface SkillRegistryShape {
   readonly list: Effect.Effect<SkillRegistrySnapshot, SkillRegistryError>;
   readonly refresh: Effect.Effect<SkillRegistrySnapshot, SkillRegistryError>;
-  readonly getBody: (id: SkillId) => Effect.Effect<{ readonly id: SkillId; readonly contentHash: string; readonly body: string }, SkillRegistryError>;
+  readonly getBody: (
+    id: SkillId,
+  ) => Effect.Effect<
+    { readonly id: SkillId; readonly contentHash: string; readonly body: string },
+    SkillRegistryError
+  >;
   readonly bridge: SkillExecutionBridge;
 }
 
@@ -214,31 +307,48 @@ export const makeSkillRegistry = (input: {
   const records = new Map<SkillId, RegisteredSkill>();
   const previousVersions = new Map<string, { readonly hash: string; readonly version: number }>();
   const bodyCache = new Map<SkillId, BodyCacheEntry>();
-  const refreshMutex = Ref.unsafeMake(false);
+  const refreshMutex = Semaphore.makeUnsafe(1);
   const roots = makeSourceRoots(input.projectCwd);
-  const adapters = input.adapters ?? roots.map(makeFilesystemAdapter);
-  const allowedRoots = roots.map((root) => NodePath.resolve(root.path));
+  const adapters =
+    input.adapters ?? roots.map((root) => makeFilesystemAdapter(root, input.projectCwd));
+  let registryVersion = 0;
 
-  const refresh = Effect.gen(function* () {
-    // A single registry instance is shared by all clients. The ref is a
-    // lightweight guard against duplicate startup/watcher refreshes.
-    const alreadyRefreshing = yield* Ref.get(refreshMutex);
-    if (alreadyRefreshing) return { version: records.size, skills: [...records.values()].map(toWire) } satisfies SkillRegistrySnapshot;
-    yield* Ref.set(refreshMutex, true);
-    try {
-      const discovered = yield* Effect.forEach(adapters, (adapter) => adapter.discover(), { concurrency: "unbounded" });
+  const refresh = refreshMutex.withPermit(
+    Effect.gen(function* () {
+      const discovered = yield* Effect.forEach(
+        adapters,
+        (adapter) =>
+          typeof adapter.discover === "function" ? adapter.discover() : adapter.discover,
+        { concurrency: "unbounded" },
+      );
       const next = new Map<SkillId, RegisteredSkill>();
       for (const candidate of discovered.flat()) {
-        const id = `${candidate.contentHash}:${slugify(candidate.name)}` as SkillId;
-        const old = previousVersions.get(candidate.name.toLocaleLowerCase());
-        const version = old ? (old.hash === candidate.contentHash ? old.version : old.version + 1) : 1;
-        previousVersions.set(candidate.name.toLocaleLowerCase(), { hash: candidate.contentHash, version });
+        const id = `${candidate.contentHash}:${candidate.slug}` as SkillId;
+        const old = previousVersions.get(candidate.slug.toLocaleLowerCase());
+        const version = old
+          ? old.hash === candidate.contentHash
+            ? old.version
+            : old.version + 1
+          : 1;
+        previousVersions.set(candidate.slug.toLocaleLowerCase(), {
+          hash: candidate.contentHash,
+          version,
+        });
         const existing = next.get(id);
         // Same body and slug discovered from multiple compatibility roots is
         // one identity. Keep the first deterministic source, but aggregate
         // compatibility labels without exposing duplicate UI entries.
         if (existing) {
-          next.set(id, { ...existing, compatibility: [...new Set([...existing.compatibility, ...candidate.compatibility, candidate.sourceAdapter])] });
+          next.set(id, {
+            ...existing,
+            compatibility: [
+              ...new Set([
+                ...existing.compatibility,
+                ...candidate.compatibility,
+                candidate.sourceAdapter,
+              ]),
+            ],
+          });
           continue;
         }
         next.set(id, {
@@ -251,61 +361,106 @@ export const makeSkillRegistry = (input: {
       }
       records.clear();
       for (const [id, record] of next) records.set(id, record);
-      return { version: records.size, skills: [...records.values()].map(toWire).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)) } satisfies SkillRegistrySnapshot;
-    } finally {
-      yield* Ref.set(refreshMutex, false);
-    }
-  });
+      registryVersion += 1;
+      return {
+        version: registryVersion,
+        skills: [...records.values()]
+          .map(toWire)
+          .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+      } satisfies SkillRegistrySnapshot;
+    }),
+  );
 
-  const readBody = (id: SkillId) => Effect.gen(function* () {
-    const record = records.get(id);
-    if (!record) return yield* fail("not-found", `Skill '${id}' was not found.`);
-    const cached = bodyCache.get(id);
-    if (cached && cached.expiresAt > Date.now()) return { id, contentHash: record.contentHash, body: cached.body };
-    const sourcePath = yield* Effect.tryPromise({
-      try: () => NodeFS.realpath(record.sourcePath),
-      catch: () => new SkillRegistryError({ kind: "invalid-source", message: `Skill source '${record.sourcePath}' is unavailable.` }),
+  const readBody = (id: SkillId) =>
+    Effect.gen(function* () {
+      const record = records.get(id);
+      if (!record) return yield* fail("not-found", `Skill '${id}' was not found.`);
+      const cached = bodyCache.get(id);
+      if (cached && cached.expiresAt > Date.now())
+        return { id, contentHash: record.contentHash, body: cached.body };
+      const sourcePath = yield* Effect.tryPromise({
+        try: () => NodeFS.realpath(record.sourcePath),
+        catch: () =>
+          new SkillRegistryError({
+            kind: "invalid-source",
+            message: `Skill source '${record.sourcePath}' is unavailable.`,
+          }),
+      });
+      const allowedRoots = yield* Effect.promise(async () => {
+        const projectRealPath = await NodeFS.realpath(input.projectCwd).catch(() => undefined);
+        const resolvedRoots: string[] = [];
+        for (const root of roots) {
+          const rootRealPath = await NodeFS.realpath(root.path).catch(() => undefined);
+          if (
+            rootRealPath &&
+            (root.scope !== "project" ||
+              (projectRealPath !== undefined && isWithin(projectRealPath, rootRealPath)))
+          ) {
+            resolvedRoots.push(rootRealPath);
+          }
+        }
+        return resolvedRoots;
+      });
+      const contained = allowedRoots.some((root) => isWithin(root, sourcePath));
+      if (!contained)
+        return yield* fail(
+          "invalid-source",
+          `Skill source '${record.sourcePath}' is outside an allowed skill root.`,
+        );
+      const body = yield* Effect.tryPromise({
+        try: () => NodeFS.readFile(sourcePath, "utf8"),
+        catch: () =>
+          new SkillRegistryError({ kind: "read-failed", message: `Could not read skill '${id}'.` }),
+      });
+      bodyCache.set(id, { body, expiresAt: Date.now() + BODY_CACHE_TTL_MS });
+      return { id, contentHash: record.contentHash, body };
     });
-    const contained = allowedRoots.some((root) => isWithin(root, sourcePath));
-    if (!contained) return yield* fail("invalid-source", `Skill source '${record.sourcePath}' is outside an allowed skill root.`);
-    const body = yield* Effect.tryPromise({
-      try: () => NodeFS.readFile(sourcePath, "utf8"),
-      catch: () => new SkillRegistryError({ kind: "read-failed", message: `Could not read skill '${id}'.` }),
-    });
-    bodyCache.set(id, { body, expiresAt: Date.now() + BODY_CACHE_TTL_MS });
-    return { id, contentHash: record.contentHash, body };
-  });
 
   const bridge: SkillExecutionBridge = {
-    compile: (input) => Effect.gen(function* () {
-      const selected: RegisteredSkill[] = [];
-      const seenBodies = new Set<string>();
-      for (const id of input.skillIds) {
-        const record = records.get(id);
-        if (!record) return yield* fail("not-found", `Skill '${id}' was not found.`);
-        if (!record.enabled || seenBodies.has(record.contentHash)) continue;
-        seenBodies.add(record.contentHash);
-        selected.push(record);
-      }
-      const compiledBodies = yield* Effect.forEach(selected, (record) => readBody(record.id));
-      const context = [
-        "RUNE skill execution context",
-        `Provider dialect: ${input.provider}`,
-        ...(input.platformCapabilities?.length ? [`Platform capabilities: ${input.platformCapabilities.join(", ")}`] : []),
-        ...(input.activeGoal ? [`Active goal: ${input.activeGoal}`] : []),
-      ].join("\n");
-      return {
-        skills: selected.map(toWire),
-        sourceDirectories: [...new Set(selected.map((skill) => NodePath.dirname(skill.sourcePath)))],
-        compiledPrompt: [context, ...compiledBodies.map((entry) => `\n## Skill: ${records.get(entry.id)?.name ?? entry.id}\n${entry.body}`)].join("\n"),
-      } satisfies SkillExecutionProjection;
-    }),
+    compile: (input) =>
+      Effect.gen(function* () {
+        const selected: RegisteredSkill[] = [];
+        const seenBodies = new Set<string>();
+        for (const id of input.skillIds) {
+          const record = records.get(id);
+          if (!record) return yield* fail("not-found", `Skill '${id}' was not found.`);
+          if (!record.enabled || seenBodies.has(record.contentHash)) continue;
+          seenBodies.add(record.contentHash);
+          selected.push(record);
+        }
+        const compiledBodies = yield* Effect.forEach(selected, (record) => readBody(record.id));
+        const context = [
+          "RUNE skill execution context",
+          `Provider dialect: ${input.provider}`,
+          ...(input.platformCapabilities?.length
+            ? [`Platform capabilities: ${input.platformCapabilities.join(", ")}`]
+            : []),
+          ...(input.activeGoal ? [`Active goal: ${input.activeGoal}`] : []),
+        ].join("\n");
+        return {
+          skills: selected.map(toWire),
+          sourceDirectories: [
+            ...new Set(selected.map((skill) => NodePath.dirname(skill.sourcePath))),
+          ],
+          compiledPrompt: [
+            context,
+            ...compiledBodies.map(
+              (entry) => `\n## Skill: ${records.get(entry.id)?.name ?? entry.id}\n${entry.body}`,
+            ),
+          ].join("\n"),
+        } satisfies SkillExecutionProjection;
+      }),
   };
 
   return {
     list: Effect.gen(function* () {
       if (records.size === 0) return yield* refresh;
-      return { version: records.size, skills: [...records.values()].map(toWire).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)) } satisfies SkillRegistrySnapshot;
+      return {
+        version: registryVersion,
+        skills: [...records.values()]
+          .map(toWire)
+          .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+      } satisfies SkillRegistrySnapshot;
     }),
     refresh,
     getBody: readBody,
@@ -317,6 +472,8 @@ export const SkillRegistryLive = Layer.effect(
   SkillRegistry,
   Effect.gen(function* () {
     const config = yield* ServerConfig;
-    return makeSkillRegistry({ projectCwd: config.cwd });
+    const registry = makeSkillRegistry({ projectCwd: config.cwd });
+    yield* registry.refresh;
+    return registry;
   }),
 );

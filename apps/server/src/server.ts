@@ -27,6 +27,9 @@ import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
+import { ActionRegistryLive } from "./persistence/Layers/ActionRegistry.ts";
+import { ChatMutationLedgerLive } from "./persistence/Layers/ChatMutationLedger.ts";
+import { PlanSessionLive } from "./persistence/Layers/PlanSession.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory.ts";
@@ -70,6 +73,11 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as RUNEProjectFileLoader from "./project/RUNEProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
+import * as ProjectActionExecutor from "./project/ProjectActionExecutor.ts";
+import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
+import * as PocketStore from "./pockets/PocketStore.ts";
+import * as PromptQueueService from "./orchestration/PromptQueueService.ts";
+import { PlanExecutionCoordinatorLive } from "./orchestration/PlanExecutionCoordinator.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspaceFileWatcher from "./workspace/WorkspaceFileWatcher.ts";
@@ -85,7 +93,6 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "./sourceControl/SourceControlRateLimit.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
-import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -113,7 +120,10 @@ import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts
 import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageService from "./usage/UsageService.ts";
-import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
+import {
+  OrchestrationInfrastructureLayerLive,
+  OrchestrationLayerLive,
+} from "./orchestration/runtimeLayer.ts";
 import { TemporaryThreadSweeperLive } from "./orchestration/Layers/TemporaryThreadSweeper.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -270,7 +280,11 @@ const ProviderLayerLive = ProviderServiceLive.pipe(
   Layer.provideMerge(ProviderSessionDirectoryLayerLive),
 );
 
-const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+const PersistenceLayerLive = Layer.mergeAll(
+  ActionRegistryLive,
+  ChatMutationLedgerLive,
+  PlanSessionLive,
+).pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
 
 const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProjectConfig.layer),
@@ -296,9 +310,18 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitVcsDriver.layer),
 );
 
+const GitAndProjectActionLayerLive = Layer.mergeAll(GitLayerLive, ProjectActionExecutor.layer).pipe(
+  Layer.provide(ProjectSetupScriptRunner.layer),
+);
+
 const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
   Layer.provideMerge(VcsDriverRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
+);
+
+const PlanExecutionCoordinatorRuntimeLive = PlanExecutionCoordinatorLive.pipe(
+  Layer.provide(OrchestrationInfrastructureLayerLive),
+  Layer.provide(GitWorkflowLayerLive),
 );
 
 const SourceControlRepositoryServiceLayerLive = SourceControlRepositoryService.layer.pipe(
@@ -381,13 +404,18 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerSettingsLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
-  Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(GitAndProjectActionLayerLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(ProcessRunner.layer),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
+  Layer.provide(ProjectSetupScriptRunner.layer),
   Layer.provideMerge(PersistenceLayerLive),
+  Layer.provideMerge(PocketStore.layer),
+  Layer.provideMerge(PromptQueueService.PromptQueueServiceLive),
+  Layer.provideMerge(PlanExecutionCoordinatorRuntimeLive),
   Layer.provideMerge(Keybindings.layer),
+).pipe(
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(SkillRegistryLive),
   // The instance registry is the new routing keystone — text generation,
@@ -473,6 +501,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
 ).pipe(
+  Layer.provide(ProjectSetupScriptRunner.layer),
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),

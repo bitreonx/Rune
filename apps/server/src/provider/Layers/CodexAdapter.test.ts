@@ -595,7 +595,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
   it.effect("does not reactivate an idle child after a parent interaction", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
-      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 3)).pipe(
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 5)).pipe(
         Effect.forkChild,
       );
 
@@ -614,12 +614,14 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         childEvent("evt-child-running", "collabAgent/turnStarted", {
           agentThreadId: "child-1",
           agentPath: "/root/audit",
+          childTurnId: "child-turn-1",
         }),
       );
       yield* runtime.emit(
         childEvent("evt-child-idle", "collabAgent/turnCompleted", {
           agentThreadId: "child-1",
           agentPath: "/root/audit",
+          childTurnId: "child-turn-1",
           turn: { status: "completed" },
         }),
       );
@@ -646,9 +648,15 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         ),
         [
           { taskId: "child-1", status: "running" },
+          { type: "turn.started" },
           { taskId: "child-1", status: "idle" },
+          { type: "turn.completed" },
           { taskId: "child-2", status: "running" },
         ],
+      );
+      NodeAssert.deepStrictEqual(
+        events.map((event) => event.turnId),
+        ["child-turn-1", "child-turn-1", "child-turn-1", "child-turn-1", "turn-1"],
       );
     }),
   );

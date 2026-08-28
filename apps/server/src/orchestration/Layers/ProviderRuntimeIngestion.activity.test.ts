@@ -192,4 +192,31 @@ describe("runtimeEventToActivities turn trace", () => {
       },
     });
   });
+
+  it("projects attributed request milestones without creating a new activity surface", () => {
+    const event = {
+      ...base,
+      type: "turn.trace",
+      eventId: EventId.make("evt-trace-stage"),
+      providerInstanceId: "gateway-1",
+      turnId: "turn-1",
+      payload: {
+        stage: "queue.wait",
+        durationMs: 41,
+        requestId: "request-main",
+        purpose: "main",
+        budget: { maxRequests: 4 },
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    expect(runtimeEventToActivities(event)[0]).toMatchObject({
+      kind: "turn.trace.request",
+      payload: {
+        stage: "queue.wait",
+        durationMs: 41,
+        requestId: "request-main",
+        purpose: "main",
+      },
+    });
+  });
 });

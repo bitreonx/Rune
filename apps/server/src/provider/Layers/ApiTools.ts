@@ -1,9 +1,15 @@
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { HostProcessPlatform } from "@rune/shared/hostProcess";
-import type { UserInputQuestion } from "@rune/contracts";
+import {
+  RuneCommandOperation,
+  type RuneCommandOperation as RuneCommandOperationType,
+  type UserInputQuestion,
+} from "@rune/contracts";
+import { WINDOWS_SHELL_CANDIDATES, windowsPowerShellArgs } from "@rune/shared/shell";
 
-import { ProcessRunner } from "../../processRunner.ts";
+import { isWindowsCommandNotFound, ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { COMPOUND_MUTATION_TOOLS, COMPOUND_READ_TOOLS } from "./ApiWorkspaceTools.ts";
@@ -35,7 +41,7 @@ export interface NativeToolDef {
    * Gated tools pause the turn with an approval request before executing;
    * safe tools run unattended. The policy mapping that decides whether a
    * gated tool actually waits lives in the adapter.
-  */
+   */
   readonly requiresApproval: boolean;
   /** Marks a read-only tool whose identical calls may share one observation. */
   readonly dedupeSafeRead?: boolean;
@@ -97,6 +103,7 @@ export const askUserTool: NativeToolDef = {
               items: {
                 type: "object",
                 properties: {
+                  id: { type: "string", description: "Stable option identifier." },
                   label: { type: "string" },
                   description: { type: "string" },
                 },
@@ -105,6 +112,13 @@ export const askUserTool: NativeToolDef = {
               },
             },
             multiSelect: { type: "boolean" },
+            recommendedOptionId: {
+              type: "string",
+              description: "The id or label of the recommended option, when one is clearly best.",
+            },
+            allowCustomAnswer: { type: "boolean" },
+            allowEditSuggestedAnswer: { type: "boolean" },
+            allowSkip: { type: "boolean" },
           },
           required: ["id", "header", "question", "options"],
           additionalProperties: false,
@@ -136,13 +150,40 @@ export function parseAskUserQuestions(
               if (rawOption === null || typeof rawOption !== "object" || Array.isArray(rawOption))
                 return [];
               const option = rawOption as Record<string, unknown>;
+              const id = stringArg(option.id).trim();
               const label = stringArg(option.label).trim();
               if (label.length === 0) return [];
-              return [{ label, description: stringArg(option.description).trim() || label }];
+              return [
+                {
+                  ...(id.length === 0 ? {} : { id }),
+                  label,
+                  description: stringArg(option.description).trim() || label,
+                },
+              ];
             })
             .slice(0, 8)
         : [];
-      return [{ id, header, question: text, options, multiSelect: question.multiSelect === true }];
+      const recommendedOptionId = stringArg(question.recommendedOptionId).trim();
+      const hasRecommendedOption = options.some(
+        (option) => option.id === recommendedOptionId || option.label === recommendedOptionId,
+      );
+      return [
+        {
+          id,
+          header,
+          question: text,
+          options,
+          multiSelect: question.multiSelect === true,
+          ...(hasRecommendedOption ? { recommendedOptionId } : {}),
+          ...(typeof question.allowCustomAnswer === "boolean"
+            ? { allowCustomAnswer: question.allowCustomAnswer }
+            : {}),
+          ...(typeof question.allowEditSuggestedAnswer === "boolean"
+            ? { allowEditSuggestedAnswer: question.allowEditSuggestedAnswer }
+            : {}),
+          ...(typeof question.allowSkip === "boolean" ? { allowSkip: question.allowSkip } : {}),
+        },
+      ];
     })
     .slice(0, 4);
 }
@@ -261,6 +302,145 @@ export const searchTool: NativeToolDef = {
       ),
 };
 
+function decodeRuneCommandOperation(value: unknown): RuneCommandOperationType | null {
+  try {
+    return Schema.decodeUnknownSync(RuneCommandOperation)(value);
+  } catch {
+    return null;
+  }
+}
+
+function pathMatchesRoot(filePath: string, root: string): boolean {
+  const normalizedRoot = root.replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/$/u, "");
+  if (normalizedRoot.length === 0 || normalizedRoot === ".") return true;
+  return filePath === normalizedRoot || filePath.startsWith(`${normalizedRoot}/`);
+}
+
+/**
+ * Execute the provider-neutral command IR against the existing confined
+ * workspace services. Ordinary repository work never needs shell syntax.
+ */
+export const runeOperationTool: NativeToolDef = {
+  name: "rune_operation",
+  description:
+    "Run a structured repository operation (search, read lines, list a directory, find files, or run a focused test) without shell syntax.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      operation: {
+        type: "object",
+        description: "A RuneCommandOperation discriminated by its kind field.",
+      },
+    },
+    required: ["operation"],
+    additionalProperties: false,
+  },
+  requiresApproval: true,
+  verificationTool: true,
+  execute: (args, ctx) => {
+    const operation = decodeRuneCommandOperation(args.operation);
+    if (operation === null) return Effect.succeed("Error: invalid structured RUNE operation");
+    if (operation.kind === "runProcess" || operation.kind === "runTest") {
+      if (!ctx.processRunner) return Effect.succeed("Error: process execution is unavailable");
+      const command = operation.kind === "runProcess" ? operation.executable : "vp";
+      const processArgs =
+        operation.kind === "runProcess"
+          ? operation.args
+          : ["test", "run", ...(operation.target === undefined ? [] : [operation.target])];
+      const cwd = operation.kind === "runProcess" ? operation.cwd : ctx.cwd;
+      return ctx.processRunner
+        .run({
+          command,
+          args: processArgs,
+          cwd,
+          timeout: "120 seconds",
+          maxOutputBytes: 64 * 1024,
+          outputMode: "truncate",
+          timeoutBehavior: "timedOutResult",
+        })
+        .pipe(
+          Effect.map((result) =>
+            clamp(
+              `exit ${String(result.code)}${result.timedOut ? " (timed out)" : ""}\n${result.stdout}${result.stderr.length > 0 ? `\n[stderr]\n${result.stderr}` : ""}`,
+            ),
+          ),
+          observe,
+        );
+    }
+
+    if (operation.kind === "readLines") {
+      return ctx.workspaceFileSystem.readFile({ cwd: ctx.cwd, relativePath: operation.path }).pipe(
+        Effect.map((result) => {
+          const lines = result.contents.split("\n");
+          return clamp(
+            lines.slice(operation.start - 1, operation.end).join("\n") || "(empty range)",
+          );
+        }),
+        observe,
+      );
+    }
+
+    if (operation.kind === "listDirectory") {
+      return ctx.workspaceEntries.list({ cwd: ctx.cwd }).pipe(
+        Effect.map((result) => {
+          const root =
+            operation.path === "." ? "" : operation.path.replaceAll("\\", "/").replace(/\/$/u, "");
+          const prefix = root.length === 0 ? "" : `${root}/`;
+          const depth = operation.depth ?? 1;
+          const entries = result.entries.filter((entry) => {
+            if (!entry.path.startsWith(prefix) && root.length > 0) return false;
+            const relative = root.length === 0 ? entry.path : entry.path.slice(prefix.length);
+            return relative.length > 0 && relative.split("/").length <= depth;
+          });
+          return clamp(
+            entries
+              .map((entry) => `${entry.path}${entry.kind === "directory" ? "/" : ""}`)
+              .join("\n") || "(empty directory)",
+          );
+        }),
+        observe,
+      );
+    }
+
+    if (operation.kind === "findFiles") {
+      return ctx.workspaceEntries
+        .search({ cwd: ctx.cwd, query: operation.query, limit: 100, kind: "file" })
+        .pipe(
+          Effect.map((result) =>
+            clamp(
+              result.entries
+                .filter((entry) => pathMatchesRoot(entry.path, operation.root))
+                .map((entry) => entry.path)
+                .join("\n") || "No files found.",
+            ),
+          ),
+          observe,
+        );
+    }
+
+    return ctx.workspaceEntries
+      .searchContents({
+        cwd: ctx.cwd,
+        query: operation.query,
+        limit: 100,
+        caseSensitive: false,
+        wholeWord: false,
+        useRegex: false,
+      })
+      .pipe(
+        Effect.map((result) =>
+          clamp(
+            result.matches
+              .filter((match) => operation.roots.some((root) => pathMatchesRoot(match.path, root)))
+              .map((match) => `${match.path}:${match.lineNumber}: ${match.lineContent.trim()}`)
+              .join("\n") || "No matches.",
+          ),
+        ),
+        observe,
+      );
+  },
+};
+
 export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [
   askUserTool,
   ...COMPOUND_READ_TOOLS,
@@ -316,7 +496,7 @@ export const editFileTool: NativeToolDef = {
 export const bashTool: NativeToolDef = {
   name: "bash",
   description:
-    "Run a shell command in the workspace root and see its output. Output is truncated to fit; the command times out after two minutes.",
+    "Run an explicit raw shell command in the workspace root. Use rune_operation for ordinary repository work; this escape hatch preserves the selected OS shell dialect.",
   parametersJsonSchema: {
     type: "object",
     properties: {
@@ -333,17 +513,52 @@ export const bashTool: NativeToolDef = {
     }
     const command = stringArg(args.command);
     return Effect.gen(function* () {
-      // Windows has no bundled POSIX shell; cmd.exe is the lowest common shell there.
       const isWindows = (yield* HostProcessPlatform) === "win32";
-      const output = yield* runner.run({
-        command: isWindows ? "cmd.exe" : "bash",
-        args: isWindows ? ["/c", command] : ["-c", command],
-        cwd: ctx.cwd,
-        timeout: BASH_TIMEOUT,
-        maxOutputBytes: BASH_MAX_OUTPUT_BYTES,
-        outputMode: "truncate",
-        timeoutBehavior: "timedOutResult",
-      });
+      const output = isWindows
+        ? yield* Effect.suspend(() => {
+            const runWindowsPowerShell = (index: number): ReturnType<typeof runner.run> => {
+              const shell = WINDOWS_SHELL_CANDIDATES[index];
+              if (shell === undefined) {
+                return Effect.die(new Error("No PowerShell executable is available."));
+              }
+              return runner
+                .run({
+                  command: shell,
+                  args: windowsPowerShellArgs(command),
+                  cwd: ctx.cwd,
+                  timeout: BASH_TIMEOUT,
+                  maxOutputBytes: BASH_MAX_OUTPUT_BYTES,
+                  outputMode: "truncate",
+                  timeoutBehavior: "timedOutResult",
+                })
+                .pipe(
+                  Effect.flatMap((result) =>
+                    isWindowsCommandNotFound(result.code, result.stderr).pipe(
+                      Effect.flatMap((notFound) =>
+                        notFound && index + 1 < WINDOWS_SHELL_CANDIDATES.length
+                          ? runWindowsPowerShell(index + 1)
+                          : Effect.succeed(result),
+                      ),
+                    ),
+                  ),
+                  Effect.catchTag("ProcessSpawnError", (error) =>
+                    index + 1 < WINDOWS_SHELL_CANDIDATES.length
+                      ? runWindowsPowerShell(index + 1)
+                      : Effect.fail(error),
+                  ),
+                );
+            };
+            return runWindowsPowerShell(0);
+          })
+        : yield* runner.run({
+            command: "bash",
+            args: ["-c", command],
+            cwd: ctx.cwd,
+            timeout: BASH_TIMEOUT,
+            maxOutputBytes: BASH_MAX_OUTPUT_BYTES,
+            outputMode: "truncate",
+            timeoutBehavior: "timedOutResult",
+          });
       const sections: Array<string> = [];
       if (output.stdout.length > 0) sections.push(output.stdout.replace(/\n$/, ""));
       if (output.stderr.length > 0) sections.push(`[stderr]\n${output.stderr}`);
@@ -356,6 +571,7 @@ export const bashTool: NativeToolDef = {
 export const GATED_TOOLS: ReadonlyArray<NativeToolDef> = [
   ...COMPOUND_MUTATION_TOOLS,
   editFileTool,
+  runeOperationTool,
   bashTool,
 ];
 

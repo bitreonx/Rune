@@ -7,13 +7,16 @@ import {
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
-import { EnvironmentId, ThreadId, type ProjectScript } from "@rune/contracts";
 import {
-  requestOlderThreadTurns,
-  threadHasOlderTurns,
-} from "@rune/client-runtime/state/threads";
+  EnvironmentId,
+  ThreadId,
+  isProviderAvailable,
+  type ProjectScript,
+  type RuneAction,
+} from "@rune/contracts";
+import { requestOlderThreadTurns, threadHasOlderTurns } from "@rune/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@rune/shared/projectScripts";
-import { Platform, ScrollView, View } from "react-native";
+import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -63,6 +66,8 @@ import { useSelectedThreadRequests } from "../../state/use-selected-thread-reque
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { threadEnvironment } from "../../state/threads";
+import { actionsEnvironment } from "../../state/actions";
+import { planSessionEnvironment } from "../../state/planSession";
 import { projectThreadContentPresentation } from "./threadContentPresentation";
 import {
   useAdaptiveWorkspaceLayout,
@@ -214,6 +219,22 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const runRegisteredAction = useAtomCommand(actionsEnvironment.run, { reportFailure: false });
+  const approveActionProposal = useAtomCommand(actionsEnvironment.approveProposal, {
+    reportFailure: false,
+  });
+  const rejectActionProposal = useAtomCommand(actionsEnvironment.rejectProposal, {
+    reportFailure: false,
+  });
+  const dismissActionProposal = useAtomCommand(actionsEnvironment.dismissProposal, {
+    reportFailure: false,
+  });
+  const schedulePlanSession = useAtomCommand(planSessionEnvironment.schedule, {
+    reportFailure: false,
+  });
+  const reviewPlanSession = useAtomCommand(planSessionEnvironment.review, {
+    reportFailure: false,
+  });
   const navigation = useNavigation();
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
@@ -283,6 +304,7 @@ function ThreadRouteContent(
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
   const routeConnectionError = routeEnvironmentRuntime?.connectionError ?? null;
+  const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const selectedThreadWithDraftSettings = useMemo(
     () =>
       selectedThread
@@ -295,6 +317,117 @@ function ThreadRouteContent(
         : null,
     [composer.interactionMode, composer.modelSelection, composer.runtimeMode, selectedThread],
   );
+  const registeredActionsQuery = useEnvironmentQuery(
+    selectedThread !== null && selectedThreadProject !== null
+      ? actionsEnvironment.list({
+          environmentId: selectedThread.environmentId,
+          input: {
+            scope: "project",
+            projectId: selectedThreadProject.id,
+            workspaceRoot: selectedThreadProject.workspaceRoot,
+          },
+        })
+      : null,
+  );
+  const actionProposalsQuery = useEnvironmentQuery(
+    selectedThread !== null && selectedThreadProject !== null
+      ? actionsEnvironment.proposals({
+          environmentId: selectedThread.environmentId,
+          input: {
+            status: "proposed",
+            projectId: selectedThreadProject.id,
+            workspaceRoot: selectedThreadProject.workspaceRoot,
+          },
+        })
+      : null,
+  );
+  const planSessionQuery = useEnvironmentQuery(
+    selectedThread !== null
+      ? planSessionEnvironment.get({
+          environmentId: selectedThread.environmentId,
+          input: { threadId: selectedThread.id },
+        })
+      : null,
+  );
+  const onBuildPlan = useCallback(async () => {
+    if (selectedThread === null || serverConfig === null) return false;
+    const session = planSessionQuery.data;
+    if (session === null) {
+      Alert.alert("No durable plan", "Start /plan and approve the plan before running /build.");
+      return false;
+    }
+    if (session.stage !== "approved" && session.stage !== "executing") {
+      Alert.alert("Plan is not ready", `The plan is currently in ${session.stage.toUpperCase()}.`);
+      return false;
+    }
+    const availableProviderInstanceIds = serverConfig.providers
+      .filter(
+        (provider) =>
+          provider.enabled &&
+          provider.installed &&
+          provider.status === "ready" &&
+          isProviderAvailable(provider),
+      )
+      .map((provider) => provider.instanceId);
+    const result = await schedulePlanSession({
+      environmentId: selectedThread.environmentId,
+      input: {
+        id: session.id,
+        expectedVersion: session.version,
+        availableProviderInstanceIds,
+      },
+    });
+    if (result._tag === "Failure") {
+      Alert.alert("Could not build plan", "RUNE could not start the plan workers.");
+      return false;
+    }
+    planSessionQuery.refresh();
+    Alert.alert(
+      "Plan build started",
+      `${result.value.scheduled.length} worker${result.value.scheduled.length === 1 ? "" : "s"} dispatched.${result.value.blocked.length > 0 ? ` ${result.value.blocked.length} waiting.` : ""}`,
+    );
+    return true;
+  }, [planSessionQuery, schedulePlanSession, selectedThread, serverConfig]);
+  const onReviewPlan = useCallback(async () => {
+    if (selectedThread === null || serverConfig === null) return false;
+    const session = planSessionQuery.data;
+    if (session === null || session.stage !== "reviewing-result") {
+      Alert.alert(
+        "Plan review is not ready",
+        session === null
+          ? "Build an approved plan before starting its review."
+          : `The plan is currently in ${session.stage.toUpperCase()}.`,
+      );
+      return false;
+    }
+    const availableProviderInstanceIds = serverConfig.providers
+      .filter(
+        (provider) =>
+          provider.enabled &&
+          provider.installed &&
+          provider.status === "ready" &&
+          isProviderAvailable(provider),
+      )
+      .map((provider) => provider.instanceId);
+    const result = await reviewPlanSession({
+      environmentId: selectedThread.environmentId,
+      input: {
+        id: session.id,
+        expectedVersion: session.version,
+        availableProviderInstanceIds,
+      },
+    });
+    if (result._tag === "Failure") {
+      Alert.alert("Could not start review", "RUNE could not start the read-only plan reviewer.");
+      return false;
+    }
+    planSessionQuery.refresh();
+    Alert.alert(
+      result.value.started ? "Independent review started" : "Review already running",
+      "The read-only reviewer is available as a child thread.",
+    );
+    return true;
+  }, [planSessionQuery, reviewPlanSession, selectedThread, serverConfig]);
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
@@ -608,6 +741,71 @@ function ThreadRouteContent(
       terminalMenuSessions,
     ],
   );
+  const handleRunRegisteredAction = useCallback(
+    async (action: RuneAction) => {
+      if (!selectedThread || !selectedThreadProject?.workspaceRoot) return;
+      const result = await runRegisteredAction({
+        environmentId: selectedThread.environmentId,
+        input: {
+          threadId: selectedThread.id,
+          projectId: selectedThreadProject.id,
+          actionId: action.id,
+        },
+      });
+      if (result._tag === "Failure") {
+        Alert.alert("Action failed", "RUNE could not start this action.");
+        return;
+      }
+      if (result.value.status === "started") {
+        await navigation.navigate("ThreadTerminal", {
+          environmentId: String(selectedThread.environmentId),
+          threadId: String(selectedThread.id),
+          terminalId: result.value.terminalId,
+        });
+        return;
+      }
+      if (result.value.status === "blocked") {
+        Alert.alert("Action blocked", result.value.reason);
+      } else if (result.value.status === "approval-required") {
+        Alert.alert(
+          "Approval required",
+          "Review the action and approve it before running it again.",
+        );
+      } else if (result.value.status === "no-script") {
+        Alert.alert("Action unavailable", "This action has no executable project script.");
+      }
+    },
+    [navigation, runRegisteredAction, selectedThread, selectedThreadProject],
+  );
+  const handleDecideActionProposal = useCallback(
+    async (proposalId: string, decision: "approve" | "reject" | "dismiss"): Promise<void> => {
+      if (!selectedThread) return;
+      const command =
+        decision === "approve"
+          ? approveActionProposal
+          : decision === "reject"
+            ? rejectActionProposal
+            : dismissActionProposal;
+      const result = await command({
+        environmentId: selectedThread.environmentId,
+        input: { proposalId },
+      });
+      if (result._tag === "Failure") {
+        Alert.alert("Could not update suggestion", "RUNE could not save that action decision.");
+        return;
+      }
+      actionProposalsQuery?.refresh();
+      registeredActionsQuery?.refresh();
+    },
+    [
+      actionProposalsQuery,
+      approveActionProposal,
+      dismissActionProposal,
+      registeredActionsQuery,
+      rejectActionProposal,
+      selectedThread,
+    ],
+  );
   const threadGitControlProps = {
     environmentId: environmentIdRaw ?? "",
     threadId: threadId ?? "",
@@ -627,11 +825,15 @@ function ThreadRouteContent(
     canOpenTerminal: Boolean(selectedThreadProject?.workspaceRoot),
     canOpenFiles: Boolean(selectedThreadProject?.workspaceRoot),
     projectScripts: selectedThreadProject?.scripts ?? [],
+    registeredActions: registeredActionsQuery.data?.actions.map((record) => record.action),
+    actionProposals: actionProposalsQuery.data?.proposals,
     terminalSessions: terminalMenuSessions,
     showDirectFileControl: layout.usesSplitView,
     onOpenTerminal: handleOpenTerminal,
     onOpenNewTerminal: handleOpenNewTerminal,
     onRunProjectScript: handleRunProjectScript,
+    onRunRegisteredAction: handleRunRegisteredAction,
+    onDecideActionProposal: handleDecideActionProposal,
     onPull: gitActions.onPullSelectedThreadBranch,
     onRunAction: gitActions.onRunSelectedThreadGitAction,
   };
@@ -758,7 +960,6 @@ function ThreadRouteContent(
     detailDeleted: selectedThreadDetailState.status === "deleted",
     connectionState: routeConnectionState,
   });
-  const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = (showActionControls: boolean) => (
     <>
       <ThreadGitControls {...threadGitControlProps} showActionControls={showActionControls} />
@@ -799,6 +1000,8 @@ function ThreadRouteContent(
           serverConfig={serverConfig}
           onStopThread={handleStopThread}
           onSendMessage={composer.onSendMessage}
+          onBuildPlan={onBuildPlan}
+          onReviewPlan={onReviewPlan}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
           onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}

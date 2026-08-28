@@ -313,6 +313,7 @@ describe("ApiAdapter streaming turns", () => {
       "generate_files",
       "run_checks",
       "edit_file",
+      "rune_operation",
     ]);
     const secondBody = requests[1]?.body as {
       messages?: Array<{ role: string; content?: string }>;

@@ -10,6 +10,9 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import {
+  ActionRunError,
+  PlanSessionError,
+  type ActionRunInput,
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
@@ -19,9 +22,12 @@ import {
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
+  MessageId,
   type OrchestrationClientOrigin,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  type OrchestrationThreadActivity,
+  type OrchestrationThread,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   OrchestrationAgentChatError,
@@ -36,7 +42,7 @@ import {
   CROSS_THREAD_WS_METHODS,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
-  type ProjectId,
+  ProjectId,
   type ProjectEntriesFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
@@ -69,6 +75,7 @@ import {
   WsRpcGroup,
 } from "@rune/contracts";
 import { resolveServerBackgroundActivitySettings } from "@rune/shared/backgroundActivitySettings";
+import { actionIdForProjectScript, projectScriptToAction } from "@rune/shared/actions";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
@@ -87,6 +94,7 @@ import {
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionCrossThreadBoundaryError } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as GrillRuntime from "./orchestration/GrillRuntime.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -119,6 +127,14 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
+import * as ProjectActionExecutor from "./project/ProjectActionExecutor.ts";
+import * as ActionRegistry from "./persistence/Services/ActionRegistry.ts";
+import * as ChatMutationLedger from "./persistence/Services/ChatMutationLedger.ts";
+import * as PlanSession from "./persistence/Services/PlanSession.ts";
+import * as PlanExecutionCoordinator from "./orchestration/PlanExecutionCoordinator.ts";
+import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
+import * as PocketStore from "./pockets/PocketStore.ts";
+import * as PromptQueueService from "./orchestration/PromptQueueService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -214,6 +230,10 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
       return {
         failure: "workspace_root_not_directory",
         normalizedCwd: error.normalizedWorkspaceRoot,
+      };
+    case "WorkspacePathOutsideRootError":
+      return {
+        failure: "workspace_path_outside_root",
       };
     case "WorkspaceSearchIndexCreateFailed":
       return {
@@ -314,6 +334,38 @@ function projectSetupScriptCompatibilityDetail(
     default:
       return unexpectedCompatibilityError(error);
   }
+}
+
+function toActionRunError(
+  actionId: ActionRunInput["actionId"],
+  cause: ProjectActionExecutor.ProjectActionExecutorError,
+): ActionRunError {
+  if (Schema.is(ProjectActionExecutor.ProjectActionPreparationError)(cause)) {
+    return new ActionRunError({
+      actionId,
+      code: cause.code,
+      message: cause.message,
+    });
+  }
+  if (Schema.is(ProjectActionExecutor.ProjectActionUnsupportedError)(cause)) {
+    return new ActionRunError({
+      actionId,
+      code: "unsupported-action",
+      message: cause.message,
+    });
+  }
+  if (Schema.is(ProjectSetupScriptRunner.ProjectSetupScriptProjectNotFoundError)(cause)) {
+    return new ActionRunError({
+      actionId,
+      code: "project-not-found",
+      message: cause.message,
+    });
+  }
+  return new ActionRunError({
+    actionId,
+    code: "execution-failed",
+    message: "Project action execution failed.",
+  });
 }
 
 export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
@@ -476,6 +528,23 @@ const makeWsRpcLayer = (
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const skillRegistry = yield* SkillRegistry.SkillRegistry;
       const providerService = yield* ProviderService.ProviderService;
+      const requirePersistedAgentChild = (parentThreadId: ThreadId, agentId: string) =>
+        Effect.gen(function* () {
+          const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+          const child = snapshot.threads.find(
+            (thread) =>
+              thread.agent !== undefined &&
+              thread.agent !== null &&
+              thread.agent.parentThreadId === parentThreadId &&
+              thread.agent.agentId === agentId,
+          );
+          if (child === undefined) {
+            return yield* new OrchestrationAgentChatError({
+              message: "The requested child-agent thread does not belong to this parent thread.",
+            });
+          }
+          return child;
+        });
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -485,7 +554,16 @@ const makeWsRpcLayer = (
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const workspaceFileWatcher = yield* WorkspaceFileWatcher.WorkspaceFileWatcher;
+      const pocketStore = yield* PocketStore.PocketStore;
+      const promptQueue = yield* PromptQueueService.PromptQueueService;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const projectActionExecutor = yield* ProjectActionExecutor.ProjectActionExecutor;
+      const actionRegistry = yield* ActionRegistry.ActionRegistry;
+      const chatMutationLedger = yield* ChatMutationLedger.ChatMutationLedger;
+      const planSession = yield* PlanSession.PlanSession;
+      const planExecutionCoordinator = yield* Effect.serviceOption(
+        PlanExecutionCoordinator.PlanExecutionCoordinator,
+      );
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -593,6 +671,73 @@ const makeWsRpcLayer = (
       const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
       const serverCommandId = (tag: string) =>
         randomUUID.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
+
+      const dispatchNativeGrillRequest = (
+        command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
+        invocation: GrillRuntime.GrillInvocation,
+      ) =>
+        startup
+          .enqueueCommand(
+            dispatchFromClient(GrillRuntime.makeGrillRequestCommand({ command, invocation })).pipe(
+              Effect.mapError((cause) =>
+                toDispatchCommandError(cause, "Failed to open the native Grill asker."),
+              ),
+            ),
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              toDispatchCommandError(cause, "Failed to open the native Grill asker."),
+            ),
+          );
+
+      const dispatchNativeGrillResolution = (
+        command: Extract<OrchestrationCommand, { type: "thread.user-input.respond" }>,
+        request: OrchestrationThreadActivity,
+        thread: OrchestrationThread,
+      ) =>
+        startup
+          .enqueueCommand(
+            dispatchFromClient(
+              GrillRuntime.makeGrillResolutionCommand({
+                request,
+                commandId: command.commandId,
+                threadId: command.threadId,
+                answers: command.answers,
+                createdAt: command.createdAt,
+              }),
+            ).pipe(
+              Effect.mapError((cause) =>
+                toDispatchCommandError(cause, "Failed to resolve the native Grill asker."),
+              ),
+            ),
+          )
+          .pipe(
+            Effect.flatMap(() =>
+              startup.enqueueCommand(
+                dispatchFromClient(
+                  GrillRuntime.makeGrillContinuationCommand({
+                    request,
+                    commandId: command.commandId,
+                    thread,
+                    answers: command.answers,
+                    createdAt: command.createdAt,
+                  }),
+                ).pipe(
+                  Effect.mapError((cause) =>
+                    toDispatchCommandError(
+                      cause,
+                      "Failed to continue after the native Grill asker.",
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              toDispatchCommandError(cause, "Failed to complete the native Grill interaction."),
+            ),
+          );
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -862,6 +1007,7 @@ const makeWsRpcLayer = (
 
       const dispatchBootstrapTurnStart = (
         command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
+        grillInvocation?: GrillRuntime.GrillInvocation,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
         Effect.gen(function* () {
           const bootstrap = command.bootstrap;
@@ -1062,7 +1208,18 @@ const makeWsRpcLayer = (
 
             yield* runSetupProgram();
 
-            return yield* dispatchFromClient(finalTurnStartCommand);
+            return yield* grillInvocation === undefined
+              ? dispatchFromClient(finalTurnStartCommand)
+              : dispatchFromClient(
+                  GrillRuntime.makeGrillRequestCommand({
+                    command,
+                    invocation: grillInvocation,
+                  }),
+                ).pipe(
+                  Effect.mapError((cause) =>
+                    toDispatchCommandError(cause, "Failed to open the native Grill asker."),
+                  ),
+                );
           });
 
           return yield* bootstrapProgram.pipe(
@@ -1164,12 +1321,235 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const resolveProjectAction = (input: ActionRunInput) =>
+        Effect.gen(function* () {
+          const thread = yield* projectionSnapshotQuery
+            .getThreadShellById(ThreadId.make(input.threadId))
+            .pipe(
+              Effect.map(Option.getOrUndefined),
+              Effect.mapError(
+                () =>
+                  new ActionRunError({
+                    actionId: input.actionId,
+                    code: "execution-failed",
+                    message: "Unable to resolve the action thread.",
+                  }),
+              ),
+            );
+          if (!thread) {
+            return yield* new ActionRunError({
+              actionId: input.actionId,
+              code: "invalid-input",
+              message: `Thread '${input.threadId}' was not found.`,
+            });
+          }
+          if (thread.projectId !== ProjectId.make(input.projectId)) {
+            return yield* new ActionRunError({
+              actionId: input.actionId,
+              code: "invalid-input",
+              message: `Thread '${input.threadId}' does not belong to project '${input.projectId}'.`,
+            });
+          }
+
+          const project = yield* projectionSnapshotQuery.getProjectShellById(thread.projectId).pipe(
+            Effect.map(Option.getOrUndefined),
+            Effect.mapError(
+              () =>
+                new ActionRunError({
+                  actionId: input.actionId,
+                  code: "execution-failed",
+                  message: "Unable to resolve the action project.",
+                }),
+            ),
+          );
+          if (!project) {
+            return yield* new ActionRunError({
+              actionId: input.actionId,
+              code: "project-not-found",
+              message: `Project '${input.projectId}' was not found.`,
+            });
+          }
+
+          const registeredActions = yield* actionRegistry
+            .list({
+              scope: "project",
+              projectId: input.projectId,
+              workspaceRoot: project.workspaceRoot,
+              includeDisabled: true,
+            })
+            .pipe(
+              Effect.mapError(
+                () =>
+                  new ActionRunError({
+                    actionId: input.actionId,
+                    code: "execution-failed",
+                    message: "Unable to read the action registry.",
+                  }),
+              ),
+            );
+          const registeredAction = registeredActions.actions.find(
+            (candidate) => candidate.action.id === input.actionId,
+          );
+          if (registeredAction !== undefined) {
+            return {
+              action: registeredAction.action,
+              projectCwd: project.workspaceRoot,
+              worktreePath: thread.worktreePath ?? project.workspaceRoot,
+            };
+          }
+
+          const script = project.scripts.find(
+            (candidate) => actionIdForProjectScript(candidate.id) === input.actionId,
+          );
+          if (!script) {
+            return yield* new ActionRunError({
+              actionId: input.actionId,
+              code: "action-not-found",
+              message: `Action '${input.actionId}' is not registered for project '${input.projectId}'.`,
+            });
+          }
+
+          return {
+            action: projectScriptToAction(script),
+            projectCwd: project.workspaceRoot,
+            worktreePath: thread.worktreePath ?? project.workspaceRoot,
+          };
+        });
+
+      const runProjectAction = (input: ActionRunInput) =>
+        Effect.gen(function* () {
+          const resolved = yield* resolveProjectAction(input);
+          // Project scripts are a compatibility source for Actions. Register
+          // the normalized definition before execution so the run can receive
+          // durable receipts, output verification, and learned-action
+          // proposals just like an explicitly created Action. Existing
+          // versions are intentionally left untouched.
+          yield* actionRegistry
+            .create({
+              action: resolved.action,
+              workspaceRoot: resolved.projectCwd,
+              projectId: input.projectId,
+            })
+            .pipe(
+              Effect.catchTag("ActionRegistryError", (error) =>
+                error.code === "already-exists"
+                  ? Effect.void
+                  : Effect.logWarning("project action could not be registered before execution", {
+                      actionId: resolved.action.id,
+                      cause: error.message,
+                    }).pipe(Effect.asVoid),
+              ),
+            );
+          const result = yield* projectActionExecutor
+            .runForThread({
+              threadId: input.threadId,
+              projectId: input.projectId,
+              projectCwd: resolved.projectCwd,
+              worktreePath: resolved.worktreePath,
+              action: resolved.action,
+              ...(input.parameters === undefined ? {} : { parameters: input.parameters }),
+            })
+            .pipe(Effect.mapError((cause) => toActionRunError(input.actionId, cause)));
+          // The executor owns the concrete result contract and always emits a
+          // stable id plus receipt. Keep this narrow assertion at the adapter
+          // boundary because ActionRunResult remains decode-compatible with
+          // older clients that omitted those additive fields.
+          const concreteResult = result as ProjectActionExecutor.ProjectActionExecutorResult;
+          if (concreteResult.runId === undefined || concreteResult.receipt === undefined) {
+            yield* Effect.logWarning(
+              "action executor returned a legacy result without lifecycle evidence",
+              {
+                actionId: input.actionId,
+              },
+            );
+            return result;
+          }
+          const { runId, receipt } = concreteResult;
+          const recordedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+          const historyStatus =
+            receipt.status === "approval-required"
+              ? ("approval-required" as const)
+              : receipt.status === "blocked"
+                ? ("blocked" as const)
+                : ("started" as const);
+          yield* actionRegistry
+            .recordRun({
+              runId,
+              actionId: concreteResult.actionId,
+              actionVersion: concreteResult.actionVersion,
+              scope: "project",
+              workspaceRoot: resolved.projectCwd,
+              projectId: input.projectId,
+              threadId: input.threadId,
+              status: historyStatus,
+              parameters: receipt.parameters,
+              modelCalls: receipt.modelCalls,
+              receipt,
+              ...(receipt.startedAt === undefined ? {} : { startedAt: receipt.startedAt }),
+              ...(receipt.completedAt === undefined ? {} : { completedAt: receipt.completedAt }),
+              recordedAt,
+            })
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning(
+                  "action execution completed but run history could not be recorded",
+                  {
+                    actionId: input.actionId,
+                    cause,
+                  },
+                ),
+              ),
+            );
+          return result;
+        });
+
       return WsRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
             Effect.gen(function* () {
               const normalizedCommand = yield* normalizeDispatchCommand(command);
+              if (normalizedCommand.type === "thread.turn.start") {
+                const grillInvocation = GrillRuntime.parseGrillInvocation(
+                  normalizedCommand.message.text,
+                );
+                if (grillInvocation !== null) {
+                  return yield* (
+                    normalizedCommand.bootstrap
+                      ? dispatchBootstrapTurnStart(normalizedCommand, grillInvocation)
+                      : dispatchNativeGrillRequest(normalizedCommand, grillInvocation)
+                  ).pipe(
+                    Effect.tapError(() =>
+                      cleanupFailedUploadedAttachments(command, normalizedCommand),
+                    ),
+                  );
+                }
+              }
+              if (normalizedCommand.type === "thread.user-input.respond") {
+                const nativeGrillContext = yield* projectionSnapshotQuery
+                  .getThreadDetailById(normalizedCommand.threadId)
+                  .pipe(
+                    Effect.map(
+                      Option.match({
+                        onNone: () => undefined,
+                        onSome: (thread) => {
+                          const request = GrillRuntime.findPendingGrillRequest(
+                            thread.activities,
+                            normalizedCommand.requestId,
+                          );
+                          return request === undefined ? undefined : { request, thread };
+                        },
+                      }),
+                    ),
+                  );
+                if (nativeGrillContext !== undefined) {
+                  return yield* dispatchNativeGrillResolution(
+                    normalizedCommand,
+                    nativeGrillContext.request,
+                    nativeGrillContext.thread,
+                  );
+                }
+              }
               // Archive and settle both mean "done with this thread", so a
               // live provider session must not keep running background work
               // (PR monitors, dev servers, subagent fleets) after either
@@ -1396,6 +1776,7 @@ const makeWsRpcLayer = (
                   message: "This provider cannot open a child-agent chat.",
                 });
               }
+              yield* requirePersistedAgentChild(input.threadId, input.agentId);
               const snapshot = yield* providerService.readAgentThread({
                 parentThreadId: input.threadId,
                 agentId: input.agentId,
@@ -1417,10 +1798,24 @@ const makeWsRpcLayer = (
                   message: "This provider cannot continue a child-agent chat.",
                 });
               }
+              const child = yield* requirePersistedAgentChild(input.threadId, input.agentId);
               const result = yield* providerService.sendAgentTurn({
                 parentThreadId: input.threadId,
                 agentId: input.agentId,
                 input: input.input,
+              });
+              // Child follow-ups use the provider-native child session, so
+              // they cannot go through thread.turn.start (which would route
+              // a new turn through the parent provider session). Persist the
+              // already-started turn as the canonical child user message.
+              yield* orchestrationEngine.dispatch({
+                type: "thread.child-user-message.append",
+                commandId: yield* serverCommandId("agent-message"),
+                threadId: child.id,
+                messageId: MessageId.make(`agent:user:${child.id}:${result.turnId}`),
+                text: input.input,
+                turnId: result.turnId,
+                createdAt: yield* nowIso,
               });
               return { agentId: input.agentId, turnId: result.turnId };
             }).pipe(
@@ -1439,6 +1834,7 @@ const makeWsRpcLayer = (
                   message: "This provider cannot interrupt a child-agent chat.",
                 });
               }
+              yield* requirePersistedAgentChild(input.threadId, input.agentId);
               yield* providerService.interruptAgentTurn({
                 parentThreadId: input.threadId,
                 agentId: input.agentId,
@@ -1833,6 +2229,58 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.skillsGetBody, skillRegistry.getBody(input.id), {
             "rpc.aggregate": "skills",
           }),
+        [WS_METHODS.actionsRun]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsRun, runProjectAction(input), {
+            "rpc.aggregate": "actions",
+          }),
+        [WS_METHODS.actionsList]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsList, actionRegistry.list(input), {
+            "rpc.aggregate": "actions",
+          }),
+        [WS_METHODS.actionsCreate]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsCreate, actionRegistry.create(input), {
+            "rpc.aggregate": "actions",
+          }),
+        [WS_METHODS.actionsVersion]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsVersion, actionRegistry.version(input), {
+            "rpc.aggregate": "actions",
+          }),
+        [WS_METHODS.actionsCreateProposal]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsCreateProposal, actionRegistry.createProposal(input), {
+            "rpc.aggregate": "actions",
+          }),
+        [WS_METHODS.actionsListProposals]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsListProposals, actionRegistry.listProposals(input), {
+            "rpc.aggregate": "actions",
+          }),
+        [WS_METHODS.actionsApproveProposal]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.actionsApproveProposal,
+            actionRegistry.approveProposal(input, currentSessionId),
+            { "rpc.aggregate": "actions" },
+          ),
+        [WS_METHODS.actionsRejectProposal]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.actionsRejectProposal,
+            actionRegistry.rejectProposal(input, currentSessionId),
+            { "rpc.aggregate": "actions" },
+          ),
+        [WS_METHODS.actionsDismissProposal]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.actionsDismissProposal,
+            actionRegistry.dismissProposal(input, currentSessionId),
+            { "rpc.aggregate": "actions" },
+          ),
+        [WS_METHODS.actionsRecordRun]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.actionsRecordRun,
+            actionRegistry.recordRun(input).pipe(Effect.as({})),
+            { "rpc.aggregate": "actions" },
+          ),
+        [WS_METHODS.actionsListRunHistory]: (input) =>
+          observeRpcEffect(WS_METHODS.actionsListRunHistory, actionRegistry.listRunHistory(input), {
+            "rpc.aggregate": "actions",
+          }),
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetTraceDiagnostics,
@@ -2098,6 +2546,21 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsListDirectory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListDirectory,
+            workspaceEntries.listDirectory(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListEntriesError({
+                    cwd: input.cwd,
+                    ...projectEntriesFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.projectsReadFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsReadFile,
@@ -2192,6 +2655,92 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.pocketsSnapshot]: (_input) =>
+          observeRpcEffect(WS_METHODS.pocketsSnapshot, pocketStore.snapshot(), {
+            "rpc.aggregate": "pockets",
+          }),
+        [WS_METHODS.pocketsDispatch]: (input) =>
+          observeRpcEffect(WS_METHODS.pocketsDispatch, pocketStore.dispatch(input), {
+            "rpc.aggregate": "pockets",
+          }),
+        [WS_METHODS.pocketsImportLegacy]: (input) =>
+          observeRpcEffect(WS_METHODS.pocketsImportLegacy, pocketStore.importLegacy(input), {
+            "rpc.aggregate": "pockets",
+          }),
+        [WS_METHODS.executionControllerSnapshot]: (input) =>
+          observeRpcEffect(WS_METHODS.executionControllerSnapshot, promptQueue.snapshot(input), {
+            "rpc.aggregate": "execution-controller",
+          }),
+        [WS_METHODS.executionControllerDispatch]: (input) =>
+          observeRpcEffect(WS_METHODS.executionControllerDispatch, promptQueue.dispatch(input), {
+            "rpc.aggregate": "execution-controller",
+          }),
+        [WS_METHODS.planSessionCreate]: (input) =>
+          observeRpcEffect(WS_METHODS.planSessionCreate, planSession.create(input), {
+            "rpc.aggregate": "plan-session",
+          }),
+        [WS_METHODS.planSessionGet]: (input) =>
+          observeRpcEffect(WS_METHODS.planSessionGet, planSession.get(input), {
+            "rpc.aggregate": "plan-session",
+          }),
+        [WS_METHODS.planSessionUpdate]: (input) =>
+          observeRpcEffect(WS_METHODS.planSessionUpdate, planSession.update(input), {
+            "rpc.aggregate": "plan-session",
+          }),
+        [WS_METHODS.planSessionTransition]: (input) =>
+          observeRpcEffect(WS_METHODS.planSessionTransition, planSession.transition(input), {
+            "rpc.aggregate": "plan-session",
+          }),
+        [WS_METHODS.planSessionResume]: (input) =>
+          observeRpcEffect(WS_METHODS.planSessionResume, planSession.resume(input), {
+            "rpc.aggregate": "plan-session",
+          }),
+        [WS_METHODS.planSessionSchedule]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planSessionSchedule,
+            Option.match(planExecutionCoordinator, {
+              onNone: () =>
+                Effect.fail(
+                  new PlanSessionError({
+                    code: "execution-failed",
+                    operation: "PlanSession.schedule",
+                    message: "Plan execution is not available in this server runtime.",
+                    id: input.id,
+                  }),
+                ),
+              onSome: (coordinator) => coordinator.schedule(input),
+            }),
+            { "rpc.aggregate": "plan-session" },
+          ),
+        [WS_METHODS.planSessionReview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planSessionReview,
+            Option.match(planExecutionCoordinator, {
+              onNone: () =>
+                Effect.fail(
+                  new PlanSessionError({
+                    code: "execution-failed",
+                    operation: "PlanSession.review",
+                    message: "Plan review is not available in this server runtime.",
+                    id: input.id,
+                  }),
+                ),
+              onSome: (coordinator) => coordinator.review(input),
+            }),
+            { "rpc.aggregate": "plan-session" },
+          ),
+        [WS_METHODS.chatMutationList]: (input) =>
+          observeRpcEffect(WS_METHODS.chatMutationList, chatMutationLedger.list(input), {
+            "rpc.aggregate": "chat-mutation-ledger",
+          }),
+        [WS_METHODS.chatMutationAppend]: (input) =>
+          observeRpcEffect(WS_METHODS.chatMutationAppend, chatMutationLedger.append(input), {
+            "rpc.aggregate": "chat-mutation-ledger",
+          }),
+        [WS_METHODS.chatMutationSettle]: (input) =>
+          observeRpcEffect(WS_METHODS.chatMutationSettle, chatMutationLedger.settle(input), {
+            "rpc.aggregate": "chat-mutation-ledger",
+          }),
         [WS_METHODS.subscribeProjectFileEvents]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeProjectFileEvents,
@@ -2457,7 +3006,11 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribeTerminalEvents,
             Stream.callback<TerminalEvent>((queue) =>
               Effect.acquireRelease(
-                terminalManager.subscribe((event) => Queue.offer(queue, event)),
+                terminalManager.subscribe((event) =>
+                  Effect.gen(function* () {
+                    yield* Queue.offer(queue, event);
+                  }),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
@@ -2674,6 +3227,9 @@ const makeWsRpcLayer = (
           ),
       });
     }),
+  ).pipe(
+    Layer.provide(ProjectActionExecutor.layer.pipe(Layer.provide(ProjectSetupScriptRunner.layer))),
+    Layer.provide(ProjectSetupScriptRunner.layer),
   );
 
 export const websocketRpcRouteLayer = Layer.unwrap(
@@ -2703,9 +3259,15 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup, {
           disableTracing: true,
         }).pipe(
+          Effect.provide(ProjectSetupScriptRunner.layer),
           Effect.provide(
             makeWsRpcLayer(session, clientOrigin, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provideMerge(
+                ProjectActionExecutor.layer.pipe(Layer.provide(ProjectSetupScriptRunner.layer)),
+              ),
+              Layer.provideMerge(ProjectSetupScriptRunner.layer),
+              Layer.provideMerge(OrchestrationLayerLive),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS

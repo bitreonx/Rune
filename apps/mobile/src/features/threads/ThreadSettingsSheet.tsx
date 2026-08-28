@@ -28,7 +28,7 @@ import {
   type ReactNode,
 } from "react";
 import { Platform, Pressable, ScrollView, TextInput, View } from "react-native";
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, LinearTransition, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -79,11 +79,19 @@ const THREAD_SETTINGS_MAINTAIN_VISIBLE_CONTENT_POSITION = {
   size: true,
 } as const;
 const THREAD_SETTINGS_CATALOG_LAYOUT_TRANSITION = LinearTransition.duration(180);
-const THREAD_SETTINGS_CATALOG_ENTER_TRANSITION = FadeIn.duration(140);
-const THREAD_SETTINGS_CATALOG_EXIT_TRANSITION = FadeOut.duration(120);
+const THREAD_SETTINGS_CATALOG_ENTER_TRANSITION = FadeIn.duration(140).reduceMotion(
+  ReduceMotion.System,
+);
+const THREAD_SETTINGS_CATALOG_EXIT_TRANSITION = FadeOut.duration(120).reduceMotion(
+  ReduceMotion.System,
+);
 const THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION = LinearTransition.duration(180);
-const THREAD_SETTINGS_OPTION_ENTER_TRANSITION = FadeIn.duration(140);
-const THREAD_SETTINGS_OPTION_EXIT_TRANSITION = FadeOut.duration(100);
+const THREAD_SETTINGS_OPTION_ENTER_TRANSITION = FadeIn.duration(140).reduceMotion(
+  ReduceMotion.System,
+);
+const THREAD_SETTINGS_OPTION_EXIT_TRANSITION = FadeOut.duration(100).reduceMotion(
+  ReduceMotion.System,
+);
 const THREAD_SETTINGS_HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(
   Platform.OS,
   Platform.Version,

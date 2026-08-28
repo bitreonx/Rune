@@ -66,4 +66,44 @@ describe("provider performance runtime events", () => {
 
     expect(completed.payload).toHaveProperty("outcome", "completed");
   });
+
+  it("decodes attributed requests and trace milestones", () => {
+    const request = decodeRuntimeEvent({
+      type: "api.request.usage",
+      eventId: "event-attributed-request",
+      provider: "openrouter",
+      createdAt: "2026-08-25T00:00:03.000Z",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      payload: {
+        requestId: "request-tool-followup",
+        requestNumber: 2,
+        retry: false,
+        purpose: "tool-followup",
+        parentRequestId: "request-main",
+        budget: { maxRequests: 4, maxToolCalls: 8 },
+        sessionAcquisitionMs: 12,
+      },
+    });
+    const milestone = decodeRuntimeEvent({
+      type: "turn.trace",
+      eventId: "event-trace-milestone",
+      provider: "openrouter",
+      createdAt: "2026-08-25T00:00:04.000Z",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      payload: {
+        stage: "first.edit",
+        durationMs: 430,
+        requestId: "request-tool-followup",
+      },
+    });
+
+    if (request.type !== "api.request.usage" || milestone.type !== "turn.trace") {
+      throw new Error("expected trace events");
+    }
+    expect(request.payload.purpose).toBe("tool-followup");
+    expect(request.payload.parentRequestId).toBe("request-main");
+    expect(milestone.payload.stage).toBe("first.edit");
+  });
 });

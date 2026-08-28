@@ -6,11 +6,13 @@ import {
   squashAtomCommandFailure,
 } from "@rune/client-runtime/state/runtime";
 import {
+  defaultInstanceIdForDriver,
   type EnvironmentId,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
-  resolveProviderInstanceEnabled,
+  ProviderInstanceId,
 } from "@rune/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
 import {
   getBackgroundActivityPresetSettings,
   resolveServerBackgroundActivitySettings,
@@ -104,6 +106,15 @@ import {
   resolveRemoteOperateAccess,
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
+
+function withoutProviderInstanceKey<V>(
+  record: Readonly<Record<ProviderInstanceId, V>> | undefined,
+  key: ProviderInstanceId,
+): Record<ProviderInstanceId, V> {
+  const next = { ...record } as Record<ProviderInstanceId, V>;
+  delete next[key];
+  return next;
+}
 
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
   useRelativeTimeTick();
@@ -463,7 +474,6 @@ export function EnvironmentProviderSettings({
     [environmentId, updateProvider],
   );
 
-
   return (
     <>
       <SettingsSection
@@ -569,11 +579,37 @@ export function EnvironmentProviderSettings({
                   search: { env: String(environmentId) },
                 })
               }
-              onRunUpdate={(driver) => {
+              onRunUpdate={(instanceId) => {
                 const candidate = Array.from(providerUpdateCandidateByInstanceId.values()).find(
-                  (c) => c.driver === driver,
+                  (c) => String(c.instanceId) === String(instanceId),
                 );
                 if (candidate) void runProviderUpdate(candidate);
+              }}
+              onDeleteInstance={(instanceId) =>
+                updateSettings({
+                  providerInstances: withoutProviderInstanceKey(
+                    settings.providerInstances,
+                    instanceId,
+                  ),
+                })
+              }
+              onResetInstance={(driver) => {
+                const defaultProviders = DEFAULT_UNIFIED_SETTINGS.providers as Record<
+                  string,
+                  unknown | undefined
+                >;
+                const defaultProvider = defaultProviders[String(driver)];
+                if (defaultProvider === undefined) return;
+                updateSettings({
+                  providers: {
+                    ...settings.providers,
+                    [driver]: defaultProvider,
+                  } as typeof settings.providers,
+                  providerInstances: withoutProviderInstanceKey(
+                    settings.providerInstances,
+                    defaultInstanceIdForDriver(driver),
+                  ),
+                });
               }}
               environmentId={String(environmentId)}
               readOnly={readOnly}

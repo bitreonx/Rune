@@ -40,16 +40,31 @@ jobs:
           run-install: true
 
       - name: Ensure Electron runtime is installed
-        run: vp run --filter @runetools/desktop ensure:electron
+        run: vp run --filter @rune/desktop ensure:electron
 
       - name: Check
         run: vp check
+
+      - name: Check source encoding
+        run: vp run check:encoding
+
+      - name: Check performance budgets
+        run: vp run check:performance
+
+      - name: Check verification surfaces
+        run: vp run check:verification-surfaces
 
       - name: Typecheck
         run: vpr typecheck
 
       - name: Build desktop pipeline
         run: vp run build:desktop
+
+      - name: Desktop smoke
+        run: vp run test:desktop-smoke
+
+      - name: Release smoke
+        run: vp run release:smoke
 
       - name: Verify preload bundle output
         run: |
@@ -83,10 +98,10 @@ jobs:
           run-install: true
 
       - name: Ensure Electron runtime is installed
-        run: vp run --filter @runetools/desktop ensure:electron
+        run: vp run --filter @rune/desktop ensure:electron
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!rune' --filter '!@runetools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!rune' --filter '!@rune/monorepo' test
 
   # apps/server sets `fileParallelism: false`, so its 239 files run strictly
   # one at a time. Sharding spreads them over separate runners instead of
@@ -118,7 +133,7 @@ jobs:
 
       # No Electron setup here: `rune` (apps/server) has no Electron dependency
       # and none of its tests touch the runtime. Only the non-server `test`
-      # job, which covers @runetools/desktop, needs the download.
+      # job, which covers @rune/desktop, needs the download.
       - name: Test
         env:
           RUNE_TRANSFER_BUDGET_REPORT_PATH: ${{ runner.temp }}/rune-transfer-budget.md
@@ -285,7 +300,7 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=@runetools/scripts...
+              - --filter=@rune/scripts...
 
       - name: Install mobile native static analysis tools
         run: brew bundle install --file apps/mobile/Brewfile
@@ -313,7 +328,7 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=@runetools/scripts...
+              - --filter=@rune/scripts...
 
       - name: Exercise release-only workflow steps
         run: node scripts/release-smoke.ts

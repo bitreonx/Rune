@@ -31,8 +31,20 @@ import {
 } from "@rune/client-runtime/state/subagentRuntime";
 import { SubagentAvatar } from "./agent-chat/SubagentAvatar";
 import type { EnvironmentThreadShell } from "@rune/client-runtime/state/models";
-import { scopeProjectRef, scopeThreadRef, scopedThreadKey } from "@rune/client-runtime/environment";
-import type { ContextMenuItem, ScopedThreadRef, ThreadId } from "@rune/contracts";
+import {
+  parseScopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+  scopedThreadKey,
+} from "@rune/client-runtime/environment";
+import {
+  PocketId,
+  type ContextMenuItem,
+  type EnvironmentId,
+  type PocketCommand,
+  type ScopedThreadRef,
+  type ThreadId,
+} from "@rune/contracts";
 import type { TimestampFormat } from "@rune/contracts/settings";
 import {
   AlarmClockIcon,
@@ -67,6 +79,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -119,6 +132,7 @@ import {
   useThreadShells,
 } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
+import { pocketEnvironment } from "../state/pockets";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
@@ -133,15 +147,10 @@ import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
-import { FolderSidebarSection } from "./sidebar/FolderSidebarSection";
-import {
-  designForPreset,
-  effectiveThreadDesign,
-  folderAndDescendantIds,
-  THREAD_DESIGN_PRESETS,
-  type ThreadDesignPreset,
-} from "../threadOrganization";
+import { PocketSidebarSection } from "./sidebar/PocketSidebarSection";
 import { useThreadOrganizationStore } from "../threadOrganizationStore";
+import { buildLegacyPocketImport } from "../pockets/legacyPocketImport";
+import { pocketThreadKeys } from "../pockets/pocketProjection";
 import {
   animatePinnedLayoutChanges,
   buildBulkTitleRegenerationContextMenuItem,
@@ -262,9 +271,7 @@ function WorkingDuration(props: { startedAt: string | null }) {
   const now = useTick();
   if (Number.isNaN(startedMs)) return null;
   return (
-    <span className="font-mono tabular-nums">
-      {formatWorkingDurationLabel(now - startedMs)}
-    </span>
+    <span className="font-mono tabular-nums">{formatWorkingDurationLabel(now - startedMs)}</span>
   );
 }
 
@@ -813,7 +820,6 @@ const SidebarSubagentBranch = memo(function SidebarSubagentBranch({
                 tabIndex={expanded ? 0 : -1}
                 className="group flex min-h-9 w-full cursor-pointer items-center gap-2 border-b border-sidebar-border/45 px-2 py-1 text-left text-[11px] text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                 aria-label={`Open ${displayName} ${agent.chat?.canRead ? "chat" : "activity"} (${agent.status}) in the Agents panel`}
-                title={agent.agentPath ?? displayName}
                 onClick={() => openAgentActivity(agent.id)}
                 data-rune-sidebar-agent={agent.id}
               >
@@ -884,7 +890,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   projectCwd: string | null;
   projectFaviconPath: string | null;
   projectTitle: string | null;
-  designPreset?: ThreadDesignPreset;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   timestampFormat: TimestampFormat;
   onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
@@ -907,6 +912,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     threadKey: string,
     snapshot: ThreadChangeRequestSnapshot | null,
   ) => void;
+  onThreadDragStart?: (event: ReactDragEvent, threadKey: string) => void;
+  onThreadDragEnd?: () => void;
 }) {
   const {
     isRenaming,
@@ -1395,14 +1402,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 data-rune-sidebar-row="thread"
                 data-rune-sidebar-active={props.isActive ? "true" : "false"}
                 data-rune-sidebar-selected={isSelected ? "true" : "false"}
-                data-rune-thread-design={props.designPreset ?? "slate-minimal"}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
+                draggable={props.onThreadDragStart !== undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
                 onContextMenu={handleContextMenu}
+                onDragStart={(event) => props.onThreadDragStart?.(event, threadKey)}
+                onDragEnd={props.onThreadDragEnd}
               />
             }
           >
@@ -1560,14 +1569,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               data-rune-sidebar-row="thread"
               data-rune-sidebar-active={props.isActive ? "true" : "false"}
               data-rune-sidebar-selected={isSelected ? "true" : "false"}
-              data-rune-thread-design={props.designPreset ?? "slate-minimal"}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
+              draggable={props.onThreadDragStart !== undefined}
               className={rowSurfaceClassName}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
               onContextMenu={handleContextMenu}
+              onDragStart={(event) => props.onThreadDragStart?.(event, threadKey)}
+              onDragEnd={props.onThreadDragEnd}
             />
           }
         >
@@ -1973,7 +1984,7 @@ export default function Sidebar() {
     },
   });
   const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedPocketId, setSelectedPocketId] = useState<PocketId | null>(null);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -1981,6 +1992,54 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const pocketSnapshotQuery = useEnvironmentQuery(
+    primaryEnvironmentId === null
+      ? null
+      : pocketEnvironment.snapshot({ environmentId: primaryEnvironmentId, input: {} }),
+  );
+  const pocketSnapshot = pocketSnapshotQuery.data;
+  const dispatchPocket = useAtomCommand(pocketEnvironment.dispatch, {
+    label: "sidebar Pocket operation",
+    reportFailure: false,
+  });
+  const importLegacyPockets = useAtomCommand(pocketEnvironment.importLegacy, {
+    label: "migrate legacy thread folders to Pockets",
+    reportFailure: false,
+  });
+  const legacyPocketMigrationEnvironment = useRef<EnvironmentId | null>(null);
+  useEffect(() => {
+    if (
+      primaryEnvironmentId === null ||
+      pocketSnapshot === null ||
+      pocketSnapshot.revision !== 0 ||
+      legacyPocketMigrationEnvironment.current === primaryEnvironmentId
+    ) {
+      return;
+    }
+    legacyPocketMigrationEnvironment.current = primaryEnvironmentId;
+    void importLegacyPockets({
+      environmentId: primaryEnvironmentId,
+      input: buildLegacyPocketImport(organization, primaryEnvironmentId),
+    });
+  }, [importLegacyPockets, organization, pocketSnapshot, primaryEnvironmentId]);
+  const dispatchPocketCommand = useCallback(
+    async (command: PocketCommand) => {
+      if (primaryEnvironmentId === null) return null;
+      const result = await dispatchPocket({ environmentId: primaryEnvironmentId, input: command });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Pocket operation failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+      return result;
+    },
+    [dispatchPocket, primaryEnvironmentId],
+  );
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -2129,26 +2188,24 @@ export default function Sidebar() {
           ),
     [scopedProjectGroup],
   );
-  const threadProjectKeysByThreadKey = useMemo(
+  const selectedPocketThreadKeys = useMemo(
     () =>
-      Object.fromEntries(
-        threads.map((thread) => [
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          `${thread.environmentId}:${thread.projectId}`,
-        ]),
-      ),
-    [threads],
-  );
-  const selectedFolderThreadIds = useMemo(
-    () =>
-      selectedFolderId === null ? null : folderAndDescendantIds(organization, selectedFolderId),
-    [organization, selectedFolderId],
+      selectedPocketId === null || primaryEnvironmentId === null || pocketSnapshot === null
+        ? selectedPocketId === null
+          ? null
+          : new Set<string>()
+        : pocketThreadKeys(pocketSnapshot, primaryEnvironmentId, selectedPocketId),
+    [pocketSnapshot, primaryEnvironmentId, selectedPocketId],
   );
   useEffect(() => {
-    if (selectedFolderId !== null && !organization.folders[selectedFolderId]) {
-      setSelectedFolderId(null);
+    if (
+      selectedPocketId !== null &&
+      (pocketSnapshot === null ||
+        !pocketSnapshot.pockets.some((pocket) => pocket.id === selectedPocketId))
+    ) {
+      setSelectedPocketId(null);
     }
-  }, [organization.folders, selectedFolderId]);
+  }, [pocketSnapshot, selectedPocketId]);
   useEffect(() => {
     if (projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);
@@ -2184,7 +2241,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey, selectedFolderId]);
+  }, [clearSelection, projectScopeKey, selectedPocketId]);
 
   const handleProjectSettings = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
@@ -2233,8 +2290,7 @@ export default function Sidebar() {
         organization.threadTrashedAtByKey[threadKey] === undefined &&
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) &&
-        (selectedFolderThreadIds === null ||
-          selectedFolderThreadIds.has(organization.threadFolderByKey[threadKey] ?? ""))
+        (selectedPocketThreadKeys === null || selectedPocketThreadKeys.has(threadKey))
       );
     });
     const pinned: EnvironmentThreadShell[] = [];
@@ -2307,8 +2363,7 @@ export default function Sidebar() {
             (scopedProjectKeys === null ||
               scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) &&
             organization.threadTrashedAtByKey[threadKey] === undefined &&
-            (selectedFolderThreadIds === null ||
-              selectedFolderThreadIds.has(organization.threadFolderByKey[threadKey] ?? ""))
+            (selectedPocketThreadKeys === null || selectedPocketThreadKeys.has(threadKey))
           );
         }),
       ),
@@ -2321,7 +2376,7 @@ export default function Sidebar() {
     nowMinute,
     organization,
     scopedProjectKeys,
-    selectedFolderThreadIds,
+    selectedPocketThreadKeys,
     serverConfigs,
     snoozeWakeTick,
     threads,
@@ -2531,6 +2586,256 @@ export default function Sidebar() {
   );
   const snoozedThreadKeysRef = useRef(snoozedThreadKeys);
   snoozedThreadKeysRef.current = snoozedThreadKeys;
+
+  const activePocketMenuItems = useMemo(
+    () =>
+      (pocketSnapshot?.pockets ?? [])
+        .filter((pocket) => pocket.archivedAt == null && pocket.trashedAt == null)
+        .toSorted(
+          (left, right) =>
+            left.orderKey.localeCompare(right.orderKey) || left.title.localeCompare(right.title),
+        ),
+    [pocketSnapshot],
+  );
+  const moveThreadsToPocket = useCallback(
+    async (threadKeys: ReadonlyArray<string>, pocketId: PocketId | null) => {
+      if (primaryEnvironmentId === null || pocketSnapshot === null) return null;
+      const inverseCommands: PocketCommand[] = [];
+      const rollback = async () => {
+        for (const command of inverseCommands) await dispatchPocketCommand(command);
+      };
+      for (const threadKey of threadKeys) {
+        const ref = parseScopedThreadKey(threadKey);
+        if (ref === null || ref.environmentId !== primaryEnvironmentId) continue;
+        const memberships = pocketSnapshot.threadMemberships.filter(
+          (membership) => membership.threadId === ref.threadId,
+        );
+        for (const membership of memberships) {
+          const removed = await dispatchPocketCommand({
+            type: "pocket.thread-removed",
+            pocketId: membership.pocketId,
+            threadId: membership.threadId,
+          });
+          if (removed === null || removed._tag === "Failure") {
+            await rollback();
+            return null;
+          }
+          inverseCommands.push({
+            type: "pocket.thread-added",
+            pocketId: membership.pocketId,
+            threadId: membership.threadId,
+            orderKey: membership.orderKey,
+          });
+        }
+        if (pocketId !== null) {
+          const added = await dispatchPocketCommand({
+            type: "pocket.thread-added",
+            pocketId,
+            threadId: ref.threadId,
+            orderKey: `${Date.now().toString(36)}-${ref.threadId}`.slice(0, 128),
+          });
+          if (added === null || added._tag === "Failure") {
+            await rollback();
+            return null;
+          }
+          inverseCommands.push({
+            type: "pocket.thread-removed",
+            pocketId,
+            threadId: ref.threadId,
+          });
+        }
+      }
+      return async () => {
+        for (const command of inverseCommands) await dispatchPocketCommand(command);
+      };
+    },
+    [dispatchPocketCommand, pocketSnapshot, primaryEnvironmentId],
+  );
+  const reorderPocket = useCallback(
+    async (pocketId: PocketId, direction: -1 | 1) => {
+      if (pocketSnapshot === null || primaryEnvironmentId === null) return null;
+      const activePockets = pocketSnapshot.pockets.filter(
+        (pocket) => pocket.archivedAt == null && pocket.trashedAt == null,
+      );
+      const pocket = activePockets.find((candidate) => candidate.id === pocketId);
+      if (!pocket) return null;
+      const siblings = activePockets
+        .filter((candidate) => candidate.parentPocketId === pocket.parentPocketId)
+        .toSorted(
+          (left, right) =>
+            left.orderKey.localeCompare(right.orderKey) || left.title.localeCompare(right.title),
+        );
+      const index = siblings.findIndex((candidate) => candidate.id === pocketId);
+      const destination = index + direction;
+      if (index < 0 || destination < 0 || destination >= siblings.length) return null;
+      const ordered = [...siblings];
+      const current = ordered[index];
+      const next = ordered[destination];
+      if (!current || !next) return null;
+      [ordered[index], ordered[destination]] = [next, current];
+      const originalCommands = siblings.map(
+        (candidate) =>
+          ({
+            type: "pocket.move",
+            pocketId: candidate.id,
+            parentPocketId: candidate.parentPocketId,
+            orderKey: candidate.orderKey,
+          }) satisfies PocketCommand,
+      );
+      const nextCommands = ordered.map(
+        (candidate, orderIndex) =>
+          ({
+            type: "pocket.move",
+            pocketId: candidate.id,
+            parentPocketId: candidate.parentPocketId,
+            orderKey: `${String(orderIndex).padStart(8, "0")}-${candidate.id}`.slice(0, 128),
+          }) satisfies PocketCommand,
+      );
+      for (const command of nextCommands) {
+        const result = await dispatchPocketCommand(command);
+        if (result === null || result._tag === "Failure") {
+          for (const inverse of originalCommands) await dispatchPocketCommand(inverse);
+          return null;
+        }
+      }
+      return async () => {
+        for (const command of originalCommands) await dispatchPocketCommand(command);
+      };
+    },
+    [dispatchPocketCommand, pocketSnapshot, primaryEnvironmentId],
+  );
+  const handleThreadDragStart = useCallback((event: ReactDragEvent, threadKey: string) => {
+    const selected = useThreadSelectionStore.getState().selectedThreadKeys;
+    const threadKeys = selected.has(threadKey) ? [...selected] : [threadKey];
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-rune-thread-keys", JSON.stringify(threadKeys));
+    event.dataTransfer.setData("text/plain", threadKeys.join("\n"));
+  }, []);
+  const handleThreadDragEnd = useCallback(() => undefined, []);
+  const handleThreadDrop = useCallback(
+    (pocketId: PocketId, threadKeys: ReadonlyArray<string>) =>
+      moveThreadsToPocket(threadKeys, pocketId),
+    [moveThreadsToPocket],
+  );
+  const handlePocketFileDrop = useCallback(
+    async (pocketId: PocketId, relativePaths: ReadonlyArray<string>) => {
+      if (primaryEnvironmentId === null || pocketSnapshot === null) return null;
+      const uniquePaths = [
+        ...new Set(relativePaths.map((path) => path.replaceAll("\\", "/"))),
+      ].filter((path) => path.length > 0 && !path.split("/").includes(".."));
+      const added: Array<Extract<PocketCommand, { type: "pocket.file-referenced" }>> = [];
+      for (const relativePath of uniquePaths) {
+        const result = await dispatchPocketCommand({
+          type: "pocket.file-referenced",
+          pocketId,
+          environmentId: primaryEnvironmentId,
+          relativePath,
+        });
+        if (result === null || result._tag === "Failure") {
+          for (const command of added) {
+            await dispatchPocketCommand({
+              type: "pocket.file-unreferenced",
+              pocketId: command.pocketId,
+              environmentId: primaryEnvironmentId,
+              relativePath: command.relativePath,
+            });
+          }
+          return null;
+        }
+        added.push({
+          type: "pocket.file-referenced",
+          pocketId,
+          environmentId: primaryEnvironmentId,
+          relativePath,
+        });
+      }
+      return async () => {
+        for (const command of added) {
+          await dispatchPocketCommand({
+            type: "pocket.file-unreferenced",
+            pocketId: command.pocketId,
+            environmentId: primaryEnvironmentId,
+            relativePath: command.relativePath,
+          });
+        }
+      };
+    },
+    [dispatchPocketCommand, pocketSnapshot, primaryEnvironmentId],
+  );
+  const handlePocketDrop = useCallback(
+    async (
+      targetPocketId: PocketId,
+      draggedPocketId: PocketId,
+      placement: "inside" | "before" | "after",
+    ) => {
+      if (targetPocketId === draggedPocketId || primaryEnvironmentId === null) return null;
+      if (pocketSnapshot === null) return null;
+      const activePockets = pocketSnapshot.pockets.filter(
+        (pocket) => pocket.archivedAt == null && pocket.trashedAt == null,
+      );
+      const dragged = activePockets.find((pocket) => pocket.id === draggedPocketId);
+      const target = activePockets.find((pocket) => pocket.id === targetPocketId);
+      if (!dragged || !target) return null;
+      const parentPocketId = placement === "inside" ? target.id : target.parentPocketId;
+      const siblings = activePockets
+        .filter((pocket) => pocket.parentPocketId === parentPocketId && pocket.id !== dragged.id)
+        .toSorted(
+          (left, right) =>
+            left.orderKey.localeCompare(right.orderKey) || left.title.localeCompare(right.title),
+        );
+      const targetIndex =
+        placement === "inside"
+          ? siblings.length
+          : Math.max(
+              0,
+              siblings.findIndex((pocket) => pocket.id === target.id) +
+                (placement === "after" ? 1 : 0),
+            );
+      const ordered = [...siblings];
+      ordered.splice(targetIndex, 0, dragged);
+      const affected = [...siblings, dragged];
+      const originalCommands = affected.map(
+        (pocket) =>
+          ({
+            type: "pocket.move",
+            pocketId: pocket.id,
+            parentPocketId: pocket.parentPocketId,
+            orderKey: pocket.orderKey,
+          }) satisfies PocketCommand,
+      );
+      const nextCommands = ordered.map(
+        (pocket, orderIndex) =>
+          ({
+            type: "pocket.move",
+            pocketId: pocket.id,
+            parentPocketId,
+            orderKey: `${String(orderIndex).padStart(8, "0")}-${pocket.id}`.slice(0, 128),
+          }) satisfies PocketCommand,
+      );
+      for (const command of nextCommands) {
+        const result = await dispatchPocketCommand(command);
+        if (result === null || result._tag === "Failure") {
+          for (const inverse of originalCommands) await dispatchPocketCommand(inverse);
+          return null;
+        }
+      }
+      return async () => {
+        for (const command of originalCommands) await dispatchPocketCommand(command);
+      };
+    },
+    [dispatchPocketCommand, pocketSnapshot, primaryEnvironmentId],
+  );
+  const showPocketUndo = useCallback((undo: (() => Promise<void>) | null) => {
+    if (undo === null) return;
+    toastManager.add(
+      stackedThreadToast({
+        type: "success",
+        title: "Pocket organization updated",
+        timeout: 5_000,
+        actionProps: { children: "Undo", onClick: () => void undo() },
+      }),
+    );
+  }, []);
 
   const jumpLabelByKey = useMemo(() => {
     const mapping = new Map<string, string>();
@@ -3084,12 +3389,12 @@ export default function Sidebar() {
         actionableCount: regeneratableTitleThreads.length,
       });
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
-      const folderMenuItems: ContextMenuItem<string>[] = [
-        { id: "folder:none", label: "No folder" },
-        ...Object.values(organization.folders)
-          .filter((folder) => folder.trashedAt === null && folder.archivedAt === null)
-          .sort((left, right) => left.name.localeCompare(right.name))
-          .map((folder) => ({ id: `folder:${folder.id}`, label: folder.name })),
+      const pocketMenuItems: ContextMenuItem<string>[] = [
+        { id: "pocket:none", label: "No Pocket" },
+        ...activePocketMenuItems.map((pocket) => ({
+          id: `pocket:${pocket.id}`,
+          label: pocket.title,
+        })),
       ];
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
@@ -3109,9 +3414,9 @@ export default function Sidebar() {
               : []),
             ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
             {
-              id: "move-to-folder",
-              label: `Move to folder (${count})`,
-              children: folderMenuItems,
+              id: "move-to-pocket",
+              label: `Move to Pocket (${count})`,
+              children: pocketMenuItems,
             },
             { id: "mark-unread", label: `Mark unread (${count})` },
             { id: "delete", label: `Delete (${count})`, destructive: true },
@@ -3180,10 +3485,12 @@ export default function Sidebar() {
         }
         return;
       }
-      if (clicked.value === "folder:none" || clicked.value?.startsWith("folder:")) {
-        const folderId =
-          clicked.value === "folder:none" ? null : clicked.value.slice("folder:".length);
-        for (const threadKey of threadKeys) organization.assignThreadToFolder(threadKey, folderId);
+      if (clicked.value === "pocket:none" || clicked.value?.startsWith("pocket:")) {
+        const pocketId =
+          clicked.value === "pocket:none"
+            ? null
+            : PocketId.make(clicked.value.slice("pocket:".length));
+        await moveThreadsToPocket(threadKeys, pocketId);
         clearSelection();
         return;
       }
@@ -3282,6 +3589,8 @@ export default function Sidebar() {
       markThreadUnread,
       performSnooze,
       organization,
+      activePocketMenuItems,
+      moveThreadsToPocket,
       removeFromSelection,
       serverConfigs,
       attemptUnsnooze,
@@ -3325,23 +3634,7 @@ export default function Sidebar() {
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
-        // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
-        const threadStyleItems: ContextMenuItem<string>[] = [
-          {
-            id: "thread-style:reset",
-            label: "Use folder style",
-            icon: "rotate-ccw",
-            disabled:
-              organization.threadDesignByKey[threadKey]?.design === null ||
-              organization.threadDesignByKey[threadKey]?.design === undefined,
-          },
-          ...THREAD_DESIGN_PRESETS.map((preset) => ({
-            id: `thread-style:${preset.id}`,
-            label: preset.label,
-            icon: "palette",
-          })),
-        ];
         const threadActionItems: ContextMenuItem<string>[] = [
           ...buildThreadActionMenuItems({
             branch: thread.branch ?? null,
@@ -3361,21 +3654,15 @@ export default function Sidebar() {
             snoozePresets,
           }),
           {
-            id: "thread-style",
-            label: "Thread style",
-            icon: "palette",
-            children: threadStyleItems,
-          },
-          {
-            id: "move-to-folder",
-            label: "Move to folder",
+            id: "move-to-pocket",
+            label: "Move to Pocket",
             icon: "folder",
             children: [
-              { id: "folder:none", label: "No folder" },
-              ...Object.values(organization.folders)
-                .filter((folder) => folder.trashedAt === null && folder.archivedAt === null)
-                .sort((left, right) => left.name.localeCompare(right.name))
-                .map((folder) => ({ id: `folder:${folder.id}`, label: folder.name })),
+              { id: "pocket:none", label: "No Pocket" },
+              ...activePocketMenuItems.map((pocket) => ({
+                id: `pocket:${pocket.id}`,
+                label: pocket.title,
+              })),
             ],
           },
         ];
@@ -3390,23 +3677,15 @@ export default function Sidebar() {
           if (preset) attemptSnooze(threadRef, preset);
           return;
         }
-        if (clicked.value === "thread-style:reset") {
-          organization.setThreadDesign(threadKey, null);
+        if (clicked.value === "pocket:none") {
+          await moveThreadsToPocket([threadKey], null);
           return;
         }
-        if (clicked.value?.startsWith("thread-style:")) {
-          const preset = clicked.value.slice("thread-style:".length) as ThreadDesignPreset;
-          if (THREAD_DESIGN_PRESETS.some((candidate) => candidate.id === preset)) {
-            organization.setThreadDesign(threadKey, designForPreset(preset));
-          }
-          return;
-        }
-        if (clicked.value === "folder:none") {
-          organization.assignThreadToFolder(threadKey, null);
-          return;
-        }
-        if (clicked.value?.startsWith("folder:")) {
-          organization.assignThreadToFolder(threadKey, clicked.value.slice("folder:".length));
+        if (clicked.value?.startsWith("pocket:")) {
+          await moveThreadsToPocket(
+            [threadKey],
+            PocketId.make(clicked.value.slice("pocket:".length)),
+          );
           return;
         }
         switch (clicked.value) {
@@ -3584,6 +3863,8 @@ export default function Sidebar() {
       handleMultiSelectContextMenu,
       keepThread,
       markThreadUnread,
+      activePocketMenuItems,
+      moveThreadsToPocket,
       organization,
       projectCwdByKey,
       serverConfigs,
@@ -3931,12 +4212,20 @@ export default function Sidebar() {
           data-rune-sidebar-section="threads"
           data-rune-sidebar-scope={scopedProjectGroup ? "project" : "all-projects"}
         >
-          <FolderSidebarSection
-            projectScopeKeys={scopedProjectKeys}
-            threadProjectKeysByThreadKey={threadProjectKeysByThreadKey}
-            selectedFolderId={selectedFolderId}
-            onSelectFolder={setSelectedFolderId}
-          />
+          {primaryEnvironmentId !== null ? (
+            <PocketSidebarSection
+              environmentId={primaryEnvironmentId}
+              snapshot={pocketSnapshot}
+              selectedPocketId={selectedPocketId}
+              onSelectPocket={setSelectedPocketId}
+              onDispatch={dispatchPocketCommand}
+              onThreadDrop={handleThreadDrop}
+              onFileDrop={handlePocketFileDrop}
+              onPocketDrop={handlePocketDrop}
+              onPocketReorder={reorderPocket}
+              onUndoReady={showPocketUndo}
+            />
+          ) : null}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -4094,7 +4383,6 @@ export default function Sidebar() {
                               `${thread.environmentId}:${thread.projectId}`,
                             ) ?? null
                           }
-                          designPreset={effectiveThreadDesign(organization, threadKey).preset}
                           providerEntryByInstanceId={
                             providerEntriesByEnvironment.get(thread.environmentId) ??
                             EMPTY_PROVIDER_ENTRIES
@@ -4117,6 +4405,8 @@ export default function Sidebar() {
                           onAcknowledgeWoke={acknowledgeWoke}
                           changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
                           onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
+                          onThreadDragStart={handleThreadDragStart}
+                          onThreadDragEnd={handleThreadDragEnd}
                         />
                         {routeThreadKey === threadKey ? (
                           <SidebarSubagentBranch

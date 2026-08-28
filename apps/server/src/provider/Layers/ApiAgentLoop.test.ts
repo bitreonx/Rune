@@ -217,6 +217,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
         "generate_files",
         "run_checks",
         "edit_file",
+        "rune_operation",
         "bash",
       ]);
       expect((firstBody?.messages as Array<{ role: string }>)[0]).toMatchObject({

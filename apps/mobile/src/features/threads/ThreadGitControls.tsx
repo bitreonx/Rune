@@ -1,7 +1,9 @@
 import {
   EnvironmentId,
+  type ActionProposalRecord,
   type GitRunStackedActionResult,
   type ProjectScript,
+  type RuneAction,
   ThreadId,
   type VcsStatusResult,
 } from "@rune/contracts";
@@ -98,12 +100,19 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly canOpenTerminal: boolean;
   readonly canOpenFiles: boolean;
   readonly projectScripts: ReadonlyArray<ProjectScript>;
+  readonly registeredActions?: ReadonlyArray<RuneAction>;
+  readonly actionProposals?: ReadonlyArray<ActionProposalRecord>;
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
   readonly showActionControls?: boolean;
   readonly showDirectFileControl?: boolean;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
   readonly onRunProjectScript: (script: ProjectScript) => Promise<void>;
+  readonly onRunRegisteredAction?: (action: RuneAction) => Promise<void>;
+  readonly onDecideActionProposal?: (
+    proposalId: string,
+    decision: "approve" | "reject" | "dismiss",
+  ) => Promise<void>;
 };
 
 function useThreadGitControlModel(props: ThreadGitMenuProps) {
@@ -266,6 +275,13 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
               onPress: () => void props.onRunProjectScript(script),
               type: "action" as const,
             })),
+            ...(props.registeredActions ?? []).map((action) => ({
+              description: action.description ?? "Run a registered RUNE action",
+              icon: { name: "play.circle", type: "sfSymbol" as const },
+              label: action.name,
+              onPress: () => void props.onRunRegisteredAction?.(action),
+              type: "action" as const,
+            })),
             ...(props.projectScripts.length === 0
               ? [
                   {
@@ -384,7 +400,9 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
       props.onOpenNewTerminal,
       props.onOpenTerminal,
       props.onRunProjectScript,
+      props.onRunRegisteredAction,
       props.projectScripts,
+      props.registeredActions,
       props.terminalSessions,
     ],
   );
@@ -453,6 +471,50 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
               <NativeHeaderToolbar.Label>No project scripts</NativeHeaderToolbar.Label>
             </NativeHeaderToolbar.MenuAction>
           )}
+          {(props.registeredActions ?? []).map((action) => (
+            <NativeHeaderToolbar.MenuAction
+              key={action.id}
+              icon="play.circle"
+              onPress={() => void props.onRunRegisteredAction?.(action)}
+              subtitle={action.description ?? "Run a registered RUNE action"}
+            >
+              <NativeHeaderToolbar.Label>{action.name}</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ))}
+          {(props.actionProposals ?? []).map((proposal) => (
+            <NativeHeaderToolbar.MenuAction
+              key={proposal.proposal.proposalId}
+              icon="exclamationmark.circle"
+              onPress={() =>
+                Alert.alert(
+                  `Suggested action: ${proposal.proposal.action.name}`,
+                  proposal.proposal.reason,
+                  [
+                    { text: "Later", style: "cancel" },
+                    {
+                      text: "Reject",
+                      style: "destructive",
+                      onPress: () =>
+                        void props.onDecideActionProposal?.(proposal.proposal.proposalId, "reject"),
+                    },
+                    {
+                      text: "Approve",
+                      onPress: () =>
+                        void props.onDecideActionProposal?.(
+                          proposal.proposal.proposalId,
+                          "approve",
+                        ),
+                    },
+                  ],
+                )
+              }
+              subtitle="Review before this learned action becomes available"
+            >
+              <NativeHeaderToolbar.Label>
+                Review · {proposal.proposal.action.name}
+              </NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ))}
           {props.terminalSessions.map((session) => (
             <NativeHeaderToolbar.MenuAction
               key={session.terminalId}

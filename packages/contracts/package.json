@@ -1,6 +1,6 @@
 {
   "name": "@rune/contracts",
-  "version": "0.0.33",
+  "version": "0.5.0",
   "private": true,
   "files": [
     "dist"
@@ -18,6 +18,22 @@
     "./relay": {
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"
+    },
+    "./plan": {
+      "types": "./src/plan.ts",
+      "import": "./src/plan.ts"
+    },
+    "./baseSchemas": {
+      "types": "./src/baseSchemas.ts",
+      "import": "./src/baseSchemas.ts"
+    },
+    "./promptQueue": {
+      "types": "./src/promptQueue.ts",
+      "import": "./src/promptQueue.ts"
+    },
+    "./mutation": {
+      "types": "./src/mutation.ts",
+      "import": "./src/mutation.ts"
     }
   },
   "scripts": {

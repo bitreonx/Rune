@@ -95,6 +95,10 @@
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"
     },
+    "./state/pockets": {
+      "types": "./src/state/pockets.ts",
+      "default": "./src/state/pockets.ts"
+    },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",
       "default": "./src/state/pullRequests.ts"
@@ -118,6 +122,22 @@
     "./state/turnTrace": {
       "types": "./src/state/turnTrace.ts",
       "default": "./src/state/turnTrace.ts"
+    },
+    "./state/executionController": {
+      "types": "./src/state/executionController.ts",
+      "default": "./src/state/executionController.ts"
+    },
+    "./state/actions": {
+      "types": "./src/state/actions.ts",
+      "default": "./src/state/actions.ts"
+    },
+    "./state/mutationLedger": {
+      "types": "./src/state/mutationLedger.ts",
+      "default": "./src/state/mutationLedger.ts"
+    },
+    "./state/planSession": {
+      "types": "./src/state/planSession.ts",
+      "default": "./src/state/planSession.ts"
     },
     "./state/server": {
       "types": "./src/state/server.ts",

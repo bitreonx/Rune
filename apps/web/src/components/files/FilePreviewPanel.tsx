@@ -5,18 +5,8 @@ import type {
   ScopedThreadRef,
 } from "@rune/contracts";
 import type { TurnDiffFileChange } from "~/types";
-import {
-  isWorkspaceExactPreviewPath,
-} from "@rune/shared/filePreview";
-import {
-  ChevronRight,
-  Code2,
-  Columns2,
-  Eye,
-  FolderTree,
-  Globe2,
-  LoaderCircle,
-} from "lucide-react";
+import { isWorkspaceExactPreviewPath } from "@rune/shared/filePreview";
+import { ChevronRight, Code2, Columns2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
 import * as Schema from "effect/Schema";
 import {
   type RefObject,
@@ -89,6 +79,7 @@ interface FilePreviewPanelProps {
   revealLine: number | null;
   revealRequestId: number;
   onOpenFile: (relativePath: string) => void;
+  onOpenDiffFile?: (relativePath: string) => void;
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
 
@@ -174,6 +165,7 @@ export default function FilePreviewPanel({
   revealLine,
   revealRequestId,
   onOpenFile,
+  onOpenDiffFile,
   onPendingChange,
 }: FilePreviewPanelProps) {
   const { resolvedTheme } = useTheme();
@@ -227,7 +219,8 @@ export default function FilePreviewPanel({
   const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
   const isSvg = descriptor?.kind === "svg";
   const isJson = descriptor?.kind === "json";
-  const supportsModes = (isMarkdown || isSvg || isJson) === true && capabilities?.editable !== false;
+  const supportsModes =
+    (isMarkdown || isSvg || isJson) === true && capabilities?.editable !== false;
   // A reveal still wins over the preference: the line only exists in the source.
   const revealWins =
     revealLine !== null &&
@@ -349,7 +342,8 @@ export default function FilePreviewPanel({
 
   const showSource = !supportsModes || viewerMode === "source" || viewerMode === "split";
   const showPreview =
-    supportsModes && (viewerMode === "rendered" || viewerMode === "preview" || viewerMode === "split");
+    supportsModes &&
+    (viewerMode === "rendered" || viewerMode === "preview" || viewerMode === "split");
   const isSplit = showSource && showPreview;
 
   return (
@@ -494,12 +488,30 @@ export default function FilePreviewPanel({
               mode="preview"
             />
           ) : file.error && file.data === null ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
-              {file.error}
+            <div
+              className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-xs leading-relaxed"
+              role="alert"
+            >
+              <p className="text-destructive">{file.error}</p>
+              <button
+                type="button"
+                className="rounded-md border border-border/60 px-3 py-1.5 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => file.refresh()}
+              >
+                Retry
+              </button>
             </div>
           ) : file.data === null ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-              <LoaderCircle className="size-5 animate-spin" />
+            <div
+              className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              <LoaderCircle
+                className="motion-safe:animate-spin motion-reduce:animate-none size-5"
+                aria-hidden
+              />
+              <span className="sr-only">Loading file…</span>
             </div>
           ) : isSplit ? (
             <div className="flex min-h-0 flex-1">
@@ -619,6 +631,7 @@ export default function FilePreviewPanel({
               selectedPath={relativePath}
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
+              {...(onOpenDiffFile ? { onOpenDiffFile } : {})}
               {...(relativePath !== null && !isBinaryPreview
                 ? { onRefreshSelectedFile: file.refresh }
                 : {})}

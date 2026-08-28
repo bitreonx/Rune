@@ -1231,3 +1231,38 @@ it("isProviderSendTurnSupportedImageMimeType accepts raster formats and rejects 
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("IMAGE/JPEG"), true);
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("image/svg+xml"), false);
 });
+
+it.effect("defaults missing file ownership on historical thread data", () =>
+  Effect.gen(function* () {
+    const common = {
+      id: "thread-legacy-ownership",
+      projectId: "project-1",
+      title: "Historical thread",
+      modelSelection: { provider: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+      chatDiff: {
+        files: [],
+        computedAt: "2026-01-01T00:00:00.000Z",
+        throughTurnCount: 0,
+      },
+      baseline: null,
+      session: null,
+    };
+
+    const thread = yield* decodeOrchestrationThread(common);
+
+    assert.deepStrictEqual(thread.fileOwnership, []);
+  }),
+);

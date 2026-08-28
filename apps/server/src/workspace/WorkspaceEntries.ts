@@ -12,6 +12,8 @@ import * as Schema from "effect/Schema";
 import type {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
   ProjectSearchContentsInput,
@@ -79,6 +81,7 @@ export const WorkspaceEntriesError = Schema.Union([
   WorkspacePaths.WorkspaceRootCreateFailedError,
   WorkspacePaths.WorkspaceRootStatFailedError,
   WorkspacePaths.WorkspaceRootNotDirectoryError,
+  WorkspacePaths.WorkspacePathOutsideRootError,
   WorkspaceSearchIndex.WorkspaceSearchIndexCreateFailed,
   WorkspaceSearchIndex.WorkspaceSearchIndexScanTimedOut,
   WorkspaceSearchIndex.WorkspaceSearchIndexSearchFailed,
@@ -95,6 +98,9 @@ export class WorkspaceEntries extends Context.Service<
     readonly list: (
       input: ProjectListEntriesInput,
     ) => Effect.Effect<ProjectListEntriesResult, WorkspaceEntriesError>;
+    readonly listDirectory: (
+      input: ProjectListDirectoryInput,
+    ) => Effect.Effect<ProjectListDirectoryResult, WorkspaceEntriesError>;
     readonly search: (
       input: ProjectSearchEntriesInput,
     ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceEntriesError>;
@@ -284,7 +290,113 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return WorkspaceEntries.of({ browse, list, refresh, search, searchContents });
+  const listDirectory: WorkspaceEntries["Service"]["listDirectory"] = Effect.fn(
+    "WorkspaceEntries.listDirectory",
+  )(function* (input) {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    const directoryInput = input.directory.trim().replaceAll("\\", "/");
+    const requestedDirectory =
+      directoryInput === "."
+        ? ""
+        : path.isAbsolute(directoryInput)
+          ? directoryInput
+          : directoryInput.replace(/^\.\//, "").replace(/\/+$/, "");
+    const absoluteDirectory =
+      requestedDirectory === "" || requestedDirectory === "."
+        ? normalizedCwd
+        : (yield* workspacePaths
+            .resolveRelativePathWithinRoot({
+              workspaceRoot: normalizedCwd,
+              relativePath: requestedDirectory,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new WorkspaceTreeWalk.WorkspaceTreeWalkError({
+                    rootPath: normalizedCwd,
+                    directoryPath: requestedDirectory,
+                    cause,
+                  }),
+              ),
+            )).absolutePath;
+    const canonicalRoot = yield* Effect.tryPromise({
+      try: () => NodeFSP.realpath(normalizedCwd),
+      catch: (cause) =>
+        new WorkspaceTreeWalk.WorkspaceTreeWalkError({ rootPath: normalizedCwd, cause }),
+    });
+    const canonicalDirectory = yield* Effect.tryPromise({
+      try: () => NodeFSP.realpath(absoluteDirectory),
+      catch: (cause) =>
+        new WorkspaceTreeWalk.WorkspaceTreeWalkError({
+          rootPath: normalizedCwd,
+          directoryPath: requestedDirectory,
+          cause,
+        }),
+    });
+    const canonicalRelative = path
+      .relative(canonicalRoot, canonicalDirectory)
+      .replaceAll("\\", "/");
+    if (
+      canonicalRelative === ".." ||
+      canonicalRelative.startsWith("../") ||
+      path.isAbsolute(canonicalRelative)
+    ) {
+      return yield* new WorkspaceTreeWalk.WorkspaceTreeWalkError({
+        rootPath: normalizedCwd,
+        directoryPath: requestedDirectory,
+        cause: new Error("Workspace directory resolves outside the project root."),
+      });
+    }
+    const dirents = yield* Effect.tryPromise({
+      try: () => NodeFSP.readdir(absoluteDirectory, { withFileTypes: true }),
+      catch: (cause) =>
+        new WorkspaceTreeWalk.WorkspaceTreeWalkError({
+          rootPath: normalizedCwd,
+          directoryPath: requestedDirectory,
+          cause,
+        }),
+    });
+    const allEntries: Array<{ readonly path: string; readonly kind: "file" | "directory" }> = [];
+    for (const dirent of dirents.toSorted((left, right) => left.name.localeCompare(right.name))) {
+      if (
+        dirent.isDirectory() &&
+        [".git", "node_modules", ".venv", "venv", "__pycache__"].includes(dirent.name)
+      ) {
+        continue;
+      }
+      let kind: "file" | "directory" | null = dirent.isDirectory()
+        ? "directory"
+        : dirent.isFile()
+          ? "file"
+          : null;
+      if (kind === null && dirent.isSymbolicLink()) {
+        const target = yield* Effect.tryPromise({
+          try: () => NodeFSP.stat(path.join(absoluteDirectory, dirent.name)),
+          catch: (cause) =>
+            new WorkspaceTreeWalk.WorkspaceTreeWalkError({ rootPath: normalizedCwd, cause }),
+        }).pipe(Effect.orElseSucceed(() => null));
+        kind = target?.isDirectory() ? "directory" : target?.isFile() ? "file" : null;
+      }
+      if (kind === null) continue;
+      allEntries.push({
+        path: requestedDirectory ? `${requestedDirectory}/${dirent.name}` : dirent.name,
+        kind,
+      });
+    }
+    const requestedOffset = input.cursor === undefined ? 0 : Number.parseInt(input.cursor, 10);
+    const offset =
+      Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
+    const limit = input.limit ?? 1_000;
+    const entries = allEntries.slice(offset, offset + limit);
+    return {
+      directory: requestedDirectory,
+      entries,
+      nextCursor:
+        offset + entries.length < allEntries.length ? String(offset + entries.length) : null,
+    };
+  });
+
+  return WorkspaceEntries.of({ browse, list, listDirectory, refresh, search, searchContents });
 });
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(

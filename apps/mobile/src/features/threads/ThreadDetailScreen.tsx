@@ -45,6 +45,7 @@ import Animated, {
   Easing,
   FadeInDown,
   FadeOut,
+  ReduceMotion,
   useAnimatedReaction,
   useSharedValue,
   withTiming,
@@ -117,6 +118,8 @@ export interface ThreadDetailScreenProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onBuildPlan?: () => Promise<boolean>;
+  readonly onReviewPlan?: () => Promise<boolean>;
   readonly onReconnectEnvironment: () => void;
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
@@ -654,8 +657,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               <Animated.View
                 pointerEvents="box-none"
                 className="absolute -top-11 left-0 right-0 z-20 items-center"
-                entering={FadeInDown.duration(160)}
-                exiting={FadeOut.duration(100)}
+                entering={FadeInDown.duration(160).reduceMotion(ReduceMotion.System)}
+                exiting={FadeOut.duration(100).reduceMotion(ReduceMotion.System)}
               >
                 {isLiquidGlassSupported ? (
                   <LiquidGlassView
@@ -704,8 +707,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       ? { paddingBottom: composerBottomInset }
                       : undefined
                   }
-                  entering={FadeInDown.duration(220)}
-                  exiting={FadeOut.duration(140)}
+                  entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)}
+                  exiting={FadeOut.duration(140).reduceMotion(ReduceMotion.System)}
                 >
                   {props.activePendingApproval ? (
                     <PendingApprovalCard
@@ -761,6 +764,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onRemoveDraftImage={props.onRemoveDraftImage}
                 onStopThread={props.onStopThread}
                 onSendMessage={handleSendMessage}
+                onBuildPlan={props.onBuildPlan}
+                onReviewPlan={props.onReviewPlan}
                 onReconnectEnvironment={props.onReconnectEnvironment}
                 onUpdateModelSelection={props.onUpdateThreadModelSelection}
                 onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}

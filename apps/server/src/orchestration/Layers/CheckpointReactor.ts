@@ -62,6 +62,16 @@ function sameId(left: string | null | undefined, right: string | null | undefine
   return left === right;
 }
 
+function isUnsupportedProviderRollback(cause: unknown): boolean {
+  const message =
+    cause instanceof Error
+      ? cause.message
+      : typeof cause === "object" && cause !== null && "message" in cause
+        ? String((cause as { readonly message?: unknown }).message ?? "")
+        : String(cause ?? "");
+  return /not support|unsupported|unavailable|not implemented/iu.test(message);
+}
+
 function checkpointStatusFromRuntime(status: string | undefined): "ready" | "missing" | "error" {
   switch (status) {
     case "failed":
@@ -818,11 +828,66 @@ const make = Effect.gen(function* () {
     yield* workspaceEntries.refresh(sessionRuntime.value.cwd);
 
     const rolledBackTurns = Math.max(0, currentTurnCount - event.payload.turnCount);
+    let providerRollback: "rolled-back" | "unavailable" | "not-needed" = "not-needed";
     if (rolledBackTurns > 0) {
-      yield* providerService.rollbackConversation({
-        threadId: sessionRuntime.value.threadId,
-        numTurns: rolledBackTurns,
-      });
+      const rollbackResult = yield* providerService
+        .rollbackConversation({
+          threadId: sessionRuntime.value.threadId,
+          numTurns: rolledBackTurns,
+        })
+        .pipe(
+          Effect.map(() => "rolled-back" as const),
+          Effect.catch((cause) => {
+            if (!isUnsupportedProviderRollback(cause)) {
+              return Effect.fail(cause);
+            }
+            return Effect.succeed("unavailable" as const);
+          }),
+        );
+      providerRollback = rollbackResult;
+      if (providerRollback === "unavailable") {
+        // A provider that cannot rewind must not keep serving the old
+        // conversation after the local transcript has been restored. Stop
+        // the stale session so the next turn starts from RUNE's compiled
+        // context instead of silently claiming provider rollback succeeded.
+        yield* providerService
+          .stopSession({
+            threadId: sessionRuntime.value.threadId,
+          })
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "provider session could not be restarted after checkpoint restore",
+                {
+                  threadId: event.payload.threadId,
+                  cause,
+                },
+              ),
+            ),
+          );
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: yield* serverCommandId("provider-rollback-unavailable"),
+            threadId: event.payload.threadId,
+            activity: {
+              id: yield* serverEventId,
+              tone: "info",
+              kind: "checkpoint.provider-rollback-unavailable",
+              summary: "Workspace restored; provider conversation could not be rolled back.",
+              payload: {
+                turnCount: event.payload.turnCount,
+                rolledBackTurns,
+                detail:
+                  "RUNE restored the checkpoint and will continue from compiled context when a new turn starts.",
+              },
+              turnId: null,
+              createdAt: now,
+            },
+            createdAt: now,
+          })
+          .pipe(Effect.catch(() => Effect.void));
+      }
     }
 
     const staleCheckpointRefs: Array<CheckpointRef> = [];
@@ -845,6 +910,7 @@ const make = Effect.gen(function* () {
         commandId: yield* serverCommandId("checkpoint-revert-complete"),
         threadId: event.payload.threadId,
         turnCount: event.payload.turnCount,
+        providerRollback,
         createdAt: now,
       })
       .pipe(

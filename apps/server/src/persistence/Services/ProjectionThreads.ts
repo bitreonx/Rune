@@ -43,6 +43,7 @@ export const ProjectionThread = Schema.Struct({
   chatDiffJson: Schema.NullOr(Schema.String),
   chatDiffThroughTurnCount: Schema.NullOr(NonNegativeInt),
   fileOwnershipJson: Schema.NullOr(Schema.String),
+  agentJson: Schema.optional(Schema.NullOr(Schema.String)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),

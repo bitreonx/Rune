@@ -165,6 +165,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         "generate_files",
         "run_checks",
         "edit_file",
+        "rune_operation",
         "bash",
       ]);
       for (const def of GATED_TOOLS) {
@@ -179,6 +180,27 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
   });
 
   describe("gated tool executions", () => {
+    it.effect("executes a typed read operation without creating shell syntax", () =>
+      Effect.gen(function* () {
+        const operation = GATED_TOOLS.find((tool) => tool.name === "rune_operation")!;
+        const ctx = yield* makeContext;
+
+        const observation = yield* operation.execute(
+          {
+            operation: {
+              kind: "readLines",
+              path: "hello.txt",
+              start: 2,
+              end: 2,
+            },
+          },
+          ctx,
+        );
+
+        expect(observation).toBe("line2");
+      }),
+    );
+
     it.effect("edit_file replaces a unique occurrence and persists it", () =>
       Effect.gen(function* () {
         const edit = GATED_TOOLS.find((tool) => tool.name === "edit_file")!;
@@ -229,7 +251,10 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
 
         expect(capturedRuns.length).toBe(1);
         if ((yield* HostProcessPlatform) === "win32") {
-          expect(capturedRuns[0]).toMatchObject({ command: "cmd.exe", args: ["/c", "echo hi"] });
+          expect(capturedRuns[0]).toMatchObject({
+            command: "pwsh.exe",
+            args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "echo hi"],
+          });
         } else {
           expect(capturedRuns[0]).toMatchObject({ command: "bash", args: ["-c", "echo hi"] });
         }

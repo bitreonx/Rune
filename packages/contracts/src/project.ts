@@ -81,11 +81,28 @@ export const ProjectListEntriesResult = Schema.Struct({
 });
 export type ProjectListEntriesResult = typeof ProjectListEntriesResult.Type;
 
+export const ProjectListDirectoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  // Workspace-root-relative directory. The empty string addresses the root.
+  directory: Schema.String.check(Schema.isMaxLength(512)),
+  cursor: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(2_000))),
+});
+export type ProjectListDirectoryInput = typeof ProjectListDirectoryInput.Type;
+
+export const ProjectListDirectoryResult = Schema.Struct({
+  directory: Schema.String,
+  entries: Schema.Array(ProjectEntry),
+  nextCursor: Schema.NullOr(Schema.String),
+});
+export type ProjectListDirectoryResult = typeof ProjectListDirectoryResult.Type;
+
 export const ProjectEntriesFailure = Schema.Literals([
   "workspace_root_not_found",
   "workspace_root_create_failed",
   "workspace_root_stat_failed",
   "workspace_root_not_directory",
+  "workspace_path_outside_root",
   "search_index_create_failed",
   "search_index_scan_timed_out",
   "search_index_search_failed",
@@ -470,11 +487,7 @@ export class ProjectDeleteEntryError extends Schema.TaggedErrorClass<ProjectDele
   }
 }
 
-export const ProjectFileEventKind = Schema.Literals([
-  "changed",
-  "created",
-  "removed",
-]);
+export const ProjectFileEventKind = Schema.Literals(["changed", "created", "removed"]);
 export type ProjectFileEventKind = typeof ProjectFileEventKind.Type;
 
 export const ProjectFileEvent = Schema.Struct({

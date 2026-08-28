@@ -71,9 +71,13 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   } = props;
   const [expandedFilePath, setExpandedFilePath] = useState<string | null>(null);
   const [showTurnOnly, setShowTurnOnly] = useState(false);
-  const summaryStat = useMemo(() => summarizeTurnDiffStats(chatDiff), [chatDiff]);
-  const scopeSummary = useMemo(() => summarizeChangedFileScopes(chatDiff), [chatDiff]);
-  const previewFiles = useMemo(() => selectChangedFilePreview(chatDiff), [chatDiff]);
+  // A freshly completed turn can render before the cumulative chat diff has
+  // been projected. Keep the card truthful in that short window by falling
+  // back to the turn snapshot instead of showing an empty header.
+  const displayDiff = chatDiff.length > 0 ? chatDiff : turnDiff;
+  const summaryStat = useMemo(() => summarizeTurnDiffStats(displayDiff), [displayDiff]);
+  const scopeSummary = useMemo(() => summarizeChangedFileScopes(displayDiff), [displayDiff]);
+  const previewFiles = useMemo(() => selectChangedFilePreview(displayDiff), [displayDiff]);
   const compactPreviewVisible = showCompactPreview && !expanded;
 
   return (
@@ -108,7 +112,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
             />
             <span className="flex shrink-0 items-center gap-1 whitespace-nowrap font-medium text-foreground text-xs leading-4">
               <span>
-                {chatDiff.length} changed file{chatDiff.length === 1 ? "" : "s"}
+                {displayDiff.length} changed file{displayDiff.length === 1 ? "" : "s"}
               </span>
               {hasNonZeroStat(summaryStat) && (
                 <DiffStatLabel

@@ -186,7 +186,7 @@ jobs:
           run-install: true
 
       - name: Ensure Electron runtime is installed
-        run: vp run --filter @runetools/desktop ensure:electron
+        run: vp run --filter @rune/desktop ensure:electron
 
       - name: Check
         run: vp check
@@ -425,7 +425,7 @@ jobs:
           key: windows-release-packages-v1-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install desktop dependencies
-        run: vp install --filter=@runetools/desktop... --filter=rune... --filter=@runetools/scripts...
+        run: vp install --filter=@rune/desktop... --filter=rune... --filter=@rune/scripts...
 
       - name: Cache resource monitor
         id: resource_monitor_cache
@@ -738,8 +738,8 @@ jobs:
           run-install: |
             args:
               - --filter=rune...
-              - --filter=@runetools/web...
-              - --filter=@runetools/scripts...
+              - --filter=@rune/web...
+              - --filter=@rune/scripts...
 
       - name: Download relay client tracing config
         uses: actions/download-artifact@v8
@@ -759,7 +759,7 @@ jobs:
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
       - name: Build web package
-        run: vp run --filter @runetools/web build
+        run: vp run --filter @rune/web build
 
       - name: Build CLI package
         run: vp run --filter rune build
@@ -810,7 +810,7 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=@runetools/scripts...
+              - --filter=@rune/scripts...
 
       - name: Download all desktop artifacts
         uses: actions/download-artifact@v8
@@ -945,8 +945,8 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=@runetools/scripts...
-              - --filter=@runetools/web...
+              - --filter=@rune/scripts...
+              - --filter=@rune/web...
 
       - name: Download relay client tracing config
         uses: actions/download-artifact@v8
@@ -1073,8 +1073,8 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=@runetools/scripts...
-              - --filter=@runetools/oxlint-plugin-rune...
+              - --filter=@rune/scripts...
+              - --filter=@rune/oxlint-plugin-rune...
 
       - id: update_versions
         name: Update version strings
@@ -1137,7 +1137,7 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=@runetools/scripts...
+              - --filter=@rune/scripts...
 
       - name: Announce prerelease on Discord
         if: needs.preflight.outputs.is_prerelease == 'true'

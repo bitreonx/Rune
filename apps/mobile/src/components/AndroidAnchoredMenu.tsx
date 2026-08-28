@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 import { BackHandler, Pressable, ScrollView, View } from "react-native";
 import { useKeyboardState } from "react-native-keyboard-controller";
-import Animated, { FadeIn } from "react-native-reanimated";
+import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 
 import { appBlurTargetRef } from "../lib/appBlurTarget";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
@@ -223,7 +223,7 @@ export function AndroidAnchoredMenu(props: AndroidAnchoredMenuProps) {
             <Pressable accessible={false} className="absolute inset-0" onPress={close} />
             {!placeable || local === null ? null : (
               <Animated.View
-                entering={FadeIn.duration(120)}
+                entering={FadeIn.duration(120).reduceMotion(ReduceMotion.System)}
                 className="absolute w-[250px] overflow-hidden rounded-[12px] border border-border shadow-2xl"
                 style={{
                   left,

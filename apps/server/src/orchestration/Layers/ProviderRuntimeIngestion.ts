@@ -1,12 +1,19 @@
 import {
   ApprovalRequestId,
+  ChatId,
   type AssistantDeliveryMode,
   CommandId,
   MessageId,
+  RuntimeTaskId,
   type OrchestrationEvent,
   type OrchestrationMessage,
   type OrchestrationProposedPlanId,
   CheckpointRef,
+  MutationActor,
+  MutationBranchId,
+  MutationOperationId,
+  MutationPatchHash,
+  MutationPath,
   classifyTaskAgentKind,
   EventId,
   isToolLifecycleItemType,
@@ -16,6 +23,8 @@ import {
   type OrchestrationCheckpointSummary,
   type OrchestrationProposedPlan,
   type OrchestrationThread,
+  type OrchestrationThreadShell,
+  type OrchestrationAgentResult,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
 } from "@rune/contracts";
@@ -23,6 +32,7 @@ import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
+import * as Encoding from "effect/Encoding";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -30,6 +40,8 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@rune/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import * as ChatMutationLedger from "../../persistence/Services/ChatMutationLedger.ts";
+import * as PlanSessionService from "../../persistence/Services/PlanSession.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { isGitRepository } from "../../git/Utils.ts";
@@ -45,9 +57,51 @@ import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
+import { agentThreadIdFor, makeAgentThreadMetadata, runtimeTaskId } from "../agentThreads.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
+
+function isChildTaskEvent(event: ProviderRuntimeEvent): boolean {
+  if (
+    event.type !== "task.started" &&
+    event.type !== "task.progress" &&
+    event.type !== "task.updated" &&
+    event.type !== "task.completed"
+  ) {
+    return false;
+  }
+  const payload = event.payload as Record<string, unknown>;
+  return (
+    payload.timelineBypass === true ||
+    (payload.agentKind === "agent" && payload.agentId === undefined)
+  );
+}
+
+function childAgentIdFromEvent(event: ProviderRuntimeEvent): RuntimeTaskId | undefined {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  if (isChildTaskEvent(event) && typeof payload.taskId === "string") {
+    return runtimeTaskId(payload.taskId);
+  }
+  if (typeof payload.agentId === "string" && payload.agentId.trim().length > 0) {
+    return runtimeTaskId(payload.agentId);
+  }
+  return undefined;
+}
+
+function agentResultFromTaskCompleted(
+  payload: Extract<ProviderRuntimeEvent, { type: "task.completed" }>["payload"],
+): OrchestrationAgentResult {
+  const summary = payload.summary?.trim() || null;
+  return {
+    summary,
+    findings: [],
+    changedFiles: [],
+    tasks: [],
+    verification: [],
+    blockers: payload.status === "failed" ? [summary ?? "Child agent failed"] : [],
+  };
+}
 
 // Fallback when the in-memory description cache no longer has the task name
 // (server restart, session-exit sweep, TTL/capacity eviction): earlier
@@ -445,6 +499,88 @@ export function runtimeEventToActivities(
             ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
             ...(event.payload.model ? { model: event.payload.model } : {}),
             ...(event.payload.effort ? { effort: event.payload.effort } : {}),
+            ...(event.payload.budget ? { budget: event.payload.budget } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "turn.trace": {
+      const requestId = event.payload.requestId ?? event.requestId;
+      const isRequestTrace = requestId !== undefined;
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: isRequestTrace ? "turn.trace.request" : "turn.trace.started",
+          summary: `Trace: ${event.payload.stage}`,
+          payload: {
+            ...event.payload,
+            ...(requestId ? { requestId } : {}),
+            provider: event.provider,
+            ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "agent.execution.progress": {
+      const stageLabel =
+        event.payload.stage === "inspect"
+          ? "Inspecting the project"
+          : event.payload.stage === "execute"
+            ? "Implementing the change"
+            : event.payload.stage === "verify"
+              ? "Verifying the result"
+              : "Reviewing the result";
+      const phase =
+        event.payload.stage === "inspect"
+          ? "explore"
+          : event.payload.stage === "execute"
+            ? "implement"
+            : event.payload.stage === "verify"
+              ? "test"
+              : "review";
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.outcome === "failed" ? "error" : "info",
+          kind: "execution.phase",
+          summary: stageLabel,
+          payload: {
+            ...event.payload,
+            phase,
+            semanticLabel: stageLabel,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "turn.completed": {
+      const totals = event.payload.totals ?? event.payload.turnTotals;
+      if (totals === undefined) {
+        return [];
+      }
+      return [
+        {
+          id: EventId.make(`${event.eventId}:trace`),
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "turn.trace.started",
+          summary: "Turn trace completed",
+          payload: {
+            stage: "completion",
+            totals,
+            provider: event.provider,
+            ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -464,6 +600,11 @@ export function runtimeEventToActivities(
             requestId: event.payload.requestId,
             requestNumber: event.payload.requestNumber,
             retry: event.payload.retry,
+            ...(event.payload.purpose ? { purpose: event.payload.purpose } : {}),
+            ...(event.payload.parentRequestId
+              ? { parentRequestId: event.payload.parentRequestId }
+              : {}),
+            ...(event.payload.budget ? { budget: event.payload.budget } : {}),
             provider: event.provider,
             ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
             ...(event.payload.inputTokens !== undefined
@@ -484,6 +625,61 @@ export function runtimeEventToActivities(
             ...(event.payload.streamDurationMs !== undefined
               ? { streamDurationMs: event.payload.streamDurationMs }
               : {}),
+            ...(event.payload.queueWaitMs !== undefined
+              ? { queueWaitMs: event.payload.queueWaitMs }
+              : {}),
+            ...(event.payload.promptCompilationMs !== undefined
+              ? { promptCompilationMs: event.payload.promptCompilationMs }
+              : {}),
+            ...(event.payload.contextPlanningMs !== undefined
+              ? { contextPlanningMs: event.payload.contextPlanningMs }
+              : {}),
+            ...(event.payload.providerResolutionMs !== undefined
+              ? { providerResolutionMs: event.payload.providerResolutionMs }
+              : {}),
+            ...(event.payload.sessionAcquisitionMs !== undefined
+              ? { sessionAcquisitionMs: event.payload.sessionAcquisitionMs }
+              : {}),
+            ...(event.payload.timeToFirstTokenMs !== undefined
+              ? { timeToFirstTokenMs: event.payload.timeToFirstTokenMs }
+              : {}),
+            ...(event.payload.firstUsefulActivityMs !== undefined
+              ? { firstUsefulActivityMs: event.payload.firstUsefulActivityMs }
+              : {}),
+            ...(event.payload.firstEditMs !== undefined
+              ? { firstEditMs: event.payload.firstEditMs }
+              : {}),
+            ...(event.payload.verificationMs !== undefined
+              ? { verificationMs: event.payload.verificationMs }
+              : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "turn.diff.updated": {
+      const changes = event.payload.itemFileChanges ?? [];
+      const paths = changes
+        .slice(0, 2)
+        .map((change) => change.path)
+        .join(", ");
+      const semanticLabel =
+        paths.length > 0
+          ? `Updated ${paths}${changes.length > 2 ? ` +${changes.length - 2} files` : ""}`
+          : "Updated workspace files";
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "change.detected",
+          summary: semanticLabel,
+          payload: {
+            itemFileChanges: changes,
+            status: "completed",
+            semanticLabel,
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -956,10 +1152,194 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  // Keep ingestion fixtures and older deployments compatible while the
+  // durable mutation ledger rolls out. Production provides this service;
+  // providers without file-change evidence simply have nothing to record.
+  const chatMutationLedger = yield* Effect.serviceOption(ChatMutationLedger.ChatMutationLedger);
+  const planSessionService = yield* Effect.serviceOption(PlanSessionService.PlanSession);
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
     );
+
+  const recordProviderMutationEvidence = (
+    event: Extract<ProviderRuntimeEvent, { type: "turn.diff.updated" }>,
+    rootThread: OrchestrationThreadShell,
+    thread: OrchestrationThreadShell,
+    turnId: TurnId | undefined,
+  ) =>
+    Option.match(chatMutationLedger, {
+      onNone: () => Effect.void,
+      onSome: (ledger) => {
+        const fileChanges = event.payload.itemFileChanges ?? [];
+        if (turnId === undefined || fileChanges.length === 0) return Effect.void;
+
+        const paths = [...new Set(fileChanges.map((entry) => entry.path))].map((path) =>
+          MutationPath.make(path),
+        );
+        if (paths.length === 0) return Effect.void;
+
+        const chatId = rootThread.agent?.rootThreadId ?? rootThread.id;
+        const branchId = MutationBranchId.make(
+          `branch:${rootThread.branch ?? thread.branch ?? chatId}`,
+        );
+        const actor = MutationActor.make(event.provider);
+        const operationId = MutationOperationId.make(`provider-diff:${event.eventId}`);
+
+        return crypto.digest("SHA-256", new TextEncoder().encode(event.payload.unifiedDiff)).pipe(
+          Effect.map(Encoding.encodeHex),
+          Effect.flatMap((patchHash) =>
+            ledger.append({
+              operationId,
+              chatId: ChatId.make(chatId),
+              threadId: thread.id,
+              turnId,
+              branchId,
+              paths,
+              patchHash: MutationPatchHash.make(patchHash),
+              actor,
+              ...(thread.agent?.agentId
+                ? { agentId: MutationActor.make(thread.agent.agentId) }
+                : {}),
+              checkpointRef: CheckpointRef.make(`provider-diff:${event.eventId}`),
+            }),
+          ),
+          Effect.flatMap(() =>
+            ledger.settle({
+              operationId,
+              status: "settled",
+              settledBy: actor,
+            }),
+          ),
+          Effect.asVoid,
+          Effect.catchCause((cause) =>
+            Effect.logWarning("provider mutation evidence could not be persisted", {
+              eventId: event.eventId,
+              threadId: thread.id,
+              turnId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
+      },
+    });
+
+  /**
+   * A BUILD worker is a normal child thread, so its provider lifecycle is the
+   * authoritative completion signal for the corresponding durable plan task.
+   * Keep this reconciliation here, beside provider event normalization, so a
+   * server restart/replay cannot leave tasks permanently in `running` merely
+   * because the BUILD button is no longer mounted.
+   */
+  const settlePlanWorker = (
+    rootThread: OrchestrationThreadShell,
+    thread: OrchestrationThreadShell,
+    event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>,
+  ) =>
+    Option.match(planSessionService, {
+      onNone: () => Effect.void,
+      onSome: (planSessions) => {
+        const planThreadId =
+          thread.agent?.rootThreadId ?? thread.agent?.parentThreadId ?? rootThread.id;
+        return planSessions.get({ threadId: planThreadId }).pipe(
+          Effect.flatMap((session) => {
+            if (session.reviewThreadId === thread.id) {
+              const runtimeState = normalizeRuntimeTurnState(event.payload.state);
+              if (runtimeState !== "completed") {
+                const { reviewThreadId: _reviewThreadId, ...retryableSession } = session;
+                return planSessions
+                  .update({
+                    session: {
+                      ...retryableSession,
+                      lifecycleReason:
+                        event.payload.errorMessage?.trim() || `Reviewer turn ${runtimeState}.`,
+                    },
+                    expectedVersion: session.version,
+                  })
+                  .pipe(
+                    Effect.flatMap((updated) =>
+                      planSessions.transition({
+                        id: updated.id,
+                        nextStage: "blocked",
+                        expectedVersion: updated.version,
+                      }),
+                    ),
+                    Effect.asVoid,
+                  );
+              }
+              return planSessions
+                .transition({
+                  id: session.id,
+                  nextStage: "completed",
+                  expectedVersion: session.version,
+                })
+                .pipe(Effect.asVoid);
+            }
+            const task = session.tasks.find((candidate) => candidate.workerThreadId === thread.id);
+            if (task === undefined || (task.state !== "running" && task.state !== "ready")) {
+              return Effect.void;
+            }
+
+            const runtimeState = normalizeRuntimeTurnState(event.payload.state);
+            const succeeded = runtimeState === "completed";
+            const nextSession = {
+              ...session,
+              tasks: session.tasks.map((candidate) =>
+                candidate.id === task.id
+                  ? {
+                      ...candidate,
+                      state: succeeded ? ("completed" as const) : ("failed" as const),
+                    }
+                  : candidate,
+              ),
+              ...(succeeded
+                ? {}
+                : {
+                    lifecycleReason:
+                      event.payload.errorMessage?.trim() || `Worker turn ${runtimeState}.`,
+                  }),
+            };
+            return planSessions
+              .update({
+                session: nextSession,
+                expectedVersion: session.version,
+              })
+              .pipe(
+                Effect.flatMap((updated) => {
+                  const allSettled = updated.tasks.every(
+                    (candidate) => candidate.state === "completed" || candidate.state === "skipped",
+                  );
+                  if (!succeeded) {
+                    return planSessions
+                      .transition({
+                        id: updated.id,
+                        nextStage: "blocked",
+                        expectedVersion: updated.version,
+                      })
+                      .pipe(Effect.asVoid);
+                  }
+                  if (!allSettled || updated.stage !== "executing") {
+                    return Effect.void;
+                  }
+                  return planSessions
+                    .transition({
+                      id: updated.id,
+                      nextStage: "reviewing-result",
+                      expectedVersion: updated.version,
+                    })
+                    .pipe(Effect.asVoid);
+                }),
+              );
+          }),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("plan worker completion could not update the durable plan", {
+              threadId: thread.id,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
+      },
+    });
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -1578,9 +1958,88 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const ensureAgentThread = Effect.fn("ensureAgentThread")(function* (
+    rootThread: OrchestrationThreadShell,
+    event: ProviderRuntimeEvent,
+  ) {
+    const taskId = childAgentIdFromEvent(event);
+    if (taskId === undefined) return undefined;
+    const shouldCreate = isChildTaskEvent(event);
+    const payload = event.payload as Record<string, unknown>;
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const existingAnywhere = snapshot.threads.find(
+      (candidate) =>
+        candidate.agent !== undefined &&
+        candidate.agent !== null &&
+        candidate.agent.rootThreadId === (rootThread.agent?.rootThreadId ?? rootThread.id) &&
+        candidate.agent.agentId === taskId,
+    );
+    if (existingAnywhere !== undefined) {
+      return {
+        threadId: existingAnywhere.id,
+        canAdoptResult: existingAnywhere.agent?.result === null,
+      };
+    }
+    if (!shouldCreate) return undefined;
+
+    const parentAgentId =
+      typeof payload.parentAgentId === "string" ? runtimeTaskId(payload.parentAgentId) : undefined;
+    const parentThread =
+      parentAgentId === undefined
+        ? rootThread
+        : snapshot.threads.find(
+            (candidate) =>
+              candidate.agent !== undefined &&
+              candidate.agent !== null &&
+              candidate.agent.rootThreadId === (rootThread.agent?.rootThreadId ?? rootThread.id) &&
+              candidate.agent.agentId === parentAgentId,
+          );
+    if (parentThread === undefined) return undefined;
+
+    const childThreadId = agentThreadIdFor(parentThread.id, taskId);
+    const metadata = makeAgentThreadMetadata({
+      parentThread,
+      agentId: taskId,
+      role: typeof payload.role === "string" ? payload.role : null,
+      profileId: typeof payload.model === "string" ? payload.model : null,
+      objective:
+        typeof payload.description === "string"
+          ? payload.description
+          : typeof payload.title === "string"
+            ? payload.title
+            : "Child agent task",
+      spawnedByTurnId: toTurnId(event.turnId) ?? null,
+      providerThreadId:
+        typeof payload.providerThreadId === "string" ? payload.providerThreadId : taskId,
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.create",
+      commandId: yield* providerCommandId(event, "agent-thread-create"),
+      threadId: childThreadId,
+      projectId: parentThread.projectId,
+      title: metadata.objective,
+      modelSelection: parentThread.modelSelection,
+      runtimeMode: parentThread.runtimeMode,
+      interactionMode: parentThread.interactionMode,
+      branch: parentThread.branch,
+      worktreePath: parentThread.worktreePath,
+      agent: metadata,
+      createdAt: event.createdAt,
+    });
+    return { threadId: childThreadId, canAdoptResult: true };
+  });
+
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
-      const thread = yield* resolveThreadShell(event.threadId);
+      // Provider events retain the parent session's canonical thread id even
+      // when the provider event belongs to a native child conversation. Once
+      // the child is persisted, every projection-facing operation below must
+      // use that one child id; otherwise the parent's timeline steals the
+      // child's messages, turn state, and activity ownership.
+      const rootThread = yield* resolveThreadShell(event.threadId);
+      if (!rootThread) return;
+      const agentThread = yield* ensureAgentThread(rootThread, event);
+      const thread = agentThread ? yield* resolveThreadShell(agentThread.threadId) : rootThread;
       if (!thread) return;
 
       let loadedThreadDetail: OrchestrationThread | null | undefined;
@@ -1919,6 +2378,35 @@ const make = Effect.gen(function* () {
         }
       }
 
+      const userCompletion =
+        event.type === "item.completed" && event.payload.itemType === "user_message"
+          ? {
+              messageId: MessageId.make(`user:${event.itemId ?? event.eventId}`),
+              text: event.payload.detail?.trim() ?? "",
+              turnId: toTurnId(event.turnId) ?? null,
+            }
+          : undefined;
+      if (userCompletion && userCompletion.text.length > 0) {
+        const detailedThread = yield* getLoadedThreadDetail();
+        const alreadyPersisted = detailedThread?.messages.some(
+          (message) =>
+            message.role === "user" &&
+            message.text === userCompletion.text &&
+            message.turnId === userCompletion.turnId,
+        );
+        if (!alreadyPersisted) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.child-user-message.append",
+            commandId: yield* providerCommandId(event, "user-message-from-provider-item"),
+            threadId: thread.id,
+            messageId: userCompletion.messageId,
+            text: userCompletion.text,
+            turnId: userCompletion.turnId,
+            createdAt: now,
+          });
+        }
+      }
+
       if (proposedPlanCompletion) {
         const detailedThread = yield* getLoadedThreadDetail();
         yield* finalizeBufferedProposedPlan({
@@ -1965,6 +2453,9 @@ const make = Effect.gen(function* () {
             turnId,
             updatedAt: now,
           });
+        }
+        if (shouldApplyThreadLifecycle && thread.agent !== undefined && thread.agent !== null) {
+          yield* settlePlanWorker(rootThread, thread, event);
         }
       }
 
@@ -2054,6 +2545,12 @@ const make = Effect.gen(function* () {
             });
           }
         }
+
+        // The provider is the source of truth for this diff. Record a stable,
+        // redacted mutation operation beside the checkpoint so the history
+        // surface can explain who changed which files without storing raw
+        // patch content in the ledger.
+        yield* recordProviderMutationEvidence(event, rootThread, thread, turnId);
       }
 
       if (event.type === "task.started" || event.type === "task.progress") {
@@ -2137,6 +2634,21 @@ const make = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.asVoid);
+
+      if (
+        agentThread !== undefined &&
+        event.type === "task.completed" &&
+        agentThread.canAdoptResult
+      ) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.agent.result.adopt",
+          commandId: yield* providerCommandId(event, "agent-thread-result-adopt"),
+          threadId: rootThread.id,
+          childThreadId: agentThread.threadId,
+          result: agentResultFromTaskCompleted(event.payload),
+          adoptedAt: event.createdAt,
+        });
+      }
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;

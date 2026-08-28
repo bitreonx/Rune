@@ -1460,11 +1460,18 @@ export const makeCodexSessionRuntime = (
               threadId: options.threadId,
               ...(child.spawnTurnId ? { turnId: child.spawnTurnId } : {}),
               method: "collabAgent/turnStarted",
-              payload: childIdentity,
+              payload: {
+                ...childIdentity,
+                ...(childTurnId ? { childTurnId } : {}),
+              },
             });
             return true;
           }
-          case "turn/completed":
+          case "turn/completed": {
+            const childTurnId =
+              typeof (notification.params as { turn?: { id?: unknown } }).turn?.id === "string"
+                ? ((notification.params as { turn: { id: string } }).turn.id as string)
+                : undefined;
             yield* Ref.update(collabChildLiveTurnsRef, (current) => {
               const next = new Map(current);
               next.delete(child.agentThreadId);
@@ -1477,10 +1484,12 @@ export const makeCodexSessionRuntime = (
               method: "collabAgent/turnCompleted",
               payload: {
                 ...childIdentity,
+                ...(childTurnId ? { childTurnId } : {}),
                 turn: notification.params.turn,
               },
             });
             return true;
+          }
           case "thread/status/changed":
             yield* emitEvent({
               kind: "notification",
@@ -1506,7 +1515,8 @@ export const makeCodexSessionRuntime = (
             });
             return true;
           case "item/started":
-          case "item/completed":
+          case "item/completed": {
+            const childTurnId = (yield* Ref.get(collabChildLiveTurnsRef)).get(child.agentThreadId);
             yield* emitEvent({
               kind: "notification",
               threadId: options.threadId,
@@ -1514,10 +1524,12 @@ export const makeCodexSessionRuntime = (
               method: "collabAgent/item",
               payload: {
                 ...childIdentity,
+                ...(childTurnId ? { childTurnId } : {}),
                 item: notification.params.item,
               },
             });
             return true;
+          }
           case "thread/closed":
             // The child is gone: drop its live-turn entry so a later Stop
             // doesn't waste a turn/interrupt RPC on a closed thread before

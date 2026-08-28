@@ -169,6 +169,35 @@ describe("orchestration projector", () => {
 
     expect(next.threads[0]?.messages[0]?.text).toBe("hello");
     expect(next.threads[0]?.fileOwnership).toEqual([]);
+
+    const malformedOwnership = {
+      ...created,
+      threads: created.threads.map((thread) => ({ ...thread, fileOwnership: [{}] })),
+    } as unknown as typeof created;
+    const recovered = await Effect.runPromise(
+      projectEvent(
+        malformedOwnership,
+        makeEvent({
+          sequence: 3,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "legacy-thread",
+          occurredAt: "2026-01-01T00:00:02.000Z",
+          commandId: "cmd-message-malformed-ownership",
+          payload: {
+            threadId: "legacy-thread",
+            messageId: "message-2",
+            role: "user",
+            text: "recovered",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-01-01T00:00:02.000Z",
+            updatedAt: "2026-01-01T00:00:02.000Z",
+          },
+        }),
+      ),
+    );
+    expect(recovered.threads[0]?.fileOwnership).toEqual([]);
   });
 
   it("fails when event payload cannot be decoded by runtime schema", async () => {

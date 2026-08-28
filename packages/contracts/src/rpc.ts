@@ -126,6 +126,8 @@ import {
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
   ProjectReadFileAtHeadError,
   ProjectReadFileAtHeadInput,
   ProjectReadFileAtHeadResult,
@@ -238,6 +240,61 @@ import {
   SkillRegistryRefreshInput,
   SkillRegistrySnapshot,
 } from "./skills.ts";
+import {
+  ActionProposalCreateInput,
+  ActionProposalDecisionInput,
+  ActionProposalDecisionResult,
+  ActionProposalListInput,
+  ActionProposalListResult,
+  ActionProposalMutationResult,
+  ActionRegistryCreateInput,
+  ActionRegistryError,
+  ActionRegistryListInput,
+  ActionRegistryListResult,
+  ActionRegistryMutationResult,
+  ActionRegistryVersionInput,
+  ActionRunError,
+  ActionRunHistory,
+  ActionRunHistoryListInput,
+  ActionRunHistoryListResult,
+  ActionRunInput,
+  ActionRunResult,
+} from "./actions.ts";
+import {
+  PocketCommand,
+  PocketImportInput,
+  PocketOperationError,
+  PocketSnapshot,
+} from "./pocket.ts";
+import {
+  EXECUTION_CONTROLLER_WS_METHODS,
+  PromptQueueCommand,
+  PromptQueueOperationError,
+  PromptQueueSnapshot,
+  PromptQueueSnapshotInput,
+} from "./promptQueue.ts";
+import {
+  PlanSessionCreateInput,
+  PlanSessionError,
+  PlanSessionGetInput,
+  PlanSessionResumeInput,
+  PlanSessionReviewInput,
+  PlanSessionReviewResult,
+  PlanSessionScheduleInput,
+  PlanSessionScheduleResult,
+  PlanSessionTransitionInput,
+  PlanSessionUpdateInput,
+  PlanSession,
+} from "./plan.ts";
+import {
+  ChatMutationLedgerAppendInput,
+  ChatMutationLedgerAppendResult,
+  ChatMutationLedgerError,
+  ChatMutationLedgerListInput,
+  ChatMutationLedgerListResult,
+  ChatMutationLedgerSettleInput,
+  ChatMutationLedgerSettleResult,
+} from "./mutation.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -245,6 +302,7 @@ export const WS_METHODS = {
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
   projectsListEntries: "projects.listEntries",
+  projectsListDirectory: "projects.listDirectory",
   projectsReadFile: "projects.readFile",
   projectsReadFileAtHead: "projects.readFileAtHead",
   projectsSearchContents: "projects.searchContents",
@@ -254,6 +312,15 @@ export const WS_METHODS = {
   projectsRenameEntry: "projects.renameEntry",
   projectsDeleteEntry: "projects.deleteEntry",
   subscribeProjectFileEvents: "subscribe.projectFileEvents",
+
+  // Pocket organization methods
+  pocketsSnapshot: "pockets.snapshot",
+  pocketsDispatch: "pockets.dispatch",
+  pocketsImportLegacy: "pockets.importLegacy",
+
+  // Provider-neutral execution controller methods
+  executionControllerSnapshot: EXECUTION_CONTROLLER_WS_METHODS.snapshot,
+  executionControllerDispatch: EXECUTION_CONTROLLER_WS_METHODS.dispatch,
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -334,6 +401,31 @@ export const WS_METHODS = {
   skillsList: "skills.list",
   skillsRefresh: "skills.refresh",
   skillsGetBody: "skills.getBody",
+
+  // Provider-neutral actions
+  actionsList: "actions.list",
+  actionsCreate: "actions.create",
+  actionsVersion: "actions.version",
+  actionsCreateProposal: "actions.createProposal",
+  actionsListProposals: "actions.listProposals",
+  actionsApproveProposal: "actions.approveProposal",
+  actionsRejectProposal: "actions.rejectProposal",
+  actionsDismissProposal: "actions.dismissProposal",
+  actionsRecordRun: "actions.recordRun",
+  actionsListRunHistory: "actions.listRunHistory",
+  actionsRun: "actions.run",
+
+  // Provider-neutral plan sessions
+  planSessionCreate: "planSession.create",
+  planSessionGet: "planSession.get",
+  planSessionUpdate: "planSession.update",
+  planSessionTransition: "planSession.transition",
+  planSessionResume: "planSession.resume",
+  planSessionSchedule: "planSession.schedule",
+  planSessionReview: "planSession.review",
+  chatMutationList: "chatMutation.list",
+  chatMutationAppend: "chatMutation.append",
+  chatMutationSettle: "chatMutation.settle",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -470,6 +562,72 @@ export const WsSkillsGetBodyRpc = Rpc.make(WS_METHODS.skillsGetBody, {
   payload: SkillGetBodyInput,
   success: SkillBodyResult,
   error: Schema.Union([SkillRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsRunRpc = Rpc.make(WS_METHODS.actionsRun, {
+  payload: ActionRunInput,
+  success: ActionRunResult,
+  error: Schema.Union([ActionRunError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsListRpc = Rpc.make(WS_METHODS.actionsList, {
+  payload: ActionRegistryListInput,
+  success: ActionRegistryListResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsCreateRpc = Rpc.make(WS_METHODS.actionsCreate, {
+  payload: ActionRegistryCreateInput,
+  success: ActionRegistryMutationResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsVersionRpc = Rpc.make(WS_METHODS.actionsVersion, {
+  payload: ActionRegistryVersionInput,
+  success: ActionRegistryMutationResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsCreateProposalRpc = Rpc.make(WS_METHODS.actionsCreateProposal, {
+  payload: ActionProposalCreateInput,
+  success: ActionProposalMutationResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsListProposalsRpc = Rpc.make(WS_METHODS.actionsListProposals, {
+  payload: ActionProposalListInput,
+  success: ActionProposalListResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsApproveProposalRpc = Rpc.make(WS_METHODS.actionsApproveProposal, {
+  payload: ActionProposalDecisionInput,
+  success: ActionProposalDecisionResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsRejectProposalRpc = Rpc.make(WS_METHODS.actionsRejectProposal, {
+  payload: ActionProposalDecisionInput,
+  success: ActionProposalDecisionResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsDismissProposalRpc = Rpc.make(WS_METHODS.actionsDismissProposal, {
+  payload: ActionProposalDecisionInput,
+  success: ActionProposalDecisionResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsRecordRunRpc = Rpc.make(WS_METHODS.actionsRecordRun, {
+  payload: ActionRunHistory,
+  success: Schema.Struct({}),
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsActionsListRunHistoryRpc = Rpc.make(WS_METHODS.actionsListRunHistory, {
+  payload: ActionRunHistoryListInput,
+  success: ActionRunHistoryListResult,
+  error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerGetTraceDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetTraceDiagnostics, {
@@ -715,6 +873,12 @@ export const WsProjectsListEntriesRpc = Rpc.make(WS_METHODS.projectsListEntries,
   error: Schema.Union([ProjectListEntriesError, EnvironmentAuthorizationError]),
 });
 
+export const WsProjectsListDirectoryRpc = Rpc.make(WS_METHODS.projectsListDirectory, {
+  payload: ProjectListDirectoryInput,
+  success: ProjectListDirectoryResult,
+  error: Schema.Union([ProjectListEntriesError, EnvironmentAuthorizationError]),
+});
+
 export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
   payload: ProjectReadFileInput,
   success: ProjectReadFileResult,
@@ -751,15 +915,102 @@ export const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry,
   error: Schema.Union([ProjectDeleteEntryError, EnvironmentAuthorizationError]),
 });
 
-export const WsSubscribeProjectFileEventsRpc = Rpc.make(
-  WS_METHODS.subscribeProjectFileEvents,
-  {
-    payload: ProjectFileEventsInput,
-    success: ProjectFileEventsBatch,
-    error: EnvironmentAuthorizationError,
-    stream: true,
-  },
-);
+export const WsPocketsSnapshotRpc = Rpc.make(WS_METHODS.pocketsSnapshot, {
+  payload: Schema.Struct({}),
+  success: PocketSnapshot,
+  error: Schema.Union([PocketOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsPocketsDispatchRpc = Rpc.make(WS_METHODS.pocketsDispatch, {
+  payload: PocketCommand,
+  success: PocketSnapshot,
+  error: Schema.Union([PocketOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsPocketsImportLegacyRpc = Rpc.make(WS_METHODS.pocketsImportLegacy, {
+  payload: PocketImportInput,
+  success: PocketSnapshot,
+  error: Schema.Union([PocketOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsExecutionControllerSnapshotRpc = Rpc.make(WS_METHODS.executionControllerSnapshot, {
+  payload: PromptQueueSnapshotInput,
+  success: PromptQueueSnapshot,
+  error: Schema.Union([PromptQueueOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsExecutionControllerDispatchRpc = Rpc.make(WS_METHODS.executionControllerDispatch, {
+  payload: PromptQueueCommand,
+  success: PromptQueueSnapshot,
+  error: Schema.Union([PromptQueueOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionCreateRpc = Rpc.make(WS_METHODS.planSessionCreate, {
+  payload: PlanSessionCreateInput,
+  success: PlanSession,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionGetRpc = Rpc.make(WS_METHODS.planSessionGet, {
+  payload: PlanSessionGetInput,
+  success: PlanSession,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionUpdateRpc = Rpc.make(WS_METHODS.planSessionUpdate, {
+  payload: PlanSessionUpdateInput,
+  success: PlanSession,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionTransitionRpc = Rpc.make(WS_METHODS.planSessionTransition, {
+  payload: PlanSessionTransitionInput,
+  success: PlanSession,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionResumeRpc = Rpc.make(WS_METHODS.planSessionResume, {
+  payload: PlanSessionResumeInput,
+  success: PlanSession,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionScheduleRpc = Rpc.make(WS_METHODS.planSessionSchedule, {
+  payload: PlanSessionScheduleInput,
+  success: PlanSessionScheduleResult,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsPlanSessionReviewRpc = Rpc.make(WS_METHODS.planSessionReview, {
+  payload: PlanSessionReviewInput,
+  success: PlanSessionReviewResult,
+  error: Schema.Union([PlanSessionError, EnvironmentAuthorizationError]),
+});
+
+export const WsChatMutationListRpc = Rpc.make(WS_METHODS.chatMutationList, {
+  payload: ChatMutationLedgerListInput,
+  success: ChatMutationLedgerListResult,
+  error: Schema.Union([ChatMutationLedgerError, EnvironmentAuthorizationError]),
+});
+
+export const WsChatMutationAppendRpc = Rpc.make(WS_METHODS.chatMutationAppend, {
+  payload: ChatMutationLedgerAppendInput,
+  success: ChatMutationLedgerAppendResult,
+  error: Schema.Union([ChatMutationLedgerError, EnvironmentAuthorizationError]),
+});
+
+export const WsChatMutationSettleRpc = Rpc.make(WS_METHODS.chatMutationSettle, {
+  payload: ChatMutationLedgerSettleInput,
+  success: ChatMutationLedgerSettleResult,
+  error: Schema.Union([ChatMutationLedgerError, EnvironmentAuthorizationError]),
+});
+
+export const WsSubscribeProjectFileEventsRpc = Rpc.make(WS_METHODS.subscribeProjectFileEvents, {
+  payload: ProjectFileEventsInput,
+  success: ProjectFileEventsBatch,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
@@ -1181,6 +1432,17 @@ export const WsRpcGroup = RpcGroup.make(
   WsSkillsListRpc,
   WsSkillsRefreshRpc,
   WsSkillsGetBodyRpc,
+  WsActionsRunRpc,
+  WsActionsListRpc,
+  WsActionsCreateRpc,
+  WsActionsVersionRpc,
+  WsActionsCreateProposalRpc,
+  WsActionsListProposalsRpc,
+  WsActionsApproveProposalRpc,
+  WsActionsRejectProposalRpc,
+  WsActionsDismissProposalRpc,
+  WsActionsRecordRunRpc,
+  WsActionsListRunHistoryRpc,
   WsServerSignalProcessRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
@@ -1208,6 +1470,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,
   WsProjectsListEntriesRpc,
+  WsProjectsListDirectoryRpc,
   WsProjectsReadFileRpc,
   WsProjectsReadFileAtHeadRpc,
   WsProjectsSearchContentsRpc,
@@ -1216,6 +1479,21 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateEntryRpc,
   WsProjectsRenameEntryRpc,
   WsProjectsDeleteEntryRpc,
+  WsPocketsSnapshotRpc,
+  WsPocketsDispatchRpc,
+  WsPocketsImportLegacyRpc,
+  WsExecutionControllerSnapshotRpc,
+  WsExecutionControllerDispatchRpc,
+  WsPlanSessionCreateRpc,
+  WsPlanSessionGetRpc,
+  WsPlanSessionUpdateRpc,
+  WsPlanSessionTransitionRpc,
+  WsPlanSessionResumeRpc,
+  WsPlanSessionScheduleRpc,
+  WsPlanSessionReviewRpc,
+  WsChatMutationListRpc,
+  WsChatMutationAppendRpc,
+  WsChatMutationSettleRpc,
   WsSubscribeProjectFileEventsRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

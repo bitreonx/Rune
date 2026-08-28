@@ -17,7 +17,12 @@ const PATH_CAPTURE_END = "__RUNE_PATH_END__";
 const SHELL_ENV_NAME_PATTERN = /^[A-Z0-9_]+$/;
 const WINDOWS_PATH_DELIMITER = ";";
 const POSIX_PATH_DELIMITER = ":";
-const WINDOWS_SHELL_CANDIDATES = ["pwsh.exe", "powershell.exe"] as const;
+export const WINDOWS_SHELL_CANDIDATES = ["pwsh.exe", "powershell.exe"] as const;
+
+/** Build an explicit PowerShell invocation for the raw-shell escape hatch. */
+export function windowsPowerShellArgs(command: string): ReadonlyArray<string> {
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command];
+}
 
 type ExecFileSyncLike = (
   file: string,

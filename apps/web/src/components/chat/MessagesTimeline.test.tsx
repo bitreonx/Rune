@@ -287,7 +287,7 @@ describe("MessagesTimeline", () => {
     expect(visibleMarkup).toContain("TTFT 120ms");
     expect(visibleMarkup).toContain("Latency 1.1s");
     expect(visibleMarkup).toContain("requestId=request-1 · #1");
-    expect(visibleMarkup).toContain('"streamDurationMs": 800');
+    expect(visibleMarkup).toContain("&quot;streamDurationMs&quot;: 800");
   });
 
   it("renders a feedback command and its pending response as normal thread messages", () => {

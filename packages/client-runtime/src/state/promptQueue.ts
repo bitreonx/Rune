@@ -160,8 +160,7 @@ export function reducePromptQueue(
     case "reorder": {
       const moving = state.queue.find(
         (item) =>
-          item.id === action.itemId &&
-          (item.status === "queued" || item.status === "steering"),
+          item.id === action.itemId && (item.status === "queued" || item.status === "steering"),
       );
       if (!moving || action.beforeItemId === action.itemId) return state;
       if (
@@ -341,15 +340,15 @@ export function hasPendingPromptQueueItems(state: PromptQueueThreadState): boole
   );
 }
 
+let promptQueueFallbackSequence = 0;
+
 export function createPromptQueueItem(
   threadId: ThreadId,
   text: string,
   now = new Date().toISOString(),
 ): PromptQueueItem {
   return {
-    id:
-      globalThis.crypto?.randomUUID?.() ??
-      `queue-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: globalThis.crypto?.randomUUID?.() ?? `queue-${Date.now()}-${promptQueueFallbackSequence++}`,
     threadId,
     text,
     mode: "queue",

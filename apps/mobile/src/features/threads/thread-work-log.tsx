@@ -8,7 +8,7 @@ import { cn } from "../../lib/cn";
 import type { ThreadFeedActivity } from "../../lib/threadActivity";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { useThemeColor } from "../../lib/useThemeColor";
-import Animated, { FadeIn } from "react-native-reanimated";
+import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 
 const WORK_LOG_LAYOUT_ANIMATION = {
   duration: 180,
@@ -159,7 +159,9 @@ export function ThreadWorkLog(props: {
           return (
             <Animated.View
               key={row.id}
-              {...(isFreshRow(row.createdAt) ? { entering: FadeIn.duration(200) } : {})}
+              {...(isFreshRow(row.createdAt)
+                ? { entering: FadeIn.duration(200).reduceMotion(ReduceMotion.System) }
+                : {})}
             >
               <Pressable
                 accessibilityRole={canExpand ? "button" : undefined}

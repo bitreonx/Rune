@@ -32,6 +32,7 @@ import Animated, {
   FadeOut,
   FadeOutDown,
   LinearTransition,
+  ReduceMotion,
 } from "react-native-reanimated";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
@@ -65,6 +66,7 @@ import {
   scoreQueryMatch,
 } from "@rune/shared/searchRanking";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
+import { availableRuneCommands } from "@rune/shared/commandRegistry";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
@@ -116,6 +118,10 @@ export interface ThreadComposerProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  /** Runs the approved durable plan without turning `/build` into provider prose. */
+  readonly onBuildPlan?: () => Promise<boolean>;
+  /** Starts the independent read-only review without turning `/review` into provider prose. */
+  readonly onReviewPlan?: () => Promise<boolean>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -245,8 +251,8 @@ const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(
   return (
     <Animated.View
       className="absolute inset-x-0 bottom-full items-center pb-2"
-      entering={FadeInDown.duration(180)}
-      exiting={FadeOutDown.duration(140)}
+      entering={FadeInDown.duration(180).reduceMotion(ReduceMotion.System)}
+      exiting={FadeOutDown.duration(140).reduceMotion(ReduceMotion.System)}
       pointerEvents="box-none"
     >
       <Pressable
@@ -394,29 +400,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
     if (composerTrigger.kind === "slash-command") {
       const q = composerTrigger.query.toLowerCase();
-      const allBuiltIn = [
-        {
-          id: "cmd:model",
+      const allBuiltIn = availableRuneCommands(true).flatMap((command) => {
+        const item = {
+          id: `cmd:${command.id}`,
           type: "slash-command" as const,
-          command: "model",
-          label: "/model",
-          description: "Switch model",
-        },
-        {
-          id: "cmd:plan",
-          type: "slash-command" as const,
-          command: "plan",
-          label: "/plan",
-          description: "Switch to plan mode",
-        },
-        {
-          id: "cmd:default",
-          type: "slash-command" as const,
-          command: "default",
-          label: "/default",
-          description: "Switch to default mode",
-        },
-      ];
+          command: command.id,
+          label: command.label,
+          description: command.description,
+        } satisfies Extract<ComposerCommandItem, { type: "slash-command" }>;
+        return command.id === "grill"
+          ? [
+              item,
+              {
+                ...item,
+                id: "cmd:grill-me",
+                label: "/grill-me",
+                description: "Open the provider-neutral structured Grill workflow",
+              },
+            ]
+          : [item];
+      });
       const builtIn = allBuiltIn.filter((item) => item.command.includes(q));
 
       const providerCommands: ComposerCommandItem[] = [];
@@ -548,6 +551,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
+    if (draftMessage.trim().toLowerCase() === "/build" && props.onBuildPlan) {
+      const started = await props.onBuildPlan();
+      if (started) onChangeDraftMessage("");
+      return;
+    }
+    if (draftMessage.trim().toLowerCase() === "/review" && props.onReviewPlan) {
+      const started = await props.onReviewPlan();
+      if (started) onChangeDraftMessage("");
+      return;
+    }
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
     if (inFlightThreadIdsRef.current.has(threadKey)) return;
     inFlightThreadIdsRef.current.add(threadKey);
@@ -569,7 +582,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       inFlightThreadIdsRef.current.delete(threadKey);
     }
   }, [
+    draftMessage,
+    onChangeDraftMessage,
     onSendMessage,
+    props.onBuildPlan,
+    props.onReviewPlan,
     props.environmentId,
     props.environmentLabel,
     props.selectedThread.id,
@@ -601,7 +618,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       } else if (item.type === "skill") {
         replacement = `$${item.skill.name} `;
       } else if (item.type === "slash-command") {
-        replacement = `/${item.command} `;
+        replacement = item.command === "grill" ? "$grill-me " : `/${item.command} `;
       } else if (item.type === "provider-slash-command") {
         replacement = `/${item.command.name} `;
       }
@@ -781,8 +798,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           {isExpanded ? (
             <Animated.View
               className={props.draftAttachments.length > 0 ? "pb-2.5" : undefined}
-              entering={FadeIn.duration(160)}
-              exiting={FadeOut.duration(120)}
+              entering={FadeIn.duration(160).reduceMotion(ReduceMotion.System)}
+              exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
             >
               <ComposerAttachmentStrip
                 attachments={props.draftAttachments}
@@ -850,7 +867,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             </View>
           ) : null}
           {!isExpanded ? (
-            <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(100)}>
+            <Animated.View
+              entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+              exiting={FadeOut.duration(100).reduceMotion(ReduceMotion.System)}
+            >
               {showStopAction ? (
                 <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
               ) : (
@@ -910,7 +930,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
         {/* Queue count */}
         {props.queueCount > 0 ? (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
+          <Animated.View
+            entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
+            exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+          >
             <Text className="pt-2 text-xs text-foreground-muted">
               {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
               automatically.

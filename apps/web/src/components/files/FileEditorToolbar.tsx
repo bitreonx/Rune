@@ -69,12 +69,15 @@ export function FileEditorToolbar({
     >
       {/* Reserved space keeps the row height stable as the dot comes and goes. */}
       <span
-        aria-hidden
         className={cn(
-          "mx-1 size-1.5 shrink-0 rounded-full bg-primary transition-opacity",
-          pending ? "opacity-100" : "opacity-0",
+          "mx-1 shrink-0 text-[11px] font-medium transition-opacity",
+          pending ? "text-warning-foreground opacity-100" : "text-muted-foreground opacity-70",
         )}
-      />
+        role="status"
+        aria-live="polite"
+      >
+        {pending ? "Unsaved changes" : "Saved"}
+      </span>
       {toolbarButton({
         label: "Save file",
         disabled: !pending,
@@ -114,9 +117,7 @@ export function FileEditorToolbar({
             </Toggle>
           }
         />
-        <TooltipPopup>
-          {changesOpen ? "Back to editing" : "Show uncommitted changes"}
-        </TooltipPopup>
+        <TooltipPopup>{changesOpen ? "Back to editing" : "Show uncommitted changes"}</TooltipPopup>
       </Tooltip>
     </div>
   );

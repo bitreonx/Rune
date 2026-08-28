@@ -177,13 +177,23 @@ export function resolveInitialMainWindowBounds(
 function buildStartupSplashDataUrl(shouldUseDarkColors: boolean): string {
   const theme = shouldUseDarkColors ? "dark" : "light";
 
+  // Keep launch feedback static and lightweight. The main window is opened
+  // independently of backend readiness, so this surface must never depend on
+  // an animated logo or a renderer animation completing.
+  const html = `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
+    :root{color-scheme:dark}html.light{color-scheme:light}*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;overflow:hidden}body{background:#16181d;color:rgba(255,255,255,.9);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.panel{position:relative;width:calc(100% - 24px);height:calc(100% - 24px);display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.16);border-radius:18px;background:rgba(34,37,44,.88);box-shadow:0 18px 42px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.08);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.close{position:absolute;z-index:10;top:10px;right:10px;width:28px;height:28px;border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:0;background:rgba(255,255,255,.06);color:rgba(255,255,255,.72);font:400 14px/26px system-ui,sans-serif;text-align:center;cursor:pointer;-webkit-app-region:no-drag}.close:hover{background:rgba(255,255,255,.12);color:#fff}.close:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:2px}.mark{display:flex;align-items:center;justify-content:center;width:58px;height:58px;border:1px solid rgba(255,255,255,.24);border-radius:16px;color:#fff;font-size:20px;font-weight:700;letter-spacing:.08em}.wordmark{margin-top:18px;font-size:13px;line-height:1;font-weight:650;letter-spacing:.22em}.status{margin-top:12px;font-size:12px;line-height:1.2;color:rgba(255,255,255,.64)}.light body{background:#e7e9ed;color:rgba(20,22,26,.9)}.light .panel{border-color:rgba(20,22,26,.14);background:rgba(255,255,255,.82);box-shadow:0 18px 42px rgba(20,22,26,.14),inset 0 1px rgba(255,255,255,.8)}.light .close{border-color:rgba(20,22,26,.12);background:rgba(20,22,26,.05);color:rgba(20,22,26,.68)}.light .close:hover{background:rgba(20,22,26,.1);color:#14161a}.light .mark{border-color:rgba(20,22,26,.2);color:#14161a}.light .status{color:rgba(20,22,26,.58)}
+  </style></head><body><main class="panel"><button class="close" type="button" aria-label="Close splash" onclick="window.runeSplash.dismiss()">&#x2715;</button><div class="mark" aria-hidden="true">R</div><div class="wordmark">RUNE</div><div class="status">Starting RUNE…</div></main></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+
+  /*
   // Optimized animated loader - faster & GPU-accelerated
   const animatedLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="RUNE loading" style="width:100%;height:100%"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFF"/><stop offset="50%" stop-color="#E8E5FF"/><stop offset="100%" stop-color="#C4B5FD"/></linearGradient><filter id="f"><feGaussianBlur stdDeviation="6"/></filter><clipPath id="a"><polygon points="0,0 470,0 512,250 0,260"/></clipPath><clipPath id="b"><polygon points="430,0 1024,0 1024,355 712,360 580,268"/></clipPath><clipPath id="c"><polygon points="405,190 782,180 664,492 330,542"/></clipPath><clipPath id="d"><polygon points="0,250 366,500 468,620 0,1024"/></clipPath><clipPath id="e"><polygon points="318,495 706,495 760,614 484,728 282,618"/></clipPath><clipPath id="f2"><polygon points="520,500 1024,340 1024,1024 640,1024 540,700"/></clipPath></defs><g filter="url(#f)"><g clip-path="url(#a)"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#g)"><animateTransform attributeName="transform" type="translate" keyTimes="0;0.2;0.5;0.8;1" values="0 0;0 0;-70 -55;0 0;0 0" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1"/></path></g><g clip-path="url(#b)"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#g)"><animateTransform attributeName="transform" type="translate" keyTimes="0;0.2;0.5;0.8;1" values="0 0;0 0;75 -70;0 0;0 0" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1"/></path></g><g clip-path="url(#c)"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#g)"><animateTransform attributeName="transform" type="translate" keyTimes="0;0.2;0.5;0.8;1" values="0 0;0 0;28 -22;0 0;0 0" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1"/></path></g><g clip-path="url(#d)"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#g)"><animateTransform attributeName="transform" type="translate" keyTimes="0;0.2;0.5;0.8;1" values="0 0;0 0;-60 72;0 0;0 0" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1"/></path></g><g clip-path="url(#e)"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#g)"><animateTransform attributeName="transform" type="translate" keyTimes="0;0.2;0.5;0.8;1" values="0 0;0 0;0 32;0 0;0 0" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1"/></path></g><g clip-path="url(#f2)"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="url(#g)"><animateTransform attributeName="transform" type="translate" keyTimes="0;0.2;0.5;0.8;1" values="0 0;0 0;72 78;0 0;0 0" dur="1.8s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1"/></path></g></g><g opacity="0.2"><path d="M 56.83 89.38 L 56.83 223.71 L 657.60 226.22 L 56.00 755.23 L 56.00 934.62 L 448.17 618.39 L 731.03 897.91 L 968.00 898.74 L 834.50 758.57 L 595.86 533.28 L 544.12 531.61 L 925.45 199.52 L 925.45 89.38 Z" fill="#A78BFA"><animate attributeName="opacity" values="0.15;0.25;0.15" keyTimes="0;0.5;1" dur="1.8s" repeatCount="indefinite"/></path></g></svg>`;
 
-  const html = `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
+  const legacyHtml = `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
     :root{color-scheme:dark}html.light{color-scheme:light}*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;overflow:hidden}body{background:radial-gradient(circle at 20% 12%,rgba(139,92,246,.2),transparent 50%),#020204;color:rgba(255,255,255,.86);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none;-webkit-app-region:drag;will-change:transform}.panel{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:translateZ(0);-webkit-transform:translateZ(0)}.close{position:absolute;z-index:10;top:10px;right:10px;width:32px;height:32px;border:0;border-radius:50%;padding:0;background:rgba(0,0,0,.3);color:rgba(255,255,255,.6);font:400 14px/32px system-ui,sans-serif;text-align:center;cursor:pointer;-webkit-app-region:no-drag;transition:all 120ms ease;will-change:transform,background-color}.close:hover{color:rgba(255,255,255,1);background:rgba(0,0,0,.5);transform:scale(1.05)}.close:active{transform:scale(0.95)}.close:focus-visible{outline:2px solid rgba(167,139,250,.8);outline-offset:2px}.mark-wrap{width:120px;height:120px;position:relative;transform:translateZ(0);-webkit-transform:translateZ(0)}.mark-wrap svg{width:100%;height:100%;will-change:transform}.wordmark{margin-top:28px;font-size:12px;line-height:1;font-weight:600;letter-spacing:.3em;color:rgba(255,255,255,.85)}.status{margin-top:14px;font-size:13px;line-height:1.2;color:rgba(255,255,255,.7);animation:status-pulse 1.8s ease-in-out infinite}.light body{background:radial-gradient(circle at 20% 12%,rgba(139,92,246,.16),transparent 50%),#f5f5f7;color:rgba(0,0,0,.82)}.light .close{background:rgba(255,255,255,.5);color:rgba(0,0,0,.6)}.light .close:hover{color:rgba(0,0,0,1);background:rgba(255,255,255,.8)}.light .wordmark{color:rgba(0,0,0,.7)}.light .status{color:rgba(0,0,0,.6)}@keyframes status-pulse{0%,100%{opacity:.6}50%{opacity:1}}@media(prefers-reduced-motion:reduce){.status{animation:none;opacity:1}}
   </style></head><body><main class="panel"><button class="close" type="button" aria-label="Close splash" onclick="window.runeSplash.dismiss()">&#x2715;</button><div class="mark-wrap">${animatedLogoSvg}</div><div class="wordmark">RUNE</div><div class="status">Starting RUNE…</div></main></body></html>`;
-  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(legacyHtml)}`;
+  */
 }
 
 export function isSameOriginRendererNavigation(input: {
@@ -358,6 +368,9 @@ export const make = Effect.gen(function* () {
       ...initialBounds,
       minWidth: 840,
       minHeight: 620,
+      // Do not expose an unpainted black Chromium surface. The window is
+      // created only after the backend readiness callback and is revealed by
+      // the first successful renderer load below.
       show: false,
       autoHideMenuBar: true,
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
@@ -686,16 +699,14 @@ export const make = Effect.gen(function* () {
         if (!isMainFrame) {
           return;
         }
-        const retryInMs =
-          environment.isDevelopment &&
-          isRetryableDevelopmentRendererLoadFailure({
-            applicationUrl,
-            errorCode,
-            isMainFrame,
-            validatedUrl: validatedURL,
-          })
-            ? scheduleDevelopmentLoadRetry()
-            : undefined;
+        const retryInMs = isRetryableDevelopmentRendererLoadFailure({
+          applicationUrl,
+          errorCode,
+          isMainFrame,
+          validatedUrl: validatedURL,
+        })
+          ? scheduleDevelopmentLoadRetry()
+          : undefined;
         void runPromise(
           logWindowWarning("main window failed to load", {
             errorCode,
@@ -800,10 +811,9 @@ export const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("desktop.window.revealOrCreateMain"));
 
   const createMainIfBackendReady = Effect.gen(function* () {
-    const backendReady = yield* Ref.get(backendReadyRef);
-    if (!backendReady) return;
     const existingWindow = yield* currentMainWindow;
     if (Option.isSome(existingWindow)) return;
+    if (!(yield* Ref.get(backendReadyRef))) return;
     yield* createMain;
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
@@ -837,6 +847,7 @@ export const make = Effect.gen(function* () {
       },
     });
     yield* Ref.set(splashWindowRef, Option.some(splash));
+    splash.show();
     splash.once("closed", () => {
       void runPromise(Ref.set(splashWindowRef, Option.none()));
     });
@@ -864,19 +875,6 @@ export const make = Effect.gen(function* () {
       if (Option.isSome(existingWindow)) {
         yield* electronWindow.reveal(existingWindow.value);
         return;
-      }
-      // No real main window yet. While the backend is still cold-booting,
-      // re-reveal the connecting splash so taskbar/dock activation brings it
-      // back instead of doing nothing. Once the backend is ready we fall
-      // through to (re)create the real main -- including retrying a previously
-      // failed open the pool swallowed -- rather than latching onto the splash.
-      const backendReady = yield* Ref.get(backendReadyRef);
-      if (!backendReady) {
-        const splash = yield* Ref.get(splashWindowRef);
-        if (Option.isSome(splash)) {
-          yield* electronWindow.reveal(splash.value);
-          return;
-        }
       }
       yield* createMainIfBackendReady;
     }).pipe(Effect.withSpan("desktop.window.activate")),

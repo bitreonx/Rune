@@ -457,6 +457,32 @@ export const ThreadTitleRegeneration = Schema.Struct({
 });
 export type ThreadTitleRegeneration = typeof ThreadTitleRegeneration.Type;
 
+export const OrchestrationAgentResult = Schema.Struct({
+  summary: Schema.NullOr(TrimmedNonEmptyString),
+  findings: Schema.Array(TrimmedNonEmptyString),
+  changedFiles: Schema.Array(TrimmedNonEmptyString),
+  tasks: Schema.Array(TrimmedNonEmptyString),
+  verification: Schema.Array(TrimmedNonEmptyString),
+  blockers: Schema.Array(TrimmedNonEmptyString),
+});
+export type OrchestrationAgentResult = typeof OrchestrationAgentResult.Type;
+
+export const OrchestrationAgentThread = Schema.Struct({
+  parentThreadId: ThreadId,
+  rootThreadId: ThreadId,
+  spawnedByTurnId: Schema.NullOr(TurnId),
+  agentId: RuntimeTaskId,
+  agentRole: Schema.NullOr(TrimmedNonEmptyString),
+  agentProfileId: Schema.NullOr(TrimmedNonEmptyString),
+  objective: TrimmedNonEmptyString,
+  depth: NonNegativeInt,
+  workspaceMode: Schema.Literals(["shared", "isolated"]),
+  providerThreadId: Schema.NullOr(TrimmedNonEmptyString),
+  result: Schema.NullOr(OrchestrationAgentResult),
+  resultAdoptedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationAgentThread = typeof OrchestrationAgentThread.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -510,8 +536,15 @@ export const OrchestrationThread = Schema.Struct({
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
   chatDiff: OrchestrationChatDiff,
   baseline: Schema.NullOr(OrchestrationThreadBaseline),
-  fileOwnership: Schema.Array(OrchestrationFileOwnership),
+  // Persisted projection rows from before chat-scoped ownership was added do
+  // not contain this field. Normalize that legacy shape at the contract
+  // boundary so runtime consumers always receive an iterable array.
+  fileOwnership: Schema.Array(OrchestrationFileOwnership).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   session: Schema.NullOr(OrchestrationSession),
+  threadKind: Schema.optional(Schema.Literals(["root", "agent"])),
+  agent: Schema.optional(Schema.NullOr(OrchestrationAgentThread)),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
@@ -574,6 +607,8 @@ export const OrchestrationThreadShell = Schema.Struct({
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
   hasActionableProposedPlan: Schema.Boolean,
+  threadKind: Schema.optional(Schema.Literals(["root", "agent"])),
+  agent: Schema.optional(Schema.NullOr(OrchestrationAgentThread)),
   /**
    * Native background work alive after the turn settles: "working" while
    * subagents/workflows run, "monitoring" when watch loops are the only
@@ -787,6 +822,7 @@ const ThreadCreateCommand = Schema.Struct({
   // Set by the bootstrap path of thread.turn.start for temporary chats;
   // absent for every other creation flow.
   temporary: Schema.optional(Schema.Boolean),
+  agent: Schema.optional(Schema.NullOr(OrchestrationAgentThread)),
   createdAt: IsoDateTime,
 });
 
@@ -1188,11 +1224,44 @@ const ThreadActivityAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+/**
+ * Append a user message that was sent through a provider-native child
+ * conversation. Unlike thread.turn.start this does not request a second
+ * provider session/turn; the provider adapter has already started the child
+ * turn and runtime ingestion will persist its lifecycle against this thread.
+ */
+const ThreadChildUserMessageAppendCommand = Schema.Struct({
+  type: Schema.Literal("thread.child-user-message.append"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
+  turnId: Schema.NullOr(TurnId),
+  createdAt: IsoDateTime,
+});
+
+const ThreadAgentResultAdoptCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent.result.adopt"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  childThreadId: ThreadId,
+  result: OrchestrationAgentResult,
+  adoptedAt: IsoDateTime,
+});
+
+export const ThreadProviderRollbackStatus = Schema.Literals([
+  "rolled-back",
+  "unavailable",
+  "not-needed",
+]);
+export type ThreadProviderRollbackStatus = typeof ThreadProviderRollbackStatus.Type;
+
 const ThreadRevertCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.revert.complete"),
   commandId: CommandId,
   threadId: ThreadId,
   turnCount: NonNegativeInt,
+  providerRollback: Schema.optional(ThreadProviderRollbackStatus),
   createdAt: IsoDateTime,
 });
 
@@ -1214,6 +1283,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadBaselineCapturedCommand,
   ThreadActivityAppendCommand,
+  ThreadChildUserMessageAppendCommand,
+  ThreadAgentResultAdoptCommand,
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
 ]);
@@ -1258,6 +1329,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.agent-result-adopted",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1308,6 +1380,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   // Optional so persisted events from pre-temporary servers still decode.
   temporary: Schema.optional(Schema.Boolean),
+  agent: Schema.optional(Schema.NullOr(OrchestrationAgentThread)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1477,6 +1550,8 @@ export const ThreadCheckpointRevertRequestedPayload = Schema.Struct({
 export const ThreadRevertedPayload = Schema.Struct({
   threadId: ThreadId,
   turnCount: NonNegativeInt,
+  /** Provider rollback is capability-dependent; never imply it happened. */
+  providerRollback: Schema.optional(ThreadProviderRollbackStatus),
 });
 
 export const ThreadSessionStopRequestedPayload = Schema.Struct({
@@ -1516,6 +1591,13 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
 export const ThreadActivityAppendedPayload = Schema.Struct({
   threadId: ThreadId,
   activity: OrchestrationThreadActivity,
+});
+
+export const ThreadAgentResultAdoptedPayload = Schema.Struct({
+  parentThreadId: ThreadId,
+  childThreadId: ThreadId,
+  result: OrchestrationAgentResult,
+  adoptedAt: IsoDateTime,
 });
 
 /**
@@ -1712,6 +1794,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-result-adopted"),
+    payload: ThreadAgentResultAdoptedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

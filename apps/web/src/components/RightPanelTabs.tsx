@@ -2,6 +2,7 @@ import type { ContextMenuItem, PreviewSessionSnapshot, PullRequestState } from "
 import { getTerminalLabel } from "@rune/shared/terminalLabels";
 import {
   Bot,
+  Box,
   FileDiff,
   Files,
   GitPullRequest,
@@ -77,6 +78,7 @@ interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddAgents: () => void;
   onAddTasks?: () => void;
+  onAddEnvironment?: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -84,6 +86,7 @@ interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
   tasksAvailable?: boolean;
+  environmentAvailable?: boolean;
   pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
@@ -106,6 +109,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequest: "This thread's branch has no pull request yet.",
   agents: "Agents are only available from a thread.",
   tasks: "Tasks are only available from a thread.",
+  environment: "Environment is only available when a project is open.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -129,6 +133,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequest: "No pull request on this branch yet.",
   agents: "Available from a thread.",
   tasks: "Available from a thread.",
+  environment: "Available when a project is open.",
 } as const;
 
 type TabContextMenuAction =
@@ -223,11 +228,7 @@ export function rightPanelTabIndexForKey(input: {
   activeIndex: number;
   tabCount: number;
 }): number | null {
-  if (
-    input.tabCount <= 0 ||
-    input.activeIndex < 0 ||
-    input.activeIndex >= input.tabCount
-  ) {
+  if (input.tabCount <= 0 || input.activeIndex < 0 || input.activeIndex >= input.tabCount) {
     return null;
   }
 
@@ -293,6 +294,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddAgents: () => void;
   onAddTasks: () => void;
+  onAddEnvironment: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -300,12 +302,23 @@ function RightPanelEmptyState(props: {
   pullRequestAvailable: boolean;
   agentsAvailable: boolean;
   tasksAvailable: boolean;
+  environmentAvailable: boolean;
   liveAgentCount: number;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
 
   const actions = [
+    {
+      label: "Environment",
+      description: "See workspace status, actions, and local servers.",
+      icon: Box,
+      shortcut: "E",
+      available: props.environmentAvailable ?? false,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.environment,
+      onClick: props.onAddEnvironment ?? (() => undefined),
+      badgeCount: 0,
+    },
     {
       label: "Browser",
       description: "Open a local app or URL.",
@@ -562,6 +575,8 @@ function surfaceTitle(
   terminalLabelsById: ReadonlyMap<string, string>,
 ): string {
   switch (surface.kind) {
+    case "environment":
+      return "Environment";
     case "diff":
       return "Diff";
     case "files":
@@ -625,6 +640,8 @@ function SurfaceIcon({
   pullRequestStatuses: Readonly<Record<string, PullRequestTabStatus>> | undefined;
 }) {
   switch (surface.kind) {
+    case "environment":
+      return <Box className="size-3 shrink-0" />;
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       const url = !snapshot || snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;
@@ -676,6 +693,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
 
   const addSurfaceActions = [
+    {
+      label: "Environment",
+      icon: Box,
+      shortcut: "E",
+      available: props.environmentAvailable ?? false,
+      disabledReason: SURFACE_DISABLED_REASONS.environment,
+      onClick: props.onAddEnvironment ?? (() => undefined),
+    },
     {
       label: "Browser",
       icon: Globe2,
@@ -957,9 +982,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                        <button
-                          type="button"
-                          className="cursor-pointer flex size-6 shrink-0 items-center justify-center rounded-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          <button
+                            type="button"
+                            className="cursor-pointer flex size-6 shrink-0 items-center justify-center rounded-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             aria-label={audio === "muted" ? `Unmute ${title}` : `Mute ${title}`}
                             onClick={(event) => {
                               // Sibling of the close button, inside a tab that
@@ -1059,6 +1084,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddAgents={props.onAddAgents}
             onAddTasks={props.onAddTasks ?? (() => undefined)}
+            onAddEnvironment={props.onAddEnvironment ?? (() => undefined)}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1066,6 +1092,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestAvailable={props.pullRequestAvailable}
             agentsAvailable={props.agentsAvailable}
             tasksAvailable={props.tasksAvailable ?? false}
+            environmentAvailable={props.environmentAvailable ?? false}
             liveAgentCount={props.liveAgentCount}
           />
         ) : (

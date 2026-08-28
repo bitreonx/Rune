@@ -52,6 +52,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ServerConfig from "../config.ts";
+import * as ActionRegistry from "../persistence/Services/ActionRegistry.ts";
 import {
   increment,
   terminalRestartsTotal,
@@ -252,6 +253,7 @@ export interface TerminalSessionState {
   processEventDrainRunning: boolean;
   exitCode: number | null;
   exitSignal: number | null;
+  actionRunId: string | null;
   updatedAt: string;
   eventSequence: number;
   cols: number;
@@ -289,6 +291,9 @@ type DrainProcessEventAction =
       process: PtyAdapter.PtyProcess | null;
       threadId: string;
       terminalId: string;
+      actionRunId: string | null;
+      /** Sanitized terminal history used only for action verification. */
+      history: string;
       sequence: number;
       exitCode: number | null;
       exitSignal: number | null;
@@ -1196,11 +1201,53 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   });
   const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
   const terminalEventListeners = new Set<(event: TerminalEvent) => Effect.Effect<void>>();
+  const actionRegistry = yield* Effect.serviceOption(ActionRegistry.ActionRegistry);
   const workerScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(workerScope, Exit.void));
 
-  const publishEvent = (event: TerminalEvent) =>
+  const settleActionRun = (
+    runId: string,
+    status: "succeeded" | "failed" | "cancelled",
+    outputText?: string,
+  ) =>
+    Option.match(actionRegistry, {
+      onNone: () => Effect.void,
+      onSome: (registry) =>
+        registry
+          .settleRun({
+            runId,
+            status,
+            completedAt: DateTime.formatIso(DateTime.nowUnsafe()),
+            ...(outputText === undefined ? {} : { outputText }),
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("terminal action outcome could not settle action history", {
+                runId,
+                status,
+                cause,
+              }),
+            ),
+          ),
+    });
+
+  const publishEvent = (event: TerminalEvent, outputText?: string) =>
     Effect.gen(function* () {
+      if (event.actionRunId !== undefined) {
+        const status =
+          event.type === "exited"
+            ? event.exitCode === 0
+              ? "succeeded"
+              : "failed"
+            : event.type === "closed"
+              ? "cancelled"
+              : event.type === "error"
+                ? "failed"
+                : undefined;
+        if (status !== undefined) {
+          yield* settleActionRun(event.actionRunId, status, outputText);
+        }
+      }
       for (const listener of terminalEventListeners) {
         yield* listener(event).pipe(Effect.ignoreCause({ log: true }));
       }
@@ -1702,6 +1749,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           process,
           threadId: session.threadId,
           terminalId: session.terminalId,
+          actionRunId: session.actionRunId,
+          history: session.history,
           sequence: eventStamp.sequence,
           exitCode: session.exitCode,
           exitSignal: session.exitSignal,
@@ -1732,14 +1781,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         threadId: action.threadId,
         terminalId: action.terminalId,
       });
-      yield* publishEvent({
-        type: "exited",
-        threadId: action.threadId,
-        terminalId: action.terminalId,
-        sequence: action.sequence,
-        exitCode: action.exitCode,
-        exitSignal: action.exitSignal,
-      });
+      yield* publishEvent(
+        {
+          type: "exited",
+          threadId: action.threadId,
+          terminalId: action.terminalId,
+          ...(action.actionRunId === null ? {} : { actionRunId: action.actionRunId }),
+          sequence: action.sequence,
+          exitCode: action.exitCode,
+          exitSignal: action.exitSignal,
+        },
+        action.history,
+      );
       yield* evictInactiveSessionsIfNeeded();
       return;
     }
@@ -1748,6 +1801,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const stopProcess = Effect.fn("terminal.stopProcess")(function* (session: TerminalSessionState) {
     const process = session.process;
     if (!process) return;
+
+    if (session.actionRunId !== null) {
+      yield* settleActionRun(session.actionRunId, "cancelled", session.history);
+    }
 
     const updatedAt = yield* nowIso;
     yield* modifyManagerState((state) => {
@@ -1847,6 +1904,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session.status = "starting";
       session.cwd = input.cwd;
       session.worktreePath = input.worktreePath ?? null;
+      session.actionRunId = input.actionRunId ?? null;
       session.cols = input.cols;
       session.rows = input.rows;
       session.exitCode = null;
@@ -1948,6 +2006,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         type: "error",
         threadId: session.threadId,
         terminalId: session.terminalId,
+        ...(session.actionRunId === null ? {} : { actionRunId: session.actionRunId }),
         sequence: session.eventSequence,
         message,
       });
@@ -1968,6 +2027,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const key = toSessionKey(threadId, terminalId);
     const session = yield* getSession(threadId, terminalId);
     const closedEventSequence = Option.isSome(session) ? session.value.eventSequence + 1 : 0;
+    const closedActionRunId = Option.isSome(session) ? session.value.actionRunId : null;
 
     if (Option.isSome(session)) {
       yield* stopProcess(session.value);
@@ -1991,6 +2051,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         type: "closed",
         threadId,
         terminalId,
+        ...(closedActionRunId === null ? {} : { actionRunId: closedActionRunId }),
         sequence: closedEventSequence,
       });
     }
@@ -2167,6 +2228,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         processEventDrainRunning: false,
         exitCode: null,
         exitSignal: null,
+        actionRunId: input.actionRunId ?? null,
         updatedAt: yield* nowIso,
         eventSequence: 0,
         cols,
@@ -2194,6 +2256,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           terminalId,
           cwd: input.cwd,
           ...(input.worktreePath !== undefined ? { worktreePath: input.worktreePath } : {}),
+          ...(input.actionRunId !== undefined ? { actionRunId: input.actionRunId } : {}),
           cols,
           rows,
           ...(input.env ? { env: input.env } : {}),
@@ -2204,6 +2267,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     }
 
     const liveSession = existing.value;
+    if (input.actionRunId !== undefined) {
+      liveSession.actionRunId = input.actionRunId;
+    }
     const nextRuntimeEnv = normalizedRuntimeEnv(input.env);
     const currentRuntimeEnv = liveSession.runtimeEnv;
     const targetCols = input.cols ?? liveSession.cols;
@@ -2246,6 +2312,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           terminalId,
           cwd: input.cwd,
           worktreePath: liveSession.worktreePath,
+          ...(input.actionRunId !== undefined ? { actionRunId: input.actionRunId } : {}),
           cols: targetCols,
           rows: targetRows,
           ...(input.env ? { env: input.env } : {}),
@@ -2579,6 +2646,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             processEventDrainRunning: false,
             exitCode: null,
             exitSignal: null,
+            actionRunId: input.actionRunId ?? null,
             updatedAt: yield* nowIso,
             eventSequence: 0,
             cols,
@@ -2621,6 +2689,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             terminalId,
             cwd: input.cwd,
             ...(input.worktreePath !== undefined ? { worktreePath: input.worktreePath } : {}),
+            ...(input.actionRunId !== undefined ? { actionRunId: input.actionRunId } : {}),
             cols,
             rows,
             ...(input.env ? { env: input.env } : {}),

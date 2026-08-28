@@ -639,7 +639,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.isBelow(result.fileCount, WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT);
         assert.deepStrictEqual(secondAsar, firstAsar);
       }),
-    ),
+      // The fixture executable is a text file. Keep this archive/sidecar test
+      // host-independent; the Windows probe itself is covered by the spawner
+      // fixture below.
+    ).pipe(Effect.provide(Layer.succeed(HostProcessPlatform, "linux"))),
   );
 
   it.effect("probes fff through the packaged Windows primary instead of helper executables", () => {
@@ -878,7 +881,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.instanceOf(error, BundleNotSelfContainedError);
         assert.include(error.output, "rune-deliberately-missing-package");
       }),
-    ),
+      // The missing-import assertion is about isolated bundle resolution, not
+      // launching the text-file fixture as a Windows executable.
+    ).pipe(Effect.provide(Layer.succeed(HostProcessPlatform, "linux"))),
   );
 
   it.effect("preserves both Linux icon resize failures with structural context", () => {

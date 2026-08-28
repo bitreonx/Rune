@@ -131,6 +131,31 @@ function renderPanel(options?: {
   }) as ReactElement<Record<string, unknown>>;
 }
 
+function renderHarnesses(panel: ReactElement<Record<string, unknown>>) {
+  const harnessElement = visitElements(
+    panel,
+    (element) =>
+      element.props.serverProviders !== undefined &&
+      typeof element.props.onUpdateSettings === "function" &&
+      typeof element.props.onOpenInstance === "function",
+  );
+  expect(harnessElement).not.toBeNull();
+  hooks.beginRender();
+  return (
+    harnessElement?.type as (
+      props: Record<string, unknown>,
+    ) => ReactElement<Record<string, unknown>>
+  )(harnessElement?.props ?? {});
+}
+
+function renderInstanceActions(instanceElement: ReactElement<Record<string, unknown>>) {
+  return (
+    instanceElement.type as (
+      props: Record<string, unknown>,
+    ) => ReactElement<Record<string, unknown>>
+  )(instanceElement.props);
+}
+
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -157,6 +182,7 @@ describe("EnvironmentProviderSettings routing", () => {
   it("routes refresh and provider update commands to the selected environment", async () => {
     atoms.providers = [provider()];
     const panel = renderPanel();
+    const harnesses = renderHarnesses(panel);
     const refreshButton = visitElements(
       panel,
       (element) => element.props["aria-label"] === "Refresh provider status",
@@ -168,11 +194,15 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(commands.refresh).toHaveBeenCalledWith({ environmentId, input: {} });
 
     const providerCard = visitElements(
-      panel,
+      harnesses,
       (element) =>
         element.props.instanceId === codexId && typeof element.props.onRunUpdate === "function",
     );
     expect(providerCard).not.toBeNull();
+    const actionDetails = renderInstanceActions(providerCard!);
+    expect(
+      visitElements(actionDetails, (element) => element.props["aria-label"] === "Update Codex"),
+    ).not.toBeNull();
     (providerCard?.props.onRunUpdate as (() => void) | undefined)?.();
     await flushPromises();
 
@@ -185,11 +215,21 @@ describe("EnvironmentProviderSettings routing", () => {
   it("renders the provider layout inert with a limited-permissions notice when read only", () => {
     atoms.providers = [provider()];
     const panel = renderPanel({ readOnly: true });
+    const harnesses = renderHarnesses(panel);
 
     const inertWrapper = visitElements(panel, (element) => element.props.inert === true);
     expect(inertWrapper).not.toBeNull();
-    const providerCard = visitElements(panel, (element) => element.props.instanceId === codexId);
+    const providerCard = visitElements(
+      harnesses,
+      (element) => element.props.instanceId === codexId,
+    );
     expect(providerCard).not.toBeNull();
+    expect(
+      visitElements(
+        renderInstanceActions(providerCard!),
+        (element) => element.props["aria-label"] === "Open Codex settings",
+      ),
+    ).not.toBeNull();
 
     const notice = visitElements(panel, (element) => element.props.title === "Limited permissions");
     expect(notice).not.toBeNull();
@@ -230,8 +270,15 @@ describe("EnvironmentProviderSettings routing", () => {
       favorites: [{ provider: customId, model: "favorite" }],
     };
     const panel = renderPanel();
-    const customCard = visitElements(panel, (element) => element.props.instanceId === customId);
+    const harnesses = renderHarnesses(panel);
+    const customCard = visitElements(harnesses, (element) => element.props.instanceId === customId);
     expect(customCard).not.toBeNull();
+    expect(
+      visitElements(
+        renderInstanceActions(customCard!),
+        (element) => element.props["aria-label"] === "Delete provider instance codex_work",
+      ),
+    ).not.toBeNull();
     (customCard?.props.onDelete as (() => void) | undefined)?.();
 
     expect(settingsState.updateSettings).toHaveBeenLastCalledWith({
@@ -241,7 +288,7 @@ describe("EnvironmentProviderSettings routing", () => {
     });
 
     settingsState.updateSettings.mockClear();
-    const defaultCard = visitElements(panel, (element) => element.props.instanceId === codexId);
+    const defaultCard = visitElements(harnesses, (element) => element.props.instanceId === codexId);
     const resetAction = defaultCard?.props.headerAction;
     const resetButton = visitElements(
       resetAction,

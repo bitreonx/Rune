@@ -270,6 +270,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 @utility surface-glass {
+  isolation: isolate;
+  contain: paint;
   background: color-mix(in srgb, var(--background) var(--glass-opacity), transparent);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
@@ -280,6 +282,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 @utility alert-glass {
+  isolation: isolate;
+  contain: paint;
   --alert-glass-tint: transparent;
   background:
     linear-gradient(
@@ -312,6 +316,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 @utility dialog-glass {
+  isolation: isolate;
+  contain: paint;
   background: color-mix(in srgb, var(--background) var(--glass-opacity), transparent);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
@@ -1986,155 +1992,33 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     transform var(--rune-motion-fast) ease;
 }
 
+/* Thread state is conveyed by the existing active/selected/status signals,
+   not by per-thread colour presets or an ambient accent strip. */
+
 [data-app-sidebar] [data-rune-sidebar-row="thread"] {
-  --rune-thread-accent: var(--rune-violet-strong);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="purple-focus"],
-[data-app-sidebar] [data-rune-folder-design="purple-focus"] {
-  --rune-thread-accent: #a78bfa;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="blue-research"],
-[data-app-sidebar] [data-rune-folder-design="blue-research"] {
-  --rune-thread-accent: #60a5fa;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="amber-review"],
-[data-app-sidebar] [data-rune-folder-design="amber-review"] {
-  --rune-thread-accent: #fbbf24;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="green-complete"],
-[data-app-sidebar] [data-rune-folder-design="green-complete"] {
-  --rune-thread-accent: #34d399;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="coral-important"],
-[data-app-sidebar] [data-rune-folder-design="coral-important"] {
-  --rune-thread-accent: #fb7185;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="indigo-code"],
-[data-app-sidebar] [data-rune-folder-design="indigo-code"] {
-  --rune-thread-accent: #818cf8;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="rose-creative"],
-[data-app-sidebar] [data-rune-folder-design="rose-creative"] {
-  --rune-thread-accent: #f472b6;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="cyan-technical"],
-[data-app-sidebar] [data-rune-folder-design="cyan-technical"] {
-  --rune-thread-accent: #22d3ee;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-thread-design="mono-terminal"],
-[data-app-sidebar] [data-rune-folder-design="mono-terminal"] {
-  --rune-thread-accent: #a3a3a3;
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"]::before {
-  background: var(--rune-thread-accent);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-active="true"],
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"] {
-  background: color-mix(in srgb, var(--rune-thread-accent) 12%, var(--rune-thread-glass-surface));
-  border-color: color-mix(in srgb, var(--rune-thread-accent) 34%, var(--sidebar-border));
-}
-
-[data-rune-folder-design] {
-  --rune-folder-accent: var(--rune-thread-accent, var(--rune-violet-strong));
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--rune-folder-accent) 68%, transparent);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"]:hover {
-  border-color: color-mix(in srgb, var(--sidebar-border) 72%, var(--rune-violet-soft));
-  transform: translateX(1px);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-active="true"] {
-  border-color: color-mix(in srgb, var(--rune-violet-strong) 32%, var(--sidebar-border));
-  background: color-mix(in srgb, var(--rune-violet-soft) 12%, var(--sidebar-row-active));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 7%, transparent);
-}
-
-/* Thread surfaces: a restrained liquid-glass treatment for a dense, frequently
-   scanned list. The glass is layered from the sidebar itself, not a painted
-   gradient, so project identity still comes from the favicon and status color.
-   The fallback remains fully opaque when backdrop filtering is unavailable. */
-[data-app-sidebar] [data-rune-sidebar-row="thread"] {
-  --rune-thread-glass-surface: color-mix(in srgb, var(--sidebar) 54%, transparent);
-  --rune-thread-glass-line: color-mix(in srgb, var(--sidebar-foreground) 8%, transparent);
-  background: var(--rune-thread-glass-surface);
-  border-color: var(--rune-thread-glass-line);
-  -webkit-backdrop-filter: blur(18px) saturate(122%);
-  backdrop-filter: blur(18px) saturate(122%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 7%, transparent),
-    0 4px 14px -12px rgb(0 0 0 / 55%);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"]::before {
-  position: absolute;
-  inset: 1px auto 1px 0;
-  width: 2px;
-  border-radius: 0 999px 999px 0;
-  background: var(--rune-thread-accent, var(--rune-violet-strong));
-  content: "";
-  opacity: 0;
-  transform: scaleY(0.45);
-  transform-origin: center;
+  background: var(--sidebar);
+  border-color: transparent;
+  box-shadow: none;
   transition:
-    opacity var(--rune-motion-fast) ease,
-    transform var(--rune-motion-fast) ease;
+    background-color var(--rune-motion-fast) ease,
+    border-color var(--rune-motion-fast) ease,
+    color var(--rune-motion-fast) ease;
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"]:hover {
-  background: color-mix(in srgb, var(--sidebar-row-hover) 66%, var(--rune-thread-glass-surface));
-  border-color: color-mix(in srgb, var(--sidebar-border) 68%, var(--rune-violet-soft));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 10%, transparent),
-    0 8px 18px -16px rgb(0 0 0 / 70%);
+  background: var(--sidebar-row-hover);
+  border-color: var(--sidebar-border);
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-active="true"],
 [data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"] {
-  --rune-thread-glass-surface: color-mix(
-    in srgb,
-    var(--rune-thread-accent, var(--rune-violet-soft)) 18%,
-    var(--sidebar)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--rune-thread-accent, var(--rune-violet-strong)) 38%,
-    var(--sidebar-border)
-  );
-  background: var(--rune-thread-glass-surface);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 13%, transparent),
-    0 8px 20px -16px
-      color-mix(in srgb, var(--rune-thread-accent, var(--rune-violet-strong)) 70%, transparent);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-active="true"]::before,
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"]::before {
-  opacity: 1;
-  transform: scaleY(1);
-}
-
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-testid="sidebar-row-slim"] {
-  --rune-thread-glass-surface: color-mix(in srgb, var(--sidebar) 38%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 5%, transparent);
+  background: var(--sidebar-row-active);
+  border-color: var(--sidebar-border);
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"]:focus-visible {
-  border-color: color-mix(in srgb, var(--rune-sidebar-focus) 62%, var(--sidebar-border));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 14%, transparent),
-    0 0 0 2px color-mix(in srgb, var(--rune-sidebar-focus) 24%, transparent);
+  border-color: var(--rune-sidebar-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rune-sidebar-focus) 24%, transparent);
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="search"],
@@ -2147,7 +2031,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-app-sidebar] [data-rune-sidebar-row="thread"]::before {
+  [data-app-sidebar] [data-rune-sidebar-row="thread"] {
     transition: none;
   }
 }

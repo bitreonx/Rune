@@ -1,12 +1,12 @@
 import type {
   OrchestrationEvent,
   OrchestrationFileOwner,
-  OrchestrationFileOwnership,
   OrchestrationReadModel,
   ThreadId,
 } from "@rune/contracts";
 import {
   OrchestrationCheckpointSummary,
+  OrchestrationFileOwnership,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
@@ -42,12 +42,14 @@ import {
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
   ThreadBaselineCapturedPayload,
+  ThreadAgentResultAdoptedPayload,
 } from "./Schemas.ts";
 import { aggregateChatDiff } from "./chatDiffAggregate.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
+const decodeFileOwnership = Schema.decodeUnknownSync(Schema.Array(OrchestrationFileOwnership));
 
 function mergeCrossThreadOwnership(
   readModel: OrchestrationReadModel,
@@ -102,6 +104,15 @@ function mergeCrossThreadOwnership(
       };
     }),
   };
+}
+
+function normalizeThreadCompatibility(thread: OrchestrationThread): OrchestrationThread {
+  if (!Array.isArray(thread.fileOwnership)) return { ...thread, fileOwnership: [] };
+  try {
+    return { ...thread, fileOwnership: decodeFileOwnership(thread.fileOwnership) };
+  } catch {
+    return { ...thread, fileOwnership: [] };
+  }
 }
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
@@ -265,6 +276,7 @@ export function projectEvent(
 ): Effect.Effect<OrchestrationReadModel, OrchestrationProjectorDecodeError> {
   const nextBase: OrchestrationReadModel = {
     ...model,
+    threads: model.threads.map(normalizeThreadCompatibility),
     snapshotSequence: event.sequence,
     updatedAt: event.occurredAt,
   };
@@ -384,6 +396,9 @@ export function projectEvent(
             baseline: null,
             fileOwnership: [],
             session: null,
+            ...(payload.agent !== undefined && payload.agent !== null
+              ? { threadKind: "agent" as const, agent: payload.agent }
+              : {}),
           },
           event.type,
           "thread",
@@ -396,6 +411,33 @@ export function projectEvent(
             : [...nextBase.threads, thread],
         };
       });
+
+    case "thread.agent-result-adopted":
+      return decodeForEvent(
+        ThreadAgentResultAdoptedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.flatMap((payload) => {
+          const child = nextBase.threads.find((thread) => thread.id === payload.childThreadId);
+          const parent = nextBase.threads.find((thread) => thread.id === payload.parentThreadId);
+          if (!child || !parent || !child.agent || child.agent.parentThreadId !== parent.id) {
+            return Effect.succeed(nextBase);
+          }
+          return Effect.succeed({
+            ...nextBase,
+            threads: updateThread(nextBase.threads, child.id, {
+              agent: {
+                ...child.agent,
+                result: payload.result,
+                resultAdoptedAt: payload.adoptedAt,
+              },
+              updatedAt: event.occurredAt,
+            }),
+          });
+        }),
+      );
 
     case "thread.deleted":
       return decodeForEvent(ThreadDeletedPayload, event.payload, event.type, "payload").pipe(

@@ -1,10 +1,11 @@
 import type { ApprovalRequestId, UserInputQuestion } from "@rune/contracts";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Easing,
   FadeInUp,
   FadeOutDown,
+  ReduceMotion,
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
@@ -21,6 +22,7 @@ import { cn } from "../../lib/cn";
 import { useThemeColor } from "../../lib/useThemeColor";
 import {
   isPendingUserInputOptionSelected,
+  resolvePendingUserInputAnswer,
   type PendingUserInput,
   type PendingUserInputDraftAnswer,
 } from "../../lib/threadActivity";
@@ -89,6 +91,17 @@ const CARD_LAYOUT_TRANSITION = LinearTransition.duration(200);
 export function PendingUserInputCard(props: PendingUserInputCardProps) {
   const iconSubtle = useThemeColor("--color-icon-subtle");
   const questionCount = props.pendingUserInput.questions.length;
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  useEffect(() => {
+    setActiveQuestionIndex(0);
+  }, [props.pendingUserInput.requestId]);
+  const activeQuestion = props.pendingUserInput.questions[activeQuestionIndex] ?? null;
+  const activeDraft = activeQuestion ? props.drafts[activeQuestion.id] : undefined;
+  const activeAnswer = activeQuestion
+    ? resolvePendingUserInputAnswer(activeQuestion, activeDraft)
+    : null;
+  const canAdvance = Boolean(activeAnswer) || Boolean(activeQuestion?.allowSkip);
+  const isLastQuestion = activeQuestionIndex >= questionCount - 1;
 
   const cardCoverage = props.cardCoverage;
   const barHeightRef = useRef(0);
@@ -205,12 +218,16 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       entering={
         EXPANDED_CARD_IS_OVERLAY
           ? undefined
-          : FadeInUp.duration(USER_INPUT_TOGGLE_DURATION_MS).easing(Easing.out(Easing.cubic))
+          : FadeInUp.duration(USER_INPUT_TOGGLE_DURATION_MS)
+              .easing(Easing.out(Easing.cubic))
+              .reduceMotion(ReduceMotion.System)
       }
       exiting={
         EXPANDED_CARD_IS_OVERLAY
           ? undefined
-          : FadeOutDown.duration(USER_INPUT_TOGGLE_DURATION_MS).easing(Easing.out(Easing.cubic))
+          : FadeOutDown.duration(USER_INPUT_TOGGLE_DURATION_MS)
+              .easing(Easing.out(Easing.cubic))
+              .reduceMotion(ReduceMotion.System)
       }
       layout={CARD_LAYOUT_TRANSITION}
       className="overflow-hidden gap-2.5 rounded-[20px] border border-neutral-200 bg-neutral-100 p-4 dark:border-white/6 dark:bg-neutral-900"
@@ -231,8 +248,13 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
             User input needed
           </Text>
           <Text className="font-rune-bold text-lg text-neutral-950 dark:text-neutral-50">
-            Fill in the pending answers
+            {props.pendingUserInput.title ?? "Fill in the pending answers"}
           </Text>
+          {props.pendingUserInput.context ? (
+            <Text className="font-sans text-sm leading-5 text-neutral-500 dark:text-neutral-400">
+              {props.pendingUserInput.context}
+            </Text>
+          ) : null}
         </View>
         <View className="h-8 w-8 items-center justify-center rounded-full bg-neutral-200/70 dark:bg-white/8">
           <SymbolView name="chevron.down" size={13} tintColor={iconSubtle} type="monochrome" />
@@ -247,39 +269,47 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         showsVerticalScrollIndicator
         style={{ flexShrink: 1 }}
       >
-        {props.pendingUserInput.questions.map((question) => {
-          const draft = props.drafts[question.id];
-          return (
-            <View key={question.id} className="gap-2 pt-1">
+        {activeQuestion ? (
+          <View key={activeQuestion.id} className="gap-2 pt-1">
+            <View className="flex-row items-center justify-between gap-2">
               <Text className="font-rune-bold text-xs uppercase tracking-[1px] text-neutral-500 dark:text-neutral-500">
-                {question.header}
+                {activeQuestion.header}
               </Text>
-              <Text className="font-sans text-base leading-snug text-neutral-950 dark:text-neutral-50">
-                {question.question}
+              <Text className="font-sans text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+                {activeQuestionIndex + 1}/{questionCount}
               </Text>
-              <View className="gap-2">
-                {question.options.map((option) => {
-                  const selected = isPendingUserInputOptionSelected(draft, option.label);
-                  const description =
-                    option.description !== option.label ? option.description : undefined;
-                  return (
-                    <Pressable
-                      key={option.label}
-                      className={cn(
-                        "min-h-12 w-full rounded-2xl border px-3.5 py-3",
-                        selected
-                          ? "border-blue-300/50 bg-blue-50 dark:border-blue-400/28 dark:bg-blue-400/14"
-                          : "border-neutral-200 bg-white dark:border-white/6 dark:bg-neutral-950/70",
-                      )}
-                      onPress={() =>
-                        props.onSelectOption(
-                          props.pendingUserInput.requestId,
-                          question,
-                          option.label,
-                        )
-                      }
-                    >
-                      <View className="min-w-0 flex-1 gap-0.5">
+            </View>
+            <Text className="font-sans text-base leading-snug text-neutral-950 dark:text-neutral-50">
+              {activeQuestion.question}
+            </Text>
+            <View className="gap-2">
+              {activeQuestion.options.map((option) => {
+                const draft = activeDraft;
+                const selected = isPendingUserInputOptionSelected(draft, option.label);
+                const isRecommended =
+                  activeQuestion.recommendedOptionId === option.id ||
+                  activeQuestion.recommendedOptionId === option.label;
+                const description =
+                  option.description !== option.label ? option.description : undefined;
+                return (
+                  <Pressable
+                    key={option.id ?? option.label}
+                    className={cn(
+                      "min-h-12 w-full rounded-2xl border px-3.5 py-3",
+                      selected
+                        ? "border-blue-300/50 bg-blue-50 dark:border-blue-400/28 dark:bg-blue-400/14"
+                        : "border-neutral-200 bg-white dark:border-white/6 dark:bg-neutral-950/70",
+                    )}
+                    onPress={() =>
+                      props.onSelectOption(
+                        props.pendingUserInput.requestId,
+                        activeQuestion,
+                        option.label,
+                      )
+                    }
+                  >
+                    <View className="min-w-0 flex-1 gap-0.5">
+                      <View className="flex-row items-center gap-2">
                         <Text
                           className={cn(
                             "font-rune-bold text-sm",
@@ -290,42 +320,84 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                         >
                           {option.label}
                         </Text>
-                        {description ? (
-                          <Text className="font-sans text-sm leading-5 text-neutral-500 dark:text-neutral-400">
-                            {description}
+                        {isRecommended ? (
+                          <Text className="font-rune-bold text-2xs uppercase tracking-[0.8px] text-sky-600 dark:text-sky-300">
+                            Suggested
                           </Text>
                         ) : null}
                       </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
+                      {description ? (
+                        <Text className="font-sans text-sm leading-5 text-neutral-500 dark:text-neutral-400">
+                          {description}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {activeQuestion.allowCustomAnswer !== false ? (
               <TextInput
-                value={draft?.customAnswer ?? ""}
+                value={activeDraft?.customAnswer ?? ""}
+                editable={
+                  !(
+                    Boolean(activeAnswer) &&
+                    activeQuestion.allowEditSuggestedAnswer === false &&
+                    activeQuestion.recommendedOptionId !== undefined
+                  )
+                }
                 onChangeText={(value) =>
-                  props.onChangeCustomAnswer(props.pendingUserInput.requestId, question.id, value)
+                  props.onChangeCustomAnswer(
+                    props.pendingUserInput.requestId,
+                    activeQuestion.id,
+                    value,
+                  )
                 }
                 onFocus={() => props.onInputFocusChange?.(true)}
                 onBlur={() => props.onInputFocusChange?.(false)}
                 placeholder="Or type a custom answer"
                 className="min-h-[54px] rounded-2xl border border-neutral-200 bg-white px-3.5 py-3 font-sans text-base text-neutral-950 dark:border-white/8 dark:bg-neutral-950/70 dark:text-neutral-50"
               />
-            </View>
-          );
-        })}
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
-      <Pressable
-        className={cn(
-          "items-center justify-center rounded-2xl px-4 py-3.5",
-          props.answers ? "bg-blue-500" : "bg-neutral-200 dark:bg-neutral-700/60",
-        )}
-        disabled={
-          props.answers === null || props.respondingUserInputId === props.pendingUserInput.requestId
-        }
-        onPress={() => void props.onSubmit()}
-      >
-        <Text className="font-rune-extrabold text-sm text-white">Submit answers</Text>
-      </Pressable>
+      <View className="flex-row gap-2">
+        {activeQuestionIndex > 0 ? (
+          <Pressable
+            className="items-center justify-center rounded-2xl border border-neutral-200 bg-white px-4 py-3.5 dark:border-white/8 dark:bg-neutral-950/70"
+            onPress={() => setActiveQuestionIndex((current) => Math.max(0, current - 1))}
+          >
+            <Text className="font-rune-bold text-sm text-neutral-700 dark:text-neutral-200">
+              Back
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          className={cn(
+            "flex-1 items-center justify-center rounded-2xl px-4 py-3.5",
+            canAdvance && (isLastQuestion ? props.answers !== null : true)
+              ? "bg-blue-500"
+              : "bg-neutral-200 dark:bg-neutral-700/60",
+          )}
+          disabled={
+            !canAdvance ||
+            (isLastQuestion && props.answers === null) ||
+            props.respondingUserInputId === props.pendingUserInput.requestId
+          }
+          onPress={() => {
+            if (!isLastQuestion) {
+              setActiveQuestionIndex((current) => Math.min(questionCount - 1, current + 1));
+            } else {
+              void props.onSubmit();
+            }
+          }}
+        >
+          <Text className="font-rune-extrabold text-sm text-white">
+            {isLastQuestion ? "Submit answers" : "Continue"}
+          </Text>
+        </Pressable>
+      </View>
     </Animated.View>
   ) : null;
   return (

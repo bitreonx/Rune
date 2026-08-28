@@ -377,9 +377,102 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          ...(command.agent !== undefined ? { agent: command.agent } : {}),
           ...(command.temporary === true ? { temporary: true } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.child-user-message.append": {
+      const childThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (childThread.agent === undefined || childThread.agent === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is not a persisted child-agent thread.`,
+        });
+      }
+      if (
+        childThread.messages.some(
+          (message) =>
+            message.role === "user" &&
+            message.text === command.text &&
+            message.turnId === command.turnId,
+        )
+      ) {
+        return [];
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          role: "user",
+          text: command.text,
+          turnId: command.turnId,
+          streaming: false,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.agent.result.adopt": {
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const childThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.childThreadId,
+      });
+      const agent = childThread.agent;
+      const expectedRootThreadId = parentThread.agent?.rootThreadId ?? parentThread.id;
+      if (
+        childThread.id === parentThread.id ||
+        childThread.projectId !== parentThread.projectId ||
+        agent === undefined ||
+        agent === null ||
+        agent.parentThreadId !== parentThread.id ||
+        agent.rootThreadId !== expectedRootThreadId
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Child thread '${command.childThreadId}' is not owned by parent thread '${command.threadId}'.`,
+        });
+      }
+      if (agent.result !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Child thread '${command.childThreadId}' already has an adopted result.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.adoptedAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-result-adopted",
+        payload: {
+          parentThreadId: command.threadId,
+          childThreadId: command.childThreadId,
+          result: command.result,
+          adoptedAt: command.adoptedAt,
         },
       };
     }
@@ -1521,6 +1614,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           turnCount: command.turnCount,
+          ...(command.providerRollback === undefined
+            ? {}
+            : { providerRollback: command.providerRollback }),
         },
       };
     }

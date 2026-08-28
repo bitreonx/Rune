@@ -3,8 +3,14 @@ import { ProviderDriverKind } from "./providerInstance.ts";
 /** First-party API-backed provider drivers shipped by RUNE. */
 export const OPENAI_API_DRIVER = ProviderDriverKind.make("openaiApi");
 export const OPENROUTER_DRIVER = ProviderDriverKind.make("openrouter");
+/** RUNE's provider-neutral native loop uses the OpenAI-compatible API seam. */
+export const RUNE_NATIVE_DRIVER = ProviderDriverKind.make("runeNative");
 
-export const API_PROVIDER_DRIVER_KINDS = [OPENAI_API_DRIVER, OPENROUTER_DRIVER] as const;
+export const API_PROVIDER_DRIVER_KINDS = [
+  OPENAI_API_DRIVER,
+  OPENROUTER_DRIVER,
+  RUNE_NATIVE_DRIVER,
+] as const;
 export type ApiProviderDriverKind = (typeof API_PROVIDER_DRIVER_KINDS)[number];
 
 export type ApiReasoningMode = "none" | "optional" | "required";
@@ -30,6 +36,7 @@ export function apiKeyEnvironmentVariableForDriver(
   switch (String(driver)) {
     case "openaiApi":
     case "openai-api":
+    case "runeNative":
       return OPENAI_API_KEY_ENVIRONMENT_VARIABLE;
     case "openrouter":
       return OPENROUTER_API_KEY_ENVIRONMENT_VARIABLE;

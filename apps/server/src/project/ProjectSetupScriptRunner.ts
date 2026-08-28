@@ -1,4 +1,5 @@
 import { ProjectId } from "@rune/contracts";
+import { actionIdForProjectScript } from "@rune/shared/actions";
 import { projectScriptRuntimeEnv, setupProjectScript } from "@rune/shared/projectScripts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -31,6 +32,12 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;
+  /** Stable action execution identity carried through the terminal lifecycle. */
+  readonly actionRunId?: string;
+  /** Select a project script by its provider-neutral Action id. */
+  readonly actionId?: string;
+  /** Prepared command from the action boundary; raw project scripts omit this. */
+  readonly commandOverride?: string;
 }
 
 export class ProjectSetupScriptOperationError extends Schema.TaggedErrorClass<ProjectSetupScriptOperationError>()(
@@ -79,12 +86,11 @@ export class ProjectSetupScriptRunner extends Context.Service<
 >()("rune/project/ProjectSetupScriptRunner") {}
 
 export const make = Effect.gen(function* () {
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const terminalManager = yield* TerminalManager.TerminalManager;
-
   const runForThread: ProjectSetupScriptRunner["Service"]["runForThread"] = Effect.fn(
     "ProjectSetupScriptRunner.runForThread",
   )(function* (input) {
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    const terminalManager = yield* TerminalManager.TerminalManager;
     const errorContext = {
       threadId: input.threadId,
       worktreePath: input.worktreePath,
@@ -124,14 +130,25 @@ export const make = Effect.gen(function* () {
       return yield* new ProjectSetupScriptProjectNotFoundError(errorContext);
     }
 
-    const script = setupProjectScript(project.scripts);
-    if (!script) {
+    const script =
+      input.actionId === undefined
+        ? setupProjectScript(project.scripts)
+        : (project.scripts.find(
+            (candidate) => actionIdForProjectScript(candidate.id) === input.actionId,
+          ) ?? null);
+    // Registered Actions can be project-scoped commands without originating
+    // from a project script. A prepared command is already validated at the
+    // action boundary, so it is safe to use the existing terminal runner with
+    // a synthetic script identity instead of silently reporting no-script.
+    if (!script && input.commandOverride === undefined) {
       return {
         status: "no-script",
       } as const;
     }
 
-    const terminalId = input.preferredTerminalId ?? `setup-${script.id}`;
+    const scriptId = script?.id ?? input.actionId ?? "action";
+    const scriptName = script?.name ?? input.actionId ?? "Project action";
+    const terminalId = input.preferredTerminalId ?? `setup-${scriptId}`;
     const cwd = input.worktreePath;
     const env = projectScriptRuntimeEnv({
       project: { cwd: project.workspaceRoot },
@@ -144,6 +161,7 @@ export const make = Effect.gen(function* () {
         terminalId,
         cwd,
         worktreePath: input.worktreePath,
+        ...(input.actionRunId === undefined ? {} : { actionRunId: input.actionRunId }),
         env,
       })
       .pipe(
@@ -160,7 +178,7 @@ export const make = Effect.gen(function* () {
       .write({
         threadId: input.threadId,
         terminalId,
-        data: `${script.command}\r`,
+        data: `${input.commandOverride ?? script!.command}\r`,
       })
       .pipe(
         Effect.mapError(
@@ -175,8 +193,8 @@ export const make = Effect.gen(function* () {
 
     return {
       status: "started",
-      scriptId: script.id,
-      scriptName: script.name,
+      scriptId,
+      scriptName,
       terminalId,
       cwd,
     } as const;

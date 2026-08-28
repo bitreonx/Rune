@@ -21,6 +21,7 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
+  TurnId,
   type RuntimeTaskUsage,
   ProviderApprovalDecision,
   ThreadId,
@@ -535,6 +536,9 @@ function mapCollabAgentEvent(
   // finding: progress rows renamed math_one to its UUID).
   const knownName = nickname ?? pathLeaf;
   const title = knownName ?? agentThreadId;
+  const childTurnId =
+    typeof payload.childTurnId === "string" ? TurnId.make(payload.childTurnId) : undefined;
+  const childBase = childTurnId ? { ...base, turnId: childTurnId } : base;
   const chat = {
     provider: PROVIDER,
     canRead: true,
@@ -611,9 +615,16 @@ function mapCollabAgentEvent(
     case "collabAgent/turnStarted":
       return [
         {
-          ...base,
+          ...childBase,
           type: "task.updated",
           payload: { taskId, status: "running", ...statusLinkage },
+        },
+        {
+          ...childBase,
+          type: "turn.started",
+          payload: {
+            agentId: taskId,
+          },
         },
       ];
     case "collabAgent/turnCompleted": {
@@ -631,9 +642,22 @@ function mapCollabAgentEvent(
             : ("idle" as const);
       return [
         {
-          ...base,
+          ...childBase,
           type: "task.updated",
           payload: { taskId, status, ...statusLinkage },
+        },
+        {
+          ...childBase,
+          type: "turn.completed",
+          payload: {
+            state:
+              status === "failed"
+                ? "failed"
+                : status === "interrupted"
+                  ? "interrupted"
+                  : "completed",
+            agentId: taskId,
+          },
         },
       ];
     }
@@ -732,7 +756,7 @@ function mapCollabAgentEvent(
           ? (payload.item as Record<string, unknown>)
           : undefined;
       const itemTypeRaw = typeof item?.type === "string" ? item.type : undefined;
-      if (!itemTypeRaw) {
+      if (!item || !itemTypeRaw) {
         return [];
       }
       // A loose summary from the raw item: the child stream is untyped at
@@ -744,6 +768,23 @@ function mapCollabAgentEvent(
         (typeof item?.query === "string" ? item.query : undefined);
       const canonical = toCanonicalItemType(itemTypeRaw);
       const summary = looseSummary ?? canonical.replaceAll("_", " ");
+      const detail = itemDetail(canonical, item as CodexLifecycleItem);
+      if (canonical === "assistant_message" || canonical === "user_message") {
+        return [
+          {
+            ...childBase,
+            ...(typeof item.id === "string" ? { itemId: RuntimeItemId.make(item.id) } : {}),
+            type: "item.completed",
+            payload: {
+              itemType: canonical,
+              status: "completed",
+              ...(detail ? { detail } : {}),
+              data: item,
+              agentId: taskId,
+            },
+          },
+        ];
+      }
       return [
         {
           ...base,

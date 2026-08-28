@@ -18,6 +18,7 @@ import {
   type ModelSelection,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
+  type ModelServiceConfig,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerSettings,
@@ -101,8 +102,7 @@ const materializeOpenRouterHarnessCredential = (input: {
     if (input.connectionId === undefined) {
       try {
         const hostname = new URL(baseUrl).hostname.toLowerCase();
-        isOpenRouterEndpoint =
-          hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
+        isOpenRouterEndpoint = hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
       } catch {
         // Invalid/custom URLs are left untouched; the provider will surface
         // its normal validation error instead of receiving an unrelated
@@ -111,8 +111,7 @@ const materializeOpenRouterHarnessCredential = (input: {
       const legacyServices = allServices.filter((candidate) => candidate.kind === "openrouter");
       // Compatibility bridge for old settings with no explicit binding. It
       // is intentionally unavailable once the configuration is ambiguous.
-      service =
-        isOpenRouterEndpoint && legacyServices.length === 1 ? legacyServices[0] : undefined;
+      service = isOpenRouterEndpoint && legacyServices.length === 1 ? legacyServices[0] : undefined;
       if (!service) {
         if (isOpenRouterEndpoint) {
           const legacyCredential = input.environment.find(
@@ -163,6 +162,75 @@ const materializeOpenRouterHarnessCredential = (input: {
       set("OPENAI_BASE_URL", "https://openrouter.ai/api/v1");
       set("OPENAI_API_KEY", credential, true);
       set("OPENROUTER_API_KEY", credential, true);
+    }
+    return [...values.values()];
+  });
+
+/**
+ * Compile a bound model service into the launch environment consumed by the
+ * provider driver. Service connections are configuration, not decoration:
+ * the endpoint and credential must travel together through the same
+ * secret-backed runtime boundary as an explicitly configured instance.
+ */
+const materializeBoundModelService = (input: {
+  readonly service: ModelServiceConfig | undefined;
+  readonly environment: ProviderInstanceEnvironmentVariable[];
+  readonly secretStore: ServerSecretStore.ServerSecretStore["Service"];
+  readonly settingsPath: string;
+  readonly instanceId: string;
+}): Effect.Effect<ProviderInstanceEnvironmentVariable[], ServerSettingsError> =>
+  Effect.gen(function* () {
+    const service = input.service;
+    if (service === undefined || service.kind === "native") return input.environment;
+
+    const values = new Map<string, ProviderInstanceEnvironmentVariable>(
+      input.environment.map((variable) => [variable.name, variable]),
+    );
+    const set = (name: string, value: string, sensitive = false) =>
+      values.set(name, { name, value, sensitive });
+    const baseUrl = service.baseUrl?.trim() ?? "";
+    if (baseUrl.length > 0) {
+      switch (service.kind) {
+        case "anthropic":
+        case "custom-anthropic-compatible":
+          set("ANTHROPIC_BASE_URL", baseUrl);
+          break;
+        case "google":
+          break;
+        default:
+          set("OPENAI_BASE_URL", baseUrl);
+          break;
+      }
+    }
+
+    const secretName = service.credentialRef?.trim();
+    if (secretName === undefined || secretName.length === 0) return [...values.values()];
+    const secret = yield* input.secretStore.get(secretName).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ServerSettingsError({
+            settingsPath: input.settingsPath,
+            operation: "read-secret",
+            providerInstanceId: input.instanceId,
+            cause,
+          }),
+      ),
+    );
+    if (Option.isNone(secret)) return [...values.values()];
+    const credential = textDecoder.decode(secret.value);
+    switch (service.kind) {
+      case "anthropic":
+      case "custom-anthropic-compatible":
+        set("ANTHROPIC_AUTH_TOKEN", credential, true);
+        set("ANTHROPIC_API_KEY", "");
+        break;
+      case "google":
+        set("GOOGLE_API_KEY", credential, true);
+        set("GEMINI_API_KEY", credential, true);
+        break;
+      default:
+        set("OPENAI_API_KEY", credential, true);
+        break;
     }
     return [...values.values()];
   });
@@ -502,20 +570,27 @@ const make = Effect.gen(function* () {
             value: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
           });
         }
-        const materializedEnvironment = yield* materializeOpenRouterHarnessCredential({
-          settings,
-          instanceId,
-          driver: String(instance.driver),
-          ...(instance.connectionId !== undefined ? { connectionId: instance.connectionId } : {}),
-          environment,
-          secretStore,
-        });
         const boundService =
           instance.connectionId === undefined
             ? undefined
             : Object.values(settings.harnesses.services).find(
                 (candidate) => String(candidate.serviceId) === instance.connectionId,
               );
+        const serviceEnvironment = yield* materializeBoundModelService({
+          service: boundService,
+          environment: [],
+          secretStore,
+          settingsPath,
+          instanceId,
+        });
+        const materializedEnvironment = yield* materializeOpenRouterHarnessCredential({
+          settings,
+          instanceId,
+          driver: String(instance.driver),
+          ...(instance.connectionId !== undefined ? { connectionId: instance.connectionId } : {}),
+          environment: [...serviceEnvironment, ...environment],
+          secretStore,
+        });
         const isManagedConnection = boundService !== undefined && boundService.kind !== "native";
         const compatibilityProfileId =
           instance.compatibilityProfileId ??

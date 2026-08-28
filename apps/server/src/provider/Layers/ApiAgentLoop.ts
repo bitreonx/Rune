@@ -37,6 +37,12 @@ import { ApiContextLedger, fingerprintToolCall } from "./ApiContextLedger.ts";
 import { DEFAULT_API_EXECUTION_POLICY, makeRequestBudget } from "./ApiRequestBudget.ts";
 import { scheduleToolCalls } from "./ApiToolScheduler.ts";
 import { buildApiRequestBody, resolveApiModelCapabilities } from "./ApiCapabilities.ts";
+import {
+  admitTraceRequest,
+  EMPTY_TRACE_LEDGER,
+  recordTraceMetrics,
+  recordTraceRequest,
+} from "@rune/shared/traceLedger";
 
 /**
  * The native agent loop for API providers (OpenAI-compatible chat completions).
@@ -253,12 +259,15 @@ export const runAgenticTurn = (
     const contextLedger = new ApiContextLedger(input.messages);
     const messages: Array<AgentLoopMessage> = [...input.messages];
     const requestBudget = makeRequestBudget(DEFAULT_API_EXECUTION_POLICY);
+    const traceBudget = { maxRequests: DEFAULT_API_EXECUTION_POLICY.maxProviderRequests };
+    let traceLedger = EMPTY_TRACE_LEDGER;
     const apiCapabilities = resolveApiModelCapabilities({
       driver: deps.provider,
       advertised: input.apiCapabilities,
     });
     const seenToolCalls = new Set<string>();
     let lastUsage: ThreadTokenUsageSnapshot | undefined;
+    let lastRequestId: RuntimeRequestId | undefined;
     let finalText: string | undefined;
     let systemPromptHash = "";
     const executionStartedAt = yield* Clock.currentTimeMillis;
@@ -350,6 +359,17 @@ export const runAgenticTurn = (
           `The agent exceeded the provider request budget (${requestStart.snapshot.maxRequests} requests).`,
         );
       }
+      const traceAdmission = admitTraceRequest(traceLedger, traceBudget);
+      if (!traceAdmission.allowed) {
+        requestBudget.markOutcome("exhausted");
+        return yield* requestFailed(
+          deps.provider,
+          `The agent exceeded the trace request budget (${traceBudget.maxRequests} requests).`,
+        );
+      }
+      traceLedger = recordTraceRequest(traceLedger, {
+        purpose: round === 0 ? "main" : "tool-followup",
+      });
       let requestNumber = requestStart.requestNumber;
       let isRetry = false;
       const systemPrompt = compileSystemPrompt({
@@ -370,6 +390,8 @@ export const runAgenticTurn = (
       let assembled = "";
       const accumulator = makeToolCallAccumulator();
       let roundUsage: Record<string, number> | undefined;
+      let firstByteAt: number | undefined;
+      const requestStartedAt = yield* Clock.currentTimeMillis;
       const sink = makeCoalescedDeltaSink({
         flush: (delta) =>
           Effect.flatMap(deps.stamp, (stamp) =>
@@ -427,6 +449,13 @@ export const runAgenticTurn = (
           }
           requestNumber = retryRequest.requestNumber;
           isRetry = true;
+          const retryAdmission = admitTraceRequest(traceLedger, traceBudget);
+          if (!retryAdmission.allowed) {
+            return Effect.fail(
+              requestFailed(deps.provider, "The trace request budget was exhausted during retry."),
+            );
+          }
+          traceLedger = recordTraceRequest(traceLedger, { purpose: "retry" });
           return deps.httpPost(url, body);
         }),
       );
@@ -437,23 +466,36 @@ export const runAgenticTurn = (
             Stream.decodeText(),
             Stream.splitLines,
             Stream.runForEach((line) => {
-              if (line.trim().length > 0) requestBudget.recordResponseBytes();
-              const parsed = resultFromSseLine(line);
-              switch (parsed.kind) {
-                case "delta":
-                  assembled += parsed.text;
-                  return sink.add(parsed.text);
-                case "toolCallDelta":
-                  accumulator.add(parsed);
-                  return Effect.void;
-                case "finish":
-                  return Effect.void;
-                case "usage":
-                  roundUsage = parsed.usage;
-                  return Effect.void;
-                default:
-                  return Effect.void;
-              }
+              const hasResponseBytes = line.trim().length > 0;
+              if (hasResponseBytes) requestBudget.recordResponseBytes();
+              const markFirstByte =
+                hasResponseBytes && firstByteAt === undefined
+                  ? Clock.currentTimeMillis.pipe(
+                      Effect.map((now) => {
+                        firstByteAt = now;
+                      }),
+                    )
+                  : Effect.void;
+              return markFirstByte.pipe(
+                Effect.flatMap(() => {
+                  const parsed = resultFromSseLine(line);
+                  switch (parsed.kind) {
+                    case "delta":
+                      assembled += parsed.text;
+                      return sink.add(parsed.text);
+                    case "toolCallDelta":
+                      accumulator.add(parsed);
+                      return Effect.void;
+                    case "finish":
+                      return Effect.void;
+                    case "usage":
+                      roundUsage = parsed.usage;
+                      return Effect.void;
+                    default:
+                      return Effect.void;
+                  }
+                }),
+              );
             }),
             Effect.flatMap(() => sink.end()),
             Effect.mapError((cause) =>
@@ -463,9 +505,19 @@ export const runAgenticTurn = (
         ),
       );
 
-      const requestId = RuntimeRequestId.make(
-        `${String(input.turnId)}:request:${requestNumber}`,
-      );
+      const streamCompletedAt = yield* Clock.currentTimeMillis;
+      const calls = accumulator.finish();
+      traceLedger = recordTraceMetrics(traceLedger, {
+        toolCalls: calls.length,
+        elapsedMs: Math.max(0, streamCompletedAt - requestStartedAt),
+      });
+      const traceTotals = {
+        requestCount: traceLedger.requestCount,
+        toolCalls: traceLedger.toolCalls,
+        elapsedMs: traceLedger.elapsedMs,
+      };
+      const requestId = RuntimeRequestId.make(`${String(input.turnId)}:request:${requestNumber}`);
+      const budgetSnapshot = requestBudget.snapshot();
       yield* Effect.flatMap(deps.stamp, (stamp) =>
         deps.publish({
           type: "api.request.usage",
@@ -479,6 +531,12 @@ export const runAgenticTurn = (
             requestId,
             requestNumber,
             retry: isRetry,
+            purpose: isRetry ? "retry" : round === 0 ? "main" : "tool-followup",
+            ...(lastRequestId !== undefined ? { parentRequestId: lastRequestId } : {}),
+            budget: {
+              maxRequests: budgetSnapshot.maxRequests,
+              remainingRequests: Math.max(0, budgetSnapshot.maxRequests - budgetSnapshot.requests),
+            },
             ...(roundUsage !== undefined
               ? {
                   ...(toUsageSnapshot(roundUsage).inputTokens !== undefined
@@ -489,11 +547,15 @@ export const runAgenticTurn = (
                     : {}),
                 }
               : {}),
-            timeToFirstByteMs: 0,
-            streamDurationMs: 0,
+            ...(firstByteAt !== undefined
+              ? { timeToFirstByteMs: Math.max(0, firstByteAt - requestStartedAt) }
+              : {}),
+            streamDurationMs: Math.max(0, streamCompletedAt - requestStartedAt),
+            totals: traceTotals,
           },
         }),
       );
+      lastRequestId = requestId;
 
       if (roundUsage !== undefined) {
         const usage = toUsageSnapshot(roundUsage);
@@ -512,7 +574,6 @@ export const runAgenticTurn = (
         );
       }
 
-      const calls = accumulator.finish();
       if (calls.length === 0) {
         finalText = assembled.trim();
         yield* publishExecutionProgress({

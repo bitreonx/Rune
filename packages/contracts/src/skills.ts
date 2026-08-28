@@ -12,6 +12,7 @@ export type SkillScope = typeof SkillScope.Type;
 /** Metadata sent to clients. Source paths and bodies stay server-side. */
 export const SkillRegistrySkill = Schema.Struct({
   id: SkillId,
+  slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
   description: Schema.String,
   version: Schema.Int,

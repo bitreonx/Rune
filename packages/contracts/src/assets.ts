@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { WorkspaceFileRefPath, type WorkspaceFileRef } from "./workspaceFileRef.ts";
 import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
@@ -33,6 +34,89 @@ export const AssetResource = Schema.Union([
   }),
 ]);
 export type AssetResource = typeof AssetResource.Type;
+
+/**
+ * Read the canonical workspace-file reference while accepting the legacy
+ * absolute-path payload used by older clients. This is a pure migration
+ * helper; callers still validate the resolved path against the authoritative
+ * workspace on the server.
+ */
+export function extractWorkspaceFileRef(
+  resource: unknown,
+  fallbackWorkspaceRoot: string | undefined,
+): WorkspaceFileRef | null {
+  if (
+    !resource ||
+    typeof resource !== "object" ||
+    (resource as { _tag?: unknown })._tag !== "workspace-file"
+  ) {
+    return null;
+  }
+
+  const value = resource as {
+    threadId?: unknown;
+    workspaceId?: unknown;
+    workspaceRoot?: unknown;
+    path?: unknown;
+    ref?: unknown;
+  };
+  if (value.ref && typeof value.ref === "object") {
+    const ref = value.ref as Record<string, unknown>;
+    const relativePath =
+      typeof ref.relativePath === "string" ? ref.relativePath.replaceAll("\\", "/") : null;
+    if (
+      typeof ref.workspaceId === "string" &&
+      typeof ref.workspaceRoot === "string" &&
+      relativePath !== null &&
+      Schema.is(WorkspaceFileRefPath)(relativePath)
+    ) {
+      return {
+        workspaceId: ref.workspaceId,
+        workspaceRoot: ref.workspaceRoot,
+        relativePath,
+      };
+    }
+  }
+
+  if (typeof value.path !== "string") return null;
+  const root =
+    typeof value.workspaceRoot === "string" ? value.workspaceRoot : fallbackWorkspaceRoot;
+  if (!root || !isAbsolutePortablePath(value.path) || !isAbsolutePortablePath(root)) return null;
+
+  const normalizedRoot = normalizePortablePath(root);
+  const normalizedPath = normalizePortablePath(value.path);
+  const rootPrefix = normalizedRoot.endsWith("/") ? normalizedRoot : `${normalizedRoot}/`;
+  if (!normalizedPath.toLowerCase().startsWith(rootPrefix.toLowerCase())) return null;
+
+  const relativePath = normalizedPath.slice(rootPrefix.length);
+  if (!Schema.is(WorkspaceFileRefPath)(relativePath)) return null;
+  const workspaceId = value.workspaceId ?? value.threadId;
+  if (typeof workspaceId !== "string" || workspaceId.length === 0) return null;
+  return { workspaceId, workspaceRoot: root.trim(), relativePath };
+}
+
+function isAbsolutePortablePath(value: string): boolean {
+  return value.startsWith("/") || /^\\\\|^[A-Za-z]:[\\/]/.test(value);
+}
+
+function normalizePortablePath(value: string): string {
+  const replaced = value.trim().replaceAll("\\", "/");
+  const prefix = /^[A-Za-z]:/.test(replaced)
+    ? replaced.slice(0, 2)
+    : replaced.startsWith("/")
+      ? "/"
+      : "";
+  const segments: string[] = [];
+  for (const segment of replaced.slice(prefix.length).split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length > 0) segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return `${prefix}${segments.join("/")}`.replace(/\/$/, "") || prefix || ".";
+}
 
 export const AssetCreateUrlInput = Schema.Struct({
   resource: AssetResource,

@@ -59,6 +59,14 @@ import Migration0043 from "./Migrations/043_ProjectionThreadsTemporaryDeletionSn
 import Migration0044 from "./Migrations/044_ProjectionThreadsChatDiff.ts";
 import Migration0045 from "./Migrations/045_ProjectionClaims.ts";
 import Migration0046 from "./Migrations/046_ProviderSessionRuntimeRoutingPins.ts";
+import Migration0047 from "./Migrations/047_ProjectionThreadsScopedChangesCompatibility.ts";
+import Migration0048 from "./Migrations/048_ProjectionThreadsAgentMetadata.ts";
+import Migration0049 from "./Migrations/049_PocketEvents.ts";
+import Migration0050 from "./Migrations/050_PromptQueueEvents.ts";
+import Migration0051 from "./Migrations/051_ActionRegistry.ts";
+import Migration0052 from "./Migrations/052_PlanSessions.ts";
+import Migration0053 from "./Migrations/053_ChatMutationLedger.ts";
+import Migration0054 from "./Migrations/054_ActionRunReceipts.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -117,6 +125,14 @@ export const migrationEntries = [
   [44, "ProjectionThreadsChatDiff", Migration0044],
   [45, "ProjectionClaims", Migration0045],
   [46, "ProviderSessionRuntimeRoutingPins", Migration0046],
+  [47, "ProjectionThreadsScopedChangesCompatibility", Migration0047],
+  [48, "ProjectionThreadsAgentMetadata", Migration0048],
+  [49, "PocketEvents", Migration0049],
+  [50, "PromptQueueEvents", Migration0050],
+  [51, "ActionRegistry", Migration0051],
+  [52, "PlanSessions", Migration0052],
+  [53, "ChatMutationLedger", Migration0053],
+  [54, "ActionRunReceipts", Migration0054],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

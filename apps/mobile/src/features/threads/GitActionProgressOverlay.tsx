@@ -3,7 +3,7 @@ import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, LinearTransition, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
@@ -52,8 +52,10 @@ export function GitActionProgressOverlay(props: {
 
   return (
     <Animated.View
-      entering={isLiquidGlassSupported ? undefined : FadeIn.duration(200)}
-      exiting={FadeOut.duration(150)}
+      entering={
+        isLiquidGlassSupported ? undefined : FadeIn.duration(200).reduceMotion(ReduceMotion.System)
+      }
+      exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
       className="absolute inset-x-3 z-[100]"
       style={{ top: insets.top + APP_BAR_HEIGHT + OVERLAY_TOP_GAP }}
       pointerEvents="box-none"
@@ -120,7 +122,7 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
           }}
         >
           <Animated.View
-            entering={FadeIn.delay(60).duration(140)}
+            entering={FadeIn.delay(60).duration(140).reduceMotion(ReduceMotion.System)}
             className="flex-row items-center gap-2.5 px-3.5 py-3"
           >
             {content}

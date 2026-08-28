@@ -3604,6 +3604,125 @@ describe("ProviderRuntimeIngestion", () => {
     expect(completedPayload?.title).toBe("Watch round-3 CI and bots");
   });
 
+  it("routes native child lifecycle, messages, session, and activity to one persisted child thread", async () => {
+    const harness = await createHarness();
+    const rootThreadId = asThreadId("thread-1");
+    const childThreadId = asThreadId("agent:thread-1:child-1");
+    const childTurnId = asTurnId("child-turn-1");
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "task.started",
+      eventId: asEventId("evt-child-task-started"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: rootThreadId,
+      turnId: asTurnId("parent-turn-1"),
+      createdAt: now,
+      payload: {
+        taskId: "child-1",
+        description: "Review the child workspace",
+        role: "reviewer",
+        timelineBypass: true,
+      },
+    });
+
+    const child = await waitForThread(
+      harness.readModel,
+      (thread) => thread.agent?.agentId === "child-1",
+      10_000,
+      childThreadId,
+    );
+    expect(child.agent?.parentThreadId).toBe(rootThreadId);
+    expect(child.agent?.rootThreadId).toBe(rootThreadId);
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-child-turn-started"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: rootThreadId,
+      turnId: childTurnId,
+      createdAt: now,
+      payload: { agentId: "child-1" },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-child-user-item"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: rootThreadId,
+      turnId: childTurnId,
+      itemId: asItemId("child-user-item"),
+      createdAt: now,
+      payload: {
+        itemType: "user_message",
+        status: "completed",
+        detail: "Review the child workspace",
+        agentId: "child-1",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-child-assistant-item"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: rootThreadId,
+      turnId: childTurnId,
+      itemId: asItemId("child-assistant-item"),
+      createdAt: now,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "The child workspace is ready.",
+        agentId: "child-1",
+      },
+    });
+
+    const routedChild = await waitForThread(
+      harness.readModel,
+      (thread) =>
+        thread.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.role === "user" && message.text === "Review the child workspace",
+        ) &&
+        thread.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.role === "assistant" && message.text === "The child workspace is ready.",
+        ) &&
+        thread.session?.activeTurnId === childTurnId &&
+        thread.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.turnId === childTurnId,
+        ),
+      10_000,
+      childThreadId,
+    );
+    expect(routedChild.messages.every((message) => message.turnId === childTurnId)).toBe(true);
+
+    harness.emit({
+      type: "task.completed",
+      eventId: asEventId("evt-child-task-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      threadId: rootThreadId,
+      turnId: childTurnId,
+      createdAt: now,
+      payload: {
+        taskId: "child-1",
+        status: "completed",
+        summary: "Child review complete.",
+        timelineBypass: true,
+      },
+    });
+
+    const completedChild = await waitForThread(
+      harness.readModel,
+      (thread) => thread.agent?.result?.summary === "Child review complete.",
+      10_000,
+      childThreadId,
+    );
+    expect(completedChild.agent?.resultAdoptedAt).toBe(now);
+
+    const root = (await harness.readModel()).threads.find((thread) => thread.id === rootThreadId);
+    expect(root?.messages).toHaveLength(0);
+    expect(root?.activities.some((activity) => activity.turnId === childTurnId)).toBe(false);
+  });
+
   it("projects structured user input request and resolution as thread activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

@@ -1,5 +1,7 @@
 import {
   type ApprovalRequestId,
+  type ActionId,
+  type ChoiceDialogOption,
   CONTINUE_AFTER_RESTART_NUDGE,
   DEFAULT_MODEL,
   defaultInstanceIdForDriver,
@@ -20,6 +22,7 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   ProviderDriverKind,
+  isProviderAvailable,
   RuntimeMode,
   TerminalOpenInput,
 } from "@rune/contracts";
@@ -54,6 +57,8 @@ import {
 } from "@rune/shared/model";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@rune/shared/chatList";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@rune/shared/projectScripts";
+import { createPlanSession as createPlanSessionRecord } from "@rune/shared/plan";
+import { resolveHistoricalMutationPolicy } from "@rune/shared/historicalMutationPolicy";
 import { truncate } from "@rune/shared/String";
 import {
   getTerminalLabel,
@@ -61,7 +66,7 @@ import {
   resolveTerminalSessionLabel,
 } from "@rune/shared/terminalLabels";
 import { Debouncer } from "@tanstack/react-pacer";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import {
   lazy,
   memo,
@@ -205,7 +210,7 @@ import {
   nextProjectScriptId,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
-import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
+import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
@@ -281,8 +286,14 @@ import {
   useThreadRefs,
   useThreadShell,
 } from "../state/entities";
-import { environmentShell } from "../state/shell";
+import { environmentShell, shellEnvironment } from "../state/shell";
+import { executionControllerEnvironment } from "../state/executionController";
+import { planSessionEnvironment } from "../state/planSession";
+import { actionsEnvironment } from "../state/actions";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { EnvironmentPanel } from "./EnvironmentPanel";
+import { openDiscoveredPort } from "./preview/openDiscoveredPort";
+import type { PreviewableServer } from "./preview/useDiscoveredLocalServers";
 import { usePromptQueue, usePromptQueueStore } from "../promptQueueStore";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
@@ -354,7 +365,6 @@ import {
   shouldConfirmHistoricalMessageRewind,
   shouldInterruptRunningTurnBeforeSend,
   shouldQueueRunningComposerSubmission,
-  shouldRewindBeforeEditedUserMessageSend,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
@@ -1335,6 +1345,27 @@ function ChatViewContent(props: ChatViewProps) {
   const setThreadInteractionMode = useAtomCommand(threadEnvironment.setInteractionMode, {
     reportFailure: false,
   });
+  const createPlanSessionCommand = useAtomCommand(planSessionEnvironment.create, {
+    reportFailure: false,
+  });
+  const schedulePlanSessionCommand = useAtomCommand(planSessionEnvironment.schedule, {
+    reportFailure: false,
+  });
+  const reviewPlanSessionCommand = useAtomCommand(planSessionEnvironment.review, {
+    reportFailure: false,
+  });
+  const runRegisteredAction = useAtomCommand(actionsEnvironment.run, {
+    reportFailure: false,
+  });
+  const approveActionProposal = useAtomCommand(actionsEnvironment.approveProposal, {
+    reportFailure: false,
+  });
+  const rejectActionProposal = useAtomCommand(actionsEnvironment.rejectProposal, {
+    reportFailure: false,
+  });
+  const dismissActionProposal = useAtomCommand(actionsEnvironment.dismissProposal, {
+    reportFailure: false,
+  });
   const startThreadTurnCommand = useAtomCommand(threadEnvironment.startTurn, {
     reportFailure: false,
   });
@@ -1367,6 +1398,9 @@ function ChatViewContent(props: ChatViewProps) {
     reportFailure: false,
   });
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
+  const openInEditor = useAtomCommand(shellEnvironment.openInEditor, {
+    reportFailure: false,
+  });
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -1682,6 +1716,9 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = activeServerThread !== null;
   const activeThread = activeServerThread ?? localDraftThread;
+  const planSessionQuery = useEnvironmentQuery(
+    isServerThread ? planSessionEnvironment.get({ environmentId, input: { threadId } }) : null,
+  );
   const threadError = isServerThread
     ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
@@ -2031,6 +2068,30 @@ function ChatViewContent(props: ChatViewProps) {
   const activeProjectKey = activeProject
     ? `${activeProject.environmentId}:${activeProject.workspaceRoot}`
     : null;
+  const registeredActionsQuery = useEnvironmentQuery(
+    activeProject
+      ? actionsEnvironment.list({
+          environmentId: activeProject.environmentId,
+          input: {
+            scope: "project",
+            projectId: activeProject.id,
+            workspaceRoot: activeProject.workspaceRoot,
+          },
+        })
+      : null,
+  );
+  const actionProposalsQuery = useEnvironmentQuery(
+    activeProject
+      ? actionsEnvironment.proposals({
+          environmentId: activeProject.environmentId,
+          input: {
+            status: "proposed",
+            projectId: activeProject.id,
+            workspaceRoot: activeProject.workspaceRoot,
+          },
+        })
+      : null,
+  );
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const simplifiedActivity = useClientSettings((settings) => settings.simplifiedActivity);
   const showDeveloperTrace = useClientSettings((settings) => settings.showDeveloperTrace);
@@ -2524,6 +2585,11 @@ function ChatViewContent(props: ChatViewProps) {
     [simplifiedActivity, threadActivities],
   );
   const turnPlans = useMemo(() => deriveTurnPlans(threadActivities), [threadActivities]);
+  const pendingUserInputs = useMemo(
+    () => derivePendingUserInputs(threadActivities),
+    [threadActivities],
+  );
+  const phase = derivePhase(activeThread?.session ?? null, pendingUserInputs.length > 0);
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).
@@ -2540,11 +2606,6 @@ function ChatViewContent(props: ChatViewProps) {
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
   );
-  const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
-    [threadActivities],
-  );
-  const phase = derivePhase(activeThread?.session ?? null, pendingUserInputs.length > 0);
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
     () =>
@@ -2630,12 +2691,62 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const promptQueue = usePromptQueue(activeThreadId);
+  const executionControllerSnapshotAtom = executionControllerEnvironment.snapshot({
+    environmentId,
+    input: { threadId: activeThreadId ?? ThreadId.make("no-active-thread") },
+  });
+  const executionControllerSnapshotResult = useAtomValue(executionControllerSnapshotAtom);
+  const executionControllerSnapshot = AsyncResult.getOrElse(
+    executionControllerSnapshotResult,
+    () => null,
+  );
+  const refreshExecutionControllerSnapshot = useAtomRefresh(executionControllerSnapshotAtom);
+  const dispatchExecutionController = useAtomCommand(executionControllerEnvironment.dispatch, {
+    reportFailure: false,
+  });
+  const hydratedExecutionControllerThreadsRef = useRef(new Set<string>());
   const enqueueQueuedPrompt = usePromptQueueStore((store) => store.enqueue);
   const editQueuedPrompt = usePromptQueueStore((store) => store.edit);
   const removeQueuedPrompt = usePromptQueueStore((store) => store.remove);
   const reorderQueuedPrompt = usePromptQueueStore((store) => store.reorder);
   const promoteQueuedPrompt = usePromptQueueStore((store) => store.promoteSteer);
   const updatePromptQueue = usePromptQueueStore((store) => store.update);
+  useEffect(() => {
+    if (!executionControllerSnapshot || activeThreadId === null) return;
+    if (executionControllerSnapshot.threadId !== activeThreadId) return;
+    const threadKey = String(activeThreadId);
+    if (hydratedExecutionControllerThreadsRef.current.has(threadKey)) return;
+    hydratedExecutionControllerThreadsRef.current.add(threadKey);
+    const localQueue = usePromptQueueStore.getState().queues[threadKey];
+    const localPending =
+      localQueue?.queue.filter((item) => item.status === "queued" || item.status === "steering") ??
+      [];
+    // Migrate prompts created by older clients exactly once. Once the server
+    // has a revision, its snapshot is authoritative across reloads/devices.
+    if (executionControllerSnapshot.revision === 0 && localPending.length > 0) {
+      for (const item of localPending) {
+        void dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.enqueue",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+            itemId: item.id as never,
+            prompt: item.text,
+          },
+        });
+      }
+      void refreshExecutionControllerSnapshot();
+      return;
+    }
+    usePromptQueueStore.getState().hydrate(executionControllerSnapshot);
+  }, [
+    activeThreadId,
+    dispatchExecutionController,
+    environmentId,
+    executionControllerSnapshot,
+    refreshExecutionControllerSnapshot,
+  ]);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -2938,10 +3049,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return byTurnId;
   }, [turnDiffSummaries]);
-  const {
-    revertTurnCountByUserMessageId,
-    historicalMessageHasFileChangesById,
-  } = useMemo(() => {
+  const { revertTurnCountByUserMessageId, historicalMessageHasFileChangesById } = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
     const fileChangesByUserMessageId = new Map<MessageId, boolean>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
@@ -3023,8 +3131,7 @@ function ChatViewContent(props: ChatViewProps) {
       return (
         providerStatuses.find(
           (status) => status.instanceId === effectiveActiveProviderInstanceId,
-        ) ??
-        null
+        ) ?? null
       );
     }
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
@@ -3250,6 +3357,16 @@ function ChatViewContent(props: ChatViewProps) {
       const continued = await continueAfterRestart();
       if (continued) {
         setIsTurnPaused(false);
+        if (executionControllerSnapshot?.executionState === "paused") {
+          void dispatchExecutionController({
+            environmentId,
+            input: {
+              type: "execution.continue",
+              commandId: newCommandId(),
+              threadId: activeThread.id,
+            },
+          }).then(() => refreshExecutionControllerSnapshot());
+        }
         if (controllerTurnId !== null) {
           updatePromptQueue(activeThread.id, {
             type: "continue-confirmed",
@@ -3274,8 +3391,12 @@ function ChatViewContent(props: ChatViewProps) {
     isContinuingTurn,
     isSendBusy,
     isServerThread,
+    dispatchExecutionController,
+    environmentId,
+    executionControllerSnapshot,
     promptQueue.activeTurnId,
     phase,
+    refreshExecutionControllerSnapshot,
     updatePromptQueue,
   ]);
 
@@ -3593,6 +3714,109 @@ function ChatViewContent(props: ChatViewProps) {
       writeTerminal,
     ],
   );
+  const runRegisteredActionFromEnvironment = useCallback(
+    async (action: { readonly id: string; readonly name: string }) => {
+      if (!activeThread || !activeProject || !activeThreadRef) return;
+      const result = await runRegisteredAction({
+        environmentId: activeProject.environmentId,
+        input: {
+          threadId: activeThread.id,
+          projectId: activeProject.id,
+          actionId: action.id as ActionId,
+        },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          setThreadError(
+            activeThread.id,
+            error instanceof Error ? error.message : `Failed to run action "${action.name}".`,
+          );
+        }
+        return;
+      }
+      if (result.value.status === "started") {
+        setTerminalOpen(true);
+        storeSetActiveTerminal(activeThreadRef, result.value.terminalId);
+        return;
+      }
+      const status = result.value.status;
+      if (status === "blocked") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            threadRef: activeThreadRef,
+            title: `Action blocked: ${action.name}`,
+            description: result.value.reason,
+          }),
+        );
+      } else if (status === "approval-required") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            threadRef: activeThreadRef,
+            title: `Approval required: ${action.name}`,
+            description: "Review the action and approve it before running it again.",
+          }),
+        );
+      } else if (status === "no-script") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            threadRef: activeThreadRef,
+            title: `Action unavailable: ${action.name}`,
+            description: "This action does not have an executable project script.",
+          }),
+        );
+      }
+    },
+    [
+      activeProject,
+      activeThread,
+      activeThreadRef,
+      runRegisteredAction,
+      setTerminalOpen,
+      setThreadError,
+      storeSetActiveTerminal,
+    ],
+  );
+  const decideActionProposal = useCallback(
+    async (proposalId: string, decision: "approve" | "reject" | "dismiss"): Promise<void> => {
+      if (!activeProject || !activeThread) return;
+      const command =
+        decision === "approve"
+          ? approveActionProposal
+          : decision === "reject"
+            ? rejectActionProposal
+            : dismissActionProposal;
+      const result = await command({
+        environmentId: activeProject.environmentId,
+        input: { proposalId },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          setThreadError(
+            activeThread.id,
+            error instanceof Error ? error.message : "Could not update the action proposal.",
+          );
+        }
+        return;
+      }
+      actionProposalsQuery?.refresh();
+      if (decision === "approve") registeredActionsQuery?.refresh();
+    },
+    [
+      actionProposalsQuery,
+      activeProject,
+      activeThread,
+      approveActionProposal,
+      dismissActionProposal,
+      registeredActionsQuery,
+      rejectActionProposal,
+      setThreadError,
+    ],
+  );
 
   const persistProjectScripts = useCallback(
     async (input: {
@@ -3788,6 +4012,10 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addEnvironmentSurface = useCallback(() => {
+    if (!activeThreadRef || !activeProject) return;
+    useRightPanelStore.getState().open(activeThreadRef, "environment");
+  }, [activeProject, activeThreadRef]);
   const addAgentsSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
@@ -3803,6 +4031,43 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const openEnvironmentServer = useCallback(
+    (server: PreviewableServer) => {
+      if (!activeThreadRef) return;
+      void openDiscoveredPort({ threadRef: activeThreadRef, port: server, openPreview }).then(
+        (result) => {
+          if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to open preview",
+              description:
+                error instanceof Error ? error.message : "The preview could not be opened.",
+            }),
+          );
+        },
+      );
+    },
+    [activeThreadRef, openPreview],
+  );
+  const openEnvironmentExplorer = useCallback(() => {
+    if (!activeThread || !activeProjectCwd) return;
+    void openInEditor({
+      environmentId: activeThread.environmentId,
+      input: { cwd: activeProjectCwd, editor: "file-manager" },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open workspace",
+            description: "The workspace could not be opened in the file manager.",
+          }),
+        );
+      }
+    });
+  }, [activeProjectCwd, activeThread, openInEditor]);
   // The thread's own change request, placed against the project it belongs to. Without a
   // project there is nothing to resolve it against, so the caller falls back to the browser.
   const threadRepository = activeProject?.repositoryIdentity?.displayName ?? null;
@@ -5943,7 +6208,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
       return;
     }
-    // Legacy plan mode: /plan and /default only act when the beta flag is on;
+    // Legacy plan mode: /plan, /build, and /default only act when the beta flag is on;
     // otherwise they send as plain text like any other message.
     const standaloneSlashCommand =
       settings.planModeEnabled &&
@@ -5955,7 +6220,174 @@ function ChatViewContent(props: ChatViewProps) {
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
     if (standaloneSlashCommand) {
-      handleInteractionModeChange(standaloneSlashCommand);
+      if (standaloneSlashCommand === "plan" && isServerThread) {
+        if (planSessionQuery.isPending) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: "Loading plan session",
+              description: "RUNE is loading this thread's durable planning state.",
+            }),
+          );
+          return;
+        }
+        if (planSessionQuery.data === null) {
+          const planSessionResult = await createPlanSessionCommand({
+            environmentId,
+            input: {
+              session: createPlanSessionRecord({
+                threadId,
+                mode: "guided",
+                now: new Date().toISOString(),
+              }),
+            },
+          });
+          if (planSessionResult._tag === "Failure") {
+            if (!isAtomCommandInterrupted(planSessionResult)) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Could not start plan mode",
+                  description: chatActionErrorMessage(squashAtomCommandFailure(planSessionResult)),
+                }),
+              );
+            }
+            return;
+          }
+          planSessionQuery.refresh();
+        }
+        // Creating the durable session is the persistence boundary; the
+        // interaction mode still needs to change so the next user prompt is
+        // handled by the provider's plan-aware turn path.
+        handleInteractionModeChange("plan");
+      }
+      if (standaloneSlashCommand === "build" && isServerThread) {
+        const session = planSessionQuery.data;
+        if (session === null) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: "No durable plan to build",
+              description: "Start /plan and approve the plan before running /build.",
+            }),
+          );
+          return;
+        }
+        if (session.stage !== "approved" && session.stage !== "executing") {
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: "Plan is not ready to build",
+              description: `The plan is currently in ${session.stage.toUpperCase()} and needs approval first.`,
+            }),
+          );
+          return;
+        }
+        const availableProviderInstanceIds = providerStatuses
+          .filter(
+            (provider) =>
+              provider.enabled &&
+              provider.installed &&
+              provider.status === "ready" &&
+              isProviderAvailable(provider),
+          )
+          .map((provider) => provider.instanceId);
+        const scheduleResult = await schedulePlanSessionCommand({
+          environmentId,
+          input: {
+            id: session.id,
+            expectedVersion: session.version,
+            availableProviderInstanceIds,
+          },
+        });
+        if (scheduleResult._tag === "Failure") {
+          if (!isAtomCommandInterrupted(scheduleResult)) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not build plan",
+                description: chatActionErrorMessage(squashAtomCommandFailure(scheduleResult)),
+              }),
+            );
+          }
+          return;
+        }
+        planSessionQuery.refresh();
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: "Plan build started",
+            description: `${scheduleResult.value.scheduled.length} worker${scheduleResult.value.scheduled.length === 1 ? "" : "s"} dispatched.${scheduleResult.value.blocked.length > 0 ? ` ${scheduleResult.value.blocked.length} waiting.` : ""}`,
+          }),
+        );
+      } else if (standaloneSlashCommand === "review" && isServerThread) {
+        const session = planSessionQuery.data;
+        if (session === null || session.stage !== "reviewing-result") {
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: "Plan review is not ready",
+              description:
+                session === null
+                  ? "Build an approved plan before starting its review."
+                  : `The plan is currently in ${session.stage.toUpperCase()}.`,
+            }),
+          );
+          return;
+        }
+        const availableProviderInstanceIds = providerStatuses
+          .filter(
+            (provider) =>
+              provider.enabled &&
+              provider.installed &&
+              provider.status === "ready" &&
+              isProviderAvailable(provider),
+          )
+          .map((provider) => provider.instanceId);
+        const reviewResult = await reviewPlanSessionCommand({
+          environmentId,
+          input: {
+            id: session.id,
+            expectedVersion: session.version,
+            availableProviderInstanceIds,
+          },
+        });
+        if (reviewResult._tag === "Failure") {
+          if (!isAtomCommandInterrupted(reviewResult)) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not start plan review",
+                description: chatActionErrorMessage(squashAtomCommandFailure(reviewResult)),
+              }),
+            );
+          }
+          return;
+        }
+        planSessionQuery.refresh();
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: reviewResult.value.started
+              ? "Independent review started"
+              : "Review already running",
+            description:
+              "The read-only reviewer is available as a child thread while it checks the result.",
+          }),
+        );
+      } else if (standaloneSlashCommand === "plan" || standaloneSlashCommand === "default") {
+        handleInteractionModeChange(standaloneSlashCommand);
+      } else {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: "Plan command needs a server thread",
+            description:
+              "Open this conversation on a connected RUNE server before running /build or /review.",
+          }),
+        );
+        return;
+      }
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
@@ -6065,7 +6497,17 @@ function ChatViewContent(props: ChatViewProps) {
       if (sendInFlightRef.current) return;
       sendInFlightRef.current = true;
       try {
-        enqueueQueuedPrompt(threadIdForSend, promptForSend.trim());
+        const itemId = enqueueQueuedPrompt(threadIdForSend, promptForSend.trim());
+        void dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.enqueue",
+            commandId: newCommandId(),
+            threadId: threadIdForSend,
+            itemId: itemId as never,
+            prompt: promptForSend.trim(),
+          },
+        }).then(() => refreshExecutionControllerSnapshot());
       } finally {
         sendInFlightRef.current = false;
       }
@@ -6084,40 +6526,74 @@ function ChatViewContent(props: ChatViewProps) {
     // second click cannot race the same lifecycle.
     sendInFlightRef.current = true;
     if (pendingEdit) {
-      const requiresConfirmation = shouldConfirmHistoricalMessageRewind({
-        mode: "edit",
-        hasFileChangesAfter: pendingEdit.hasFileChangesAfter,
-      });
-      const localApi = requiresConfirmation ? readLocalApi() : null;
-      const confirmation = buildUserMessageRewindConfirmation("edit", pendingEdit.turnCount);
-      const confirmed = requiresConfirmation && localApi
-        ? await localApi.dialogs.confirm(confirmation.message, confirmation.options)
-        : !requiresConfirmation;
-      if (!shouldRewindBeforeEditedUserMessageSend({ hasPendingEdit: true, confirmed })) {
+      const targetMessageIndex = activeThread.messages.findIndex(
+        (message) => message.id === pendingEdit.messageId,
+      );
+      const mutationContext = {
+        operation: "edit" as const,
+        hasDescendantMessages:
+          targetMessageIndex >= 0 && targetMessageIndex < activeThread.messages.length - 1,
+        hasOwnedFileChanges: pendingEdit.hasFileChangesAfter,
+        hasQueuedPrompts: promptQueue.queue.some(
+          (item) => item.status === "queued" || item.status === "steering",
+        ),
+        hasActiveDescendant: phase === "running",
+      };
+      const initialPolicy = resolveHistoricalMutationPolicy(mutationContext);
+      let mutationPolicy = initialPolicy;
+      if (initialPolicy.requiresExplicitChoice) {
+        const choices: readonly ChoiceDialogOption[] = [
+          {
+            id: "rewind-and-restore",
+            label: "Rewind & resend",
+            description: "Restore the thread-owned checkpoint and discard newer execution.",
+            destructive: true,
+          },
+          {
+            id: "keep-and-send-new",
+            label: "Keep changes & send as new",
+            description: "Leave history and files intact; add the edited text at the end.",
+          },
+        ];
+        const localApi = readLocalApi();
+        const selectedChoice = localApi?.dialogs.choose
+          ? await localApi.dialogs.choose(
+              "This prompt is part of existing execution history. How should RUNE continue?\nChoose explicitly; nothing is changed if you cancel.",
+              choices,
+            )
+          : null;
+        mutationPolicy = resolveHistoricalMutationPolicy({
+          ...mutationContext,
+          explicitChoice: selectedChoice,
+        });
+      }
+      if (mutationPolicy.choice === "cancel") {
         // Keep the edited prompt in the composer when the user declines.
         sendInFlightRef.current = false;
         return;
       }
 
-      setIsRevertingCheckpoint(true);
-      const revertResult = await revertThreadCheckpoint({
-        environmentId,
-        input: {
-          threadId: threadIdForSend,
-          turnCount: pendingEdit.turnCount,
-        },
-      });
-      setIsRevertingCheckpoint(false);
-      if (revertResult._tag === "Failure") {
-        if (!isAtomCommandInterrupted(revertResult)) {
-          const error = squashAtomCommandFailure(revertResult);
-          setThreadError(
-            threadIdForSend,
-            error instanceof Error ? error.message : "Failed to prepare the edited message.",
-          );
+      if (mutationPolicy.conversation === "rewind-before-target") {
+        setIsRevertingCheckpoint(true);
+        const revertResult = await revertThreadCheckpoint({
+          environmentId,
+          input: {
+            threadId: threadIdForSend,
+            turnCount: pendingEdit.turnCount,
+          },
+        });
+        setIsRevertingCheckpoint(false);
+        if (revertResult._tag === "Failure") {
+          if (!isAtomCommandInterrupted(revertResult)) {
+            const error = squashAtomCommandFailure(revertResult);
+            setThreadError(
+              threadIdForSend,
+              error instanceof Error ? error.message : "Failed to prepare the edited message.",
+            );
+          }
+          sendInFlightRef.current = false;
+          return;
         }
-        sendInFlightRef.current = false;
-        return;
       }
       pendingUserMessageEditRef.current = null;
       setPendingUserMessageEdit(null);
@@ -6519,41 +6995,127 @@ function ChatViewContent(props: ChatViewProps) {
       );
       resetLocalDispatch();
     }
+    return turnStartSucceeded;
   };
 
   // Drain exactly one item after the authoritative session leaves running.
-  // Claiming before dispatch makes rapid completion/reconnect events
-  // idempotent; a failed start remains visible as a recoverable queue item.
+  // The server claim is the cross-device race gate. The local reducer mirrors
+  // it for immediate rendering, while settlement closes the durable item even
+  // when the client rerenders during the turn hand-off.
+  const queueDispatchingItemRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeThread || activeThreadId === null || phase !== "ready" || isSendBusy) return;
+    const claimedLocalItem = promptQueue.queue.find((item) => item.status === "claimed");
+    const claimedDurableItem = claimedLocalItem
+      ? executionControllerSnapshot?.items.find(
+          (item) =>
+            item.id === claimedLocalItem.id &&
+            (item.status === "claimed" || item.status === "materialized"),
+        )
+      : undefined;
+    if (
+      claimedLocalItem &&
+      claimedDurableItem &&
+      !isTurnPaused &&
+      promptQueue.executionStatus !== "paused"
+    ) {
+      usePromptQueueStore.getState().update(activeThreadId, {
+        type: "settle",
+        itemId: claimedLocalItem.id,
+        status: "completed",
+        now: new Date().toISOString(),
+      });
+      void dispatchExecutionController({
+        environmentId,
+        input: {
+          type: "prompt.settle",
+          commandId: newCommandId(),
+          threadId: activeThreadId,
+          itemId: claimedLocalItem.id as never,
+          claimId: claimedDurableItem.claimId as never,
+          outcome: "completed",
+        },
+      }).then(() => refreshExecutionControllerSnapshot());
+      return;
+    }
     const next = promptQueue.queue.find(
       (item) => item.status === "queued" || item.status === "steering",
     );
     if (!next) return;
+    if (queueDispatchingItemRef.current === next.id) return;
+    const durableItem = executionControllerSnapshot?.items.find((item) => item.id === next.id);
+    if (executionControllerSnapshot && durableItem === undefined) return;
+    queueDispatchingItemRef.current = next.id;
     const claimTurnId = next.id as TurnId;
     const now = new Date().toISOString();
-    usePromptQueueStore.getState().update(activeThreadId, {
-      type: "claim-next",
-      turnId: claimTurnId,
-      now,
+    const run = async () => {
+      let claimId: string | null = null;
+      if (executionControllerSnapshot) {
+        const claimed = await dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.claim",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+          },
+        });
+        if (claimed._tag === "Failure") return;
+        claimId = claimed.value.items.find((item) => item.id === next.id)?.claimId ?? null;
+        if (claimId === null) return;
+      }
+      usePromptQueueStore.getState().update(activeThreadId, {
+        type: "claim-next",
+        turnId: claimTurnId,
+        now,
+      });
+      setComposerDraftPrompt(composerDraftTarget, next.text);
+      promptRef.current = next.text;
+      composerRef.current?.resetCursorState({
+        prompt: next.text,
+        cursor: next.text.length,
+        detectTrigger: true,
+      });
+      const started = await onSend(undefined, "foreground");
+      if (claimId !== null && started !== true) {
+        usePromptQueueStore.getState().update(activeThreadId, {
+          type: "settle",
+          itemId: next.id,
+          status: "failed",
+          error: "The queued turn could not be started.",
+          now: new Date().toISOString(),
+        });
+        await dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.settle",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+            itemId: next.id as never,
+            claimId: claimId as never,
+            outcome: "failed",
+            error: "The queued turn could not be started.",
+          },
+        });
+        await refreshExecutionControllerSnapshot();
+      }
+    };
+    void run().finally(() => {
+      queueDispatchingItemRef.current = null;
     });
-    setComposerDraftPrompt(composerDraftTarget, next.text);
-    promptRef.current = next.text;
-    composerRef.current?.resetCursorState({
-      prompt: next.text,
-      cursor: next.text.length,
-      detectTrigger: true,
-    });
-    void onSend(undefined, "foreground");
   }, [
     activeThread,
     activeThreadId,
     composerDraftTarget,
+    dispatchExecutionController,
+    environmentId,
+    executionControllerSnapshot,
     isSendBusy,
+    isTurnPaused,
     onSend,
     phase,
     promptQueue.revision,
     promptRef,
+    refreshExecutionControllerSnapshot,
     setComposerDraftPrompt,
   ]);
 
@@ -6561,20 +7123,84 @@ function ChatViewContent(props: ChatViewProps) {
     (itemId: string, text: string) => {
       if (activeThreadId === null || text.trim().length === 0) return;
       editQueuedPrompt(activeThreadId, itemId, text);
+      void dispatchExecutionController({
+        environmentId,
+        input: {
+          type: "prompt.edit",
+          commandId: newCommandId(),
+          threadId: activeThreadId,
+          itemId: itemId as never,
+          prompt: text.trim(),
+        },
+      }).then(() => refreshExecutionControllerSnapshot());
     },
-    [activeThreadId, editQueuedPrompt],
+    [
+      activeThreadId,
+      dispatchExecutionController,
+      editQueuedPrompt,
+      environmentId,
+      refreshExecutionControllerSnapshot,
+    ],
   );
   const onRemoveQueuedPrompt = useCallback(
     (itemId: string) => {
-      if (activeThreadId !== null) removeQueuedPrompt(activeThreadId, itemId);
+      if (activeThreadId !== null) {
+        removeQueuedPrompt(activeThreadId, itemId);
+        void dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.delete",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+            itemId: itemId as never,
+          },
+        }).then(() => refreshExecutionControllerSnapshot());
+      }
     },
-    [activeThreadId, removeQueuedPrompt],
+    [
+      activeThreadId,
+      dispatchExecutionController,
+      environmentId,
+      refreshExecutionControllerSnapshot,
+      removeQueuedPrompt,
+    ],
   );
   const onReorderQueuedPrompt = useCallback(
     (itemId: string, beforeItemId: string | null) => {
-      if (activeThreadId !== null) reorderQueuedPrompt(activeThreadId, itemId, beforeItemId);
+      if (activeThreadId !== null) {
+        reorderQueuedPrompt(activeThreadId, itemId, beforeItemId);
+        const queued =
+          usePromptQueueStore
+            .getState()
+            .queues[String(activeThreadId)]?.queue.filter(
+              (item) => item.status === "queued" || item.status === "steering",
+            ) ?? [];
+        const moving = queued.find((item) => item.id === itemId);
+        if (!moving) return;
+        const ordered = queued.filter((item) => item.id !== itemId);
+        const targetIndex =
+          beforeItemId === null
+            ? ordered.length
+            : ordered.findIndex((item) => item.id === beforeItemId);
+        ordered.splice(targetIndex < 0 ? ordered.length : targetIndex, 0, moving);
+        void dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.reorder",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+            itemIds: ordered.map((item) => item.id as never),
+          },
+        }).then(() => refreshExecutionControllerSnapshot());
+      }
     },
-    [activeThreadId, reorderQueuedPrompt],
+    [
+      activeThreadId,
+      dispatchExecutionController,
+      environmentId,
+      refreshExecutionControllerSnapshot,
+      reorderQueuedPrompt,
+    ],
   );
   const onMoveQueuedPrompt = useCallback(
     (itemId: string, direction: -1 | 1) => {
@@ -6595,15 +7221,39 @@ function ChatViewContent(props: ChatViewProps) {
           itemId,
           now: new Date().toISOString(),
         });
+        void dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "prompt.retry",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+            itemId: itemId as never,
+          },
+        }).then(() => refreshExecutionControllerSnapshot());
       }
     },
-    [activeThreadId, updatePromptQueue],
+    [
+      activeThreadId,
+      dispatchExecutionController,
+      environmentId,
+      refreshExecutionControllerSnapshot,
+      updatePromptQueue,
+    ],
   );
   const onSteerQueuedPrompt = useCallback(
     (itemId: string) => {
       if (activeThreadId === null || !activeThread) return;
       const threadForSteer = activeThread;
       promoteQueuedPrompt(activeThreadId, itemId);
+      void dispatchExecutionController({
+        environmentId,
+        input: {
+          type: "prompt.promoteToSteer",
+          commandId: newCommandId(),
+          threadId: activeThreadId,
+          itemId: itemId as never,
+        },
+      }).then(() => refreshExecutionControllerSnapshot());
       void interruptThreadTurn({
         environmentId,
         input: buildThreadTurnInterruptInput(threadForSteer),
@@ -6632,14 +7282,15 @@ function ChatViewContent(props: ChatViewProps) {
       environmentId,
       interruptThreadTurn,
       promoteQueuedPrompt,
+      dispatchExecutionController,
+      refreshExecutionControllerSnapshot,
       updatePromptQueue,
     ],
   );
 
   const onInterrupt = async () => {
     if (!activeThread) return;
-    const controllerTurnId =
-      promptQueue.activeTurnId ?? activeThread.session?.activeTurnId ?? null;
+    const controllerTurnId = promptQueue.activeTurnId ?? activeThread.session?.activeTurnId ?? null;
     if (controllerTurnId !== null) {
       updatePromptQueue(activeThread.id, {
         type: "set-execution",
@@ -6673,6 +7324,16 @@ function ChatViewContent(props: ChatViewProps) {
     }
     if (result._tag === "Success") {
       setIsTurnPaused(true);
+      if (executionControllerSnapshot?.executionState === "running") {
+        void dispatchExecutionController({
+          environmentId,
+          input: {
+            type: "execution.pause",
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+          },
+        }).then(() => refreshExecutionControllerSnapshot());
+      }
       if (controllerTurnId !== null) {
         updatePromptQueue(activeThread.id, {
           type: "pause-confirmed",
@@ -6782,7 +7443,12 @@ function ChatViewContent(props: ChatViewProps) {
       promptRef.current = nextPrompt;
       composerRef.current?.resetCursorState({ cursor: nextPrompt.length, prompt: nextPrompt });
     },
-    [activePendingDraftAnswers, activePendingProgress?.activeQuestion, activePendingUserInput, composerRef],
+    [
+      activePendingDraftAnswers,
+      activePendingProgress?.activeQuestion,
+      activePendingUserInput,
+      composerRef,
+    ],
   );
 
   const onChangeActivePendingUserInputCustomAnswer = useCallback(
@@ -7359,9 +8025,12 @@ function ChatViewContent(props: ChatViewProps) {
       if (targetTurnCount === null) {
         return;
       }
-      const hasFileChangesAfter =
-        historicalMessageHasFileChangesRef.current.get(messageId) ?? true;
-      pendingUserMessageEditRef.current = { messageId, turnCount: targetTurnCount, hasFileChangesAfter };
+      const hasFileChangesAfter = historicalMessageHasFileChangesRef.current.get(messageId) ?? true;
+      pendingUserMessageEditRef.current = {
+        messageId,
+        turnCount: targetTurnCount,
+        hasFileChangesAfter,
+      };
       setPendingUserMessageEdit({ messageId, turnCount: targetTurnCount, hasFileChangesAfter });
       setComposerDraftPrompt(composerDraftTarget, messageText);
       composerRef.current?.resetCursorState({
@@ -7381,8 +8050,7 @@ function ChatViewContent(props: ChatViewProps) {
       }
       void onRevertToTurnCountRef.current(targetTurnCount, {
         mode: "delete",
-        hasFileChangesAfter:
-          historicalMessageHasFileChangesRef.current.get(messageId) ?? true,
+        hasFileChangesAfter: historicalMessageHasFileChangesRef.current.get(messageId) ?? true,
       });
     },
     [resolveRewindTurnCount],
@@ -7533,6 +8201,32 @@ function ChatViewContent(props: ChatViewProps) {
         progress={activeComposerTasksProgress}
         steps={activeComposerTaskSteps}
       />
+    ) : activeRightPanelSurface?.kind === "environment" && activeProject ? (
+      <EnvironmentPanel
+        environmentId={activeThread.environmentId}
+        environmentLabel={activeEnvironment?.label ?? activeThread.environmentId}
+        threadRef={activeThreadRef}
+        cwd={activeWorkspaceRoot ?? null}
+        chatDiff={activeThread.chatDiff.files}
+        gitStatus={gitStatusQuery.data ?? null}
+        gitStatusPending={gitStatusQuery.isPending}
+        gitStatusError={gitStatusQuery.error}
+        scripts={activeProject.scripts ?? []}
+        registeredActions={registeredActionsQuery.data?.actions}
+        actionProposals={actionProposalsQuery.data?.proposals}
+        configuredPreviewUrls={configuredPreviewUrls}
+        onOpenFiles={openFilesSurface}
+        onOpenDiff={addDiffSurface}
+        onOpenTerminal={addTerminalSurface}
+        onOpenBrowser={createBrowserSurface}
+        onRunScript={runProjectScript}
+        onRunAction={runRegisteredActionFromEnvironment}
+        onDecideActionProposal={(proposalId, decision) => {
+          void decideActionProposal(proposalId, decision);
+        }}
+        onOpenServer={openEnvironmentServer}
+        onOpenExplorer={openEnvironmentExplorer}
+      />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -7555,6 +8249,7 @@ function ChatViewContent(props: ChatViewProps) {
           revealLine={activeFileSurface?.revealLine ?? null}
           revealRequestId={activeFileSurface?.revealRequestId ?? 0}
           onOpenFile={openFileSurface}
+          onOpenDiffFile={onOpenChatDiff}
           onPendingChange={handleFilePendingChange}
         />
       </Suspense>
@@ -7575,7 +8270,7 @@ function ChatViewContent(props: ChatViewProps) {
     >
       {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls() : null}
       <div
-          className={cn(
+        className={cn(
           "rune-chat-column flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
@@ -7595,6 +8290,7 @@ function ChatViewContent(props: ChatViewProps) {
               : { onOpenPullRequest: openThreadPullRequest })}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
+            environmentLabel={activeEnvironment?.label ?? activeThread.environmentId}
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
@@ -7611,6 +8307,13 @@ function ChatViewContent(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
+            gitStatus={gitStatusQuery.data ?? null}
+            chatDiff={activeThread.chatDiff.files}
+            configuredPreviewUrls={configuredPreviewUrls}
+            onOpenEnvironment={addEnvironmentSurface}
+            onOpenFiles={openFilesSurface}
+            onOpenDiff={onOpenChatDiff}
+            onOpenExplorer={openEnvironmentExplorer}
             onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
@@ -7630,7 +8333,7 @@ function ChatViewContent(props: ChatViewProps) {
           />
         ) : null}
         {/* Main content area with optional plan sidebar */}
-          <div className="rune-chat-main flex min-h-0 min-w-0 flex-1">
+        <div className="rune-chat-main flex min-h-0 min-w-0 flex-1">
           {/* Chat column */}
           <div
             className="rune-chat-surface relative flex min-h-0 min-w-0 flex-1 flex-col"
@@ -8086,6 +8789,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
+            onAddEnvironment={addEnvironmentSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddAgents={addAgentsSurface}
             onAddTasks={addTasksSurface}
@@ -8093,6 +8797,7 @@ function ChatViewContent(props: ChatViewProps) {
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
+            environmentAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             agentsAvailable
             tasksAvailable={

@@ -7,23 +7,24 @@ import type {
 import type { ContextMenuItem, EnvironmentId, ProjectEntry } from "@rune/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
-import {
-  ChevronsDownUp,
-  ChevronsUpDown,
-  ExternalLink,
-  FilePlus2,
-  FolderPlus,
-  PenLine,
-  RotateCw,
-  Trash2,
-} from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, ExternalLink, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
+  executeAtomQuery,
 } from "@rune/client-runtime/state/runtime";
 import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -34,15 +35,35 @@ import { useTheme } from "~/hooks/useTheme";
 import { cn, getLocalFileManagerName } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { RUNE_PIERRE_ICONS } from "~/pierre-icons";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { shellEnvironment } from "~/state/shell";
 import { projectEnvironment } from "~/state/projects";
+import { useEnvironmentQuery } from "~/state/query";
+import { vcsEnvironment } from "~/state/vcs";
 import { useWorkspaceFileEvents } from "~/state/projectFileEvents";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { fileTreeAreaState } from "./fileTreeArea";
+import { buildChatDiffTree } from "./chatDiffTree";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
-import { FileTreeTruncationFooter } from "./FileTreeTruncationFooter";
-import { useProjectEntriesQuery } from "./projectFilesQueryState";
+import { deletionConfirmationMessage, relativeEntryTarget } from "./fileBrowserActions";
+import {
+  getProjectDirectoryQueryAtom,
+  refreshProjectDirectoryQuery,
+  useProjectDirectoryQuery,
+} from "./projectFilesQueryState";
+import {
+  directoryEntryPath,
+  directoriesToInvalidate,
+  flattenDirectorySnapshots,
+  normalizeDirectoryPath,
+  parentDirectoryPath,
+} from "./projectDirectoryCache";
+import { fileTreeGitStatus } from "./fileTreeStatus";
+import {
+  readFileTreeExpandedDirectories,
+  writeFileTreeExpandedDirectories,
+} from "./fileTreeExpansionState";
 import { toPosixRelativePath } from "./toPosixRelativePath.ts";
 import type { TurnDiffFileChange } from "~/types";
 
@@ -59,6 +80,7 @@ interface FileBrowserPanelProps {
   /** Bumped when the same path should be revealed again (e.g. re-opened from search). */
   selectedPathRevealId: number;
   onOpenFile: (relativePath: string) => void;
+  onOpenDiffFile?: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
 }
 
@@ -94,6 +116,7 @@ function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }
             variant="ghost"
             size="icon-xs"
             aria-label="Refresh workspace files"
+            data-rune-action="workspace.refresh"
             onClick={props.onRefresh}
           />
         }
@@ -106,6 +129,7 @@ function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }
 }
 
 function FileTreeActionButton(props: {
+  action: string;
   ariaLabel: string;
   disabled?: boolean;
   label: string;
@@ -121,6 +145,7 @@ function FileTreeActionButton(props: {
             variant="ghost"
             size="icon-xs"
             aria-label={props.ariaLabel}
+            data-rune-action={props.action}
             disabled={props.disabled}
             onClick={props.onClick}
           />
@@ -149,6 +174,7 @@ function FileSearchField(props: {
         value={props.value}
         aria-label={props.ariaLabel}
         placeholder="Search files"
+        data-rune-action="workspace.search"
         spellCheck={false}
         onChange={(event) => props.onValueChange(event.target.value)}
         onKeyDown={(event) => {
@@ -165,9 +191,52 @@ function failureDescription(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "An error occurred.";
 }
 
-/** The workspace runs on the web too, so CRUD prompts fall back to window UI. */
-function promptForName(title: string, initialValue: string): Promise<string | null> {
-  return Promise.resolve(window.prompt(`${title}:`, initialValue));
+interface NameRequest {
+  readonly title: string;
+  readonly initialValue: string;
+}
+
+function NameRequestDialog(props: {
+  request: NameRequest | null;
+  value: string;
+  onValueChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Dialog open={props.request !== null} onOpenChange={(open) => !open && props.onCancel()}>
+      <DialogPopup className="max-w-md">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            props.onSubmit();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{props.request?.title ?? "Name entry"}</DialogTitle>
+            <DialogDescription>Choose a name for this workspace entry.</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-1">
+            <Input
+              value={props.value}
+              onChange={(event) => props.onValueChange(event.target.value)}
+              aria-label="Workspace entry name"
+              autoFocus
+              spellCheck={false}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={props.onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={props.value.trim().length === 0}>
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogPopup>
+    </Dialog>
+  );
 }
 
 export default function FileBrowserPanel({
@@ -181,9 +250,13 @@ export default function FileBrowserPanel({
   selectedPath,
   selectedPathRevealId,
   onOpenFile,
+  onOpenDiffFile,
   onRefreshSelectedFile,
 }: FileBrowserPanelProps) {
   const [scopedToChat, setScopedToChat] = useState(chatDiff !== null && routeThreadKey !== null);
+  const [nameRequest, setNameRequest] = useState<NameRequest | null>(null);
+  const [nameValue, setNameValue] = useState("");
+  const nameRequestResolveRef = useRef<((value: string | null) => void) | null>(null);
   useEffect(() => {
     setScopedToChat(chatDiff !== null && routeThreadKey !== null);
   }, [chatDiff, routeThreadKey]);
@@ -194,7 +267,30 @@ export default function FileBrowserPanel({
   const renameEntry = useAtomCommand(projectEnvironment.renameEntry, "rename entry");
   const deleteEntry = useAtomCommand(projectEnvironment.deleteEntry, "delete entry");
   const fileManagerName = getLocalFileManagerName(navigator.platform);
-  const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
+  const chatScopeRequested = routeThreadKey !== null && chatDiff !== null && scopedToChat;
+  const directoryQuery = useProjectDirectoryQuery(environmentId, cwd, "", {
+    enabled: !chatScopeRequested,
+  });
+  const gitStatusQuery = useEnvironmentQuery(
+    vcsEnvironment.status({ environmentId, input: { cwd } }),
+  );
+  const gitStatus = useMemo(
+    () => fileTreeGitStatus(gitStatusQuery.data ?? null),
+    [gitStatusQuery.data],
+  );
+  const finishNameRequest = useCallback((value: string | null) => {
+    const resolve = nameRequestResolveRef.current;
+    nameRequestResolveRef.current = null;
+    setNameRequest(null);
+    if (resolve) resolve(value);
+  }, []);
+  const requestName = useCallback((title: string, initialValue: string) => {
+    return new Promise<string | null>((resolve) => {
+      nameRequestResolveRef.current = resolve;
+      setNameValue(initialValue);
+      setNameRequest({ title, initialValue });
+    });
+  }, []);
   const openInFileManager = async (path: string) => {
     const result = await openInEditor({
       environmentId,
@@ -212,43 +308,46 @@ export default function FileBrowserPanel({
   // Agents mutate the workspace while the tree sits open; a tree that only
   // reads on mount shows yesterday's file list. The open file is deliberately
   // not re-read here — the editor may hold unsaved edits.
-  useLiveRefresh(entriesQuery.refresh, {
+  useLiveRefresh(directoryQuery.refresh, {
     key: `workspace-files:${environmentId}:${cwd}`,
   });
-  // Server-pushed filesystem events (agent writes, CRUD) refresh the tree
-  // immediately; useLiveRefresh stays as the polling safety net.
-  const entriesRefreshRef = useRef(entriesQuery.refresh);
-  entriesRefreshRef.current = entriesQuery.refresh;
-  useWorkspaceFileEvents(environmentId, cwd, useCallback(() => {
-    entriesRefreshRef.current();
-  }, []));
-  const entries = entriesQuery.data?.entries ?? [];
-  const chatScoped = routeThreadKey !== null && chatDiff !== null && scopedToChat;
-  const visibleEntries = useMemo(() => {
-    if (!chatScoped || chatDiff === null) return entries;
-    const paths = new Set(chatDiff.map((file) => file.path));
-    return entries.filter((entry) => {
-      if (entry.kind === "file") return paths.has(entry.path);
-      const prefix = `${entry.path.replace(/[\\/]$/, "")}/`;
-      return [...paths].some((path) => path.startsWith(prefix));
-    });
-  }, [chatDiff, chatScoped, entries]);
+  const chatScoped = chatScopeRequested;
+  const chatEntries = useMemo(
+    () =>
+      chatScoped && chatDiff !== null ? buildChatDiffTree(chatDiff.map((file) => file.path)) : [],
+    [chatDiff, chatScoped],
+  );
+  const directorySnapshotsRef = useRef<Map<string, ReadonlyArray<ProjectEntry>>>(new Map());
+  const pendingDirectoryLoadsRef = useRef(new Set<string>());
+  const persistedExpandedDirectories = useMemo(
+    () => readFileTreeExpandedDirectories(environmentId, cwd),
+    [cwd, environmentId],
+  );
+  const [directoryCacheVersion, setDirectoryCacheVersion] = useState(0);
+  const loadedEntries = useMemo(
+    () => flattenDirectorySnapshots(directorySnapshotsRef.current),
+    [directoryCacheVersion],
+  );
+  const visibleEntries = chatScoped ? chatEntries : loadedEntries;
   // Until the first listing lands the tree would render zero rows; say so
   // instead of showing a silently blank panel while the walk (or an
   // environment reconnect) is still in flight.
   const treeArea = fileTreeAreaState({
-    pending: entriesQuery.isPending,
-    error: entriesQuery.error,
-    hasData: entriesQuery.data !== null,
+    pending: directoryQuery.isPending,
+    error: directoryQuery.error,
+    hasData: chatScoped || directoryQuery.data !== null,
   });
   const entryKinds = useMemo(
     () => new Map(visibleEntries.map((entry) => [entry.path, entry.kind] as const)),
     [visibleEntries],
   );
   const entryKindsRef = useRef<ReadonlyMap<string, ProjectEntry["kind"]>>(entryKinds);
-  const treePaths = useMemo(() => visibleEntries.map(treePath), [visibleEntries]);
-  const previousTreePathsRef = useRef<readonly string[]>([]);
+  const chatTreePaths = useMemo(() => chatEntries.map(treePath), [chatEntries]);
   const directoryPathsRef = useRef<readonly string[]>([]);
+  entryKindsRef.current = entryKinds;
+  directoryPathsRef.current = visibleEntries
+    .filter((entry) => entry.kind === "directory")
+    .map(treePath);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
@@ -285,6 +384,7 @@ export default function FileBrowserPanel({
       : { x: anchorRect.left, y: anchorRect.bottom };
     const treeItem = directoryHandle(treeModelRef.current?.getItem(item.path));
     const isExpanded = treeItem?.isExpanded() ?? false;
+    const isChanged = chatDiff?.some((file) => file.path === relativePath) ?? false;
     const lastSeparator = relativePath.lastIndexOf("/");
     const entryTarget =
       item.kind === "directory"
@@ -297,9 +397,24 @@ export default function FileBrowserPanel({
       ...(item.kind === "directory"
         ? [
             {
+              id: "focus-entry",
+              label: "Open / focus",
+              icon: "folder-open",
+            },
+            {
               id: "toggle-folder",
               label: isExpanded ? "Collapse folder" : "Expand folder",
               icon: isExpanded ? "chevron-right" : "chevron-down",
+            },
+            {
+              id: "expand-descendants",
+              label: "Expand descendants",
+              icon: "folder-tree",
+            },
+            {
+              id: "collapse-descendants",
+              label: "Collapse descendants",
+              icon: "folder-tree",
             },
             {
               id: "expand-all",
@@ -312,6 +427,19 @@ export default function FileBrowserPanel({
               label: "Collapse all folders",
               icon: "folder-tree",
             },
+          ]
+        : []),
+      ...(item.kind === "file"
+        ? [
+            {
+              id: "open-file",
+              label: "Open preview / editor",
+              icon: "file-code",
+              separatorBefore: true,
+            },
+            ...(isChanged && onOpenDiffFile
+              ? [{ id: "open-diff", label: "Open diff", icon: "file-diff" }]
+              : []),
           ]
         : []),
       {
@@ -344,6 +472,11 @@ export default function FileBrowserPanel({
         separatorBefore: true,
       },
       {
+        id: "refresh-entry",
+        label: "Refresh files",
+        icon: "refresh-cw",
+      },
+      {
         id: "copy-path",
         label: "Copy relative path",
         icon: "copy",
@@ -357,8 +490,33 @@ export default function FileBrowserPanel({
     ];
     try {
       const clicked = await api.contextMenu.show(menuItems, position);
+      if (clicked === "focus-entry") {
+        if (item.kind === "file") onOpenFile(relativePath);
+        else model.scrollToPath(item.path, { focus: true, offset: "center" });
+        return;
+      }
+      if (clicked === "open-file") {
+        onOpenFile(relativePath);
+        return;
+      }
+      if (clicked === "open-diff") {
+        onOpenDiffFile?.(relativePath);
+        return;
+      }
       if (clicked === "toggle-folder" && treeItem) {
         treeItem.toggle();
+        return;
+      }
+      if (clicked === "expand-descendants" || clicked === "collapse-descendants") {
+        const prefix = `${item.path.replace(/[\\/]$/, "")}/`;
+        for (const path of directoryPathsRef.current) {
+          if (path !== item.path && !path.startsWith(prefix)) continue;
+          const directory = directoryHandle(treeModelRef.current?.getItem(path));
+          if (directory) {
+            if (clicked === "expand-descendants") directory.expand();
+            else directory.collapse();
+          }
+        }
         return;
       }
       if (clicked === "expand-all" || clicked === "collapse-all") {
@@ -384,17 +542,18 @@ export default function FileBrowserPanel({
         return;
       }
       if (clicked === "new-file" || clicked === "new-folder") {
-        const name = await promptForName(
+        const name = await requestName(
           clicked === "new-file" ? "New file" : "New folder",
           "untitled",
         );
         if (!name) return;
         const parentRelative = item.kind === "directory" ? relativePath : entryTarget;
+        const targetPath = relativeEntryTarget({ kind: item.kind, path: parentRelative }, name);
         const result = await createEntry({
           environmentId,
           input: {
             cwd,
-            relativePath: parentRelative ? `${parentRelative}/${name}` : name,
+            relativePath: targetPath,
             kind: clicked === "new-file" ? "file" : "directory",
           },
         });
@@ -406,12 +565,12 @@ export default function FileBrowserPanel({
           });
           return;
         }
-        if (clicked === "new-file") onOpenFile(parentRelative ? `${parentRelative}/${name}` : name);
+        if (clicked === "new-file") onOpenFile(targetPath);
         return;
       }
       if (clicked === "rename-entry") {
         const oldName = relativePath.slice(relativePath.lastIndexOf("/") + 1);
-        const name = await promptForName("Rename", oldName);
+        const name = await requestName("Rename", oldName);
         if (!name || name === oldName) return;
         const result = await renameEntry({
           environmentId,
@@ -427,8 +586,9 @@ export default function FileBrowserPanel({
         return;
       }
       if (clicked === "delete-entry") {
-        const confirmed = window.confirm(
-          `Delete ${relativePath}${item.kind === "directory" ? " and everything inside it" : ""}?`,
+        const confirmed = await api.dialogs.confirm(
+          deletionConfirmationMessage({ kind: item.kind, path: relativePath }),
+          { variant: "destructive" },
         );
         if (!confirmed) return;
         const result = await deleteEntry({
@@ -463,6 +623,10 @@ export default function FileBrowserPanel({
       }
       if (clicked === "open-in-explorer") {
         await openInFileManager(absoluteEntryTarget);
+        return;
+      }
+      if (clicked === "refresh-entry") {
+        handleRefresh();
         return;
       }
       if (clicked === "add-to-chat") {
@@ -543,6 +707,82 @@ export default function FileBrowserPanel({
     search: false,
     unsafeCSS: TREE_UNSAFE_CSS,
   });
+  useEffect(() => {
+    model.setGitStatus(gitStatus);
+  }, [gitStatus, model]);
+
+  const applyDirectorySnapshot = useCallback(
+    (directory: string, nextEntries: ReadonlyArray<ProjectEntry>) => {
+      const normalizedDirectory = normalizeDirectoryPath(directory);
+      const snapshots = directorySnapshotsRef.current;
+      const previousEntries = snapshots.get(normalizedDirectory) ?? [];
+      const nextPaths = new Set(nextEntries.map((entry) => entry.path));
+
+      for (const previousEntry of previousEntries) {
+        if (nextPaths.has(previousEntry.path)) continue;
+        model.remove(directoryEntryPath(previousEntry), {
+          recursive: previousEntry.kind === "directory",
+        });
+        if (previousEntry.kind === "directory") {
+          const descendantPrefix = `${previousEntry.path}/`;
+          for (const cachedDirectory of snapshots.keys()) {
+            if (
+              cachedDirectory === previousEntry.path ||
+              cachedDirectory.startsWith(descendantPrefix)
+            ) {
+              snapshots.delete(cachedDirectory);
+            }
+          }
+        }
+      }
+      for (const nextEntry of nextEntries) {
+        const previousEntry = previousEntries.find((entry) => entry.path === nextEntry.path);
+        if (previousEntry?.kind === nextEntry.kind) continue;
+        if (previousEntry !== undefined) {
+          model.remove(directoryEntryPath(previousEntry), {
+            recursive: previousEntry.kind === "directory",
+          });
+        }
+        model.add(directoryEntryPath(nextEntry));
+      }
+      snapshots.set(normalizedDirectory, nextEntries);
+      setDirectoryCacheVersion((version) => version + 1);
+    },
+    [model],
+  );
+
+  const loadDirectory = useCallback(
+    async (directory: string): Promise<void> => {
+      if (chatScoped) return;
+      const normalizedDirectory = normalizeDirectoryPath(directory);
+      if (pendingDirectoryLoadsRef.current.has(normalizedDirectory)) return;
+      pendingDirectoryLoadsRef.current.add(normalizedDirectory);
+      try {
+        const result = await executeAtomQuery(
+          appAtomRegistry,
+          getProjectDirectoryQueryAtom(environmentId, cwd, normalizedDirectory),
+          { reportFailure: false, reportDefect: false },
+        );
+        if (result._tag === "Success") {
+          applyDirectorySnapshot(normalizedDirectory, result.value.entries);
+        }
+      } finally {
+        pendingDirectoryLoadsRef.current.delete(normalizedDirectory);
+      }
+    },
+    [applyDirectorySnapshot, chatScoped, cwd, environmentId],
+  );
+
+  const refreshLoadedDirectory = useCallback(
+    (directory: string) => {
+      const normalizedDirectory = normalizeDirectoryPath(directory);
+      if (!directorySnapshotsRef.current.has(normalizedDirectory)) return;
+      refreshProjectDirectoryQuery(environmentId, cwd, normalizedDirectory);
+      void loadDirectory(normalizedDirectory);
+    },
+    [cwd, environmentId, loadDirectory],
+  );
+
   const search = useFileTreeSearch(model);
   const handleSearchValueChange = (value: string) => {
     if (value.trim().length === 0) {
@@ -552,7 +792,11 @@ export default function FileBrowserPanel({
     search.setValue(value);
   };
   const handleRefresh = () => {
-    entriesQuery.refresh();
+    directoryQuery.refresh();
+    void loadDirectory("");
+    for (const directory of directorySnapshotsRef.current.keys()) {
+      if (directory !== "") refreshLoadedDirectory(directory);
+    }
     onRefreshSelectedFile?.();
   };
   const setAllFoldersExpanded = (expanded: boolean) => {
@@ -564,15 +808,73 @@ export default function FileBrowserPanel({
     }
   };
 
+  const handleWorkspaceFileEvent = useCallback(
+    (event: { readonly paths: ReadonlyArray<string> }) => {
+      if (chatScoped) return;
+      const loadedDirectories = new Set(directorySnapshotsRef.current.keys());
+      for (const directory of directoriesToInvalidate(event.paths, loadedDirectories)) {
+        refreshLoadedDirectory(directory);
+      }
+    },
+    [chatScoped, refreshLoadedDirectory],
+  );
+  useWorkspaceFileEvents(environmentId, cwd, handleWorkspaceFileEvent);
+
   useEffect(() => {
-    if (previousTreePathsRef.current === treePaths) return;
-    entryKindsRef.current = entryKinds;
-    directoryPathsRef.current = treePaths.filter(
-      (path) => entryKinds.get(path.replace(/\/$/, "")) === "directory",
-    );
-    previousTreePathsRef.current = treePaths;
-    model.resetPaths(treePaths, { initialExpandedPaths: [] });
-  }, [entryKinds, model, treePaths]);
+    const loadExpandedDirectories = () => {
+      if (chatScoped) return;
+      for (const path of directoryPathsRef.current) {
+        const directory = directoryHandle(model.getItem(path));
+        const normalizedPath = normalizeDirectoryPath(path);
+        if (
+          directory &&
+          persistedExpandedDirectories.has(normalizedPath) &&
+          !directory.isExpanded()
+        ) {
+          directory.expand();
+        }
+        if (directory?.isExpanded() && !directorySnapshotsRef.current.has(normalizedPath)) {
+          void loadDirectory(path);
+        }
+      }
+    };
+    const unsubscribe = model.subscribe(() => {
+      const expanded = directoryPathsRef.current.filter((path) => {
+        const directory = directoryHandle(model.getItem(path));
+        return directory?.isExpanded() === true;
+      });
+      writeFileTreeExpandedDirectories(environmentId, cwd, expanded);
+      loadExpandedDirectories();
+    });
+    loadExpandedDirectories();
+    return unsubscribe;
+  }, [chatScoped, cwd, environmentId, loadDirectory, model, persistedExpandedDirectories]);
+
+  useEffect(() => {
+    directorySnapshotsRef.current.clear();
+    pendingDirectoryLoadsRef.current.clear();
+    setDirectoryCacheVersion((version) => version + 1);
+    model.resetPaths(chatScoped ? chatTreePaths : []);
+  }, [chatScoped, chatTreePaths, model]);
+
+  useEffect(() => {
+    if (chatScoped || directoryQuery.data === null) return;
+    applyDirectorySnapshot("", directoryQuery.data.entries);
+  }, [applyDirectorySnapshot, chatScoped, directoryQuery.data]);
+
+  useEffect(() => {
+    if (chatScoped || selectedPath === null || entryKinds.has(selectedPath)) return;
+    const parentDirectories: string[] = [];
+    let parent = parentDirectoryPath(selectedPath);
+    while (parent.length > 0) {
+      parentDirectories.unshift(parent);
+      parent = parentDirectoryPath(parent);
+    }
+    void (async () => {
+      await loadDirectory("");
+      for (const directory of parentDirectories) await loadDirectory(directory);
+    })();
+  }, [chatScoped, entryKinds, loadDirectory, selectedPath]);
 
   useEffect(() => {
     if (!selectedPath) {
@@ -581,8 +883,9 @@ export default function FileBrowserPanel({
     }
     const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
     const handledReveal = handledRevealRef.current;
-    // Entry refreshes rebuild treePaths while the same preview stays open.
-    // Replaying a handled reveal would close an active tree search and steal focus.
+    // Directory refreshes mutate the tree in place while the same preview stays
+    // open. Replaying a handled reveal would close an active tree search and
+    // steal focus.
     if (
       handledReveal?.path === revealRequest.path &&
       handledReveal.revealId === revealRequest.revealId
@@ -629,7 +932,7 @@ export default function FileBrowserPanel({
     queueMicrotask(() => {
       syncingSelectionRef.current = false;
     });
-  }, [entryKinds, model, selectedPath, selectedPathRevealId, treePaths]);
+  }, [entryKinds, model, selectedPath, selectedPathRevealId]);
 
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does
@@ -646,7 +949,25 @@ export default function FileBrowserPanel({
     if (panel === null) {
       return;
     }
-    const handleDragStart = (event: DragEvent) => dragMention.handleDragStart(event);
+    const handleDragStart = (event: DragEvent) => {
+      dragMention.handleDragStart(event);
+      const itemPath = event
+        .composedPath()
+        .map((node) => (node instanceof Element ? node.getAttribute("data-item-path") : null))
+        .find((path): path is string => path !== null);
+      if (itemPath === undefined || event.dataTransfer === null) return;
+      const selectedPaths = model.getSelectedPaths();
+      const draggedPaths = selectedPaths.includes(itemPath) ? selectedPaths : [itemPath];
+      const filePaths = draggedPaths
+        .map((path) => path.replace(/\/$/, ""))
+        .filter((path) => entryKindsRef.current.get(path) === "file");
+      if (filePaths.length > 0) {
+        event.dataTransfer.setData(
+          "application/x-rune-pocket-files",
+          JSON.stringify([...new Set(filePaths)]),
+        );
+      }
+    };
     const handleDragEnd = () => dragMention.handleDragEnd();
     panel.addEventListener("dragstart", handleDragStart, true);
     panel.addEventListener("dragend", handleDragEnd);
@@ -670,14 +991,14 @@ export default function FileBrowserPanel({
         {chatScoped ? (
           <span
             className="min-w-0 max-w-44 truncate px-1 text-xs font-medium"
-            title={threadTitle ?? undefined}
+            aria-label={threadTitle ? `Changes in ${threadTitle}` : "Changes in this chat"}
           >
-            Changes in this chat â€” {chatDiff?.length ?? 0}{" "}
+            Changes in this chat — {chatDiff?.length ?? 0}{" "}
             {chatDiff?.length === 1 ? "file" : "files"}
           </span>
         ) : (
           <span className="min-w-0 max-w-44 truncate px-1 text-xs font-medium">
-            Workspace files â€” {entries.length} {entries.length === 1 ? "entry" : "entries"}
+            Workspace files — {loadedEntries.length} loaded
           </span>
         )}
         {routeThreadKey !== null && chatDiff !== null ? (
@@ -686,6 +1007,7 @@ export default function FileBrowserPanel({
             variant="ghost"
             size="xs"
             className="shrink-0 text-[11px]"
+            data-rune-action="workspace.toggle-chat-scope"
             onClick={() => {
               setScopedToChat((value) => !value);
               onToggleScope?.();
@@ -694,8 +1016,9 @@ export default function FileBrowserPanel({
             {chatScoped ? "Show all workspace files" : "Show changes in this chat"}
           </Button>
         ) : null}
-        <RefreshFilesButton isPending={entriesQuery.isPending} onRefresh={handleRefresh} />
+        <RefreshFilesButton isPending={directoryQuery.isPending} onRefresh={handleRefresh} />
         <FileTreeActionButton
+          action="workspace.expand-all"
           ariaLabel="Expand all folders"
           label="Expand all folders"
           onClick={() => setAllFoldersExpanded(true)}
@@ -703,6 +1026,7 @@ export default function FileBrowserPanel({
           <ChevronsDownUp />
         </FileTreeActionButton>
         <FileTreeActionButton
+          action="workspace.collapse-all"
           ariaLabel="Collapse all folders"
           label="Collapse all folders"
           onClick={() => setAllFoldersExpanded(false)}
@@ -710,9 +1034,10 @@ export default function FileBrowserPanel({
           <ChevronsUpDown />
         </FileTreeActionButton>
         <FileTreeActionButton
+          action="workspace.open-in-file-manager"
           ariaLabel={`Open project in ${fileManagerName}`}
           label={`Open project in ${fileManagerName}`}
-          disabled={entriesQuery.isPending}
+          disabled={directoryQuery.isPending}
           onClick={() => void openInFileManager(cwd)}
         >
           <ExternalLink />
@@ -726,14 +1051,40 @@ export default function FileBrowserPanel({
         />
       </div>
       {treeArea.kind === "error" ? (
-        <div className="p-4 text-xs leading-relaxed text-destructive">{treeArea.message}</div>
+        <div
+          className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"
+          role="alert"
+        >
+          <p className="text-xs leading-relaxed text-destructive">{treeArea.message}</p>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            data-rune-action="workspace.retry"
+            onClick={handleRefresh}
+          >
+            Retry
+          </Button>
+        </div>
       ) : treeArea.kind === "loading" ? (
         <div
           className="flex min-h-0 flex-1 items-center justify-center gap-2 pb-16 text-xs text-muted-foreground"
           data-file-tree-loading
+          role="status"
+          aria-live="polite"
         >
-          <RotateCw className="size-3.5 animate-spin" aria-hidden />
+          <RotateCw
+            className="motion-safe:animate-spin motion-reduce:animate-none size-3.5"
+            aria-hidden
+          />
           Loading {projectName} files…
+        </div>
+      ) : visibleEntries.length === 0 ? (
+        <div
+          className="flex flex-1 items-center justify-center px-6 pb-16 text-center text-xs text-muted-foreground"
+          role="status"
+        >
+          {chatScoped ? "No changed files in this chat." : "No files found in this workspace."}
         </div>
       ) : (
         <FileTree
@@ -746,7 +1097,13 @@ export default function FileBrowserPanel({
           }}
         />
       )}
-      {entriesQuery.data?.truncated ? <FileTreeTruncationFooter /> : null}
+      <NameRequestDialog
+        request={nameRequest}
+        value={nameValue}
+        onValueChange={setNameValue}
+        onCancel={() => finishNameRequest(null)}
+        onSubmit={() => finishNameRequest(nameValue.trim() || null)}
+      />
     </div>
   );
 }

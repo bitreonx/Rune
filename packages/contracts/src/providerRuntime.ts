@@ -44,6 +44,109 @@ export type RuntimeEventRaw = typeof RuntimeEventRaw.Type;
 const ProviderRequestId = TrimmedNonEmptyStringSchema;
 export type ProviderRequestId = typeof ProviderRequestId.Type;
 
+/**
+ * The reason an inference request exists.  This is deliberately provider
+ * neutral: adapters may have different names for these operations, but the
+ * trace and budget ledger must be able to account for them the same way.
+ *
+ * Optional request metadata keeps older adapters valid while they migrate to
+ * the attributed request contract.
+ */
+export const RuntimeRequestPurpose = Schema.Literals([
+  "main",
+  "tool-followup",
+  "repair",
+  "verification",
+  "subagent",
+  "compaction",
+  "utility",
+  "retry",
+  "handoff",
+]);
+export type RuntimeRequestPurpose = typeof RuntimeRequestPurpose.Type;
+
+export const RuntimeRequestBudget = Schema.Struct({
+  maxRequests: Schema.optional(PositiveInt),
+  maxToolCalls: Schema.optional(NonNegativeInt),
+  maxElapsedMs: Schema.optional(NonNegativeInt),
+  remainingRequests: Schema.optional(NonNegativeInt),
+  remainingToolCalls: Schema.optional(NonNegativeInt),
+  remainingElapsedMs: Schema.optional(NonNegativeInt),
+});
+export type RuntimeRequestBudget = typeof RuntimeRequestBudget.Type;
+
+// Provider-prefixed aliases make the boundary discoverable to adapters while
+// the shorter Runtime* names remain convenient for shared consumers.
+export const ProviderRuntimeRequestPurpose = RuntimeRequestPurpose;
+export type ProviderRuntimeRequestPurpose = RuntimeRequestPurpose;
+export const ProviderRuntimeRequestBudget = RuntimeRequestBudget;
+export type ProviderRuntimeRequestBudget = RuntimeRequestBudget;
+
+/** Trace milestones emitted by the server/native runtime boundary. */
+export const RuntimeTraceStage = Schema.Literals([
+  "send.accepted",
+  "queue.wait",
+  "prompt.compile",
+  "context.plan",
+  "provider.resolve",
+  "session.acquire",
+  "request.start",
+  "first.byte",
+  "first.token",
+  "tool.start",
+  "tool.end",
+  "first.useful.activity",
+  "first.edit",
+  "checkpoint.diff",
+  "verification",
+  "completion",
+  "ui.settled",
+]);
+export type RuntimeTraceStage = typeof RuntimeTraceStage.Type;
+export const ProviderRuntimeTraceStage = RuntimeTraceStage;
+export type ProviderRuntimeTraceStage = RuntimeTraceStage;
+
+export const RuntimeTraceStatus = Schema.Literals(["started", "completed", "observed", "failed"]);
+export type RuntimeTraceStatus = typeof RuntimeTraceStatus.Type;
+export const ProviderRuntimeTraceStatus = RuntimeTraceStatus;
+export type ProviderRuntimeTraceStatus = RuntimeTraceStatus;
+
+/**
+ * Optional durations carried by request and milestone events.  They are
+ * elapsed milliseconds, never wall-clock timestamps, and remain optional so
+ * providers can report only the measurements they actually know.
+ */
+export const RuntimeTraceTiming = Schema.Struct({
+  queueWaitMs: Schema.optional(NonNegativeInt),
+  promptCompilationMs: Schema.optional(NonNegativeInt),
+  contextPlanningMs: Schema.optional(NonNegativeInt),
+  providerResolutionMs: Schema.optional(NonNegativeInt),
+  sessionAcquisitionMs: Schema.optional(NonNegativeInt),
+  timeToFirstTokenMs: Schema.optional(NonNegativeInt),
+  firstUsefulActivityMs: Schema.optional(NonNegativeInt),
+  firstEditMs: Schema.optional(NonNegativeInt),
+  verificationMs: Schema.optional(NonNegativeInt),
+});
+export type RuntimeTraceTiming = typeof RuntimeTraceTiming.Type;
+
+/** Totals are partial because a provider may not expose every measurement. */
+export const RuntimeTurnTotals = Schema.Struct({
+  requestCount: Schema.optional(NonNegativeInt),
+  retryCount: Schema.optional(NonNegativeInt),
+  toolCalls: Schema.optional(NonNegativeInt),
+  inputTokens: Schema.optional(NonNegativeInt),
+  cachedInputTokens: Schema.optional(NonNegativeInt),
+  outputTokens: Schema.optional(NonNegativeInt),
+  reasoningTokens: Schema.optional(NonNegativeInt),
+  elapsedMs: Schema.optional(NonNegativeInt),
+  wallDurationMs: Schema.optional(NonNegativeInt),
+  totalCostUsd: Schema.optional(Schema.Number),
+  ...RuntimeTraceTiming.fields,
+});
+export type RuntimeTurnTotals = typeof RuntimeTurnTotals.Type;
+export const ProviderRuntimeTurnTotals = RuntimeTurnTotals;
+export type ProviderRuntimeTurnTotals = RuntimeTurnTotals;
+
 const ProviderRefs = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyStringSchema),
   providerItemId: Schema.optional(ProviderItemId),
@@ -165,6 +268,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "thread.realtime.error",
   "thread.realtime.closed",
   "turn.started",
+  "turn.trace",
   "turn.completed",
   "turn.aborted",
   "turn.plan.updated",
@@ -218,6 +322,7 @@ const ThreadRealtimeAudioDeltaType = Schema.Literal("thread.realtime.audio.delta
 const ThreadRealtimeErrorType = Schema.Literal("thread.realtime.error");
 const ThreadRealtimeClosedType = Schema.Literal("thread.realtime.closed");
 const TurnStartedType = Schema.Literal("turn.started");
+const TurnTraceType = Schema.Literal("turn.trace");
 const TurnCompletedType = Schema.Literal("turn.completed");
 const TurnAbortedType = Schema.Literal("turn.aborted");
 const TurnPlanUpdatedType = Schema.Literal("turn.plan.updated");
@@ -363,12 +468,18 @@ export const ApiRequestUsagePayload = Schema.Struct({
   requestId: RuntimeRequestId,
   requestNumber: PositiveInt,
   retry: Schema.Boolean,
+  /** Optional on legacy events; newly emitted Native requests should set it. */
+  purpose: Schema.optional(RuntimeRequestPurpose),
+  parentRequestId: Schema.optional(RuntimeRequestId),
+  budget: Schema.optional(RuntimeRequestBudget),
   inputTokens: Schema.optional(NonNegativeInt),
   outputTokens: Schema.optional(NonNegativeInt),
   cachedInputTokens: Schema.optional(NonNegativeInt),
   reasoningTokens: Schema.optional(NonNegativeInt),
   timeToFirstByteMs: Schema.optional(NonNegativeInt),
   streamDurationMs: Schema.optional(NonNegativeInt),
+  totals: Schema.optional(RuntimeTurnTotals),
+  ...RuntimeTraceTiming.fields,
 });
 export type ApiRequestUsagePayload = typeof ApiRequestUsagePayload.Type;
 
@@ -400,8 +511,27 @@ export type ThreadRealtimeClosedPayload = typeof ThreadRealtimeClosedPayload.Typ
 const TurnStartedPayload = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   effort: Schema.optional(TrimmedNonEmptyStringSchema),
+  budget: Schema.optional(RuntimeRequestBudget),
+  /** Provider-native child turn owner, when this is a nested conversation. */
+  agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
+
+export const TurnTracePayload = Schema.Struct({
+  stage: RuntimeTraceStage,
+  status: Schema.optional(RuntimeTraceStatus),
+  requestId: Schema.optional(RuntimeRequestId),
+  parentRequestId: Schema.optional(RuntimeRequestId),
+  purpose: Schema.optional(RuntimeRequestPurpose),
+  budget: Schema.optional(RuntimeRequestBudget),
+  durationMs: Schema.optional(NonNegativeInt),
+  detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  totals: Schema.optional(RuntimeTurnTotals),
+  /** Compatibility spelling for emitters that name the aggregate explicitly. */
+  turnTotals: Schema.optional(RuntimeTurnTotals),
+  ...RuntimeTraceTiming.fields,
+});
+export type TurnTracePayload = typeof TurnTracePayload.Type;
 
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
@@ -409,7 +539,12 @@ const TurnCompletedPayload = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
   modelUsage: Schema.optional(UnknownRecordSchema),
   totalCostUsd: Schema.optional(Schema.Number),
+  totals: Schema.optional(RuntimeTurnTotals),
+  /** Compatibility spelling retained for older Native emitters. */
+  turnTotals: Schema.optional(RuntimeTurnTotals),
   errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Provider-native child turn owner, when this is a nested conversation. */
+  agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type TurnCompletedPayload = typeof TurnCompletedPayload.Type;
 
@@ -985,6 +1120,13 @@ const ProviderRuntimeTurnStartedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTurnStartedEvent = typeof ProviderRuntimeTurnStartedEvent.Type;
 
+const ProviderRuntimeTurnTraceEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TurnTraceType,
+  payload: TurnTracePayload,
+});
+export type ProviderRuntimeTurnTraceEvent = typeof ProviderRuntimeTurnTraceEvent.Type;
+
 const ProviderRuntimeTurnCompletedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: TurnCompletedType,
@@ -1254,6 +1396,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadRealtimeErrorEvent,
   ProviderRuntimeThreadRealtimeClosedEvent,
   ProviderRuntimeTurnStartedEvent,
+  ProviderRuntimeTurnTraceEvent,
   ProviderRuntimeTurnCompletedEvent,
   ProviderRuntimeTurnAbortedEvent,
   ProviderRuntimeTurnPlanUpdatedEvent,

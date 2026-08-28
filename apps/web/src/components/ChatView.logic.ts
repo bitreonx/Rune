@@ -490,7 +490,8 @@ export function buildUserMessageRewindConfirmation(
       : [
           header,
           "This prompt and everything after it are discarded — messages and file changes.",
-          "This action cannot be undone.",
+          "Queued prompts after it are preserved for review, and the provider conversation is rolled back only when supported.",
+          "If provider rollback is unavailable, RUNE restarts from compiled context. This action cannot be undone.",
         ].join("\n");
   return { message, options: { variant: "destructive" } };
 }

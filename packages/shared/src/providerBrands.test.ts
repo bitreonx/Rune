@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { getProviderBrand, PROVIDER_BRANDS } from "./providerBrands";
+import { getProviderBrand, PROVIDER_BRANDS } from "./providerBrands.js";
 
 describe("provider brand registry", () => {
   it("resolves every represented harness and service to a local icon key", () => {

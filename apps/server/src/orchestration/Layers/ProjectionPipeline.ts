@@ -1,5 +1,8 @@
 import {
   ApprovalRequestId,
+  OrchestrationAgentThread,
+  OrchestrationCheckpointFile,
+  OrchestrationFileOwnership,
   type ChatAttachment,
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
@@ -9,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -111,6 +115,21 @@ const materializeAttachmentsForProjection = Effect.fn("materializeAttachmentsFor
   (input: { readonly attachments: ReadonlyArray<ChatAttachment> }) =>
     Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
 );
+
+const ChatDiffFilesJson = Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile));
+const FileOwnershipJson = Schema.fromJsonString(Schema.Array(OrchestrationFileOwnership));
+const AgentThreadJson = Schema.fromJsonString(OrchestrationAgentThread);
+const encodeChatDiffFiles = Schema.encodeSync(ChatDiffFilesJson);
+const encodeFileOwnership = Schema.encodeSync(FileOwnershipJson);
+const encodeAgentThread = Schema.encodeSync(AgentThreadJson);
+const decodeAgentThread = Schema.decodeUnknownSync(AgentThreadJson);
+const decodeAgentThreadOrNull = (encoded: string): OrchestrationAgentThread | null => {
+  try {
+    return decodeAgentThread(encoded);
+  } catch {
+    return null;
+  }
+};
 
 function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
   if (typeof payload !== "object" || payload === null) {
@@ -633,9 +652,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       const aggregated = aggregateChatDiff(checkpoints, threadId, computedAt);
 
       return {
-        chatDiffJson: JSON.stringify(aggregated.chatDiff.files),
+        chatDiffJson: encodeChatDiffFiles(aggregated.chatDiff.files),
         chatDiffThroughTurnCount: aggregated.chatDiff.throughTurnCount,
-        fileOwnershipJson: JSON.stringify(aggregated.fileOwnership),
+        fileOwnershipJson: encodeFileOwnership(aggregated.fileOwnership),
       };
     });
 
@@ -660,6 +679,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             chatDiffJson: "[]",
             chatDiffThroughTurnCount: 0,
             fileOwnershipJson: "[]",
+            agentJson:
+              event.payload.agent === undefined || event.payload.agent === null
+                ? null
+                : encodeAgentThread(event.payload.agent),
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             archivedAt: null,
@@ -679,6 +702,34 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             deletedAt: null,
           });
           return;
+
+        case "thread.agent-result-adopted": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.childThreadId,
+          });
+          if (
+            Option.isNone(existingRow) ||
+            existingRow.value.agentJson === null ||
+            existingRow.value.agentJson === undefined
+          ) {
+            return;
+          }
+          const agent = decodeAgentThreadOrNull(existingRow.value.agentJson);
+          if (agent === null) return;
+          if (agent.parentThreadId !== event.payload.parentThreadId || agent.result !== null) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentJson: encodeAgentThread({
+              ...agent,
+              result: event.payload.result,
+              resultAdoptedAt: event.payload.adoptedAt,
+            }),
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
 
         case "thread.archived": {
           const existingRow = yield* projectionThreadRepository.getById({

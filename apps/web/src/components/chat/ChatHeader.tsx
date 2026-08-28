@@ -32,6 +32,9 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
+import { EnvironmentQuickPanel } from "./EnvironmentQuickPanel";
+import type { TurnDiffFileChange } from "~/types";
+import type { VcsStatusResult } from "@rune/contracts";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useRuneProjectFileScripts } from "~/hooks/useRuneProjectFileScripts";
@@ -51,6 +54,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
+  environmentLabel: string;
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   /** PR feeding the settled classification, resolved by ChatView. */
@@ -65,6 +69,13 @@ interface ChatHeaderProps {
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
   gitCwd: string | null;
+  gitStatus: VcsStatusResult | null;
+  chatDiff: ReadonlyArray<TurnDiffFileChange> | null;
+  configuredPreviewUrls: ReadonlyArray<string>;
+  readonly onOpenEnvironment: () => void;
+  readonly onOpenFiles: () => void;
+  readonly onOpenDiff: () => void;
+  readonly onOpenExplorer: () => void;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -122,6 +133,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
+  environmentLabel,
   isServerThread,
   changeRequest,
   activeProjectName,
@@ -134,6 +146,13 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   rightPanelOpen,
   gitCwd,
+  gitStatus,
+  chatDiff,
+  configuredPreviewUrls,
+  onOpenEnvironment,
+  onOpenFiles,
+  onOpenDiff,
+  onOpenExplorer,
   onOpenPullRequest,
   onNewThreadInProject,
   onRunProjectScript,
@@ -392,6 +411,20 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteScript={onDeleteProjectScript}
           />
         )}
+        {activeProjectName ? (
+          <EnvironmentQuickPanel
+            environmentId={activeThreadEnvironmentId}
+            environmentLabel={environmentLabel}
+            cwd={activeProjectCwd}
+            chatDiff={chatDiff}
+            gitStatus={gitStatus}
+            configuredPreviewUrls={configuredPreviewUrls}
+            onOpenEnvironment={onOpenEnvironment}
+            onOpenFiles={onOpenFiles}
+            onOpenDiff={onOpenDiff}
+            onOpenExplorer={onOpenExplorer}
+          />
+        ) : null}
         {showOpenInPicker && (
           <OpenInPicker
             environmentId={activeThreadEnvironmentId}

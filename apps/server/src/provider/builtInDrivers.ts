@@ -28,6 +28,7 @@ import { OpenCodeDriver, type OpenCodeDriverEnv } from "./Drivers/OpenCodeDriver
 import { OpenAiApiDriver, type OpenAiApiDriverEnv } from "./Drivers/OpenAiApiDriver.ts";
 import { OpenRouterDriver, type OpenRouterDriverEnv } from "./Drivers/OpenRouterDriver.ts";
 import { AntigravityDriver, type AntigravityDriverEnv } from "./Drivers/AntigravityDriver.ts";
+import { RuneNativeDriver, type RuneNativeDriverEnv } from "./Drivers/RuneNativeDriver.ts";
 import type { AnyProviderDriver } from "./ProviderDriver.ts";
 
 /**
@@ -43,7 +44,8 @@ export type BuiltInDriversEnv =
   | OpenCodeDriverEnv
   | OpenAiApiDriverEnv
   | OpenRouterDriverEnv
-  | AntigravityDriverEnv;
+  | AntigravityDriverEnv
+  | RuneNativeDriverEnv;
 
 /**
  * Ordered list of built-in drivers. Order matters only for tie-breaking in
@@ -59,4 +61,5 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   OpenAiApiDriver,
   OpenRouterDriver,
   AntigravityDriver,
+  RuneNativeDriver,
 ];

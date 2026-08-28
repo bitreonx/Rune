@@ -15,6 +15,7 @@ import type {
   RuneAction,
 } from "@rune/contracts";
 import { ActionId as ActionIdSchema } from "@rune/contracts";
+import * as DateTime from "effect/DateTime";
 
 export type ActionShellPlatform = "win32" | "posix";
 export type ActionParameterInput = Readonly<Record<string, ActionParameterValue>>;
@@ -44,11 +45,7 @@ export type ActionPreparationResult =
     }
   | {
       readonly ok: false;
-      readonly code:
-        | "disabled"
-        | "invalid-parameters"
-        | "missing-credential"
-        | "invalid-template";
+      readonly code: "disabled" | "invalid-parameters" | "missing-credential" | "invalid-template";
       readonly message: string;
       readonly parameter?: string;
     };
@@ -62,7 +59,8 @@ export interface PreparedActionStep {
 
 const ACTION_PARAMETER_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
 const CREDENTIAL_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
-const SEMVER = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const SEMVER =
+  /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const TEMPLATE = /\{\{([A-Za-z][A-Za-z0-9_-]{0,63})\}\}/gu;
 const UNRESOLVED_TEMPLATE = /\{\{|\}\}/u;
 
@@ -107,7 +105,9 @@ export function actionIdForName(name: string): ActionId {
 
 export function projectScriptToAction(
   script: ProjectScript,
-  input: { readonly now: string; readonly source?: ActionSource } = { now: new Date().toISOString() },
+  input: { readonly now: string; readonly source?: ActionSource } = {
+    now: DateTime.formatIso(DateTime.nowUnsafe()),
+  },
 ): RuneAction {
   return {
     id: actionIdForProjectScript(script.id),
@@ -196,7 +196,10 @@ function validateValue(
           : { ok: true, parameters: { values: {}, redacted: {}, secretParameters: new Set() } };
     }
     case "branch":
-      return typeof value === "string" && value.length > 0 && !/[\s~^:?*[\\\]]/u.test(value) && !value.includes("..")
+      return typeof value === "string" &&
+        value.length > 0 &&
+        !/[\s~^:?*[\\\]]/u.test(value) &&
+        !value.includes("..")
         ? { ok: true, parameters: { values: {}, redacted: {}, secretParameters: new Set() } }
         : failure(parameter.name, "Expected a safe git branch name.");
     case "semver":
@@ -210,12 +213,20 @@ function validateValue(
   }
 }
 
-function validateParameterName(parameter: ActionParameter): ActionParameterValidationFailure | null {
+function validateParameterName(
+  parameter: ActionParameter,
+): ActionParameterValidationFailure | null {
   if (!ACTION_PARAMETER_NAME.test(parameter.name)) {
-    return { parameter: parameter.name, reason: "Parameter names must be stable identifier names." };
+    return {
+      parameter: parameter.name,
+      reason: "Parameter names must be stable identifier names.",
+    };
   }
   if (parameter.secret && parameter.type !== "secret-reference") {
-    return { parameter: parameter.name, reason: "Secret parameters must use a credential reference." };
+    return {
+      parameter: parameter.name,
+      reason: "Secret parameters must use a credential reference.",
+    };
   }
   if (parameter.type === "enum" && (!parameter.enumValues || parameter.enumValues.length === 0)) {
     return { parameter: parameter.name, reason: "Enum parameters must declare enum values." };
@@ -264,7 +275,10 @@ export function validateActionParameters(
   return { ok: true, parameters: { values, redacted, secretParameters } };
 }
 
-export function quoteActionParameter(value: ActionParameterValue, platform: ActionShellPlatform): string {
+export function quoteActionParameter(
+  value: ActionParameterValue,
+  platform: ActionShellPlatform,
+): string {
   const text = String(value);
   if (platform === "win32") return `'${text.replaceAll("'", "''")}'`;
   return `'${text.replaceAll("'", `'"'"'`)}'`;
@@ -275,7 +289,9 @@ function renderStep(
   values: Readonly<Record<string, ActionParameterValue>>,
   secretParameters: ReadonlySet<string>,
   platform: ActionShellPlatform,
-): { readonly ok: true; readonly step: PreparedActionStep } | { readonly ok: false; readonly message: string; readonly parameter?: string } {
+):
+  | { readonly ok: true; readonly step: PreparedActionStep }
+  | { readonly ok: false; readonly message: string; readonly parameter?: string } {
   const render = (redactSecrets: boolean): string | null => {
     let missingParameter: string | undefined;
     const command = step.command.replace(TEMPLATE, (_match, name: string) => {
@@ -297,12 +313,15 @@ function renderStep(
     const parameter = /\{\{([^}]+)\}\}/u.exec(step.command)?.[1];
     return {
       ok: false,
-      message: parameter ? `Action step references missing parameter '${parameter}'.` : "Action step has an invalid parameter template.",
+      message: parameter
+        ? `Action step references missing parameter '${parameter}'.`
+        : "Action step has an invalid parameter template.",
       ...(parameter ? { parameter } : {}),
     };
   }
   const displayCommand = render(true);
-  if (!displayCommand) return { ok: false, message: "Action step has an invalid parameter template." };
+  if (!displayCommand)
+    return { ok: false, message: "Action step has an invalid parameter template." };
   return { ok: true, step: { stepId: step.id, command, displayCommand } };
 }
 
@@ -326,7 +345,10 @@ export function prepareActionExecution(input: {
   }
   const resolvedValues: Record<string, ActionParameterValue> = { ...validation.parameters.values };
   for (const parameter of input.action.parameters) {
-    if (parameter.type !== "secret-reference" || !Object.prototype.hasOwnProperty.call(resolvedValues, parameter.name)) {
+    if (
+      parameter.type !== "secret-reference" ||
+      !Object.prototype.hasOwnProperty.call(resolvedValues, parameter.name)
+    ) {
       continue;
     }
     const reference = resolvedValues[parameter.name];
@@ -412,7 +434,9 @@ export function matchActionIntent(
   return { matched: best.confidence >= 0.7 && best.signature !== null, ...best };
 }
 
-const allowedTransitions: Readonly<Record<ActionLifecycleState, ReadonlySet<ActionLifecycleState>>> = {
+const allowedTransitions: Readonly<
+  Record<ActionLifecycleState, ReadonlySet<ActionLifecycleState>>
+> = {
   proposed: new Set(["approved"]),
   approved: new Set(["enabled", "disabled", "running"]),
   enabled: new Set(["disabled", "running"]),
@@ -441,12 +465,17 @@ export function createLearnedActionProposal(input: {
   readonly reason: string;
   readonly createdAt: string;
 }): ActionProposal | null {
-  const verified = input.receipt.status === "succeeded" &&
+  const verified =
+    input.receipt.status === "succeeded" &&
     input.receipt.evidence.some((evidence: ActionEvidence) => evidence.kind === "verification");
   if (!verified) return null;
   return {
     proposalId: input.proposalId,
-    action: { ...input.action, source: "learned", provenance: { ...input.action.provenance, successfulRunIds: [input.receipt.runId] } },
+    action: {
+      ...input.action,
+      source: "learned",
+      provenance: { ...input.action.provenance, successfulRunIds: [input.receipt.runId] },
+    },
     reason: input.reason,
     successfulRunIds: [input.receipt.runId],
     status: "proposed",
@@ -469,4 +498,3 @@ export function approveActionProposal(
     action,
   };
 }
-

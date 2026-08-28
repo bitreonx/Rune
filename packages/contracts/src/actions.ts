@@ -42,7 +42,7 @@ export const ActionParameterType = Schema.Literals([
 ]);
 export type ActionParameterType = typeof ActionParameterType.Type;
 
-export const ActionParameterValue = Schema.Union(Schema.String, Schema.Number, Schema.Boolean);
+export const ActionParameterValue = Schema.Union([Schema.String, Schema.Number, Schema.Boolean]);
 export type ActionParameterValue = typeof ActionParameterValue.Type;
 
 export const ActionParameter = Schema.Struct({
@@ -113,11 +113,7 @@ export const ActionVerificationRequirement = Schema.Struct({
 });
 export type ActionVerificationRequirement = typeof ActionVerificationRequirement.Type;
 
-export const ActionApprovalPolicy = Schema.Literals([
-  "never",
-  "on-dangerous-step",
-  "always",
-]);
+export const ActionApprovalPolicy = Schema.Literals(["never", "on-dangerous-step", "always"]);
 export type ActionApprovalPolicy = typeof ActionApprovalPolicy.Type;
 
 export const ActionFallbackPolicy = Schema.Literals(["none", "assisted-repair", "agent"]);
@@ -272,3 +268,243 @@ export const ActionRunReceipt = Schema.Struct({
   completedAt: Schema.optionalKey(IsoDateTime),
 });
 export type ActionRunReceipt = typeof ActionRunReceipt.Type;
+
+/** The provider-neutral invocation for a project action. */
+export const ActionRunInput = Schema.Struct({
+  threadId: TrimmedNonEmptyString,
+  projectId: TrimmedNonEmptyString,
+  actionId: ActionId,
+  parameters: Schema.optional(ActionParameterValues),
+});
+export type ActionRunInput = typeof ActionRunInput.Type;
+
+export const ActionRunApprovalRequiredResult = Schema.Struct({
+  status: Schema.Literal("approval-required"),
+  /** Additive for older clients; new executors always provide it. */
+  runId: Schema.optionalKey(TrimmedNonEmptyString),
+  actionId: ActionId,
+  actionVersion: PositiveInt,
+  parameters: ActionParameterValues,
+  /** Additive for older clients; new executors always provide it. */
+  receipt: Schema.optionalKey(ActionRunReceipt),
+});
+export type ActionRunApprovalRequiredResult = typeof ActionRunApprovalRequiredResult.Type;
+
+export const ActionRunNoScriptResult = Schema.Struct({
+  status: Schema.Literal("no-script"),
+  runId: Schema.optionalKey(TrimmedNonEmptyString),
+  actionId: ActionId,
+  actionVersion: PositiveInt,
+  receipt: Schema.optionalKey(ActionRunReceipt),
+});
+export type ActionRunNoScriptResult = typeof ActionRunNoScriptResult.Type;
+
+export const ActionRunBlockedResult = Schema.Struct({
+  status: Schema.Literal("blocked"),
+  /** Additive for older clients; new executors always provide it. */
+  runId: Schema.optionalKey(TrimmedNonEmptyString),
+  actionId: ActionId,
+  actionVersion: PositiveInt,
+  reason: TrimmedNonEmptyString,
+  receipt: Schema.optionalKey(ActionRunReceipt),
+});
+export type ActionRunBlockedResult = typeof ActionRunBlockedResult.Type;
+
+export const ActionRunStartedResult = Schema.Struct({
+  status: Schema.Literal("started"),
+  runId: Schema.optionalKey(TrimmedNonEmptyString),
+  actionId: ActionId,
+  actionVersion: PositiveInt,
+  scriptId: TrimmedNonEmptyString,
+  scriptName: TrimmedNonEmptyString,
+  terminalId: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+  receipt: Schema.optionalKey(ActionRunReceipt),
+});
+export type ActionRunStartedResult = typeof ActionRunStartedResult.Type;
+
+export const ActionRunResult = Schema.Union([
+  ActionRunApprovalRequiredResult,
+  ActionRunNoScriptResult,
+  ActionRunBlockedResult,
+  ActionRunStartedResult,
+]);
+export type ActionRunResult = typeof ActionRunResult.Type;
+
+export const ActionRunErrorCode = Schema.Literals([
+  "invalid-input",
+  "action-not-found",
+  "disabled",
+  "invalid-parameters",
+  "missing-credential",
+  "invalid-template",
+  "unsupported-action",
+  "project-not-found",
+  "execution-failed",
+]);
+export type ActionRunErrorCode = typeof ActionRunErrorCode.Type;
+
+export class ActionRunError extends Schema.TaggedErrorClass<ActionRunError>()("ActionRunError", {
+  actionId: ActionId,
+  code: ActionRunErrorCode,
+  message: TrimmedNonEmptyString,
+}) {}
+
+/** Storage context for an action. Empty context fields are never exposed on the wire. */
+export const ActionRegistryContext = Schema.Struct({
+  scope: ActionScope,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ActionRegistryContext = typeof ActionRegistryContext.Type;
+
+export const ActionRegistryRecord = Schema.Struct({
+  action: RuneAction,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ActionRegistryRecord = typeof ActionRegistryRecord.Type;
+
+export const ActionRegistryCreateInput = Schema.Struct({
+  action: RuneAction,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ActionRegistryCreateInput = typeof ActionRegistryCreateInput.Type;
+
+/** Publishes a new immutable version; the server assigns the version number and timestamp. */
+export const ActionRegistryVersionInput = Schema.Struct({
+  action: RuneAction,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+  expectedVersion: Schema.optionalKey(PositiveInt),
+});
+export type ActionRegistryVersionInput = typeof ActionRegistryVersionInput.Type;
+
+export const ActionRegistryListInput = Schema.Struct({
+  scope: Schema.optionalKey(ActionScope),
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+  includeVersions: Schema.optionalKey(Schema.Boolean),
+  includeDisabled: Schema.optionalKey(Schema.Boolean),
+});
+export type ActionRegistryListInput = typeof ActionRegistryListInput.Type;
+
+export const ActionRegistryListResult = Schema.Struct({
+  actions: Schema.Array(ActionRegistryRecord),
+});
+export type ActionRegistryListResult = typeof ActionRegistryListResult.Type;
+
+export const ActionRegistryMutationResult = Schema.Struct({
+  action: ActionRegistryRecord,
+});
+export type ActionRegistryMutationResult = typeof ActionRegistryMutationResult.Type;
+
+export const ActionProposalRecord = Schema.Struct({
+  proposal: ActionProposal,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+  decidedBy: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ActionProposalRecord = typeof ActionProposalRecord.Type;
+
+export const ActionProposalCreateInput = Schema.Struct({
+  proposal: ActionProposal,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ActionProposalCreateInput = typeof ActionProposalCreateInput.Type;
+
+export const ActionProposalMutationResult = Schema.Struct({
+  proposal: ActionProposalRecord,
+});
+export type ActionProposalMutationResult = typeof ActionProposalMutationResult.Type;
+
+export const ActionProposalDecisionInput = Schema.Struct({
+  proposalId: TrimmedNonEmptyString,
+});
+export type ActionProposalDecisionInput = typeof ActionProposalDecisionInput.Type;
+
+export const ActionProposalDecisionResult = Schema.Struct({
+  proposal: ActionProposalRecord,
+  action: Schema.optionalKey(ActionRegistryRecord),
+});
+export type ActionProposalDecisionResult = typeof ActionProposalDecisionResult.Type;
+
+export const ActionProposalListInput = Schema.Struct({
+  status: Schema.optionalKey(ActionProposalStatus),
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ActionProposalListInput = typeof ActionProposalListInput.Type;
+
+export const ActionProposalListResult = Schema.Struct({
+  proposals: Schema.Array(ActionProposalRecord),
+});
+export type ActionProposalListResult = typeof ActionProposalListResult.Type;
+
+export const ActionRunHistoryStatus = Schema.Literals([
+  "approval-required",
+  "blocked",
+  "started",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+export type ActionRunHistoryStatus = typeof ActionRunHistoryStatus.Type;
+
+/** Persist only execution metadata. Parameters must be redacted before this boundary. */
+export const ActionRunHistory = Schema.Struct({
+  runId: TrimmedNonEmptyString,
+  actionId: ActionId,
+  actionVersion: PositiveInt,
+  scope: ActionScope,
+  workspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+  threadId: Schema.optionalKey(TrimmedNonEmptyString),
+  turnId: Schema.optionalKey(TrimmedNonEmptyString),
+  status: ActionRunHistoryStatus,
+  parameters: ActionParameterValues,
+  modelCalls: NonNegativeInt,
+  startedAt: Schema.optionalKey(IsoDateTime),
+  completedAt: Schema.optionalKey(IsoDateTime),
+  recordedAt: IsoDateTime,
+  /** Redacted lifecycle receipt; optional for history written before v4. */
+  receipt: Schema.optionalKey(ActionRunReceipt),
+});
+export type ActionRunHistory = typeof ActionRunHistory.Type;
+
+export const ActionRunHistoryListInput = Schema.Struct({
+  actionId: Schema.optionalKey(ActionId),
+  projectId: Schema.optionalKey(TrimmedNonEmptyString),
+  limit: Schema.optionalKey(PositiveInt),
+});
+export type ActionRunHistoryListInput = typeof ActionRunHistoryListInput.Type;
+
+export const ActionRunHistoryListResult = Schema.Struct({
+  runs: Schema.Array(ActionRunHistory),
+});
+export type ActionRunHistoryListResult = typeof ActionRunHistoryListResult.Type;
+
+export const ActionRegistryErrorCode = Schema.Literals([
+  "invalid-context",
+  "invalid-action",
+  "action-not-found",
+  "proposal-not-found",
+  "already-exists",
+  "invalid-state",
+  "version-conflict",
+  "invalid-parameters",
+  "persistence-failed",
+]);
+export type ActionRegistryErrorCode = typeof ActionRegistryErrorCode.Type;
+
+export class ActionRegistryError extends Schema.TaggedErrorClass<ActionRegistryError>()(
+  "ActionRegistryError",
+  {
+    code: ActionRegistryErrorCode,
+    message: TrimmedNonEmptyString,
+    actionId: Schema.optionalKey(ActionId),
+    proposalId: Schema.optionalKey(TrimmedNonEmptyString),
+  },
+) {}

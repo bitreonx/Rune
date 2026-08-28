@@ -14,12 +14,13 @@ import {
   OrchestrationCheckpointFile,
   type OrchestrationChatDiff,
   OrchestrationFileOwnership,
-  type OrchestrationThreadBaseline,
+  OrchestrationThreadBaseline,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   OrchestrationThreadSearchSource,
   OrchestrationShellSnapshot,
   OrchestrationThread,
+  OrchestrationAgentThread,
   OrchestrationThreadDetailSnapshot,
   ProjectScript,
   TurnId,
@@ -102,14 +103,13 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
-    baselineCheckpointRef: Schema.optionalKey(Schema.NullOr(CheckpointRef)),
-    baselineCapturedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
-    baselineSource: Schema.optionalKey(
-      Schema.NullOr(Schema.Literals(["thread-created", "first-user-message", "recovery"])),
-    ),
+    baselineCheckpointRef: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    baselineCapturedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    baselineSource: Schema.optionalKey(Schema.NullOr(Schema.String)),
     chatDiffJson: Schema.optionalKey(Schema.NullOr(Schema.String)),
-    chatDiffThroughTurnCount: Schema.optionalKey(Schema.NullOr(NonNegativeInt)),
+    chatDiffThroughTurnCount: Schema.optionalKey(Schema.NullOr(Schema.Number)),
     fileOwnershipJson: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    agentJson: Schema.optionalKey(Schema.NullOr(Schema.String)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -137,45 +137,119 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
 });
 const ProjectionStateDbRowSchema = ProjectionState;
 
-const decodeChatDiffJson = Schema.decodeUnknownSync(
+const decodeChatDiffJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
 );
-const decodeFileOwnershipJson = Schema.decodeUnknownSync(
+const decodeFileOwnershipJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Array(OrchestrationFileOwnership)),
 );
+const decodeThreadBaseline = Schema.decodeUnknownEffect(OrchestrationThreadBaseline);
+const decodeAgentThread = Schema.decodeUnknownSync(OrchestrationAgentThread);
+
+const decodeAgentJson = (encoded: string | null | undefined): OrchestrationAgentThread | null => {
+  if (encoded === undefined || encoded === null) return null;
+  try {
+    return decodeAgentThread(JSON.parse(encoded));
+  } catch {
+    return null;
+  }
+};
 
 const hydrateThreadScopedChanges = (
   row: Schema.Schema.Type<typeof ProjectionThreadDbRowSchema>,
-): Pick<OrchestrationThread, "baseline" | "chatDiff" | "fileOwnership"> => {
-  const baseline =
-    row.baselineCheckpointRef !== undefined &&
-    row.baselineCheckpointRef !== null &&
-    row.baselineCapturedAt !== undefined &&
-    row.baselineCapturedAt !== null &&
-    row.baselineSource !== undefined &&
-    row.baselineSource !== null
-      ? ({
-          checkpointRef: row.baselineCheckpointRef,
-          capturedAt: row.baselineCapturedAt,
-          source: row.baselineSource,
-        } satisfies OrchestrationThreadBaseline)
-      : null;
-  return {
-    baseline,
-    chatDiff: {
-      files:
-        row.chatDiffJson !== undefined && row.chatDiffJson !== null
-          ? decodeChatDiffJson(row.chatDiffJson)
-          : [],
-      computedAt: row.updatedAt,
-      throughTurnCount: row.chatDiffThroughTurnCount ?? 0,
-    },
-    fileOwnership:
-      row.fileOwnershipJson !== undefined && row.fileOwnershipJson !== null
-        ? decodeFileOwnershipJson(row.fileOwnershipJson)
-        : [],
-  };
-};
+): Effect.Effect<Pick<OrchestrationThread, "baseline" | "chatDiff" | "fileOwnership">> =>
+  Effect.gen(function* () {
+    const baselineValues = [row.baselineCheckpointRef, row.baselineCapturedAt, row.baselineSource];
+    const hasAnyBaselineValue = baselineValues.some(
+      (value) => value !== undefined && value !== null,
+    );
+    const hasCompleteBaseline = baselineValues.every(
+      (value) => value !== undefined && value !== null,
+    );
+    let baseline: OrchestrationThreadBaseline | null = null;
+    if (hasCompleteBaseline) {
+      baseline = yield* decodeThreadBaseline({
+        checkpointRef: row.baselineCheckpointRef,
+        capturedAt: row.baselineCapturedAt,
+        source: row.baselineSource,
+      }).pipe(
+        Effect.tapError((cause) =>
+          Effect.logWarning("Invalid persisted thread baseline; using no baseline.", {
+            field: "baseline",
+            threadId: row.threadId,
+            cause: String(cause),
+          }),
+        ),
+        Effect.orElseSucceed(() => null),
+      );
+    } else if (hasAnyBaselineValue) {
+      yield* Effect.logWarning("Incomplete persisted thread baseline; using no baseline.", {
+        field: "baseline",
+        threadId: row.threadId,
+      });
+    }
+
+    const chatDiffFiles =
+      row.chatDiffJson === undefined || row.chatDiffJson === null
+        ? yield* Effect.succeed([])
+        : yield* decodeChatDiffJson(row.chatDiffJson).pipe(
+            Effect.tapError((cause) =>
+              Effect.logWarning("Invalid persisted thread chat diff; using an empty diff.", {
+                field: "chatDiff",
+                threadId: row.threadId,
+                cause: String(cause),
+              }),
+            ),
+            Effect.orElseSucceed(() => []),
+          );
+
+    const fileOwnership =
+      row.fileOwnershipJson === undefined || row.fileOwnershipJson === null
+        ? yield* Effect.succeed([])
+        : yield* decodeFileOwnershipJson(row.fileOwnershipJson).pipe(
+            Effect.tapError((cause) =>
+              Effect.logWarning(
+                "Invalid persisted thread file ownership; using an empty ownership list.",
+                {
+                  field: "fileOwnership",
+                  threadId: row.threadId,
+                  cause: String(cause),
+                },
+              ),
+            ),
+            Effect.orElseSucceed(() => []),
+          );
+
+    const chatDiffThroughTurnCount =
+      row.chatDiffThroughTurnCount !== undefined &&
+      row.chatDiffThroughTurnCount !== null &&
+      Number.isInteger(row.chatDiffThroughTurnCount) &&
+      row.chatDiffThroughTurnCount >= 0
+        ? row.chatDiffThroughTurnCount
+        : 0;
+    if (
+      row.chatDiffThroughTurnCount !== undefined &&
+      row.chatDiffThroughTurnCount !== null &&
+      chatDiffThroughTurnCount === 0 &&
+      row.chatDiffThroughTurnCount !== 0
+    ) {
+      yield* Effect.logWarning("Invalid persisted thread chat diff count; using zero.", {
+        field: "chatDiffThroughTurnCount",
+        threadId: row.threadId,
+        value: row.chatDiffThroughTurnCount,
+      });
+    }
+
+    return {
+      baseline,
+      chatDiff: {
+        files: chatDiffFiles,
+        computedAt: row.updatedAt,
+        throughTurnCount: chatDiffThroughTurnCount,
+      },
+      fileOwnership,
+    };
+  });
 const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
@@ -369,9 +443,7 @@ function mapSessionRow(
     status: row.status,
     providerName: row.providerName,
     ...(row.providerInstanceId !== null ? { providerInstanceId: row.providerInstanceId } : {}),
-    ...(row.serviceConnectionId !== null
-      ? { serviceConnectionId: row.serviceConnectionId }
-      : {}),
+    ...(row.serviceConnectionId !== null ? { serviceConnectionId: row.serviceConnectionId } : {}),
     ...(row.modelProfileId !== null ? { modelProfileId: row.modelProfileId } : {}),
     ...(row.runtimeManifestFingerprint !== null
       ? { runtimeManifestFingerprint: row.runtimeManifestFingerprint }
@@ -522,7 +594,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           baseline_source AS "baselineSource",
           chat_diff_json AS "chatDiffJson",
           chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
-          file_ownership_json AS "fileOwnershipJson"
+          file_ownership_json AS "fileOwnershipJson",
+          agent_json AS "agentJson"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
       `,
@@ -566,7 +639,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           baseline_source AS "baselineSource",
           chat_diff_json AS "chatDiffJson",
           chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
-          file_ownership_json AS "fileOwnershipJson"
+          file_ownership_json AS "fileOwnershipJson",
+          agent_json AS "agentJson"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
@@ -612,7 +686,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           baseline_source AS "baselineSource",
           chat_diff_json AS "chatDiffJson",
           chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
-          file_ownership_json AS "fileOwnershipJson"
+          file_ownership_json AS "fileOwnershipJson",
+          agent_json AS "agentJson"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NOT NULL
@@ -1074,7 +1149,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           baseline_source AS "baselineSource",
           chat_diff_json AS "chatDiffJson",
           chat_diff_through_turn_count AS "chatDiffThroughTurnCount",
-          file_ownership_json AS "fileOwnershipJson"
+          file_ownership_json AS "fileOwnershipJson",
+          agent_json AS "agentJson"
         FROM projection_threads
         WHERE thread_id = ${threadId}
           AND deleted_at IS NULL
@@ -1776,18 +1852,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
               for (const row of sessionRows) {
                 updatedAt = maxIso(updatedAt, row.updatedAt);
-                sessionsByThread.set(row.threadId, {
-                  threadId: row.threadId,
-                  status: row.status,
-                  providerName: row.providerName,
-                  ...(row.providerInstanceId !== null
-                    ? { providerInstanceId: row.providerInstanceId }
-                    : {}),
-                  runtimeMode: row.runtimeMode,
-                  activeTurnId: row.activeTurnId,
-                  lastError: row.lastError,
-                  updatedAt: row.updatedAt,
-                });
+                sessionsByThread.set(row.threadId, mapSessionRow(row));
               }
 
               const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(
@@ -1809,38 +1874,50 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 deletedAt: row.deletedAt,
               }));
 
-              const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => ({
-                id: row.threadId,
-                projectId: row.projectId,
-                title: row.title,
-                modelSelection: row.modelSelection,
-                runtimeMode: row.runtimeMode,
-                interactionMode: row.interactionMode,
-                branch: row.branch,
-                worktreePath: row.worktreePath,
-                latestTurn: latestTurnByThread.get(row.threadId) ?? null,
-                createdAt: row.createdAt,
-                updatedAt: row.updatedAt,
-                archivedAt: row.archivedAt,
-                settledOverride: row.settledOverride,
-                settledAt: row.settledAt,
-                snoozedUntil: row.snoozedUntil,
-                snoozedAt: row.snoozedAt,
-                temporaryAt: row.temporaryAt,
-                ...(row.temporaryDeletionSnoozedUntil !== undefined
-                  ? { temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil }
-                  : {}),
-                pinnedAt: row.pinnedAt,
-                pinOrderKey: row.pinOrderKey ?? null,
-                titleRegeneration: mapTitleRegeneration(row),
-                deletedAt: row.deletedAt,
-                messages: messagesByThread.get(row.threadId) ?? [],
-                proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
-                activities: activitiesByThread.get(row.threadId) ?? [],
-                checkpoints: checkpointsByThread.get(row.threadId) ?? [],
-                session: sessionsByThread.get(row.threadId) ?? null,
-                ...hydrateThreadScopedChanges(row),
-              }));
+              const threads: ReadonlyArray<OrchestrationThread> = yield* Effect.forEach(
+                threadRows,
+                (row) =>
+                  hydrateThreadScopedChanges(row).pipe(
+                    Effect.map((threadScopedChanges) => ({
+                      id: row.threadId,
+                      projectId: row.projectId,
+                      title: row.title,
+                      modelSelection: row.modelSelection,
+                      runtimeMode: row.runtimeMode,
+                      interactionMode: row.interactionMode,
+                      branch: row.branch,
+                      worktreePath: row.worktreePath,
+                      ...(decodeAgentJson(row.agentJson) === null
+                        ? {}
+                        : {
+                            threadKind: "agent" as const,
+                            agent: decodeAgentJson(row.agentJson),
+                          }),
+                      latestTurn: latestTurnByThread.get(row.threadId) ?? null,
+                      createdAt: row.createdAt,
+                      updatedAt: row.updatedAt,
+                      archivedAt: row.archivedAt,
+                      settledOverride: row.settledOverride,
+                      settledAt: row.settledAt,
+                      snoozedUntil: row.snoozedUntil,
+                      snoozedAt: row.snoozedAt,
+                      temporaryAt: row.temporaryAt,
+                      ...(row.temporaryDeletionSnoozedUntil !== undefined
+                        ? { temporaryDeletionSnoozedUntil: row.temporaryDeletionSnoozedUntil }
+                        : {}),
+                      pinnedAt: row.pinnedAt,
+                      pinOrderKey: row.pinOrderKey ?? null,
+                      titleRegeneration: mapTitleRegeneration(row),
+                      deletedAt: row.deletedAt,
+                      messages: messagesByThread.get(row.threadId) ?? [],
+                      proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
+                      activities: activitiesByThread.get(row.threadId) ?? [],
+                      checkpoints: checkpointsByThread.get(row.threadId) ?? [],
+                      session: sessionsByThread.get(row.threadId) ?? null,
+                      ...threadScopedChanges,
+                    })),
+                  ),
+              );
 
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
@@ -1921,7 +1998,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       .pipe(
         Effect.flatMap(
           ([projectRows, threadRows, proposedPlanRows, sessionRows, latestTurnRows, stateRows]) =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
               let updatedAt: string | null = null;
               const projects: OrchestrationProject[] = [];
               const threads: OrchestrationThread[] = [];
@@ -2021,6 +2098,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 if (!row) {
                   continue;
                 }
+                const threadScopedChanges = yield* hydrateThreadScopedChanges(row);
                 threads.push({
                   id: row.threadId,
                   projectId: row.projectId,
@@ -2030,6 +2108,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  ...(decodeAgentJson(row.agentJson) === null
+                    ? {}
+                    : {
+                        threadKind: "agent" as const,
+                        agent: decodeAgentJson(row.agentJson),
+                      }),
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -2050,6 +2134,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
                   activities: [],
                   checkpoints: [],
+                  ...threadScopedChanges,
                   session: sessionByThread.get(row.threadId) ?? null,
                 });
               }
@@ -2062,6 +2147,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               } satisfies OrchestrationReadModel;
             }),
         ),
+        Effect.flatMap(decodeReadModel),
         Effect.mapError((error) => {
           if (isPersistenceError(error)) {
             return error;
@@ -2170,6 +2256,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       interactionMode: row.interactionMode,
                       branch: row.branch,
                       worktreePath: row.worktreePath,
+                      ...(decodeAgentJson(row.agentJson) === null
+                        ? {}
+                        : {
+                            threadKind: "agent" as const,
+                            agent: decodeAgentJson(row.agentJson),
+                          }),
                       latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                       createdAt: row.createdAt,
                       updatedAt: row.updatedAt,
@@ -2319,6 +2411,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  ...(decodeAgentJson(row.agentJson) === null
+                    ? {}
+                    : {
+                        threadKind: "agent" as const,
+                        agent: decodeAgentJson(row.agentJson),
+                      }),
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -2602,6 +2700,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
         worktreePath: threadRow.value.worktreePath,
+        ...(decodeAgentJson(threadRow.value.agentJson) === null
+          ? {}
+          : {
+              threadKind: "agent" as const,
+              agent: decodeAgentJson(threadRow.value.agentJson),
+            }),
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
@@ -2738,6 +2842,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           left.activityId.localeCompare(right.activityId),
       );
 
+      const threadScopedChanges = yield* hydrateThreadScopedChanges(threadRow.value);
       const thread = {
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
@@ -2804,7 +2909,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           completedAt: row.completedAt,
         })),
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
-        ...hydrateThreadScopedChanges(threadRow.value),
+        ...threadScopedChanges,
       };
 
       return Option.some(

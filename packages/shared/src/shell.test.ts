@@ -14,6 +14,7 @@ import {
   mergePathValues,
   readEnvironmentFromLoginShell,
   readEnvironmentFromWindowsShell,
+  windowsPowerShellArgs,
   readPathFromLaunchctl,
   readPathFromLoginShell,
   resolveCommandPath,
@@ -212,6 +213,19 @@ describe("mergePathEntries", () => {
     expect(mergePathEntries("C:\\Tools;C:\\Windows", "C:\\Windows;C:\\Git", "win32")).toBe(
       "C:\\Tools;C:\\Windows;C:\\Git",
     );
+  });
+});
+
+describe("windowsPowerShellArgs", () => {
+  it("passes the complete raw program as one PowerShell -Command argument", () => {
+    const command = "$root = 'C:\\repo with spaces'; Get-ChildItem -LiteralPath $root";
+    expect(windowsPowerShellArgs(command)).toEqual([
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      command,
+    ]);
   });
 });
 

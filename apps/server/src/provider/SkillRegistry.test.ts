@@ -26,9 +26,15 @@ const candidateDefaults = {
   dependencies: [],
 };
 
-function candidate(sourcePath: string, name: string, body: string, extra: Partial<SkillCandidate> = {}): SkillCandidate {
+function candidate(
+  sourcePath: string,
+  name: string,
+  body: string,
+  extra: Partial<SkillCandidate> = {},
+): SkillCandidate {
   return {
     ...candidateDefaults,
+    slug: name.toLocaleLowerCase(),
     name,
     sourcePath,
     contentHash: NodeCrypto.createHash("sha256").update(body).digest("hex"),
@@ -61,11 +67,15 @@ describe("SkillRegistry", () => {
           adapters: [
             {
               id: "agents",
-              discover: Effect.succeed([candidate(firstPath, "review", body, { sourceAdapter: "agents" })]),
+              discover: Effect.succeed([
+                candidate(firstPath, "review", body, { sourceAdapter: "agents" }),
+              ]),
             },
             {
               id: "claude",
-              discover: Effect.succeed([candidate(secondPath, "review", body, { sourceAdapter: "claude" })]),
+              discover: Effect.succeed([
+                candidate(secondPath, "review", body, { sourceAdapter: "claude" }),
+              ]),
             },
           ],
         });
@@ -87,7 +97,12 @@ describe("SkillRegistry", () => {
         await NodeFS.writeFile(sourcePath, "# Lazy body");
         const registry = makeSkillRegistry({
           projectCwd,
-          adapters: [{ id: "test", discover: Effect.succeed([candidate(sourcePath, "lazy", "# Lazy body")]) }],
+          adapters: [
+            {
+              id: "test",
+              discover: Effect.succeed([candidate(sourcePath, "lazy", "# Lazy body")]),
+            },
+          ],
         });
         const snapshot = await Effect.runPromise(registry.refresh);
         const id = snapshot.skills[0]!.id;
@@ -100,10 +115,17 @@ describe("SkillRegistry", () => {
         await NodeFS.writeFile(escapedPath, "# Escaped");
         const escapedRegistry = makeSkillRegistry({
           projectCwd,
-          adapters: [{ id: "test", discover: Effect.succeed([candidate(escapedPath, "escaped", "# Escaped")]) }],
+          adapters: [
+            {
+              id: "test",
+              discover: Effect.succeed([candidate(escapedPath, "escaped", "# Escaped")]),
+            },
+          ],
         });
         const escapedSnapshot = await Effect.runPromise(escapedRegistry.refresh);
-        const error = await Effect.runPromise(escapedRegistry.getBody(escapedSnapshot.skills[0]!.id).pipe(Effect.flip));
+        const error = await Effect.runPromise(
+          escapedRegistry.getBody(escapedSnapshot.skills[0]!.id).pipe(Effect.flip),
+        );
         expect(error.kind).toBe("invalid-source");
         await NodeFS.rm(escapedPath, { force: true });
       }),
@@ -122,20 +144,24 @@ describe("SkillRegistry", () => {
         await NodeFS.writeFile(secondPath, body);
         const registry = makeSkillRegistry({
           projectCwd,
-          adapters: [{
-            id: "test",
-            discover: Effect.succeed([
-              candidate(firstPath, "first", body),
-              candidate(secondPath, "second", body),
-            ]),
-          }],
+          adapters: [
+            {
+              id: "test",
+              discover: Effect.succeed([
+                candidate(firstPath, "first", body),
+                candidate(secondPath, "second", body),
+              ]),
+            },
+          ],
         });
         const snapshot = await Effect.runPromise(registry.refresh);
-        const projection = await Effect.runPromise(registry.bridge.compile({
-          skillIds: snapshot.skills.map((skill) => skill.id),
-          provider: "claude",
-          platformCapabilities: ["structured-asker"],
-        }));
+        const projection = await Effect.runPromise(
+          registry.bridge.compile({
+            skillIds: snapshot.skills.map((skill) => skill.id),
+            provider: "claude",
+            platformCapabilities: ["structured-asker"],
+          }),
+        );
         expect(projection.skills).toHaveLength(1);
         expect(projection.compiledPrompt.match(/# Shared body/g)).toHaveLength(1);
         expect(projection.compiledPrompt).toContain("Provider dialect: claude");
@@ -146,10 +172,9 @@ describe("SkillRegistry", () => {
   it("records the curated Matt Pocock pack without vendoring bodies", () => {
     expect(MATT_POCOCK_PACK.license).toBe("MIT");
     expect(MATT_POCOCK_PACK.installer).toContain("npx skills add mattpocock/skills");
-    expect(getMattPocockMetadata("grill-me")?.dependencies).toEqual(["grilling"]);
-    expect(getMattPocockMetadata("grill-with-docs")?.dependencies).toEqual([
-      "grilling",
-      "domain-modeling",
-    ]);
+    expect(getMattPocockMetadata("grill-me")).toMatchObject({ dependencies: ["grilling"] });
+    expect(getMattPocockMetadata("grill-with-docs")).toMatchObject({
+      dependencies: ["grilling", "domain-modeling"],
+    });
   });
 });

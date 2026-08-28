@@ -1241,6 +1241,17 @@ export interface ConfirmDialogOptions {
   readonly variant?: ConfirmDialogVariant;
 }
 
+export interface ChoiceDialogOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly destructive?: boolean;
+}
+
+export interface ChoiceDialogOptions {
+  readonly cancelLabel?: string;
+}
+
 /**
  * APIs bound to the local app shell, not to any particular backend environment.
  *
@@ -1255,6 +1266,12 @@ export interface LocalApi {
   dialogs: {
     pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
     confirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+    /** Optional renderer-hosted choice surface; older shells may omit it. */
+    choose?: (
+      message: string,
+      choices: readonly ChoiceDialogOption[],
+      options?: ChoiceDialogOptions,
+    ) => Promise<string | null>;
   };
   shell: {
     openExternal: (url: string) => Promise<void>;

@@ -2,11 +2,18 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   formatProviderSkillDisplayName,
+  formatRegistrySkillDisplayName,
   dedupeProviderSkills,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
+
+describe("formatRegistrySkillDisplayName", () => {
+  it("formats the registry name while retaining a slug fallback", () => {
+    expect(formatRegistrySkillDisplayName({ name: "grill-me", slug: "grill-me" })).toBe("Grill Me");
+  });
+});
 
 describe("formatProviderSkillDisplayName", () => {
   it("prefers the provider display name", () => {

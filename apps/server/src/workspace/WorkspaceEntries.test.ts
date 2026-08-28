@@ -123,6 +123,60 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
     );
   });
 
+  describe("listDirectory", () => {
+    it.effect("lists only the requested directory and paginates without a workspace walk", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        yield* writeTextFile(cwd, "src/components/Composer.tsx");
+        yield* writeTextFile(cwd, "src/index.ts");
+        yield* writeTextFile(cwd, "README.md");
+        yield* writeTextFile(cwd, "CHANGELOG.md");
+        yield* writeTextFile(cwd, "node_modules/pkg/index.js");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const root = yield* workspaceEntries.listDirectory({ cwd, directory: "", limit: 2 });
+        expect(root.directory).toBe("");
+        expect(root.entries).toEqual([
+          { path: "CHANGELOG.md", kind: "file" },
+          { path: "README.md", kind: "file" },
+        ]);
+        expect(root.nextCursor).toBe("2");
+
+        const rootPageTwo = yield* workspaceEntries.listDirectory({
+          cwd,
+          directory: "",
+          cursor: root.nextCursor ?? undefined,
+          limit: 2,
+        });
+        expect(rootPageTwo.entries).toEqual([{ path: "src", kind: "directory" }]);
+        expect(rootPageTwo.nextCursor).toBeNull();
+
+        const nested = yield* workspaceEntries.listDirectory({
+          cwd,
+          directory: "src",
+          cursor: "0",
+          limit: 10,
+        });
+        expect(nested.entries).toEqual([
+          { path: "src/components", kind: "directory" },
+          { path: "src/index.ts", kind: "file" },
+        ]);
+        expect(nested.nextCursor).toBeNull();
+      }),
+    );
+
+    it.effect("rejects a directory that escapes the workspace root", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const error = yield* workspaceEntries
+          .listDirectory({ cwd, directory: "../outside" })
+          .pipe(Effect.flip);
+        expect(error._tag).toBe("WorkspaceTreeWalkError");
+      }),
+    );
+  });
+
   describe("search", () => {
     it.effect("returns files and directories relative to cwd", () =>
       Effect.gen(function* () {

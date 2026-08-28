@@ -1,11 +1,7 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  SkillRegistryError,
-  SkillRegistrySnapshot,
-  WS_METHODS,
-} from "./index.ts";
+import { SkillRegistryError, SkillRegistrySnapshot, WS_METHODS } from "./index.ts";
 
 const decodeSnapshot = Schema.decodeUnknownSync(SkillRegistrySnapshot);
 
@@ -16,6 +12,7 @@ describe("Skill Registry contract", () => {
       skills: [
         {
           id: "abc123:grill-me",
+          slug: "grill-me",
           name: "grill-me",
           description: "Clarify decisions before implementation.",
           version: 1,

@@ -1,4 +1,8 @@
-import type { ServerProviderSkill, ServerProviderSlashCommand } from "@rune/contracts";
+import type {
+  ServerProviderSkill,
+  ServerProviderSlashCommand,
+  SkillRegistrySkill,
+} from "@rune/contracts";
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
 
@@ -23,6 +27,12 @@ export function formatProviderSkillDisplayName(
     return displayName;
   }
   return titleCaseWords(skill.name);
+}
+
+export function formatRegistrySkillDisplayName(
+  skill: Pick<SkillRegistrySkill, "name" | "slug">,
+): string {
+  return titleCaseWords(skill.name.trim() || skill.slug);
 }
 
 export function dedupeProviderSkills(

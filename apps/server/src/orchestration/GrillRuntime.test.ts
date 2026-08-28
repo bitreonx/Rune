@@ -13,6 +13,7 @@ import {
   makeGrillRequestActivity,
   makeGrillContinuationCommand,
   makeGrillResolutionCommand,
+  validateGrillAnswers,
   type GrillInvocation,
 } from "./GrillRuntime.ts";
 
@@ -109,6 +110,38 @@ describe("native Grill runtime", () => {
       1,
     );
     expect(findPendingGrillRequest([providerRequest], "provider-request")).toBeUndefined();
+  });
+
+  it("rejects stale or incomplete native answers before continuation", () => {
+    const request = makeGrillRequestActivity({
+      command: turnStartCommand(),
+      invocation: INVOCATION,
+    });
+
+    expect(validateGrillAnswers(request, { "grill:unknown": "value" })).toEqual({
+      ok: false,
+      reason: "The native Grill answer refers to unknown question 'grill:unknown'.",
+    });
+    expect(validateGrillAnswers(request, {})).toEqual({
+      ok: false,
+      reason: "The native Grill answer is missing 'grill:scope'.",
+    });
+  });
+
+  it("accepts the native option or a bounded custom answer", () => {
+    const request = makeGrillRequestActivity({
+      command: turnStartCommand(),
+      invocation: INVOCATION,
+    });
+
+    expect(validateGrillAnswers(request, { "grill:scope": "product" })).toEqual({
+      ok: true,
+      answers: { "grill:scope": "product" },
+    });
+    expect(validateGrillAnswers(request, { "grill:scope": "A focused acceptance criterion" })).toEqual({
+      ok: true,
+      answers: { "grill:scope": "A focused acceptance criterion" },
+    });
   });
 
   it("resumes the normal provider path with bounded hidden decision context", () => {

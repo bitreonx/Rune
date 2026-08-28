@@ -1,7 +1,7 @@
 ---
 task_id: T02
 title: Antigravity lifecycle, recovery, real icon, and live verification
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T01]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

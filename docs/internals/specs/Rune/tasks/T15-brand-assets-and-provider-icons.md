@@ -1,7 +1,7 @@
 ---
 task_id: T15
 title: RUNE assets and canonical Provider Brand Registry
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

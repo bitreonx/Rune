@@ -183,6 +183,10 @@
       "types": "./src/composerTrigger.ts",
       "import": "./src/composerTrigger.ts"
     },
+    "./composerGoal": {
+      "types": "./src/composerGoal.ts",
+      "import": "./src/composerGoal.ts"
+    },
     "./composerInlineTokens": {
       "types": "./src/composerInlineTokens.ts",
       "import": "./src/composerInlineTokens.ts"
@@ -262,6 +266,10 @@
     "./actionVerification": {
       "types": "./src/actionVerification.ts",
       "import": "./src/actionVerification.ts"
+    },
+    "./actionCompatibility": {
+      "types": "./src/actionCompatibility.ts",
+      "import": "./src/actionCompatibility.ts"
     },
     "./historicalMutationPolicy": {
       "types": "./src/historicalMutationPolicy.ts",

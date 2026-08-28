@@ -270,6 +270,10 @@ const startup = Effect.gen(function* () {
     Effect.withSpan("desktop.electron.whenReady"),
     Effect.catchCause((cause) => fatalStartupCause("whenReady", cause)),
   );
+  yield* desktopWindow.showStartupSplash;
+  if (process.env.RUNE_DESKTOP_SMOKE_TEST === "1") {
+    process.stdout.write("RUNE_DESKTOP_SMOKE_ELECTRON_READY\n");
+  }
   yield* logStartupInfo("app ready");
   if (environment.platform === "linux") {
     const selectedBackend = yield* safeStorage.selectedStorageBackend;
@@ -282,9 +286,6 @@ const startup = Effect.gen(function* () {
   yield* updates.configure;
   yield* linuxUrlHandler.register;
   yield* bootstrap.pipe(Effect.catchCause((cause) => fatalStartupCause("bootstrap", cause)));
-  if (process.env.RUNE_DESKTOP_SMOKE_TEST === "1") {
-    process.stdout.write("RUNE_DESKTOP_SMOKE_READY\n");
-  }
 }).pipe(Effect.withSpan("desktop.startup"));
 
 const scopedProgram = Effect.scoped(

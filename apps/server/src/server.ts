@@ -397,7 +397,7 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
   TemporaryThreadSweeperLive,
-).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
+).pipe(Layer.provideMerge(ProviderLayerLive));
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
@@ -416,6 +416,11 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(PlanExecutionCoordinatorRuntimeLive),
   Layer.provideMerge(Keybindings.layer),
 ).pipe(
+  // Orchestration is shared by startup reconciliation, provider runtimes,
+  // reactors, and HTTP routes. Provide it at this common boundary so every
+  // consumer sees the same service instead of relying on one nested runtime
+  // layer to re-export it.
+  Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(SkillRegistryLive),
   // The instance registry is the new routing keystone — text generation,

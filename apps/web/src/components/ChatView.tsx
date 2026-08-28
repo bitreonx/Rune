@@ -3765,7 +3765,9 @@ function ChatViewContent(props: ChatViewProps) {
             type: "error",
             threadRef: activeThreadRef,
             title: `Action unavailable: ${action.name}`,
-            description: "This action does not have an executable project script.",
+            description:
+              result.value.recovery?.reason ??
+              "This action does not have an executable project script.",
           }),
         );
       }

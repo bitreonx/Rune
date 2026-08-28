@@ -1,4 +1,4 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "react-native";
@@ -22,6 +22,10 @@ import {
 } from "@rune/client-runtime/state/threads";
 import { isAtomCommandInterrupted } from "@rune/client-runtime/state/runtime";
 import { deriveActiveWorkStartedAt } from "@rune/shared/orchestrationTiming";
+import {
+  formatGoalAwarePrompt,
+  MAX_COMPOSER_GOAL_CHARS,
+} from "@rune/shared/composerGoal";
 
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
 import {
@@ -33,7 +37,7 @@ import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { copyTextWithHaptic } from "../lib/copyTextWithHaptic";
 import { buildThreadFeed } from "../lib/threadActivity";
-import { mobilePreferencesAtom } from "./preferences";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "./preferences";
 import { appAtomRegistry } from "../state/atom-registry";
 import {
   appendComposerDraftAttachments,
@@ -89,6 +93,7 @@ export function useThreadDraftForThread(input: {
 
 export function useThreadComposerState() {
   const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const simplifiedActivity =
     !AsyncResult.isSuccess(preferences) || preferences.value.simplifiedActivity !== false;
   const showDeveloperTrace =
@@ -111,6 +116,10 @@ export function useThreadComposerState() {
   const selectedThreadKey = selectedThreadShell
     ? scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
     : null;
+  const activeGoal =
+    AsyncResult.isSuccess(preferences) && selectedThreadKey !== null
+      ? (preferences.value.threadGoals?.[selectedThreadKey] ?? "")
+      : "";
   const selectedThreadQueuedMessages = useMemo(
     () => (selectedThreadKey ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []) : []),
     [queuedMessagesByThreadKey, selectedThreadKey],
@@ -194,7 +203,7 @@ export function useThreadComposerState() {
       attachments.length === 0 &&
       (provider?.driver === "codex" || thread.session?.providerName === "codex")
         ? parseCodexFeedbackCommand(text)
-        : null;
+      : null;
     if (feedbackCommand) {
       if (thread.session === null) {
         Alert.alert("Start a Codex thread first", "Send a message before you submit feedback.");
@@ -251,6 +260,8 @@ export function useThreadComposerState() {
       return null;
     }
 
+    const goalAwareText = formatGoalAwarePrompt(activeGoal, text);
+
     const metadata = makeQueuedMessageMetadata();
     const messageId = MessageId.make(metadata.messageId);
     // Enqueue publishes the queued atom synchronously (the durable write
@@ -263,7 +274,7 @@ export function useThreadComposerState() {
       threadId: selectedThreadShell.id,
       messageId,
       commandId: CommandId.make(metadata.commandId),
-      text,
+      text: goalAwareText,
       attachments,
       modelSelection: draft.modelSelection ?? thread.modelSelection,
       runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
@@ -285,10 +296,33 @@ export function useThreadComposerState() {
     return messageId;
   }, [
     selectedEnvironmentRuntime?.serverConfig?.providers,
+    activeGoal,
     selectedThreadDetail,
     selectedThreadShell,
     uploadThreadFeedback,
   ]);
+
+  const setActiveGoal = useCallback(
+    (goal: string | null): boolean => {
+      if (selectedThreadKey === null || !AsyncResult.isSuccess(preferences)) return false;
+      const normalized = goal?.trim() ?? "";
+      const nextGoals = { ...(preferences.value.threadGoals ?? {}) };
+      if (normalized.length === 0) {
+        delete nextGoals[selectedThreadKey];
+      } else {
+        nextGoals[selectedThreadKey] = normalized.slice(0, MAX_COMPOSER_GOAL_CHARS);
+      }
+      const goalEntries = Object.entries(nextGoals);
+      if (goalEntries.length > 100) {
+        for (const [key] of goalEntries.slice(0, goalEntries.length - 100)) {
+          delete nextGoals[key];
+        }
+      }
+      savePreferences({ threadGoals: nextGoals });
+      return true;
+    },
+    [preferences, savePreferences, selectedThreadKey],
+  );
 
   const onChangeDraftMessage = useCallback(
     (value: string) => {
@@ -411,6 +445,7 @@ export function useThreadComposerState() {
   return {
     selectedThreadFeed,
     selectedThreadQueueCount,
+    activeGoal,
     activeWorkStartedAt,
     draftMessage,
     draftAttachments,
@@ -426,5 +461,6 @@ export function useThreadComposerState() {
     onUpdateModelSelection,
     onUpdateRuntimeMode,
     onUpdateInteractionMode,
+    setActiveGoal,
   };
 }

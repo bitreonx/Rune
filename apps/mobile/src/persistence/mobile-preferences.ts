@@ -6,6 +6,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { SidebarProjectGroupingMode } from "@rune/contracts";
+import { MAX_COMPOSER_GOAL_CHARS } from "@rune/shared/composerGoal";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 
 import * as MobileDatabase from "./mobile-database";
@@ -14,6 +15,7 @@ import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-sto
 
 const PREFERENCES_KEY = "rune.preferences";
 const PREFERENCES_FALLBACK_KEY = "rune.preferences.fallback";
+const MAX_THREAD_GOALS = 100;
 
 export interface Preferences {
   readonly liveActivitiesEnabled?: boolean;
@@ -27,6 +29,8 @@ export interface Preferences {
   readonly codeFontSize?: number | null;
   readonly codeWordBreak?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
+  /** Device-local active goals keyed by scoped environment/thread identity. */
+  readonly threadGoals?: Readonly<Record<string, string>>;
   readonly collapsedProjectGroups?: readonly string[];
   /** @deprecated Kept temporarily so older OTA bundles retain the selected mode. */
   readonly projectGroupingEnabled?: boolean;
@@ -100,6 +104,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     codeFontSize?: number | null;
     codeWordBreak?: boolean;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
+    threadGoals?: Readonly<Record<string, string>>;
     collapsedProjectGroups?: readonly string[];
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
@@ -155,6 +160,19 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.connectOnboardingOptOutAccounts = parsed.connectOnboardingOptOutAccounts.filter(
       (account): account is string => typeof account === "string",
     );
+  }
+  if (parsed.threadGoals && typeof parsed.threadGoals === "object") {
+    const goals = Object.entries(parsed.threadGoals)
+      .filter(([key, value]) => typeof key === "string" && key.trim() && typeof value === "string")
+      .map(
+        ([key, value]) =>
+          [key.slice(0, 512), value.trim().slice(0, MAX_COMPOSER_GOAL_CHARS)] as const,
+      )
+      .filter(([, value]) => value.length > 0)
+      .slice(-MAX_THREAD_GOALS);
+    if (goals.length > 0) {
+      preferences.threadGoals = Object.fromEntries(goals);
+    }
   }
   if (Array.isArray(parsed.collapsedProjectGroups)) {
     preferences.collapsedProjectGroups = parsed.collapsedProjectGroups.filter(

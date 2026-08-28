@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   ActionEvidence,
+  ActionRecovery,
   ActionId,
   ActionParameterValues,
   ActionRunReceipt,
@@ -13,6 +14,11 @@ import {
   evaluateActionPreconditions,
   type ActionPreconditionFacts,
 } from "@rune/shared/actionPreconditions";
+import {
+  actionRecoveryReason,
+  evaluateActionCompatibility,
+  type ActionCompatibilityObservation,
+} from "@rune/shared/actionCompatibility";
 import { prepareActionExecution, type ActionParameterInput } from "@rune/shared/actions";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -35,6 +41,8 @@ export interface ProjectActionExecutorInput extends Omit<
   readonly acknowledgeDirtyWorktree?: boolean;
   /** Test/preview seam; production facts are resolved from host services. */
   readonly preconditionFacts?: ActionPreconditionFacts;
+  /** Additional host facts for validating a saved compatibility fingerprint. */
+  readonly compatibilityObservation?: ActionCompatibilityObservation;
 }
 
 export interface ProjectActionExecutorResultApprovalRequired {
@@ -53,6 +61,7 @@ export interface ProjectActionExecutorResultNoScript {
   readonly runId?: string;
   readonly actionId: ActionId;
   readonly actionVersion: number;
+  readonly recovery?: ActionRecovery;
   readonly receipt?: ActionRunReceipt;
 }
 
@@ -62,6 +71,7 @@ export interface ProjectActionExecutorResultBlocked {
   readonly actionId: ActionId;
   readonly actionVersion: number;
   readonly reason: string;
+  readonly recovery?: ActionRecovery;
   readonly receipt?: ActionRunReceipt;
 }
 
@@ -162,6 +172,7 @@ export const make = Effect.gen(function* () {
     readonly evidence: ReadonlyArray<ActionEvidence>;
     readonly at: string;
     readonly completedAt?: string;
+    readonly recovery?: ActionRecovery;
   }): ActionRunReceipt => ({
     runId: input.runId,
     actionId: input.action.id,
@@ -170,6 +181,7 @@ export const make = Effect.gen(function* () {
     threadId: input.threadId,
     parameters: input.parameters,
     modelCalls: 0,
+    ...(input.recovery === undefined ? {} : { recovery: input.recovery }),
     steps: pendingSteps(
       input.action,
       input.evidence
@@ -181,9 +193,26 @@ export const make = Effect.gen(function* () {
     ...(input.completedAt === undefined ? {} : { completedAt: input.completedAt }),
   });
 
+  const makeRecovery = (input: {
+    readonly strategy: RuneAction["fallbackPolicy"];
+    readonly cause: Parameters<typeof actionRecoveryReason>[0]["cause"];
+    readonly reasons: ReadonlyArray<string>;
+  }): ActionRecovery => ({
+    strategy: input.strategy,
+    reason: actionRecoveryReason(input),
+  });
+
   const commandNameForStep = (command: string): string | undefined => {
     const token = command.trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/u);
     return token?.[1] ?? token?.[2] ?? token?.[3];
+  };
+
+  const packageManagerForAction = (action: RuneAction): string | undefined => {
+    for (const step of action.steps) {
+      const match = step.command.trim().match(/^(?:corepack\s+)?(pnpm|npm|yarn|bun)(?:\s|$)/iu);
+      if (match?.[1] !== undefined) return match[1];
+    }
+    return undefined;
   };
 
   const resolvePreconditionFacts = (
@@ -359,6 +388,11 @@ export const make = Effect.gen(function* () {
           at,
         }),
       );
+      const recovery = makeRecovery({
+        strategy: action.fallbackPolicy,
+        cause: "precondition-failed",
+        reasons: [reason],
+      });
       const receipt = makeReceipt({
         action,
         runId,
@@ -368,6 +402,7 @@ export const make = Effect.gen(function* () {
         evidence,
         at,
         completedAt: at,
+        recovery,
       });
       return {
         status: "blocked",
@@ -375,6 +410,53 @@ export const make = Effect.gen(function* () {
         actionId: action.id,
         actionVersion: action.version,
         reason,
+        recovery,
+        receipt,
+      } as const;
+    }
+    const compatibilityEvaluation = evaluateActionCompatibility({
+      action,
+      observation: {
+        osFamily: platform === "win32" ? "windows" : platform === "darwin" ? "macos" : platform,
+        ...(packageManagerForAction(action) === undefined
+          ? {}
+          : { packageManager: packageManagerForAction(action) }),
+        ...(input.compatibilityObservation ?? {}),
+      },
+    });
+    if (compatibilityEvaluation.status !== "compatible") {
+      const recovery = makeRecovery({
+        strategy: action.fallbackPolicy,
+        cause: compatibilityEvaluation.status,
+        reasons: compatibilityEvaluation.reasons,
+      });
+      const evidence = compatibilityEvaluation.reasons.map((reason) =>
+        makeEvidence({
+          actionId: action.id,
+          runId,
+          kind: "verification",
+          summary: reason,
+          at,
+        }),
+      );
+      const receipt = makeReceipt({
+        action,
+        runId,
+        threadId: input.threadId,
+        parameters: prepared.parameters.redacted,
+        status: "blocked",
+        evidence,
+        at,
+        completedAt: at,
+        recovery,
+      });
+      return {
+        status: "blocked",
+        runId,
+        actionId: action.id,
+        actionVersion: action.version,
+        reason: recovery.reason,
+        recovery,
         receipt,
       } as const;
     }
@@ -433,6 +515,11 @@ export const make = Effect.gen(function* () {
           at,
         }),
       ];
+      const recovery = makeRecovery({
+        strategy: action.fallbackPolicy,
+        cause: "missing-script",
+        reasons: [`Project action '${action.name}' was not queued.`],
+      });
       const receipt = makeReceipt({
         action,
         runId,
@@ -442,12 +529,14 @@ export const make = Effect.gen(function* () {
         evidence,
         at,
         completedAt: at,
+        recovery,
       });
       return {
         status: "no-script",
         runId,
         actionId: action.id,
         actionVersion: action.version,
+        recovery,
         receipt,
       } as const;
     }

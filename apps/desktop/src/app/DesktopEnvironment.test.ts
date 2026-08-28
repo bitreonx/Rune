@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -19,6 +20,12 @@ const defaultInput = {
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
+// The test asserts POSIX-style paths ("/Users/alice/...") but
+// NodeServices.layer provides the host's Path. On Windows that returns
+// backslash-separated strings, breaking the assertions. Force the
+// Path service to be Node's POSIX implementation by building a
+// minimal Path service via NodePath.layerPosix and then layering
+// everything else on top of it.
 const makeEnvironmentLayer = (
   overrides: Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> = {},
   env: Record<string, string | undefined> = {},
@@ -26,7 +33,7 @@ const makeEnvironmentLayer = (
   DesktopEnvironment.layer({
     ...defaultInput,
     ...overrides,
-  }).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest(env))));
+  }).pipe(Layer.provide(Layer.mergeAll(NodePath.layerPosix, NodeServices.layer, DesktopConfig.layerTest(env))));
 
 const makeEnvironment = (
   overrides: Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> = {},

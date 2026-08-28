@@ -1,4 +1,24 @@
-import type { ActionProposal, ActionRunHistory, RuneAction } from "@rune/contracts";
+import type {
+  ActionCapability,
+  ActionProposal,
+  ActionRunHistory,
+  RuneAction,
+} from "@rune/contracts";
+
+const NEVER_AUTO_LEARN_CAPABILITIES: ReadonlySet<ActionCapability> = new Set([
+  "git-push",
+  "deploy",
+  "delete",
+  "production-migration",
+  "secret-reference",
+]);
+
+/** Sensitive workflows require an explicit save request; repetition alone is not consent. */
+export function isSensitiveActionForAutoLearning(
+  action: Pick<RuneAction, "capabilities">,
+): boolean {
+  return action.capabilities.some((capability) => NEVER_AUTO_LEARN_CAPABILITIES.has(capability));
+}
 
 export interface LearnedActionAnalysis {
   readonly eligible: boolean;

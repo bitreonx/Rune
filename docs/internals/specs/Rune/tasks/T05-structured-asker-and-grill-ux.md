@@ -1,7 +1,7 @@
 ---
 task_id: T05
 title: Structured composer asker and provider-neutral Grill UX
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T04]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

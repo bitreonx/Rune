@@ -1,7 +1,7 @@
 ---
 task_id: T16
 title: Competitive feature harvest + future security architecture reservation
-status: TODO
+status: VERIFIED_COMPLETE
 depends_on: [T00]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

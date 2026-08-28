@@ -5,22 +5,22 @@ Update evidence as work lands. Do not mark `VERIFIED_COMPLETE` from code existen
 | Task | Status | Evidence / blocker |
 |---|---|---|
 | T00 | BLOCKED_WITH_EVIDENCE | Ledger and focused baseline evidence recorded; dev desktop launcher is blocked by reproducible Windows `spawn vp ENOENT`, and real UI/package-installed gates remain open. |
-| T01 | TODO | |
-| T02 | TODO | |
-| T03 | TODO | |
-| T04 | TODO | |
-| T05 | TODO | |
-| T06 | TODO | |
-| T07 | TODO | |
-| T08 | TODO | |
-| T09 | TODO | |
-| T10 | TODO | |
-| T11 | TODO | |
-| T12 | TODO | |
-| T13 | TODO | |
-| T14 | TODO | |
-| T15 | TODO | |
-| T16 | TODO | |
-| T17 | TODO | |
-| T18 | TODO | |
-| T19 | TODO | |
+| T01 | PARTIAL_WITH_EVIDENCE | Provider-instance routing, runtime manifests, session pins, and identity guards pass focused server tests; live multi-account/remote verification remains open. |
+| T02 | PARTIAL_WITH_EVIDENCE | Antigravity protocol/provider fixtures pass (15 tests) and lifecycle/error reporting is implemented; adapter completion, authenticated turns, UI remediation, and packaged verification remain open. |
+| T03 | PARTIAL_WITH_EVIDENCE | Native request attribution, hard budget, safe-read dedupe, ordered mutations, and direct API fixture pass (27 tests); live provider and packaged controls remain open. |
+| T04 | PARTIAL_WITH_EVIDENCE | Event-replayed queue/controller with stable IDs, atomic claim/settle, edit/delete/reorder/retry/promote-steer, pause/continue/stop, explicit historical mutation choices, and ChatView hydration are implemented; full provider continuation and live walkthrough remain open. |
+| T05 | PARTIAL_WITH_EVIDENCE | Composer-native asker suites pass (99 focused contract/web tests), `/grill` aliases and pure Grill graph/frontier/parser helpers are present, and the server now persists provider-neutral Grill requests/resolutions with a bounded continuation into the normal provider turn; recommendations and live cross-provider flow remain open. |
+| T06 | PARTIAL_WITH_EVIDENCE | Provider-neutral PlanSession contract, SQLite persistence, optimistic versions, bounded structural revision history, RPC authorization/handlers, ASK → SPEC → PLAN transitions, thread-scoped `/goal` and `/plan` parity on web/mobile, DAG validation, deterministic BUILD scheduler, real child-worker dispatch/completion reconciliation, explicit `/build`, and read-only `/review` reviewer dispatch are implemented; planner/critic automation and live flow remain open. |
+| T07 | PARTIAL_WITH_EVIDENCE | Skill registry, authorization, client helpers, and contract suites pass (86 focused tests); full settings/installer UX and live provider skill execution remain open. |
+| T08 | PARTIAL_WITH_EVIDENCE | Durable agent metadata/migration, parent/root/depth validation, result adoption, projection, child-owned messages/activity/session routing, Codex child-turn propagation, and WS ownership guards are implemented; focused orchestration/projection tests pass (40 tests), while real child UI/navigation/reload and provider execution remain open. |
+| T09 | PARTIAL_WITH_EVIDENCE | Semantic activity/job/receipt/change-record helpers and client folding are implemented; ProviderRuntimeIngestion projects `agent.execution.progress` and `turn.diff.updated` into durable semantic activities while raw trace data is retained; live receipts and UI/runtime verification remain open. |
+| T10 | PARTIAL_WITH_EVIDENCE | Chat-scoped diff/ownership projections and malformed legacy repair remain covered; durable mutation ledger now has migration, server-timestamped append/list/settle, idempotency/conflict detection, RPC authorization/handlers, shared client atoms, redacted provider-diff ingestion, explicit historical edit policy, renderer-hosted choice UI, and provider rollback status; full mobile/three-way restore and live acceptance remain open. |
+| T11 | PARTIAL_WITH_EVIDENCE | Provider-neutral action contracts, durable registry/proposals/versions/run history, safe preparation/execution, stable run IDs, redacted lifecycle receipts, authorization, canonical `actions.run`, central terminal settlement, shared web/mobile action discovery/run surfaces, precondition/output verification, step receipts, approval/proposal UX, approval-gated learned proposals with sensitive-workflow auto-learning suppression, deterministic learned-run analysis, and fail-closed compatibility/repair guidance for drift, unavailable fingerprints, missing scripts, and failed execution are implemented; live execution remains open. |
+| T12 | PARTIAL_WITH_EVIDENCE | Environment cockpit/quick panel, file context actions, calm refresh behavior, editor states, and responsive panel routing pass 102 focused web tests; live browser/accessibility verification remains open. |
+| T13 | PARTIAL_WITH_EVIDENCE | Environment-scoped provider instance open/update/reset/delete controls pass 5 focused tests; package-wide typecheck and live settings/runtime verification remain open. |
+| T14 | PARTIAL_WITH_EVIDENCE | Turn Trace/activity presentation, provider runtime trace fields, real request timing/parent/budget accounting, client trace folding, shared trace ledger, and bounded ApiAgentLoop trace admission/totals are implemented; production telemetry wiring, performance benchmarks, and live trace verification remain open. |
+| T15 | PARTIAL_WITH_EVIDENCE | Canonical brand registry/assets and mapping tests pass (8 focused tests); Icon Composer export, packaged icon audit, and all-platform visual verification remain open. |
+| T16 | VERIFIED_COMPLETE | Competitive harvest and future security architecture reservation are present in `docs/rune/RUNE-COMPETITIVE-FEATURE-HARVEST.md` and `docs/internals/RUNE-SECURITY-ARCHITECTURE-RESERVATION.md`; this is a design/documentation task, not a security-product claim. |
+| T17 | PARTIAL_WITH_EVIDENCE | Shared chat/right-panel liquid-glass shell, responsive hierarchy, reduced-motion behavior, and visual primitives are implemented; browser screenshots/video and accessibility audit remain open. |
+| T18 | BLOCKED_WITH_EVIDENCE | Deterministic encoding, performance-budget, verification-surface, desktop-smoke, and release-smoke wiring recorded in `docs/rune/RUNE-MASTER-REQUIREMENTS-LEDGER.md`; live provider/client/accessibility and packaged Windows `rune://app` verification remain open. |
+| T19 | BLOCKED_WITH_EVIDENCE | No authorized real-client/DABT-scale dogfood run was performed; the supplied DABT checksum is not source, so performance and supervision-reduction claims remain unverified. |

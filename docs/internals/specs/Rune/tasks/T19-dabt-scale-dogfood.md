@@ -1,7 +1,7 @@
 ---
 task_id: T19
 title: DABT-scale developer dogfood benchmark
-status: TODO
+status: BLOCKED_WITH_EVIDENCE
 depends_on: [T03, T04, T08, T09, T11, T14, T18]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

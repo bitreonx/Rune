@@ -16,6 +16,8 @@ import {
 } from "@rune/contracts";
 import { requestOlderThreadTurns, threadHasOlderTurns } from "@rune/client-runtime/state/threads";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@rune/shared/projectScripts";
+import { createPlanSession as createPlanSessionRecord } from "@rune/shared/plan";
+import type { ComposerGoalCommand } from "@rune/shared/composerGoal";
 import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
@@ -229,6 +231,9 @@ function ThreadRouteContent(
   const dismissActionProposal = useAtomCommand(actionsEnvironment.dismissProposal, {
     reportFailure: false,
   });
+  const createPlanSession = useAtomCommand(planSessionEnvironment.create, {
+    reportFailure: false,
+  });
   const schedulePlanSession = useAtomCommand(planSessionEnvironment.schedule, {
     reportFailure: false,
   });
@@ -348,6 +353,60 @@ function ThreadRouteContent(
           input: { threadId: selectedThread.id },
         })
       : null,
+  );
+  const onGoalCommand = useCallback(
+    async (command: ComposerGoalCommand): Promise<boolean> => {
+      if (selectedThread === null) return false;
+      if (command.kind === "empty") {
+        Alert.alert("Set an active goal", "Use /goal followed by the outcome this thread must achieve.");
+        return true;
+      }
+      if (command.kind === "status") {
+        Alert.alert(
+          composer.activeGoal ? "Active goal" : "No active goal",
+          composer.activeGoal ?? "Set one with /goal followed by a concise outcome.",
+        );
+        return true;
+      }
+      const saved = composer.setActiveGoal(command.kind === "clear" ? null : command.goal);
+      if (!saved) {
+        Alert.alert("Goal unavailable", "Mobile preferences are still loading. Try again shortly.");
+        return true;
+      }
+      Alert.alert(
+        command.kind === "clear" ? "Goal cleared" : "Goal saved",
+        command.kind === "clear"
+          ? "New turns will no longer include the previous goal."
+          : command.goal,
+      );
+      return true;
+    },
+    [composer.activeGoal, composer.setActiveGoal, selectedThread],
+  );
+  const onPlanModeCommand = useCallback(
+    async (mode: "plan" | "default"): Promise<boolean> => {
+      if (selectedThread === null) return false;
+      if (mode === "plan" && planSessionQuery.data === null) {
+        const result = await createPlanSession({
+          environmentId: selectedThread.environmentId,
+          input: {
+            session: createPlanSessionRecord({
+              threadId: selectedThread.id,
+              mode: "guided",
+              now: new Date().toISOString(),
+            }),
+          },
+        });
+        if (result._tag === "Failure") {
+          Alert.alert("Could not start plan mode", "RUNE could not save the durable plan session.");
+          return false;
+        }
+        planSessionQuery.refresh();
+      }
+      composer.onUpdateInteractionMode(mode);
+      return true;
+    },
+    [composer.onUpdateInteractionMode, createPlanSession, planSessionQuery, selectedThread],
   );
   const onBuildPlan = useCallback(async () => {
     if (selectedThread === null || serverConfig === null) return false;
@@ -772,7 +831,10 @@ function ThreadRouteContent(
           "Review the action and approve it before running it again.",
         );
       } else if (result.value.status === "no-script") {
-        Alert.alert("Action unavailable", "This action has no executable project script.");
+        Alert.alert(
+          "Action unavailable",
+          result.value.recovery?.reason ?? "This action has no executable project script.",
+        );
       }
     },
     [navigation, runRegisteredAction, selectedThread, selectedThreadProject],
@@ -1002,6 +1064,9 @@ function ThreadRouteContent(
           onSendMessage={composer.onSendMessage}
           onBuildPlan={onBuildPlan}
           onReviewPlan={onReviewPlan}
+          activeGoal={composer.activeGoal}
+          onGoalCommand={onGoalCommand}
+          onPlanModeCommand={onPlanModeCommand}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
           onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}

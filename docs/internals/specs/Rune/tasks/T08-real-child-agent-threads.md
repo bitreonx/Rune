@@ -1,7 +1,7 @@
 ---
 task_id: T08
 title: Codex-class real child-agent threads
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T01, T04]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

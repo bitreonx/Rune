@@ -1,7 +1,7 @@
 ---
 task_id: T07
 title: RUNE Skill Registry + Matt Pocock engineering workflow integration
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T05, T06]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

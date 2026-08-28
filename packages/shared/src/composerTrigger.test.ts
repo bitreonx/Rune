@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { serializeComposerFileLink, serializeComposerMentionPath } from "./composerTrigger.ts";
+import {
+  parseStandaloneComposerSlashCommand,
+  serializeComposerFileLink,
+  serializeComposerMentionPath,
+} from "./composerTrigger.ts";
+
+describe("parseStandaloneComposerSlashCommand", () => {
+  it("uses the canonical command registry for every user-facing command", () => {
+    expect(parseStandaloneComposerSlashCommand("/build")).toBe("build");
+    expect(parseStandaloneComposerSlashCommand("/review")).toBe("review");
+    expect(parseStandaloneComposerSlashCommand("/grill-me")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/model")).toBeNull();
+  });
+
+  it("requires a standalone command instead of consuming provider prose", () => {
+    expect(parseStandaloneComposerSlashCommand("/build now")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("not a command")).toBeNull();
+  });
+});
 
 describe("serializeComposerMentionPath", () => {
   it("keeps simple mention paths unquoted", () => {

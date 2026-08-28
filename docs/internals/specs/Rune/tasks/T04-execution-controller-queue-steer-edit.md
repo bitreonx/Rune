@@ -1,7 +1,7 @@
 ---
 task_id: T04
 title: Execution controller: Queue, Steer, Pause, Continue, Stop, Edit, Delete
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

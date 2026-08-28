@@ -1,7 +1,7 @@
 ---
 task_id: T12
 title: Environment quick panel, right rail, files, servers, and action surfaces
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T10, T11]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

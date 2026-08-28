@@ -64,6 +64,24 @@ describe("ActionRunResult", () => {
     expect(result.status).toBe("approval-required");
     expect(result).not.toHaveProperty("command");
   });
+
+  it("preserves recovery guidance on a blocked action result", () => {
+    const result = Schema.decodeUnknownSync(ActionRunResult)({
+      status: "blocked",
+      actionId: action.id,
+      actionVersion: action.version,
+      reason: "The saved action is no longer compatible.",
+      recovery: {
+        strategy: "assisted-repair",
+        reason: "Action drift detected. Focused repair is available.",
+      },
+    });
+
+    expect(result.status).toBe("blocked");
+    if (result.status === "blocked") {
+      expect(result.recovery?.strategy).toBe("assisted-repair");
+    }
+  });
 });
 
 describe("ActionRunError", () => {

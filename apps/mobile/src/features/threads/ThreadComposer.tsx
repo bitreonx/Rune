@@ -13,6 +13,10 @@ import {
   serializeComposerFileLink,
   type ComposerTrigger,
 } from "@rune/shared/composerTrigger";
+import {
+  parseComposerGoalCommand,
+  type ComposerGoalCommand,
+} from "@rune/shared/composerGoal";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -118,10 +122,15 @@ export interface ThreadComposerProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  /** Handles the device-local active-goal command without sending it to a provider. */
+  readonly onGoalCommand?: (command: ComposerGoalCommand) => Promise<boolean>;
+  /** Creates the durable plan session before changing the composer mode. */
+  readonly onPlanModeCommand?: (mode: "plan" | "default") => Promise<boolean>;
   /** Runs the approved durable plan without turning `/build` into provider prose. */
   readonly onBuildPlan?: () => Promise<boolean>;
   /** Starts the independent read-only review without turning `/review` into provider prose. */
   readonly onReviewPlan?: () => Promise<boolean>;
+  readonly activeGoal?: string | null;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -551,6 +560,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
+    const goalCommand = parseComposerGoalCommand(draftMessage);
+    if (goalCommand !== null && props.onGoalCommand) {
+      const handled = await props.onGoalCommand(goalCommand);
+      if (handled) onChangeDraftMessage("");
+      return;
+    }
+    const standaloneMode = draftMessage.trim().toLowerCase();
+    if (
+      (standaloneMode === "/plan" || standaloneMode === "/default") &&
+      props.onPlanModeCommand
+    ) {
+      const mode = standaloneMode === "/plan" ? "plan" : "default";
+      const started = await props.onPlanModeCommand(mode);
+      if (started) onChangeDraftMessage("");
+      return;
+    }
     if (draftMessage.trim().toLowerCase() === "/build" && props.onBuildPlan) {
       const started = await props.onBuildPlan();
       if (started) onChangeDraftMessage("");
@@ -584,6 +609,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [
     draftMessage,
     onChangeDraftMessage,
+    props.onGoalCommand,
+    props.onPlanModeCommand,
     onSendMessage,
     props.onBuildPlan,
     props.onReviewPlan,
@@ -600,6 +627,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         item.type === "slash-command" &&
         (item.command === "plan" || item.command === "default")
       ) {
+        const mode = item.command === "plan" ? "plan" : "default";
+        if (props.onPlanModeCommand) {
+          void props.onPlanModeCommand(mode).then((started) => {
+            if (!started) return;
+            const result = replaceTextRange(
+              draftMessage,
+              composerTrigger.rangeStart,
+              composerTrigger.rangeEnd,
+              "",
+            );
+            setComposerSelection({ start: result.cursor, end: result.cursor });
+            onChangeDraftMessage(result.text);
+            onUpdateInteractionMode(mode);
+          });
+          return;
+        }
         const result = replaceTextRange(
           draftMessage,
           composerTrigger.rangeStart,
@@ -608,7 +651,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         );
         setComposerSelection({ start: result.cursor, end: result.cursor });
         onChangeDraftMessage(result.text);
-        onUpdateInteractionMode(item.command);
+        onUpdateInteractionMode(mode);
         return;
       }
 
@@ -807,6 +850,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onPressImage={onPressImage}
               />
             </Animated.View>
+          ) : null}
+
+          {isExpanded && props.activeGoal ? (
+            <View className="mb-2 flex-row items-center rounded-lg bg-subtle px-2.5 py-1.5">
+              <Text className="mr-2 text-2xs font-rune-semibold text-foreground-muted">Goal</Text>
+              <Text className="min-w-0 flex-1 text-2xs text-foreground" numberOfLines={1}>
+                {props.activeGoal}
+              </Text>
+            </View>
           ) : null}
 
           <View className={isExpanded ? undefined : "min-w-0 flex-1"}>

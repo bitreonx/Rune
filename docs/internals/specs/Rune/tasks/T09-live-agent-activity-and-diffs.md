@@ -1,7 +1,7 @@
 ---
 task_id: T09
 title: Codex-class live Agent Activity + Cursor-class change visibility
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T04]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

@@ -1,5 +1,7 @@
+import { findRuneCommand, type RuneCommandId } from "./commandRegistry.ts";
+
 export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand = RuneCommandId;
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -126,14 +128,17 @@ export function detectComposerTrigger(
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
-  const match = /^\/(plan|default)\s*$/i.exec(text.trim());
-  if (!match) {
+): Extract<ComposerSlashCommand, "plan" | "build" | "review" | "default"> | null {
+  const command = findRuneCommand(text.trim());
+  if (
+    command?.id !== "plan" &&
+    command?.id !== "build" &&
+    command?.id !== "review" &&
+    command?.id !== "default"
+  ) {
     return null;
   }
-  const command = match[1]?.toLowerCase();
-  if (command === "plan") return "plan";
-  return "default";
+  return command.id;
 }
 
 export function replaceTextRange(

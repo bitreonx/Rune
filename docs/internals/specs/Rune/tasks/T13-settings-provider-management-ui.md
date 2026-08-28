@@ -1,7 +1,7 @@
 ---
 task_id: T13
 title: Provider management UX and settings cleanup
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T01, T02, T03]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

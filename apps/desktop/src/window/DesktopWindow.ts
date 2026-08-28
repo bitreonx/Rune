@@ -177,6 +177,15 @@ export function resolveInitialMainWindowBounds(
 function buildStartupSplashDataUrl(shouldUseDarkColors: boolean): string {
   const theme = shouldUseDarkColors ? "dark" : "light";
 
+  // Keep this launch surface self-contained and cheap: the real RUNE mark is
+  // inline, and every animation is limited to opacity or transforms.
+  const startupMarkPath =
+    "M628 156L997 370V858L927 905L858 952L627 1108L541 1050L438 983L258 858L259 373Z M629 156L259 373H749L913 537L749 709L927 905L997 858V370Z M259 373L439 491L438 983L258 858Z M758 511H541V1050L627 1108L858 952L544 736Z";
+  const startupHtml = `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><meta name="color-scheme" content="dark light"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>
+    :root{color-scheme:dark;--canvas:#0b0d11;--surface:#151922;--surface-back:#202532;--ink:#f7f8fb;--muted:#a5adbb;--line:rgba(255,255,255,.16);--line-quiet:rgba(255,255,255,.08);--accent:#9b7cff;--accent-soft:rgba(155,124,255,.16)}html.light{color-scheme:light;--canvas:#e9edf2;--surface:#f8fafc;--surface-back:#d4dae3;--ink:#121722;--muted:#596273;--line:rgba(18,23,34,.2);--line-quiet:rgba(18,23,34,.1);--accent:#6541d8;--accent-soft:rgba(101,65,216,.12)}*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;overflow:hidden}body{background:var(--canvas);color:var(--ink);font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.splash{position:relative;width:calc(100% - 24px);height:calc(100% - 24px);display:flex;flex-direction:column;justify-content:space-between;padding:22px 24px 20px;isolation:isolate;background:var(--surface);border:1px solid var(--line);clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));box-shadow:8px 8px 0 var(--surface-back)}.splash::before{content:"";position:absolute;inset:10px;z-index:-1;border:1px solid var(--line-quiet);clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));pointer-events:none}.splash::after{content:"";position:absolute;left:24px;right:24px;bottom:10px;height:1px;background:var(--accent);opacity:.45;transform-origin:left;animation:rail-in 1.6s cubic-bezier(.22,1,.36,1) both}.close{position:absolute;z-index:3;top:12px;right:12px;width:26px;height:26px;border:1px solid var(--line);padding:0;background:transparent;color:var(--muted);font:400 14px/23px system-ui,sans-serif;text-align:center;cursor:pointer;-webkit-app-region:no-drag;clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));transition:color 140ms ease,background-color 140ms ease}.close:hover{background:var(--accent-soft);color:var(--ink)}.close:active{transform:translateY(1px)}.close:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.brand-line{display:flex;align-items:center;gap:9px;font-size:10px;font-weight:700;letter-spacing:.18em;color:var(--muted)}.brand-line::before{content:"";width:18px;height:1px;background:var(--accent);animation:rail-in 900ms cubic-bezier(.22,1,.36,1) both}.backdrop-mark{position:absolute;right:-50px;bottom:-52px;z-index:-1;width:190px;height:190px;color:var(--accent);opacity:.07;transform:rotate(8deg);animation:backdrop-drift 12s ease-in-out infinite}.brand-stage{display:flex;align-items:center;justify-content:center;min-height:150px}.mark{width:94px;height:94px;color:var(--ink);animation:mark-arrive 1.1s cubic-bezier(.22,1,.36,1) both}.mark path{fill:currentColor}.wordmark{margin-top:-1px;font-size:17px;line-height:1;font-weight:750;letter-spacing:.32em}.tagline{margin-top:8px;font-size:11px;line-height:1.2;color:var(--muted);letter-spacing:.02em}.status{display:flex;align-items:center;gap:9px;font-size:11px;line-height:1.2;color:var(--muted)}.status-dot{width:6px;height:6px;background:var(--accent);animation:status-dot 1.6s ease-in-out infinite}.status-text{animation:status-in 700ms ease-out both}@keyframes mark-arrive{0%{opacity:0;transform:translateY(8px) scale(.86)}65%{opacity:1;transform:translateY(-2px) scale(1.02)}100%{opacity:1;transform:translateY(0) scale(1)}}@keyframes status-in{0%{opacity:0;transform:translateX(-5px)}100%{opacity:1;transform:translateX(0)}}@keyframes status-dot{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}@keyframes rail-in{0%{opacity:0;transform:scaleX(0)}100%{opacity:.45;transform:scaleX(1)}}@keyframes backdrop-drift{0%,100%{transform:translate3d(0,0,0) rotate(8deg)}50%{transform:translate3d(-8px,-6px,0) rotate(5deg)}}@media(prefers-reduced-motion:reduce){.splash::after,.brand-line::before,.mark,.status-text,.status-dot,.backdrop-mark{animation:none}.status-dot{opacity:1}}
+  </style></head><body><main class="splash"><button class="close" type="button" aria-label="Close splash" onclick="window.runeSplash.dismiss()">&#x2715;</button><div class="brand-line">RUNE / DESKTOP</div><svg class="backdrop-mark" viewBox="0 0 1254 1254" aria-hidden="true"><path d="${startupMarkPath}" fill="currentColor" fill-rule="evenodd"/></svg><div class="brand-stage"><svg class="mark" viewBox="0 0 1254 1254" role="img" aria-label="RUNE"><path d="${startupMarkPath}" fill="currentColor" fill-rule="evenodd"/></svg></div><div><div class="wordmark">RUNE</div><div class="tagline">Preparing your workspace</div></div><div class="status"><span class="status-dot" aria-hidden="true"></span><span class="status-text">Starting RUNE…</span></div></main></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(startupHtml)}`;
+
   // Keep launch feedback static and lightweight. The main window is opened
   // independently of backend readiness, so this surface must never depend on
   // an animated logo or a renderer animation completing.
@@ -756,9 +765,6 @@ export const make = Effect.gen(function* () {
     });
 
     const revealSubscribers: RevealSubscription[] = [(fire) => window.once("ready-to-show", fire)];
-    if (environment.platform !== "linux") {
-      revealSubscribers.push((fire) => window.webContents.once("did-finish-load", fire));
-    }
     // Windows may finish the main-frame load without emitting ready-to-show.
     revealSubscribers.push((fire) => window.webContents.once("did-finish-load", fire));
     bindFirstRevealTrigger(revealSubscribers, () => {
@@ -772,7 +778,15 @@ export const make = Effect.gen(function* () {
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
-      void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      void runPromise(
+        Effect.gen(function* () {
+          yield* electronWindow.reveal(window);
+          yield* dismissConnectingSplash;
+          if (process.env.RUNE_DESKTOP_SMOKE_TEST === "1") {
+            process.stdout.write("RUNE_DESKTOP_SMOKE_MAIN_VISIBLE\n");
+          }
+        }),
+      );
     });
 
     loadApplication();
@@ -876,13 +890,20 @@ export const make = Effect.gen(function* () {
         yield* electronWindow.reveal(existingWindow.value);
         return;
       }
-      yield* createMainIfBackendReady;
+      if (yield* Ref.get(backendReadyRef)) {
+        yield* createMainIfBackendReady;
+      } else {
+        yield* showStartupSplash;
+      }
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
     showStartupSplash,
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      if (process.env.RUNE_DESKTOP_SMOKE_TEST === "1") {
+        process.stdout.write("RUNE_DESKTOP_SMOKE_BACKEND_READY\n");
+      }
       yield* createMainIfBackendReady;
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(

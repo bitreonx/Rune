@@ -1,7 +1,7 @@
 ---
 task_id: T10
 title: Thread/turn change ownership, checkpoints, rewind, and diff truth
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T04, T08]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

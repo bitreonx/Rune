@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import type { ActionRunReceipt } from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -187,6 +188,100 @@ describe("ActionRegistry", () => {
         "repeat-2",
         "repeat-3",
       ]);
+    }).pipe(Effect.provide(registryLayer)),
+  );
+
+  it.effect("persists repair guidance when a saved action execution fails", () =>
+    Effect.gen(function* () {
+      const registry = yield* ActionRegistry;
+      yield* registry.create({
+        action: {
+          ...projectAction,
+          id: "action.repairable-release" as const,
+          fallbackPolicy: "assisted-repair" as const,
+        },
+        projectId: "project-1",
+        workspaceRoot: "C:\\repo",
+      });
+      const receipt: ActionRunReceipt = {
+        runId: "repair-run-1",
+        actionId: "action.repairable-release",
+        actionVersion: 1,
+        status: "started",
+        threadId: "thread-1",
+        parameters: {},
+        modelCalls: 0,
+        steps: [{ stepId: "release", status: "pending", evidenceIds: [] }],
+        evidence: [],
+        startedAt: "2026-01-01T00:00:00.000Z",
+      };
+      yield* registry.recordRun({
+        runId: receipt.runId,
+        actionId: receipt.actionId,
+        actionVersion: receipt.actionVersion,
+        scope: "project",
+        projectId: "project-1",
+        workspaceRoot: "C:\\repo",
+        threadId: receipt.threadId,
+        status: "started",
+        parameters: {},
+        modelCalls: 0,
+        startedAt: receipt.startedAt,
+        receipt,
+        recordedAt: receipt.startedAt,
+      });
+      yield* registry.settleRun({
+        runId: receipt.runId,
+        status: "failed",
+        completedAt: "2026-01-01T00:01:00.000Z",
+      });
+
+      const history = yield* registry.listRunHistory({ actionId: receipt.actionId });
+      expect(history.runs[0]?.status).toBe("failed");
+      expect(history.runs[0]?.receipt?.recovery).toEqual({
+        strategy: "assisted-repair",
+        reason: expect.stringContaining("Focused repair is available"),
+      });
+    }).pipe(Effect.provide(registryLayer)),
+  );
+
+  it.effect("does not auto-propose sensitive workflows", () =>
+    Effect.gen(function* () {
+      const registry = yield* ActionRegistry;
+      yield* registry.create({
+        action: {
+          ...projectAction,
+          id: "action.sensitive-release" as const,
+          capabilities: ["delete" as const],
+        },
+        projectId: "project-1",
+        workspaceRoot: "C:\\repo",
+      });
+      for (const [index, runId] of ["sensitive-1", "sensitive-2", "sensitive-3"].entries()) {
+        yield* registry.recordRun({
+          runId,
+          actionId: "action.sensitive-release",
+          actionVersion: 1,
+          scope: "project",
+          projectId: "project-1",
+          workspaceRoot: "C:\\repo",
+          status: "started",
+          parameters: {},
+          modelCalls: 0,
+          recordedAt: `2026-01-01T00:1${index}:00.000Z`,
+        });
+        yield* registry.settleRun({
+          runId,
+          status: "succeeded",
+          completedAt: `2026-01-01T00:1${index}:30.000Z`,
+        });
+      }
+      const proposals = yield* registry.listProposals({
+        status: "proposed",
+        projectId: "project-1",
+        workspaceRoot: "C:\\repo",
+      });
+      expect(proposals.proposals).toHaveLength(0);
     }).pipe(Effect.provide(registryLayer)),
   );
 });

@@ -695,14 +695,20 @@ const makeWsRpcLayer = (
         request: OrchestrationThreadActivity,
         thread: OrchestrationThread,
       ) =>
-        startup
-          .enqueueCommand(
+        Effect.gen(function* () {
+          const validation = GrillRuntime.validateGrillAnswers(request, command.answers);
+          if (!validation.ok) {
+            return yield* Effect.fail(
+              new OrchestrationDispatchCommandError({ message: validation.reason }),
+            );
+          }
+          yield* startup.enqueueCommand(
             dispatchFromClient(
               GrillRuntime.makeGrillResolutionCommand({
                 request,
                 commandId: command.commandId,
                 threadId: command.threadId,
-                answers: command.answers,
+                answers: validation.answers,
                 createdAt: command.createdAt,
               }),
             ).pipe(
@@ -710,34 +716,27 @@ const makeWsRpcLayer = (
                 toDispatchCommandError(cause, "Failed to resolve the native Grill asker."),
               ),
             ),
-          )
-          .pipe(
-            Effect.flatMap(() =>
-              startup.enqueueCommand(
-                dispatchFromClient(
-                  GrillRuntime.makeGrillContinuationCommand({
-                    request,
-                    commandId: command.commandId,
-                    thread,
-                    answers: command.answers,
-                    createdAt: command.createdAt,
-                  }),
-                ).pipe(
-                  Effect.mapError((cause) =>
-                    toDispatchCommandError(
-                      cause,
-                      "Failed to continue after the native Grill asker.",
-                    ),
-                  ),
-                ),
+          );
+          yield* startup.enqueueCommand(
+            dispatchFromClient(
+              GrillRuntime.makeGrillContinuationCommand({
+                request,
+                commandId: command.commandId,
+                thread,
+                answers: validation.answers,
+                createdAt: command.createdAt,
+              }),
+            ).pipe(
+              Effect.mapError((cause) =>
+                toDispatchCommandError(cause, "Failed to continue after the native Grill asker."),
               ),
             ),
-          )
-          .pipe(
-            Effect.mapError((cause) =>
-              toDispatchCommandError(cause, "Failed to complete the native Grill interaction."),
-            ),
           );
+        }).pipe(
+          Effect.mapError((cause) =>
+            toDispatchCommandError(cause, "Failed to complete the native Grill interaction."),
+          ),
+        );
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({

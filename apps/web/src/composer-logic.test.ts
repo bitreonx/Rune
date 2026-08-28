@@ -420,6 +420,14 @@ describe("parseStandaloneComposerSlashCommand", () => {
     expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
   });
 
+  it("stays aligned with the canonical command registry", () => {
+    expect(parseStandaloneComposerSlashCommand("/build")).toBe("build");
+    expect(parseStandaloneComposerSlashCommand("/review")).toBe("review");
+    expect(parseStandaloneComposerSlashCommand("/grill-me")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/goal")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/model")).toBeNull();
+  });
+
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
   });

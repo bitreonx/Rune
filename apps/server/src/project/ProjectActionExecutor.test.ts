@@ -83,6 +83,7 @@ describe("ProjectActionExecutor", () => {
           projectId: "project-1",
           worktreePath: "/repo/worktree",
           actionId: action.id,
+          actionRunId: result.runId,
           commandOverride: "pnpm test",
         },
       ]);
@@ -102,8 +103,49 @@ describe("ProjectActionExecutor", () => {
       expect(receipt.completedAt).toBeDefined();
       expect(receipt.evidence).toHaveLength(1);
       expect(receipt.evidence[0]?.summary).toContain("was not queued");
+      expect(result.recovery?.strategy).toBe("agent");
+      expect(result.recovery?.reason).toContain("project script is missing");
+      expect(result.recovery?.reason).toContain("Agent fallback is available");
     }).pipe(Effect.provide(makeLayer(() => Effect.succeed({ status: "no-script" as const })))),
   );
+
+  it.effect("blocks a drifted compatibility fingerprint with its configured recovery", () => {
+    const runForThread = () => Effect.die("drifted actions must not be queued");
+    const driftedAction = {
+      ...action,
+      fallbackPolicy: "assisted-repair" as const,
+      compatibility: { osFamily: "windows" },
+    };
+
+    return Effect.gen(function* () {
+      const executor = yield* ProjectActionExecutor.ProjectActionExecutor;
+      const result = yield* executor.runForThread({ ...runInput, action: driftedAction });
+
+      expect(result.status).toBe("blocked");
+      expect(result.recovery?.strategy).toBe("assisted-repair");
+      expect(result.recovery?.reason).toContain("Action drift detected");
+      expect(result.recovery?.reason).toContain("Operating system changed");
+    }).pipe(Effect.provide(makeLayer(runForThread)));
+  });
+
+  it.effect("fails closed when a declared fingerprint cannot be observed", () => {
+    const runForThread = () => Effect.die("unverified actions must not be queued");
+    const unverifiedAction = {
+      ...action,
+      fallbackPolicy: "none" as const,
+      compatibility: { toolVersions: { node: "24" } },
+    };
+
+    return Effect.gen(function* () {
+      const executor = yield* ProjectActionExecutor.ProjectActionExecutor;
+      const result = yield* executor.runForThread({ ...runInput, action: unverifiedAction });
+
+      expect(result.status).toBe("blocked");
+      expect(result.recovery?.strategy).toBe("none");
+      expect(result.recovery?.reason).toContain("compatibility is unverified");
+      expect(result.recovery?.reason).toContain("Tool version fingerprint could not be verified");
+    }).pipe(Effect.provide(makeLayer(runForThread)));
+  });
 
   it.effect("does not execute a disabled action", () => {
     const runForThread = () => Effect.die("setup runner must not be called");
@@ -138,6 +180,7 @@ describe("ProjectActionExecutor", () => {
       const receipt = receiptOf(result);
       expect(receipt.runId).toBe(result.runId);
       expect(receipt.status).toBe("approval-required");
+      expect(receipt.recovery).toBeUndefined();
       expect(receipt.steps).toEqual([
         { stepId: "run", status: "pending", evidenceIds: expect.any(Array) },
       ]);

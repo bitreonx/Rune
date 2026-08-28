@@ -447,7 +447,7 @@ describe("DesktopWindow", () => {
 
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.activate;
+        yield* desktopWindow.createMainIfBackendReady;
         assert.equal(yield* Ref.get(createCount), 0);
 
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
@@ -462,6 +462,32 @@ describe("DesktopWindow", () => {
         assert.deepEqual(fakeWindow.setAutoHideCursor.mock.calls, [[false]]);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["rune-dev://app/"]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 1);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("shows the startup surface when activated before backend readiness", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.activate;
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(createdWindowOptions[0]?.width, 360);
+        assert.equal(createdWindowOptions[0]?.height, 280);
+        assert.isFalse(createdWindowOptions[0]?.show);
+        assert.isFalse(createdWindowOptions[0]?.skipTaskbar);
       }).pipe(Effect.provide(layer));
     }),
   );

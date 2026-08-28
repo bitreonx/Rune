@@ -119,6 +119,17 @@ export type ActionApprovalPolicy = typeof ActionApprovalPolicy.Type;
 export const ActionFallbackPolicy = Schema.Literals(["none", "assisted-repair", "agent"]);
 export type ActionFallbackPolicy = typeof ActionFallbackPolicy.Type;
 
+/**
+ * The deterministic executor uses this to tell the caller why a saved action
+ * did not proceed. It is deliberately additive so older clients can still
+ * decode action results that do not include recovery metadata.
+ */
+export const ActionRecovery = Schema.Struct({
+  strategy: ActionFallbackPolicy,
+  reason: TrimmedNonEmptyString,
+});
+export type ActionRecovery = typeof ActionRecovery.Type;
+
 export const ActionProvenance = Schema.Struct({
   source: TrimmedNonEmptyString,
   successfulRunIds: Schema.Array(TrimmedNonEmptyString),
@@ -262,6 +273,8 @@ export const ActionRunReceipt = Schema.Struct({
   /** Always redacted; never the raw invocation map. */
   parameters: ActionParameterValues,
   modelCalls: NonNegativeInt,
+  /** Recovery is guidance only; the runtime never starts a fallback implicitly. */
+  recovery: Schema.optionalKey(ActionRecovery),
   steps: Schema.Array(ActionStepReceipt),
   evidence: Schema.Array(ActionEvidence),
   startedAt: Schema.optionalKey(IsoDateTime),
@@ -295,6 +308,7 @@ export const ActionRunNoScriptResult = Schema.Struct({
   runId: Schema.optionalKey(TrimmedNonEmptyString),
   actionId: ActionId,
   actionVersion: PositiveInt,
+  recovery: Schema.optionalKey(ActionRecovery),
   receipt: Schema.optionalKey(ActionRunReceipt),
 });
 export type ActionRunNoScriptResult = typeof ActionRunNoScriptResult.Type;
@@ -306,6 +320,7 @@ export const ActionRunBlockedResult = Schema.Struct({
   actionId: ActionId,
   actionVersion: PositiveInt,
   reason: TrimmedNonEmptyString,
+  recovery: Schema.optionalKey(ActionRecovery),
   receipt: Schema.optionalKey(ActionRunReceipt),
 });
 export type ActionRunBlockedResult = typeof ActionRunBlockedResult.Type;

@@ -1,7 +1,7 @@
 ---
 task_id: T14
 title: Usage, Turn Trace, request accounting, and performance
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T03, T09]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

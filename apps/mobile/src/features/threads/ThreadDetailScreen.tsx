@@ -16,6 +16,7 @@ import type {
   ThreadId,
   UserInputQuestion,
 } from "@rune/contracts";
+import type { ComposerGoalCommand } from "@rune/shared/composerGoal";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -118,6 +119,9 @@ export interface ThreadDetailScreenProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly activeGoal?: string | null;
+  readonly onGoalCommand?: (command: ComposerGoalCommand) => Promise<boolean>;
+  readonly onPlanModeCommand?: (mode: "plan" | "default") => Promise<boolean>;
   readonly onBuildPlan?: () => Promise<boolean>;
   readonly onReviewPlan?: () => Promise<boolean>;
   readonly onReconnectEnvironment: () => void;
@@ -764,6 +768,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onRemoveDraftImage={props.onRemoveDraftImage}
                 onStopThread={props.onStopThread}
                 onSendMessage={handleSendMessage}
+                activeGoal={props.activeGoal}
+                onGoalCommand={props.onGoalCommand}
+                onPlanModeCommand={props.onPlanModeCommand}
                 onBuildPlan={props.onBuildPlan}
                 onReviewPlan={props.onReviewPlan}
                 onReconnectEnvironment={props.onReconnectEnvironment}

@@ -1,7 +1,7 @@
 ---
 task_id: T01
 title: Provider instances, service connections, runtime manifests, and multi-account routing
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

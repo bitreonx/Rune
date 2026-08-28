@@ -1,7 +1,7 @@
 ---
 task_id: T17
 title: Chat surface, dashboard shell, visual system, and anti-slop quality
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T04, T09, T12]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

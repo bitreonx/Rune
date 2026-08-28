@@ -32,6 +32,7 @@ let output = "";
 let ready = false;
 let settled = false;
 let timeout;
+let cleanupAttempts = 0;
 const child = NodeChildProcess.spawn(electronCommand.electronPath, electronCommand.args, {
   stdio: ["pipe", "pipe", "pipe"],
   cwd: desktopDir,
@@ -49,14 +50,35 @@ function finish(exitCode, message) {
   if (settled) return;
   settled = true;
   if (timeout !== undefined) clearTimeout(timeout);
-  if (ownsSmokeHome) NodeFS.rmSync(smokeHome, { recursive: true, force: true });
-  if (message !== undefined) console.error(message);
-  process.exitCode = exitCode;
+
+  const complete = () => {
+    if (ownsSmokeHome) {
+      try {
+        NodeFS.rmSync(smokeHome, { recursive: true, force: true });
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+        if ((code === "EPERM" || code === "EBUSY") && cleanupAttempts < 20) {
+          cleanupAttempts += 1;
+          setTimeout(complete, 100);
+          return;
+        }
+        console.error(`Desktop smoke test could not clean up its isolated home: ${smokeHome}`);
+      }
+    }
+    if (message !== undefined) console.error(message);
+    process.exitCode = exitCode;
+  };
+
+  if (child.exitCode === null && child.signalCode === null) {
+    child.once("exit", complete);
+  } else {
+    complete();
+  }
 }
 
 child.stdout.on("data", (chunk) => {
   output += chunk.toString();
-  if (!ready && output.includes("RUNE_DESKTOP_SMOKE_READY")) {
+  if (!ready && output.includes("RUNE_DESKTOP_SMOKE_MAIN_VISIBLE")) {
     ready = true;
     child.kill();
   }
@@ -67,8 +89,12 @@ child.stderr.on("data", (chunk) => {
 
 timeout = setTimeout(() => {
   child.kill();
-  finish(1, "Desktop smoke test timed out before startup became ready.");
-}, 8_000);
+  finish(
+    1,
+    "Desktop smoke test timed out before the main window became visible.\n\nFull output:\n" +
+      output,
+  );
+}, 60_000);
 
 child.once("error", (error) => {
   finish(1, `Desktop smoke test could not launch Electron: ${error.message}`);

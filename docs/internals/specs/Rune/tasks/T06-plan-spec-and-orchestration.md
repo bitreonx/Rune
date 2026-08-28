@@ -1,7 +1,7 @@
 ---
 task_id: T06
 title: ASK → SPEC → PLAN → BUILD → REVIEW operating system
-status: TODO
+status: PARTIAL_WITH_EVIDENCE
 depends_on: [T00, T01, T04, T05]
 source: RUNE master v3.6 + v4 authoritative decisions
 ---

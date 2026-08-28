@@ -29,6 +29,17 @@ interface GrillActivityPayload {
   readonly [key: string]: unknown;
 }
 
+interface GrillQuestionPayload {
+  readonly id: string;
+  readonly multiSelect?: boolean;
+  readonly allowCustomAnswer?: boolean;
+  readonly allowSkip?: boolean;
+  readonly options: ReadonlyArray<{
+    readonly id?: string;
+    readonly label: string;
+  }>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -47,6 +58,31 @@ function isGrillPayload(payload: unknown): payload is GrillActivityPayload {
     payload.sourceProvider === GRILL_SOURCE_PROVIDER &&
     typeof payload.requestId === "string"
   );
+}
+
+function grillQuestions(payload: GrillActivityPayload): ReadonlyArray<GrillQuestionPayload> {
+  if (!Array.isArray(payload.questions)) return [];
+  return payload.questions.flatMap((question) => {
+    if (!isRecord(question) || typeof question.id !== "string" || !Array.isArray(question.options)) {
+      return [];
+    }
+    const options = question.options.flatMap((option) => {
+      if (!isRecord(option) || typeof option.label !== "string") return [];
+      return [{
+        ...(typeof option.id === "string" ? { id: option.id } : {}),
+        label: option.label,
+      }];
+    });
+    return [{
+      id: question.id,
+      options,
+      ...(typeof question.multiSelect === "boolean" ? { multiSelect: question.multiSelect } : {}),
+      ...(typeof question.allowCustomAnswer === "boolean"
+        ? { allowCustomAnswer: question.allowCustomAnswer }
+        : {}),
+      ...(typeof question.allowSkip === "boolean" ? { allowSkip: question.allowSkip } : {}),
+    }];
+  });
 }
 
 const MAX_GRILL_ANSWER_CHARS = 16_384;
@@ -69,6 +105,66 @@ function normalizedAnswers(answers: ProviderUserInputAnswers): ProviderUserInput
     remaining -= bounded.length;
   }
   return normalized;
+}
+
+export type GrillAnswerValidation =
+  | { readonly ok: true; readonly answers: ProviderUserInputAnswers }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Validates a response against the durable native question payload. Provider
+ * user-input answers are intentionally open-ended for legacy adapters, but a
+ * native Grill response has a known question set and must not resume a stale
+ * or forged request.
+ */
+export function validateGrillAnswers(
+  request: OrchestrationThreadActivity,
+  answers: ProviderUserInputAnswers,
+): GrillAnswerValidation {
+  if (!isGrillPayload(request.payload)) {
+    return { ok: false, reason: "The request is not a native Grill interaction." };
+  }
+  const questions = grillQuestions(request.payload);
+  if (questions.length === 0) {
+    return { ok: false, reason: "The native Grill request has no valid questions." };
+  }
+  const questionsById = new Map(questions.map((question) => [question.id, question]));
+  const supplied = new Set(Object.keys(answers));
+  for (const questionId of supplied) {
+    if (!questionsById.has(questionId)) {
+      return { ok: false, reason: `The native Grill answer refers to unknown question '${questionId}'.` };
+    }
+  }
+  for (const question of questions) {
+    if (!Object.prototype.hasOwnProperty.call(answers, question.id)) {
+      if (question.allowSkip === true) continue;
+      return { ok: false, reason: `The native Grill answer is missing '${question.id}'.` };
+    }
+    const answer = answers[question.id];
+    const values = Array.isArray(answer)
+      ? answer
+      : typeof answer === "string"
+        ? [answer]
+        : null;
+    if (values === null || values.some((value) => typeof value !== "string")) {
+      return { ok: false, reason: `The native Grill answer for '${question.id}' is invalid.` };
+    }
+    const trimmedValues = values.map((value) => value.trim()).filter(Boolean);
+    if (trimmedValues.length === 0) {
+      if (question.allowSkip === true) continue;
+      return { ok: false, reason: `The native Grill answer for '${question.id}' is empty.` };
+    }
+    if (!question.multiSelect && trimmedValues.length > 1) {
+      return { ok: false, reason: `The native Grill question '${question.id}' accepts one answer.` };
+    }
+    if (question.allowCustomAnswer !== true) {
+      const allowed = new Set(question.options.flatMap((option) => [option.label, ...(option.id ? [option.id] : [])]));
+      if (trimmedValues.some((value) => !allowed.has(value))) {
+        return { ok: false, reason: `The native Grill answer for '${question.id}' is not one of its options.` };
+      }
+    }
+  }
+  return { ok: true, answers: normalizedAnswers(answers) };
 }
 
 function questionForNode(node: GrillDecisionNode, index: number, total: number) {
@@ -161,7 +257,11 @@ export function findPendingGrillRequest(
       }
       continue;
     }
-    if (activity.kind === "user-input.resolved" && activityRequestId(activity) === requestId) {
+    if (
+      activity.kind === "user-input.resolved" &&
+      activityRequestId(activity) === requestId &&
+      isGrillPayload(activity.payload)
+    ) {
       request = undefined;
     }
   }

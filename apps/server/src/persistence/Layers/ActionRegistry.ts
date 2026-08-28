@@ -4,6 +4,7 @@ import {
   ActionProposalStatus,
   ActionRegistryError,
   ActionRegistryRecord,
+  ActionRecovery,
   ActionRunReceipt,
   ActionRunHistory,
   ActionScope,
@@ -22,7 +23,12 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import { ActionRegistry, type ActionRegistryServiceShape } from "../Services/ActionRegistry.ts";
-import { analyzeLearnedActionRuns, buildLearnedActionProposal } from "@rune/shared/learnedActions";
+import { actionRecoveryReason } from "@rune/shared/actionCompatibility";
+import {
+  analyzeLearnedActionRuns,
+  buildLearnedActionProposal,
+  isSensitiveActionForAutoLearning,
+} from "@rune/shared/learnedActions";
 import { verifyActionRequirements } from "@rune/shared/actionVerification";
 
 const StoredActionRow = Schema.Struct({
@@ -554,6 +560,9 @@ export const make = Effect.gen(function* () {
     if (input.settledStatus !== "succeeded" || input.actionRecord.action.source === "learned") {
       return Effect.void;
     }
+    if (isSensitiveActionForAutoLearning(input.actionRecord.action)) {
+      return Effect.void;
+    }
     return Effect.gen(function* () {
       const context = {
         scope: input.stored.scope,
@@ -788,6 +797,20 @@ export const make = Effect.gen(function* () {
             : ({
                 ...baseReceipt,
                 status: settledStatus,
+                ...(settledStatus === "failed" && actionRecord !== null
+                  ? {
+                      recovery: (baseReceipt.recovery ?? {
+                        strategy: actionRecord.action.fallbackPolicy,
+                        reason: actionRecoveryReason({
+                          strategy: actionRecord.action.fallbackPolicy,
+                          cause: "execution-failed",
+                          reasons: [
+                            "The correlated terminal failed. Review its output before repairing the saved Action.",
+                          ],
+                        }),
+                      }) satisfies ActionRecovery,
+                    }
+                  : {}),
                 steps: baseReceipt.steps.map((step) => ({
                   ...step,
                   status:

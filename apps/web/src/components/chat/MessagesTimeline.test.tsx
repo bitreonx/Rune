@@ -1,5 +1,6 @@
 import { CheckpointRef, EnvironmentId, MessageId, TurnId } from "@rune/contracts";
 import { codexFeedbackMessage } from "@rune/client-runtime/state/threads";
+import type { TurnTrace } from "@rune/client-runtime/state/turnTrace";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
@@ -246,6 +247,49 @@ function buildAssistantTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("keeps developer trace opt-in and exposes bounded request details", () => {
+    const trace: TurnTrace = {
+      turnId: TurnId.make("turn-trace"),
+      provider: "openrouter",
+      providerInstanceId: "gateway-1",
+      model: "gpt-test",
+      requests: 2,
+      retries: 1,
+      tools: 3,
+      timeToFirstByteMs: 120,
+      latencyMs: 1_100,
+      requestDetails: [
+        {
+          requestId: "request-1",
+          requestNumber: 1,
+          retry: false,
+          timeToFirstByteMs: 120,
+          streamDurationMs: 800,
+        },
+      ],
+    };
+    const timelineEntries = [buildUserTimelineEntry("Trace fixture")];
+    const hiddenMarkup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={timelineEntries} />,
+    );
+    const visibleMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={timelineEntries}
+        developerTraces={[trace]}
+      />,
+    );
+
+    expect(hiddenMarkup).not.toContain('data-developer-trace="true"');
+    expect(visibleMarkup).toContain('data-developer-trace="true"');
+    expect(visibleMarkup).toContain("openrouter · gpt-test");
+    expect(visibleMarkup).toContain("2 requests · 1 retry · 3 tools");
+    expect(visibleMarkup).toContain("TTFT 120ms");
+    expect(visibleMarkup).toContain("Latency 1.1s");
+    expect(visibleMarkup).toContain("requestId=request-1 · #1");
+    expect(visibleMarkup).toContain('"streamDurationMs": 800');
+  });
+
   it("renders a feedback command and its pending response as normal thread messages", () => {
     const submission = {
       id: MessageId.make("feedback-command"),

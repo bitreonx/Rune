@@ -48,8 +48,11 @@ export function RightPanelSheet(props: {
           runePanelTransitionClass(motionState),
         )}
         data-rune-right-panel-host
+        data-rune-right-panel-mode={props.mode}
         data-rune-right-panel-state={motionState}
         data-rune-right-panel-maximized={props.maximized ? "true" : "false"}
+        role="complementary"
+        aria-label="Right panel"
       >
         <div
           className="rune-right-panel-surface surface-glass flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden shadow-2xl shadow-black/15"

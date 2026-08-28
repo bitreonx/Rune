@@ -181,6 +181,7 @@ import {
   deriveAgentPanelModel,
   foldSubagentActivities,
 } from "@rune/client-runtime/state/subagentRuntime";
+import { deriveTurnTraces } from "@rune/client-runtime/state/turnTrace";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -2032,6 +2033,7 @@ function ChatViewContent(props: ChatViewProps) {
     : null;
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const simplifiedActivity = useClientSettings((settings) => settings.simplifiedActivity);
+  const showDeveloperTrace = useClientSettings((settings) => settings.showDeveloperTrace);
   const clientSettingsHydrated = useClientSettingsHydrated();
   const [pendingFileSurfaceIdsByProject, setPendingFileSurfaceIdsByProject] = useState<
     ReadonlyMap<string, ReadonlySet<string>>
@@ -2510,6 +2512,10 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const developerTraces = useMemo(
+    () => (showDeveloperTrace ? deriveTurnTraces(threadActivities) : []),
+    [showDeveloperTrace, threadActivities],
+  );
   const workLogEntries = useMemo(
     () =>
       simplifiedActivity
@@ -7670,6 +7676,7 @@ function ChatViewContent(props: ChatViewProps) {
                   listRef={legendListRef}
                   timelineEntries={timelineEntries}
                   latestTurn={activeLatestTurn}
+                  developerTraces={developerTraces}
                   runningTurnId={activeRunningTurnId}
                   turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                   turnDiffSummaryByTurnId={turnDiffSummaryByTurnId}

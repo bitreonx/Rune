@@ -7,6 +7,7 @@ import {
 } from "@rune/contracts";
 import { parseScopedThreadKey } from "@rune/client-runtime/environment";
 import type { AgentPanelModel } from "@rune/client-runtime/state/subagentRuntime";
+import type { TurnTrace } from "@rune/client-runtime/state/turnTrace";
 import {
   emptyAgentPanelModel,
   formatSubagentDisplayName,
@@ -184,6 +185,74 @@ const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
 const TimelineRowActivityCtx = createContext<TimelineRowActivityState>(null!);
 const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
 const TIMELINE_LIST_FADE_HEADER = <div className="h-10 sm:h-12" />;
+const EMPTY_DEVELOPER_TRACES: ReadonlyArray<TurnTrace> = [];
+
+function formatTraceDuration(durationMs: number | null): string {
+  if (durationMs === null) return "—";
+  if (durationMs < 1_000) return `${durationMs}ms`;
+  return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
+}
+
+const DeveloperTracePanel = memo(function DeveloperTracePanel({
+  traces,
+}: {
+  traces: ReadonlyArray<TurnTrace>;
+}) {
+  if (traces.length === 0) return null;
+
+  return (
+    <div
+      className="mx-auto w-full max-w-3xl px-3 pt-3 sm:px-5 sm:pt-4"
+      data-developer-trace="true"
+    >
+      <details className="rounded-lg border border-border/60 bg-card/45 text-xs text-muted-foreground">
+        <summary className="cursor-pointer list-none px-3 py-2.5 font-medium text-foreground/80 outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
+          Developer trace · {traces.length} recent {traces.length === 1 ? "turn" : "turns"}
+        </summary>
+        <div className="border-t border-border/50 px-3 py-2">
+          {traces.toReversed().map((trace) => (
+            <details
+              key={trace.turnId ?? "no-turn"}
+              className="border-b border-border/40 py-2 last:border-b-0"
+            >
+              <summary className="cursor-pointer list-none outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
+                <span className="font-medium text-foreground/80">
+                  {trace.provider ?? "Unknown provider"}
+                  {trace.model ? ` · ${trace.model}` : ""}
+                </span>
+                <span className="ml-2 tabular-nums">
+                  {trace.requests} {trace.requests === 1 ? "request" : "requests"} · {trace.retries}{" "}
+                  {trace.retries === 1 ? "retry" : "retries"} · {trace.tools}{" "}
+                  {trace.tools === 1 ? "tool" : "tools"}
+                </span>
+              </summary>
+              <div className="mt-2 grid gap-1 font-mono text-[11px] leading-relaxed sm:grid-cols-3">
+                <span>TTFT {formatTraceDuration(trace.timeToFirstByteMs)}</span>
+                <span>Latency {formatTraceDuration(trace.latencyMs)}</span>
+                <span>Instance {trace.providerInstanceId ?? "—"}</span>
+              </div>
+              {trace.requestDetails.length > 0 ? (
+                <div className="mt-2 grid gap-1">
+                  {trace.requestDetails.map((request) => (
+                    <details key={request.requestId} className="rounded border border-border/40 px-2 py-1">
+                      <summary className="cursor-pointer list-none font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
+                        requestId={request.requestId} · #{request.requestNumber}
+                        {request.retry ? " · retry" : ""}
+                      </summary>
+                      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-[10px] text-muted-foreground">
+                        {JSON.stringify(request, null, 2)}
+                      </pre>
+                    </details>
+                  ))}
+                </div>
+              ) : null}
+            </details>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+});
 
 // Header row shown when older turns exist beyond the loaded window. Plain
 // button, no spinner animation; the label change is the loading indicator.
@@ -236,6 +305,8 @@ interface MessagesTimelineProps {
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   latestTurn: TimelineLatestTurn | null;
+  /** Bounded technical trace summaries; populated only when the setting is enabled. */
+  developerTraces?: ReadonlyArray<TurnTrace>;
   runningTurnId: TurnId | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   turnDiffSummaryByTurnId: Map<TurnId, TurnDiffSummary>;
@@ -287,6 +358,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   listRef,
   timelineEntries,
   latestTurn,
+  developerTraces = EMPTY_DEVELOPER_TRACES,
   runningTurnId,
   turnDiffSummaryByAssistantMessageId,
   turnDiffSummaryByTurnId,
@@ -654,17 +726,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               topFadeEnabled && "topbar-scroll-fade",
             )}
             ListHeaderComponent={
-              loadEarlier !== null ? (
-                <TimelineLoadEarlierHeader
-                  loading={loadEarlier.loading}
-                  onLoadEarlier={loadEarlier.onLoadEarlier}
-                  fade={topFadeEnabled}
-                />
-              ) : topFadeEnabled ? (
-                TIMELINE_LIST_FADE_HEADER
-              ) : (
-                TIMELINE_LIST_HEADER
-              )
+              <>
+                <DeveloperTracePanel traces={developerTraces} />
+                {loadEarlier !== null ? (
+                  <TimelineLoadEarlierHeader
+                    loading={loadEarlier.loading}
+                    onLoadEarlier={loadEarlier.onLoadEarlier}
+                    fade={topFadeEnabled}
+                  />
+                ) : topFadeEnabled ? (
+                  TIMELINE_LIST_FADE_HEADER
+                ) : (
+                  TIMELINE_LIST_HEADER
+                )}
+              </>
             }
             ListFooterComponent={TIMELINE_LIST_FOOTER}
           />

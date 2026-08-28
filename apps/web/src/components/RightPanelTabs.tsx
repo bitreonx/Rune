@@ -902,7 +902,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           className={cn("min-w-0 flex-1 rounded-none", ownsDesktopTitleBar && "drag-region")}
           data-right-panel-tab-list
         >
-          <div className="flex h-full w-max min-w-full items-center gap-1">
+          <div
+            className="flex h-full w-max min-w-full items-center gap-1"
+            role="tablist"
+            aria-label="Right panel surfaces"
+          >
             {props.surfaces.map((surface, surfaceIndex) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
@@ -925,7 +929,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   onAuxClick={(event) => handleTabAuxClick(event, surface)}
                   onContextMenu={(event) => void handleTabContextMenu(event, surface)}
                   className={cn(
-                    "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+                    "cursor-pointer group/tab flex h-8 max-w-36 shrink-0 items-center gap-0.5 rounded-lg pr-1.5 pl-1 text-xs",
                     active
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -999,47 +1003,47 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 </div>
               );
             })}
-            {props.surfaces.length > 0 ? (
-              <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
-                <MenuTrigger
-                  render={
-                    <Button
-                      aria-label="Add panel surface"
-                      className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-                      size="icon-xs"
-                      variant="ghost"
-                    />
-                  }
-                >
-                  <Plus className="size-3.5" />
-                </MenuTrigger>
-                <MenuPopup
-                  align="start"
-                  side="bottom"
-                  sideOffset={6}
-                  className="min-w-44"
-                  onKeyDownCapture={handleAddSurfaceMenuKeyDown}
-                >
-                  {addSurfaceActions.map((action) => {
-                    const Icon = action.icon;
-                    return (
-                      <SurfaceMenuItem
-                        key={action.label}
-                        available={action.available}
-                        disabledReason={action.disabledReason}
-                        shortcut={action.shortcut}
-                        onClick={action.onClick}
-                      >
-                        <Icon />
-                        {action.label}
-                      </SurfaceMenuItem>
-                    );
-                  })}
-                </MenuPopup>
-              </Menu>
-            ) : null}
           </div>
         </ScrollArea>
+        {props.surfaces.length > 0 ? (
+          <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
+            <MenuTrigger
+              render={
+                <Button
+                  aria-label="Add panel surface"
+                  className="rune-right-panel-add-surface size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                  size="icon-xs"
+                  variant="ghost"
+                />
+              }
+            >
+              <Plus className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="min-w-44"
+              onKeyDownCapture={handleAddSurfaceMenuKeyDown}
+            >
+              {addSurfaceActions.map((action) => {
+                const Icon = action.icon;
+                return (
+                  <SurfaceMenuItem
+                    key={action.label}
+                    available={action.available}
+                    disabledReason={action.disabledReason}
+                    shortcut={action.shortcut}
+                    onClick={action.onClick}
+                  >
+                    <Icon />
+                    {action.label}
+                  </SurfaceMenuItem>
+                );
+              })}
+            </MenuPopup>
+          </Menu>
+        ) : null}
         {props.layoutControls}
       </div>
       <div

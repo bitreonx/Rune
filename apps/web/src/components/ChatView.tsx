@@ -7569,11 +7569,14 @@ function ChatViewContent(props: ChatViewProps) {
     composerBannerItems.length > 0 || Boolean(threadSyncPhase && !activeEnvironmentUnavailable);
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+    <div
+      className="rune-chat-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      data-rune-chat-workspace
+    >
       {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls() : null}
       <div
-        className={cn(
-          "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
+          className={cn(
+          "rune-chat-column flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
@@ -7583,7 +7586,7 @@ function ChatViewContent(props: ChatViewProps) {
           data-chat-header
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
-          className="relative bg-background"
+          className="rune-chat-header relative bg-background"
         >
           {!rightPanelOpen ? panelLayoutControls(rightPanelToggleRef) : null}
           <ChatHeader
@@ -7627,10 +7630,10 @@ function ChatViewContent(props: ChatViewProps) {
           />
         ) : null}
         {/* Main content area with optional plan sidebar */}
-        <div className="flex min-h-0 min-w-0 flex-1">
+          <div className="rune-chat-main flex min-h-0 min-w-0 flex-1">
           {/* Chat column */}
           <div
-            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+            className="rune-chat-surface relative flex min-h-0 min-w-0 flex-1 flex-col"
             data-rune-chat-surface
             data-chat-workspace-drop-target="true"
             onDragEnter={workspaceFileDropHandlers.onDragEnter}
@@ -7733,11 +7736,12 @@ function ChatViewContent(props: ChatViewProps) {
             <div
               ref={setComposerOverlayElement}
               data-chat-composer-overlay="true"
-              className={
+              className={cn(
+                "rune-chat-composer-dock",
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-center"
-                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
-              }
+                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2",
+              )}
             >
               <div
                 ref={attachDraftHeroTransitionGroupRef}

@@ -56,7 +56,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     <SidebarHeader
       data-rune-sidebar-section="workspace"
       className={cn(
-        "@container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] px-3 py-0 md:px-0",
+        "rune-sidebar-header @container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] px-3 py-0 md:px-0",
         isElectron && "drag-region",
       )}
     >
@@ -240,7 +240,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   return (
     <SidebarFooter
-      className="border-t border-sidebar-border/70 bg-[var(--rune-sidebar-surface-subtle)] p-[var(--sidebar-content-inset)]"
+      className="rune-sidebar-footer border-t border-sidebar-border/70 bg-[var(--rune-sidebar-surface-subtle)] p-[var(--sidebar-content-inset)]"
       data-rune-sidebar-section="utility"
     >
       <SidebarProviderUpdatePill />

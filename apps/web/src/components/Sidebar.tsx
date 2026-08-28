@@ -3719,12 +3719,12 @@ export default function Sidebar() {
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
-        className="gap-0"
+        className="rune-sidebar-content gap-0"
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup
-            className="relative z-[1] gap-1 border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
+            className="rune-sidebar-toolbar relative z-[1] gap-1 border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
             data-rune-sidebar-section="search"
           >
             <div className="flex items-center gap-1">
@@ -3927,7 +3927,7 @@ export default function Sidebar() {
         }
       >
         <SidebarGroup
-          className="ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0"
+          className="rune-sidebar-thread-section ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0"
           data-rune-sidebar-section="threads"
           data-rune-sidebar-scope={scopedProjectGroup ? "project" : "all-projects"}
         >

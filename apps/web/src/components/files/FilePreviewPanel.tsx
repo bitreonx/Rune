@@ -6,6 +6,7 @@ import type {
 } from "@rune/contracts";
 import type { TurnDiffFileChange } from "~/types";
 import { isWorkspaceExactPreviewPath } from "@rune/shared/filePreview";
+import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
 import { ChevronRight, Code2, Columns2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
 import * as Schema from "effect/Schema";
 import {
@@ -34,6 +35,8 @@ import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import { useComposerHandleContext } from "~/composerHandleContext";
+import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
@@ -81,6 +84,7 @@ interface FilePreviewPanelProps {
   onOpenFile: (relativePath: string) => void;
   onOpenDiffFile?: (relativePath: string) => void;
   onPendingChange: (relativePath: string, pending: boolean) => void;
+  onClose?: () => void;
 }
 
 const FILE_EXPLORER_STORAGE_KEY = "rune.fileExplorerOpen";
@@ -167,11 +171,13 @@ export default function FilePreviewPanel({
   onOpenFile,
   onOpenDiffFile,
   onPendingChange,
+  onClose,
 }: FilePreviewPanelProps) {
   const { resolvedTheme } = useTheme();
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const remoteOpenState = useRemoteOpenState(environmentId);
+  const composerRef = useComposerHandleContext();
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
@@ -326,6 +332,40 @@ export default function FilePreviewPanel({
       );
     })();
   }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
+
+  const handleCopyViewerPath = useCallback(() => {
+    if (!relativePath) return;
+    void writeTextToClipboard(relativePath, "file path")
+      .then(() => {
+        toastManager.add({ type: "success", title: "Path copied", description: relativePath });
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Failed to copy path",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      });
+  }, [relativePath]);
+
+  const handleAddViewerToChat = useCallback(() => {
+    if (!relativePath) return;
+    const inserted = composerRef?.current?.insertTextAtEnd(
+      serializeComposerFileLink(relativePath),
+      {
+        ensureLeadingBoundary: true,
+      },
+    );
+    if (inserted) {
+      toastManager.add({ type: "success", title: "Added to chat", description: relativePath });
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Unable to add to chat",
+      description: "Open a chat composer for this project and try again.",
+    });
+  }, [composerRef, relativePath]);
 
   const showModeToggle = supportsModes && descriptor !== null;
   const modes: ReadonlyArray<{ value: ViewerMode; label: string }> = isMarkdown
@@ -482,9 +522,13 @@ export default function FilePreviewPanel({
                 cwd,
                 relativePath,
                 revision: diskRevision,
+                originKey: `workspace-file:${environmentId}:${cwd}:${relativePath}`,
+                onCopyPath: handleCopyViewerPath,
+                onAddToChat: handleAddViewerToChat,
+                ...(canOpenInBrowser ? { onOpenExternally: handleOpenInBrowser } : {}),
+                ...(onClose ? { onClose } : {}),
               }}
               contents=""
-              byteLength={0}
               mode="preview"
             />
           ) : file.error && file.data === null ? (
@@ -562,6 +606,11 @@ export default function FilePreviewPanel({
                   cwd,
                   relativePath,
                   revision: diskRevision,
+                  originKey: `workspace-file:${environmentId}:${cwd}:${relativePath}`,
+                  onCopyPath: handleCopyViewerPath,
+                  onAddToChat: handleAddViewerToChat,
+                  ...(canOpenInBrowser ? { onOpenExternally: handleOpenInBrowser } : {}),
+                  ...(onClose ? { onClose } : {}),
                 }}
                 contents={file.data.contents}
                 byteLength={file.data.byteLength}

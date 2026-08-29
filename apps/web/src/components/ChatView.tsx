@@ -8522,6 +8522,11 @@ function ChatViewContent(props: ChatViewProps) {
           onOpenFile={openFileSurface}
           onOpenDiffFile={onOpenChatDiff}
           onPendingChange={handleFilePendingChange}
+          {...(activeRightPanelSurface
+            ? {
+                onClose: () => closeRightPanelSurface(activeRightPanelSurface),
+              }
+            : {})}
         />
       </Suspense>
     ) : null

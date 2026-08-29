@@ -3,7 +3,7 @@ import type { ComponentType, ReactElement } from "react";
 
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 
-import type { FileDescriptor, FileKind } from "./viewerDescriptor.ts";
+import type { FileDescriptor } from "./viewerDescriptor.ts";
 import { BinaryViewer } from "./viewers/BinaryViewer.tsx";
 import { CodeViewer } from "./viewers/CodeViewer.tsx";
 import { ImageViewer } from "./viewers/ImageViewer.tsx";
@@ -13,6 +13,7 @@ import { PdfViewer } from "./viewers/PdfViewer.tsx";
 import { SvgViewer } from "./viewers/SvgViewer.tsx";
 import { TruncatedTextViewer } from "./viewers/TruncatedTextViewer.tsx";
 import { buildWorkspaceFileRef } from "./filePreviewWorkspaceRef.ts";
+import { ALL_KINDS, selectViewerId } from "./viewerRegistry.logic.ts";
 
 /**
  * The shape every viewer accepts. The shell hands a subset of the
@@ -29,10 +30,13 @@ export type ViewerProps = {
   readonly cwd: string;
   readonly threadRef: ScopedThreadRef;
   readonly contents: string;
+  readonly byteLength: number;
+  readonly revision: number;
   readonly resolvedTheme: "light" | "dark";
   readonly wordWrap: boolean;
   readonly revealRequestId: number;
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
+  readonly onToggleWordWrap: () => void;
 };
 
 /**
@@ -62,6 +66,30 @@ function LoadingPlaceholder(_props: ViewerProps): ReactElement {
   );
 }
 
+function fileRefFor(props: ViewerProps) {
+  const fileRef = buildWorkspaceFileRef({
+    environmentId: props.environmentId,
+    cwd: props.cwd,
+    projectWorkspaceRoot: undefined,
+    projectId: undefined,
+    relativePath: props.descriptor.relativePath,
+  });
+  if (!fileRef) {
+    throw new Error(
+      `Viewer requires a workspace cwd but received none for ${props.descriptor.relativePath}`,
+    );
+  }
+  return fileRef;
+}
+
+const BinaryViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <BinaryViewer
+    contents={props.contents}
+    byteLength={props.byteLength}
+    relativePath={props.descriptor.relativePath}
+  />
+);
+
 const loadingViewer: Viewer = {
   id: "loading",
   // The shell uses this as a final fallback for `kind: "unknown"` while
@@ -74,28 +102,56 @@ const loadingViewer: Viewer = {
 const binaryViewer: Viewer = {
   id: "binary-fallback",
   match: (d) => d.kind === "unknown" || d.kind === "binary",
-  component: BinaryViewer as unknown as ComponentType<ViewerProps>,
+  component: BinaryViewerAdapter,
 };
 
 // Wrap the SVG viewer so it conforms to ViewerProps. The viewer itself
 // only needs (contents, resolvedTheme); the rest of the surface is
 // forwarded for symmetry with the rest of the registry.
+const SvgViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <SvgViewer
+    environmentId={props.environmentId}
+    threadRef={props.threadRef}
+    cwd={props.cwd}
+    relativePath={props.descriptor.relativePath}
+    name={props.descriptor.relativePath.split("/").pop() ?? props.descriptor.relativePath}
+    revision={props.revision}
+  />
+);
+
 const svgViewer: Viewer = {
   id: "svg",
   match: (d) => d.kind === "svg",
-  component: SvgViewer as unknown as ComponentType<ViewerProps>,
+  component: SvgViewerAdapter,
 };
+
+const JsonViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <JsonViewer
+    relativePath={props.descriptor.relativePath}
+    contents={props.contents}
+    byteLength={props.byteLength}
+  />
+);
 
 const jsonViewer: Viewer = {
   id: "json",
   match: (d) => d.kind === "json",
-  component: JsonViewer as unknown as ComponentType<ViewerProps>,
+  component: JsonViewerAdapter,
 };
+
+const TruncatedTextViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <TruncatedTextViewer
+    contents={props.contents}
+    relativePath={props.descriptor.relativePath}
+    byteLength={props.byteLength}
+    resolvedTheme={props.resolvedTheme}
+  />
+);
 
 const truncatedTextViewer: Viewer = {
   id: "truncated-text",
   match: (d) => d.kind === "truncated-text",
-  component: TruncatedTextViewer as unknown as ComponentType<ViewerProps>,
+  component: TruncatedTextViewerAdapter,
 };
 
 // The image viewer needs a WorkspaceFileRef; the registry hands it
@@ -105,24 +161,14 @@ const truncatedTextViewer: Viewer = {
 // non-null here; the assert keeps the type narrowed without changing
 // the runtime contract.
 const ImageViewerAdapter: ComponentType<ViewerProps> = (props) => {
-  const fileRef = buildWorkspaceFileRef({
-    environmentId: props.environmentId,
-    cwd: props.cwd,
-    projectWorkspaceRoot: undefined,
-    projectId: undefined,
-    relativePath: props.descriptor.relativePath,
-  });
-  if (!fileRef) {
-    throw new Error(
-      `ImageViewer requires a workspace cwd but received none for ${props.descriptor.relativePath}`,
-    );
-  }
   return (
     <ImageViewer
       environmentId={props.environmentId}
       threadRef={props.threadRef}
-      fileRef={fileRef}
+      cwd={props.cwd}
       relativePath={props.descriptor.relativePath}
+      name={props.descriptor.relativePath.split("/").pop() ?? props.descriptor.relativePath}
+      revision={props.revision}
     />
   );
 };
@@ -135,8 +181,32 @@ const imageViewer: Viewer = {
 
 const codeViewer: Viewer = {
   id: "code",
-  match: (d) => d.kind === "text",
-  component: CodeViewer as unknown as ComponentType<ViewerProps>,
+  match: (d) => d.kind === "text" || d.kind === "code",
+  component: (props) => (
+    <CodeViewer
+      contents={props.contents}
+      relativePath={props.descriptor.relativePath}
+      wordWrap={props.wordWrap}
+      onToggleWordWrap={props.onToggleWordWrap}
+    />
+  ),
+};
+
+const MediaViewerAdapter: ComponentType<ViewerProps> = (props) => (
+  <MediaViewer
+    environmentId={props.environmentId}
+    threadRef={props.threadRef}
+    cwd={props.cwd}
+    relativePath={props.descriptor.relativePath}
+    name={props.descriptor.relativePath.split("/").pop() ?? props.descriptor.relativePath}
+    revision={props.revision}
+  />
+);
+
+const mediaViewer: Viewer = {
+  id: "media",
+  match: (d) => d.kind === "audio" || d.kind === "video",
+  component: MediaViewerAdapter,
 };
 
 // The markdown viewer needs an `onPersist` for task-list checkbox
@@ -164,7 +234,20 @@ const markdownViewer: Viewer = {
 const pdfViewer: Viewer = {
   id: "pdf",
   match: (d) => d.kind === "pdf",
-  component: PdfViewer as unknown as ComponentType<ViewerProps>,
+  component: (props) => (
+    <PdfViewer
+      environmentId={props.environmentId}
+      threadRef={props.threadRef}
+      fileRef={fileRefFor(props)}
+      relativePath={props.descriptor.relativePath}
+    />
+  ),
+};
+
+const browserPreviewViewer: Viewer = {
+  id: "browser-preview",
+  match: (d) => d.kind === "browser-preview",
+  component: BinaryViewerAdapter,
 };
 
 /**
@@ -178,9 +261,11 @@ export const viewerRegistry: ReadonlyArray<Viewer> = [
   markdownViewer,
   svgViewer,
   jsonViewer,
+  mediaViewer,
   codeViewer,
   truncatedTextViewer,
   pdfViewer,
+  browserPreviewViewer,
   binaryViewer,
 ];
 
@@ -190,24 +275,11 @@ export const viewerRegistry: ReadonlyArray<Viewer> = [
  * acts as the catch-all.
  */
 export function selectViewer(descriptor: FileDescriptor): Viewer {
-  for (const viewer of viewerRegistry) {
-    if (viewer.match(descriptor)) return viewer;
-  }
-  return binaryViewer;
+  const viewerId = selectViewerId(descriptor);
+  return viewerRegistry.find((viewer) => viewer.id === viewerId) ?? binaryViewer;
 }
 
-export const ALL_KINDS: ReadonlyArray<FileKind> = [
-  "image",
-  "markdown",
-  "browser-preview",
-  "svg",
-  "json",
-  "pdf",
-  "truncated-text",
-  "text",
-  "binary",
-  "unknown",
-];
+export { ALL_KINDS } from "./viewerRegistry.logic.ts";
 
 /**
  * For tests: the loader fallback the shell uses while file data is

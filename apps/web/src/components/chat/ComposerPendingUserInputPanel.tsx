@@ -62,7 +62,12 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // advancing to its next question is an explicit composer action so a
   // selected suggestion remains editable.
   const [collapsedQuestionId, setCollapsedQuestionId] = useState<string | null>(null);
+  const [highlightedOptionIndex, setHighlightedOptionIndex] = useState<number | null>(null);
   const isCollapsed = collapsedQuestionId !== null && collapsedQuestionId === activeQuestion?.id;
+
+  useEffect(() => {
+    setHighlightedOptionIndex(null);
+  }, [activeQuestion?.id]);
 
   const handleOptionSelection = useCallback(
     (questionId: string, optionLabel: string) => {
@@ -75,23 +80,43 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     [activeQuestion, onToggleOption],
   );
 
-  // Keyboard shortcut: number keys 1-9 select corresponding options when focus is
-  // outside editable fields. Multi-select prompts toggle options in place.
-  // Collapsed prompts opt out, since the numbers they refer to are not on screen.
+  // Keyboard shortcuts stay local to the Ask Sheet. Number keys select an option,
+  // arrows move its visual highlight, and Escape collapses the sheet. Editable
+  // fields keep their native arrow behavior so a custom answer remains natural.
   useEffect(() => {
     if (!activeQuestion || isResponding || isCollapsed) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement &&
+          Boolean(target.closest('[contenteditable]:not([contenteditable="false"])')));
+
+      if (event.key === "Escape") {
+        setCollapsedQuestionId(activeQuestion.id);
+        setHighlightedOptionIndex(null);
+        event.preventDefault();
         return;
       }
-      if (
-        target instanceof HTMLElement &&
-        target.closest('[contenteditable]:not([contenteditable="false"])')
-      ) {
+
+      if (isEditableTarget) return;
+
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (activeQuestion.options.length === 0) return;
+        const selectedIndex = activeQuestion.options.findIndex((option) =>
+          progress.selectedOptionLabels.includes(option.label),
+        );
+        const currentIndex = highlightedOptionIndex ?? Math.max(selectedIndex, -1);
+        const offset = event.key === "ArrowDown" ? 1 : -1;
+        const nextIndex =
+          (currentIndex + offset + activeQuestion.options.length) % activeQuestion.options.length;
+        setHighlightedOptionIndex(nextIndex);
+        event.preventDefault();
         return;
       }
+
       const digit = Number.parseInt(event.key, 10);
       if (Number.isNaN(digit) || digit < 1 || digit > 9) return;
       const optionIndex = digit - 1;
@@ -99,11 +124,19 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       const option = activeQuestion.options[optionIndex];
       if (!option) return;
       event.preventDefault();
+      setHighlightedOptionIndex(optionIndex);
       handleOptionSelection(activeQuestion.id, option.label);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [activeQuestion, handleOptionSelection, isCollapsed, isResponding]);
+  }, [
+    activeQuestion,
+    handleOptionSelection,
+    highlightedOptionIndex,
+    isCollapsed,
+    isResponding,
+    progress.selectedOptionLabels,
+  ]);
 
   if (!activeQuestion) {
     return null;
@@ -111,7 +144,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
 
   return (
     <Collapsible
-      className="py-2"
+      className="ask-sheet py-2"
       open={!isCollapsed}
       onOpenChange={(open) => {
         setCollapsedQuestionId(open ? null : activeQuestion.id);
@@ -123,7 +156,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           header label and the chevron still line up with the left and right
           edges of the question text below. The negative block margin keeps the
           taller hit area from pushing the panel down. */}
-      <div className="flex items-center gap-1 px-1 sm:px-2">
+      <div className="flex items-center gap-1 px-1 sm:px-2" data-ask-sheet-zone="header">
         <CollapsibleTrigger
           title={
             isCollapsed ? "Show the question and its options" : "Hide the question and its options"
@@ -161,24 +194,40 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       {/* The panel carries the horizontal padding itself: it clips its content
           while the height animates, so the option buttons have to sit inside
           that padding or their focus rings get shaved off at the edges. */}
-      <CollapsiblePanel className="px-3 sm:px-4">
-        <div className="pt-2 pb-0.5">
+      <CollapsiblePanel
+        className="px-3 transition-[height,opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none sm:px-4"
+        data-ask-sheet-zone="body"
+      >
+        <div className="rounded-xl border border-[color-mix(in_srgb,var(--border)_82%,var(--rune-violet-soft))] bg-[color-mix(in_srgb,var(--rune-surface-raised)_90%,transparent)] px-2.5 pt-2.5 pb-2 sm:px-3">
           <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
           {activeQuestion.multiSelect ? (
             <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
           ) : null}
-          <div className="mt-2 space-y-0.5">
+          <div
+            className="mt-2 flex items-center justify-between gap-3 text-[10px] text-secondary-label"
+            data-ask-sheet-zone="custom-answer"
+          >
+            <span>Choose a tile or write your own answer below.</span>
+            <span className="hidden shrink-0 tabular-nums sm:inline">
+              ↑↓ move · 1–9 choose · Esc hide
+            </span>
+          </div>
+          <div className="mt-1.5 space-y-0.5" data-ask-sheet-zone="decision-tiles">
             {activeQuestion.options.map((option, index) => {
               const isSelected = progress.selectedOptionLabels.includes(option.label);
+              const isHighlighted = highlightedOptionIndex === index;
               const isRecommended =
                 activeQuestion.recommendedOptionId === option.id ||
                 activeQuestion.recommendedOptionId === option.label;
               const shortcutKey = index < 9 ? index + 1 : null;
               const className = cn(
-                "group flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-primary/25",
+                "group flex w-full items-center gap-2 rounded-md border border-transparent px-2.5 py-2 text-left outline-none transition-[background-color,border-color,box-shadow] duration-150 focus-visible:ring-1 focus-visible:ring-primary/25",
                 isSelected
-                  ? "bg-muted/55 text-foreground"
+                  ? "border-[color-mix(in_srgb,var(--rune-violet-strong)_55%,var(--border))] bg-[color-mix(in_srgb,var(--rune-violet-soft)_28%,var(--background))] text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--rune-violet-strong)_12%,transparent)]"
                   : "bg-transparent text-foreground/85 hover:bg-muted/30",
+                isHighlighted &&
+                  !isSelected &&
+                  "ring-1 ring-[color-mix(in_srgb,var(--rune-violet-strong)_42%,transparent)]",
                 isResponding && "opacity-50 cursor-not-allowed",
                 !isResponding && "cursor-pointer",
               );
@@ -214,8 +263,12 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 <button
                   key={`${activeQuestion.id}:${option.label}`}
                   type="button"
+                  aria-pressed={isSelected}
+                  data-ask-sheet-option={isHighlighted ? "highlighted" : undefined}
                   disabled={isResponding}
+                  onPointerEnter={() => setHighlightedOptionIndex(index)}
                   onClick={() => {
+                    setHighlightedOptionIndex(index);
                     handleOptionSelection(activeQuestion.id, option.label);
                   }}
                   className={className}
@@ -224,6 +277,12 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 </button>
               );
             })}
+          </div>
+          <div
+            className="mt-2 border-t border-border/35 pt-1.5 text-[10px] text-secondary-label"
+            data-ask-sheet-zone="footer"
+          >
+            Enter advances or submits · Shift+Enter adds a line in your custom answer
           </div>
         </div>
       </CollapsiblePanel>

@@ -29,7 +29,9 @@ function SettingsProviderInstanceRoute() {
     <ProviderInstanceEditPage
       instanceId={ProviderInstanceId.make(params.instanceId)}
       environmentId={environmentId}
-      recoveryDriver={search.driver === undefined ? undefined : ProviderDriverKind.make(search.driver)}
+      {...(search.driver === undefined
+        ? {}
+        : { recoveryDriver: ProviderDriverKind.make(search.driver) })}
     />
   );
 }

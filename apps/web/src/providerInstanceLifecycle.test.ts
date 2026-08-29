@@ -1,4 +1,10 @@
-import { ProviderDriverKind, ProviderInstanceId } from "@rune/contracts";
+import {
+  HarnessKind,
+  ProfileId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type HarnessProfileConfig,
+} from "@rune/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -10,6 +16,22 @@ import {
 describe("buildProviderInstanceRemovalPatch", () => {
   it("removes the profile-backed instance and every saved selection that references it", () => {
     const instanceId = ProviderInstanceId.make("claude_work");
+    const profileId = ProfileId.make("claude_work");
+    const profiles: Record<ProfileId, HarnessProfileConfig> = {};
+    profiles[profileId] = {
+      profileId,
+      harnessKind: HarnessKind.make("claudeAgent"),
+      displayName: "Claude Work",
+      enabled: true,
+      instanceId,
+      route: {
+        modelServiceId: "native",
+        defaultModel: "claude-sonnet-4",
+        sameModelEverywhere: true,
+        roleOverrides: {},
+      },
+      routeVersion: 1,
+    };
     const patch = buildProviderInstanceRemovalPatch({
       settings: {
         ...DEFAULT_UNIFIED_SETTINGS,
@@ -27,22 +49,7 @@ describe("buildProviderInstanceRemovalPatch", () => {
         sourceControlWriterModelSelection: { instanceId, model: "favorite" },
         harnesses: {
           ...DEFAULT_UNIFIED_SETTINGS.harnesses,
-          profiles: {
-            claude_work: {
-              profileId: "claude_work",
-              harnessKind: "claudeAgent",
-              displayName: "Claude Work",
-              enabled: true,
-              instanceId,
-              route: {
-                modelServiceId: "native",
-                defaultModel: "claude-sonnet-4",
-                sameModelEverywhere: true,
-                roleOverrides: {},
-              },
-              routeVersion: 1,
-            },
-          },
+          profiles,
         },
       },
       instanceId,
@@ -55,7 +62,7 @@ describe("buildProviderInstanceRemovalPatch", () => {
       DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
     );
     expect(patch.sourceControlWriterModelSelection).toBeNull();
-    expect(patch.harnesses?.profiles?.claude_work).toBeUndefined();
+    expect(patch.harnesses?.profiles?.[profileId]).toBeUndefined();
   });
 });
 

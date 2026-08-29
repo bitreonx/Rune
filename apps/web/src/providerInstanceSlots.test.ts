@@ -1,7 +1,10 @@
 import {
+  HarnessKind,
   type ProviderInstanceConfig,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProfileId,
+  type HarnessProfileConfig,
   type ServerSettings,
 } from "@rune/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
@@ -43,26 +46,27 @@ function settingsFrom(input: {
 describe("resolveProviderInstanceSlot", () => {
   it("resolves a profile-backed custom instance through the same slot as legacy instances", () => {
     const instanceId = ProviderInstanceId.make("claude_work");
+    const profileId = ProfileId.make("claude_work");
+    const profiles: Record<ProfileId, HarnessProfileConfig> = {};
+    profiles[profileId] = {
+      profileId,
+      harnessKind: HarnessKind.make("claudeAgent"),
+      displayName: "Claude Work",
+      enabled: true,
+      instanceId,
+      route: {
+        modelServiceId: "native",
+        defaultModel: "claude-sonnet-4",
+        sameModelEverywhere: true,
+        roleOverrides: {},
+      },
+      routeVersion: 1,
+    };
     const settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       harnesses: {
         ...DEFAULT_UNIFIED_SETTINGS.harnesses,
-        profiles: {
-          claude_work: {
-            profileId: "claude_work",
-            harnessKind: "claudeAgent",
-            displayName: "Claude Work",
-            enabled: true,
-            instanceId,
-            route: {
-              modelServiceId: "native",
-              defaultModel: "claude-sonnet-4",
-              sameModelEverywhere: true,
-              roleOverrides: {},
-            },
-            routeVersion: 1,
-          },
-        },
+        profiles,
       },
     } as ServerSettings;
 

@@ -47,7 +47,9 @@ export interface ListProviderInstanceSlotsOptions {
   readonly includeUnlistedDrivers?: boolean;
 }
 
-type SlotSettings = Pick<ServerSettings, "providerInstances" | "providers" | "harnesses">;
+type SlotSettings = Pick<ServerSettings, "providerInstances" | "providers"> & {
+  readonly harnesses?: ServerSettings["harnesses"];
+};
 
 type LegacyProviderBlobs = Record<
   string,

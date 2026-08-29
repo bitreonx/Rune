@@ -46,6 +46,27 @@ export interface ProcessRunOutput {
   readonly stderrInvalidUtf8: boolean;
 }
 
+export const ProcessFailureClass = {
+  executableNotFound: "executable-not-found",
+  shellNotFound: "shell-not-found",
+  shellParseError: "shell-parse-error",
+  permission: "permission",
+  cwdMissing: "cwd-missing",
+  timeout: "timeout",
+  nonzeroExit: "nonzero-exit",
+  outputLimit: "output-limit",
+} as const;
+export type ProcessFailureClass = (typeof ProcessFailureClass)[keyof typeof ProcessFailureClass];
+
+export interface ProcessFailureOutput {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number | null;
+  readonly timedOut: boolean;
+  readonly stdoutTruncated: boolean;
+  readonly stderrTruncated: boolean;
+}
+
 const ProcessInvocationFields = {
   command: Schema.String,
   argumentCount: Schema.Number,
@@ -162,6 +183,75 @@ const WINDOWS_COMMAND_NOT_FOUND_PATTERNS = [
 function hasWindowsCommandNotFoundMessage(output: string): boolean {
   return WINDOWS_COMMAND_NOT_FOUND_PATTERNS.some((pattern) => pattern.test(output));
 }
+
+const containsAny = (value: string, patterns: ReadonlyArray<RegExp>): boolean =>
+  patterns.some((pattern) => pattern.test(value));
+
+/**
+ * Classify a process failure without hiding the original stderr or error.
+ * This is pure so retry policy, activity projection, and tests can share the
+ * same deterministic diagnosis without another model request.
+ */
+export const classifyProcessFailure = (input: {
+  readonly platform: NodeJS.Platform;
+  readonly runInput?: Pick<ProcessRunInput, "command" | "cwd" | "spawnCwd">;
+  readonly output?: ProcessFailureOutput;
+  readonly error?: ProcessRunError;
+}): ProcessFailureClass | undefined => {
+  const outputText = `${input.output?.stderr ?? ""}\n${input.output?.stdout ?? ""}`;
+  const errorCause =
+    input.error === undefined ? undefined : (input.error as { readonly cause?: unknown }).cause;
+  const errorText = input.error === undefined ? "" : `${input.error.message}\n${String(errorCause ?? "")}`;
+  const text = `${outputText}\n${errorText}`;
+  const commandName = input.runInput?.command.trim().toLowerCase() ?? "";
+  const isShellCommand = /(?:^|[\\/])(pwsh|powershell|bash|sh|zsh|cmd)(?:\.exe)?$/u.test(
+    commandName,
+  );
+
+  if (input.output?.timedOut || input.error?._tag === "ProcessTimeoutError") {
+    return ProcessFailureClass.timeout;
+  }
+  if (input.error?._tag === "ProcessOutputLimitError") {
+    return ProcessFailureClass.outputLimit;
+  }
+  if (isShellCommand && input.error?._tag === "ProcessSpawnError") {
+    return ProcessFailureClass.shellNotFound;
+  }
+  if (containsAny(text, [/the system cannot find the path specified/i, /enoent.*cwd/i])) {
+    if (isShellCommand) return ProcessFailureClass.shellNotFound;
+    return ProcessFailureClass.cwdMissing;
+  }
+  if (
+    containsAny(text, [
+      /command not found/i,
+      /no such file or directory/i,
+      /is not recognized as an internal or external command/i,
+      /cannot find the path/i,
+      /executable file not found/i,
+    ])
+  ) {
+    if (isShellCommand) {
+      return ProcessFailureClass.shellNotFound;
+    }
+    return ProcessFailureClass.executableNotFound;
+  }
+  if (containsAny(text, [/access is denied/i, /permission denied/i, /eacces/i])) {
+    return ProcessFailureClass.permission;
+  }
+  if (
+    isShellCommand &&
+    containsAny(text, [/parsererror/i, /parse error/i, /unexpected token/i, /syntax error/i])
+  ) {
+    return ProcessFailureClass.shellParseError;
+  }
+  if (input.output?.code !== null && input.output?.code !== undefined && input.output.code !== 0) {
+    return ProcessFailureClass.nonzeroExit;
+  }
+  if (input.error?._tag === "ProcessSpawnError") {
+    return ProcessFailureClass.executableNotFound;
+  }
+  return undefined;
+};
 
 export const isWindowsCommandNotFound = Effect.fn("processRunner.isWindowsCommandNotFound")(
   function* (code: number | null, stderr: string) {

@@ -41,6 +41,7 @@ export * from "./skills.ts";
 export * from "./actions.ts";
 export * from "./plan.ts";
 export * from "./command.ts";
+export * from "./harnessModelRoute.ts";
 export * from "./pocket.ts";
 export * from "./promptQueue.ts";
 export * from "./mutation.ts";

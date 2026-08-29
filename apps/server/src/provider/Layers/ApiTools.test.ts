@@ -13,7 +13,12 @@ import * as ProcessRunner from "../../processRunner.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "../../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
-import { GATED_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
+import {
+  GATED_TOOLS,
+  RUNE_OPERATION_JSON_SCHEMA,
+  SAFE_TOOLS,
+  type NativeToolContext,
+} from "./ApiTools.ts";
 
 const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
 
@@ -166,7 +171,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         "run_checks",
         "edit_file",
         "rune_operation",
-        "bash",
+        "shell",
       ]);
       for (const def of GATED_TOOLS) {
         expect(def.description.length).toBeGreaterThan(0);
@@ -176,6 +181,19 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
         ).toBeGreaterThan(0);
         expect(def.requiresApproval).toBe(true);
       }
+    });
+
+    it("shows the structured command union instead of an untyped object", () => {
+      expect(RUNE_OPERATION_JSON_SCHEMA.oneOf).toHaveLength(6);
+      expect(
+        (
+          RUNE_OPERATION_JSON_SCHEMA.oneOf as ReadonlyArray<{
+            properties?: { kind?: { const?: string } };
+          }>
+        ).map(
+          (variant) => variant.properties?.kind?.const,
+        ),
+      ).toEqual(["search", "readLines", "listDirectory", "findFiles", "runProcess", "runTest"]);
     });
   });
 
@@ -241,13 +259,13 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiTools safe tools", (it) =
       }),
     );
 
-    it.effect("bash runs through the process runner with a platform shell", () =>
+    it.effect("shell runs through the process runner with a platform shell", () =>
       Effect.gen(function* () {
-        const bash = GATED_TOOLS.find((tool) => tool.name === "bash")!;
+        const shell = GATED_TOOLS.find((tool) => tool.name === "shell")!;
         capturedRuns.length = 0;
         const ctx = yield* makeContext;
 
-        const observation = yield* bash.execute({ command: "echo hi" }, ctx);
+        const observation = yield* shell.execute({ command: "echo hi" }, ctx);
 
         expect(capturedRuns.length).toBe(1);
         if ((yield* HostProcessPlatform) === "win32") {

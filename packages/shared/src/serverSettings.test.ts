@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServiceId,
   type ServerProvider,
 } from "@rune/contracts";
 import * as Duration from "effect/Duration";
@@ -296,6 +297,30 @@ describe("serverSettings helpers", () => {
       enabled: true,
       config: { homePath: "~/.codex" },
     });
+  });
+
+  it("replaces harness profile and service maps so removed routes do not survive a patch", () => {
+    const serviceId = ServiceId.make("openrouter_work");
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      harnesses: {
+        profiles: {},
+        services: {
+          [serviceId]: {
+            serviceId,
+            kind: "openrouter" as const,
+            displayName: "OpenRouter Work",
+          },
+        },
+      },
+    };
+
+    const next = applyServerSettingsPatch(current, {
+      harnesses: { profiles: {}, services: {} },
+    });
+
+    expect(next.harnesses.profiles).toEqual({});
+    expect(next.harnesses.services).toEqual({});
   });
 
   it("stores background activity profiles as a versioned object and syncs legacy aliases", () => {

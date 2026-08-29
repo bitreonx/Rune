@@ -1014,6 +1014,12 @@ export const ServerSettingsPatch = Schema.Struct({
       services: Schema.optionalKey(Schema.Record(ServiceId, ModelServiceConfig)),
     }),
   ),
+  /**
+   * Write-only service credentials. The server consumes these values through
+   * its secret store and strips this field before applying or persisting the
+   * settings patch; it must never appear in a ServerSettings value.
+   */
+  modelServiceCredentials: Schema.optionalKey(Schema.Record(ServiceId, Schema.String)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

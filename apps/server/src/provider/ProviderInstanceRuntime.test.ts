@@ -6,7 +6,10 @@ import {
   type ProviderInstanceConfig,
 } from "@rune/contracts";
 
-import { compileProviderInstanceRuntime } from "./ProviderInstanceRuntime.ts";
+import {
+  compileProviderInstanceRuntime,
+  planProviderInstanceRuntimeRoute,
+} from "./ProviderInstanceRuntime.ts";
 
 const instanceId = ProviderInstanceId.make("claude_openrouter");
 const driver = ProviderDriverKind.make("claudeAgent");
@@ -82,5 +85,72 @@ describe("compileProviderInstanceRuntime", () => {
     expect(runtime.environment.ANTHROPIC_API_KEY).toBe("native-key");
     expect(runtime.environment.ANTHROPIC_BASE_URL).toBe("https://native.example");
     expect(runtime.manifest.credentialSource).toBe("native");
+  });
+});
+
+
+
+describe("planProviderInstanceRuntimeRoute", () => {
+  it("plans a compatible OpenRouter Claude route from explicit metadata", () => {
+    const result = planProviderInstanceRuntimeRoute({
+      instanceId: ProviderInstanceId.make("claude_openrouter"),
+      driver,
+      entry: {
+        ...managedEntry,
+        serviceKind: "openrouter",
+        protocol: "anthropic-compatible",
+        modelBindings: { main: "anthropic/claude-sonnet" },
+      },
+      typedConfig: {},
+    });
+
+    expect(result).toMatchObject({
+      tag: "planned",
+      plan: {
+        routeKind: "service-compatible",
+        protocolFamily: "anthropic-messages",
+        connectionId: "openrouter_main",
+        requestedModel: "anthropic/claude-sonnet",
+        bridgeRequired: false,
+      },
+    });
+  });
+
+  it("rejects a cross-family Claude route until a healthy bridge is available", () => {
+    const result = planProviderInstanceRuntimeRoute({
+      instanceId: ProviderInstanceId.make("claude_codex"),
+      driver,
+      entry: {
+        ...managedEntry,
+        connectionId: "codex_work",
+        serviceKind: "openai",
+        protocol: "openai-responses",
+        modelBindings: { main: "gpt-5.6" },
+      },
+      typedConfig: {},
+      bridgeAvailable: false,
+    });
+
+    expect(result).toEqual({
+      tag: "unsupported",
+      reason: "claudeAgent cannot use openai-responses through openai without a validated bridge.",
+    });
+  });
+
+  it("fails closed when a bound connection lacks its service kind", () => {
+    const result = planProviderInstanceRuntimeRoute({
+      instanceId: ProviderInstanceId.make("claude_unknown_service"),
+      driver,
+      entry: {
+        ...managedEntry,
+        modelBindings: { main: "model-x" },
+      },
+      typedConfig: {},
+    });
+
+    expect(result).toMatchObject({ tag: "unsupported" });
+    expect(result).toMatchObject({
+      reason: "Connection 'openrouter_main' is missing a validated model-service kind.",
+    });
   });
 });

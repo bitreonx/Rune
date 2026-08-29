@@ -18,6 +18,7 @@ import {
   type ProviderSandboxMode,
   type ProviderUserInputAnswers,
   type UserInputQuestion,
+  type RuntimeRouteReceipt,
 } from "@rune/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -101,6 +102,8 @@ export interface ApiAdapterOptions {
   readonly requestHeaders?: Readonly<Record<string, string>>;
   /** Optional protocol features explicitly advertised by this API instance. */
   readonly apiCapabilities?: Partial<ApiModelCapabilities> | undefined;
+  /** Secret-free route metadata copied into turn-start diagnostics. */
+  readonly runtimeRoute?: Pick<RuntimeRouteReceipt, "connectionId" | "serviceKind" | "accountLabel">;
   /** Workspace services powering the native agent loop's tools. */
   readonly toolServices?: ApiAdapterToolServices | undefined;
 }
@@ -306,7 +309,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
           ? SAFE_TOOLS
           : options.toolServices?.processRunner
             ? NATIVE_TOOLS
-            : NATIVE_TOOLS.filter((tool) => tool.name !== "bash");
+            : NATIVE_TOOLS.filter((tool) => tool.name !== "shell");
       const toolContext: NativeToolContext | undefined = toolsAvailable
         ? {
             cwd,
@@ -327,7 +330,7 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
                   ProviderAdapterError
                 >();
                 const requestType =
-                  gateInput.toolName === "bash"
+                  gateInput.toolName === "shell" || gateInput.toolName === "bash"
                     ? ("command_execution_approval" as const)
                     : ("file_change_approval" as const);
                 context.pendingApprovals.set(requestId, { deferred, requestType });
@@ -525,6 +528,9 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
       const session: ProviderSession = {
         provider: options.provider,
         providerInstanceId: options.instanceId,
+        ...(options.runtimeRoute?.connectionId
+          ? { serviceConnectionId: options.runtimeRoute.connectionId }
+          : {}),
         status: "ready",
         runtimeMode: input.runtimeMode,
         ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -595,10 +601,15 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
         });
       }
       const turnId = TurnId.make(yield* nextIdentifier);
+      const selectedModel =
+        input.modelSelection?.instanceId === options.instanceId && input.modelSelection.model.trim()
+          ? input.modelSelection.model.trim()
+          : (context.session.model ?? options.defaultModel);
       context.activeTurnId = turnId;
       context.session = {
         ...context.session,
         status: "running",
+        model: selectedModel,
         activeTurnId: turnId,
         updatedAt: yield* nowIso,
       };
@@ -609,7 +620,23 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
         providerInstanceId: options.instanceId,
         threadId: input.threadId,
         turnId,
-        payload: { model: context.session.model ?? options.defaultModel },
+        payload: {
+          model: selectedModel,
+          route: {
+            harness: options.provider,
+            instanceId: options.instanceId,
+            ...(options.runtimeRoute?.connectionId
+              ? { connectionId: options.runtimeRoute.connectionId }
+              : {}),
+            ...(options.runtimeRoute?.serviceKind
+              ? { serviceKind: options.runtimeRoute.serviceKind }
+              : {}),
+            model: selectedModel,
+            ...(options.runtimeRoute?.accountLabel
+              ? { accountLabel: options.runtimeRoute.accountLabel }
+              : {}),
+          },
+        },
       });
       context.activeFiber = yield* runTurn(context, input, turnId).pipe(
         Effect.forkIn(adapterScope),

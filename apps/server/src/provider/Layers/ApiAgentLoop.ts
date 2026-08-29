@@ -121,7 +121,7 @@ export interface AgentTurnInput {
   readonly apiKey: string;
   readonly requestHeaders?: Readonly<Record<string, string>> | undefined;
   readonly workspaceInstructions?: string | undefined;
-  /** Read-only sandboxes never see edit_file/bash at all. */
+  /** Read-only sandboxes never see mutation or raw-shell tools at all. */
   readonly sandboxReadOnly: boolean;
   /** Explicit tool set after session policy has been applied by the adapter. */
   readonly toolsOverride?: ReadonlyArray<NativeToolDef> | undefined;
@@ -308,13 +308,17 @@ export const runAgenticTurn = (
       arguments: string;
     }): Effect.Effect<string, ProviderAdapterError> =>
       Effect.gen(function* () {
-        const def = offered.find((candidate) => candidate.name === call.name);
+        // `bash` was advertised by older RUNE Native sessions. Accept it as a
+        // wire-compatibility alias while advertising only the truthful,
+        // platform-neutral `shell` name to new model requests.
+        const normalizedToolName = call.name === "bash" ? "shell" : call.name;
+        const def = offered.find((candidate) => candidate.name === normalizedToolName);
         if (!def) return `Error: unknown tool ${call.name}`;
         const args = parseToolArgs(call.arguments);
         if (!args) {
           return `Error: could not parse arguments as JSON: ${call.arguments.slice(0, 200)}`;
         }
-        const fingerprint = fingerprintToolCall(call.name, args);
+        const fingerprint = fingerprintToolCall(normalizedToolName, args);
         if (seenToolCalls.has(fingerprint))
           return "Error: repeated tool call with unchanged inputs";
         seenToolCalls.add(fingerprint);

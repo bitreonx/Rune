@@ -6,13 +6,11 @@ import {
   squashAtomCommandFailure,
 } from "@rune/client-runtime/state/runtime";
 import {
-  defaultInstanceIdForDriver,
   type EnvironmentId,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
-  ProviderInstanceId,
+  ServiceId,
 } from "@rune/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
 import {
   getBackgroundActivityPresetSettings,
   resolveServerBackgroundActivitySettings,
@@ -106,15 +104,6 @@ import {
   resolveRemoteOperateAccess,
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
-
-function withoutProviderInstanceKey<V>(
-  record: Readonly<Record<ProviderInstanceId, V>> | undefined,
-  key: ProviderInstanceId,
-): Record<ProviderInstanceId, V> {
-  const next = { ...record } as Record<ProviderInstanceId, V>;
-  delete next[key];
-  return next;
-}
 
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
   useRelativeTimeTick();
@@ -219,7 +208,7 @@ export function ProviderSettingsPanel() {
               title={isReady ? "No connected devices" : "Loading devices"}
               description={
                 isReady
-                  ? "Connect an execution environment before configuring providers."
+                  ? "Connect an execution environment before configuring harnesses and model services."
                   : "Reading connected execution environments."
               }
             />
@@ -388,10 +377,6 @@ export function EnvironmentProviderSettings({
     () => collectProviderUpdateCandidates(serverProviders),
     [serverProviders],
   );
-  const providerUpdateCandidateByInstanceId = useMemo(
-    () => new Map(providerUpdateCandidates.map((candidate) => [candidate.instanceId, candidate])),
-    [providerUpdateCandidates],
-  );
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenInstanceId = textGenerationModelSelection.instanceId;
   const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
@@ -487,7 +472,7 @@ export function EnvironmentProviderSettings({
               onClick={() => setIsDocsOpen(true)}
             >
               <BookOpenIcon className="size-3.5" />
-              <span className="hidden sm:inline">Sign-in guide</span>
+              <span className="hidden sm:inline">How connections work</span>
               <span className="sm:hidden">Docs</span>
             </Button>
             <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
@@ -500,13 +485,13 @@ export function EnvironmentProviderSettings({
                         size="icon-micro"
                         variant="ghost-muted"
                         onClick={() => setIsAddInstanceDialogOpen(true)}
-                        aria-label="Add provider instance"
+                        aria-label="Add harness instance"
                       >
                         <PlusIcon className="size-3" />
                       </Button>
                     }
                   />
-                  <TooltipPopup side="top">Add provider instance</TooltipPopup>
+                  <TooltipPopup side="top">Add harness instance</TooltipPopup>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -516,7 +501,7 @@ export function EnvironmentProviderSettings({
                         variant="ghost-muted"
                         disabled={isRefreshingProviders}
                         onClick={() => void refreshProviders()}
-                        aria-label="Refresh provider status"
+                        aria-label="Refresh connection status"
                       >
                         {isRefreshingProviders ? (
                           <LoaderIcon className="size-3 animate-spin" />
@@ -526,7 +511,7 @@ export function EnvironmentProviderSettings({
                       </Button>
                     }
                   />
-                  <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+                  <TooltipPopup side="top">Refresh connection status</TooltipPopup>
                 </Tooltip>
               </>
             ) : null}
@@ -536,7 +521,7 @@ export function EnvironmentProviderSettings({
         {readOnly ? (
           <SettingsRow
             title="Limited permissions"
-            description={`This session can view ${environmentLabel}'s providers, but its credential does not allow changing their configuration.`}
+            description={`This session can view ${environmentLabel}'s harnesses and model services, but its credential does not allow changing their configuration.`}
           />
         ) : null}
         <div
@@ -572,52 +557,28 @@ export function EnvironmentProviderSettings({
               settings={settings}
               serverProviders={serverProviders}
               onUpdateSettings={updateSettings}
-              onOpenInstance={(instanceId) =>
+              onOpenInstance={(instanceId, driver) =>
                 void navigate({
                   to: "/settings/providers/$instanceId",
                   params: { instanceId },
-                  search: { env: String(environmentId) },
+                  search: { env: String(environmentId), driver: String(driver) },
                 })
               }
-              onRunUpdate={(instanceId) => {
-                const candidate = Array.from(providerUpdateCandidateByInstanceId.values()).find(
-                  (c) => String(c.instanceId) === String(instanceId),
-                );
-                if (candidate) void runProviderUpdate(candidate);
-              }}
-              onDeleteInstance={(instanceId) =>
-                updateSettings({
-                  providerInstances: withoutProviderInstanceKey(
-                    settings.providerInstances,
-                    instanceId,
-                  ),
-                })
-              }
-              onResetInstance={(driver) => {
-                const defaultProviders = DEFAULT_UNIFIED_SETTINGS.providers as Record<
-                  string,
-                  unknown | undefined
-                >;
-                const defaultProvider = defaultProviders[String(driver)];
-                if (defaultProvider === undefined) return;
-                updateSettings({
-                  providers: {
-                    ...settings.providers,
-                    [driver]: defaultProvider,
-                  } as typeof settings.providers,
-                  providerInstances: withoutProviderInstanceKey(
-                    settings.providerInstances,
-                    defaultInstanceIdForDriver(driver),
-                  ),
-                });
-              }}
-              environmentId={String(environmentId)}
               readOnly={readOnly}
             />
           </div>
 
           <div id="provider-model-services" className="scroll-mt-14">
-            <ModelServicesSection settings={settings} onUpdateSettings={updateSettings} />
+            <ModelServicesSection
+              settings={settings}
+              onUpdateSettings={updateSettings}
+              onSaveServiceSecret={(serviceId, apiKey) =>
+                updateSettings({
+                  modelServiceCredentials: { [ServiceId.make(serviceId)]: apiKey },
+                })
+              }
+              readOnly={readOnly}
+            />
           </div>
 
           <div className="border-t pt-4">
@@ -632,7 +593,7 @@ export function EnvironmentProviderSettings({
                   </PolicyTooltip>
                 </span>
               }
-              description="Refresh provider availability, versions, auth state, and model metadata in the background. Set this to 0 seconds to rely on manual refreshes."
+              description="Refresh harness availability, versions, auth state, and model metadata in the background. Set this to 0 seconds to rely on manual refreshes."
               resetAction={
                 providerHealthRefreshIntervalSeconds !==
                 defaultProviderHealthRefreshIntervalSeconds ? (
@@ -691,10 +652,10 @@ export function EnvironmentProviderSettings({
       <Dialog open={isDocsOpen} onOpenChange={setIsDocsOpen}>
         <DialogPopup className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Provider sign-in guide</DialogTitle>
+              <DialogTitle>How connections work</DialogTitle>
             <DialogDescription>
               Each card is one independent account or service. Add multiple instances when you use
-              more than one account for the same provider.
+              more than one account for the same harness.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4 text-sm">
@@ -709,15 +670,15 @@ export function EnvironmentProviderSettings({
               <div>
                 <p className="font-medium">1. Add an account</p>
                 <p className="text-muted-foreground">
-                  Choose Add provider instance, select a provider, and give the account a
+                  Choose Add harness, select a harness, and give the instance a
                   recognizable name.
                 </p>
               </div>
               <div>
                 <p className="font-medium">2. Finish setup on the host device</p>
                 <p className="text-muted-foreground">
-                  RUNE runs provider CLIs on the machine hosting the server. The add-instance wizard
-                  gives you copyable commands and the exact provider docs for each one.
+                  RUNE runs harness CLIs on the machine hosting the server. The add-instance wizard
+                  gives you copyable commands and the exact harness docs for each one.
                 </p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -762,7 +723,7 @@ export function EnvironmentProviderSettings({
             </div>
             <p className="text-xs text-muted-foreground">
               Tip: model IDs such as <code className="rounded bg-muted px-1">stealth/ox-alpha</code>{" "}
-              can be added in the Models section of the selected provider instance.
+              can be added in the Models section of the selected harness instance.
             </p>
           </DialogPanel>
         </DialogPopup>

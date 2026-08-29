@@ -21,6 +21,7 @@ import {
   type ModelServiceConfig,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServiceId,
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
@@ -129,7 +130,7 @@ const materializeOpenRouterHarnessCredential = (input: {
     // A bound connection that is missing or points at a non-OpenRouter
     // service must not fall back to an arbitrary global service.
     if (!service) return input.environment;
-    const secretName = service.credentialRef ?? `model-service:${service.serviceId}:api-key`;
+    const secretName = modelServiceCredentialRef(service);
     const secret = yield* input.secretStore.get(secretName).pipe(
       Effect.mapError(
         (cause) =>
@@ -203,8 +204,7 @@ const materializeBoundModelService = (input: {
       }
     }
 
-    const secretName = service.credentialRef?.trim();
-    if (secretName === undefined || secretName.length === 0) return [...values.values()];
+    const secretName = modelServiceCredentialRef(service);
     const secret = yield* input.secretStore.get(secretName).pipe(
       Effect.mapError(
         (cause) =>
@@ -304,6 +304,24 @@ function providerEnvironmentSecretName(input: {
   readonly name: string;
 }): string {
   return `provider-env-${Buffer.from(input.instanceId, "utf8").toString("base64url")}-${Buffer.from(input.name, "utf8").toString("base64url")}`;
+}
+
+const DEFAULT_MODEL_SERVICE_CREDENTIAL_PREFIX = "model-service:";
+
+function modelServiceCredentialRef(service: ModelServiceConfig): string {
+  const explicit = service.credentialRef?.trim();
+  // Credential references are used as filenames by ServerSecretStore. Keep
+  // legacy simple references, but never allow settings to escape the secrets
+  // directory through path traversal.
+  if (
+    explicit !== undefined &&
+    explicit.length > 0 &&
+    !explicit.includes("..") &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(explicit)
+  ) {
+    return explicit;
+  }
+  return `${DEFAULT_MODEL_SERVICE_CREDENTIAL_PREFIX}${String(service.serviceId)}:api-key`;
 }
 
 function redactProviderEnvironmentVariable(
@@ -616,6 +634,7 @@ const make = Effect.gen(function* () {
           providerInstances[instanceId] = {
             ...instance,
             environment: materializedEnvironment,
+            ...(boundService?.kind !== undefined ? { serviceKind: String(boundService.kind) } : {}),
             ...(isManagedConnection && instance.authMode === undefined
               ? { authMode: "rune-managed" as const }
               : {}),
@@ -637,10 +656,53 @@ const make = Effect.gen(function* () {
       };
     });
 
+  const projectModelServiceCredentialState = (
+    settings: ServerSettings,
+  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    Effect.gen(function* () {
+      const services = Object.fromEntries(
+        yield* Effect.forEach(
+          Object.entries(settings.harnesses.services),
+          ([id, service]) =>
+            Effect.gen(function* () {
+              if (service.kind === "native") return [id, service] as const;
+              const secret = yield* secretStore.get(modelServiceCredentialRef(service)).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ServerSettingsError({
+                      settingsPath,
+                      operation: "read-secret",
+                      cause,
+                    }),
+                ),
+              );
+              const { hasCredential: _hasCredential, maskedLabel: _maskedLabel, ...safeService } =
+                service;
+              return [
+                id,
+                {
+                  ...safeService,
+                  hasCredential: Option.isSome(secret),
+                  ...(Option.isSome(secret) ? { maskedLabel: "Stored API key" } : {}),
+                },
+              ] as const;
+            }),
+        ),
+      );
+      return {
+        ...settings,
+        harnesses: {
+          ...settings.harnesses,
+          services,
+        },
+      };
+    });
+
   const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
     changes.pipe(
       Stream.mapEffect((settings) =>
         materializeProviderEnvironmentSecrets(settings).pipe(
+          Effect.flatMap(projectModelServiceCredentialState),
           Effect.catch((error: ServerSettingsError) =>
             Effect.logWarning("failed to materialize provider environment secrets", {
               operation: error.operation,
@@ -755,6 +817,56 @@ const make = Effect.gen(function* () {
       };
     });
 
+  const persistModelServiceCredentials = (
+    current: ServerSettings,
+    next: ServerSettings,
+    credentials: ServerSettingsPatch["modelServiceCredentials"],
+  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    Effect.gen(function* () {
+      const currentServices = current.harnesses.services;
+      const nextServices = next.harnesses.services;
+
+      for (const [id, currentService] of Object.entries(currentServices)) {
+        const nextService = nextServices[ServiceId.make(id)];
+        const currentRef = modelServiceCredentialRef(currentService);
+        if (nextService === undefined || modelServiceCredentialRef(nextService) !== currentRef) {
+          yield* secretStore.remove(currentRef).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({
+                  settingsPath,
+                  operation: "remove-secret",
+                  cause,
+                }),
+            ),
+          );
+        }
+      }
+
+      for (const [id, value] of Object.entries(credentials ?? {})) {
+        const service = nextServices[ServiceId.make(id)];
+        if (service === undefined || service.kind === "native") continue;
+        const secretName = modelServiceCredentialRef(service);
+        const trimmed = value.trim();
+        const effect =
+          trimmed.length > 0
+            ? secretStore.set(secretName, textEncoder.encode(trimmed))
+            : secretStore.remove(secretName);
+        yield* effect.pipe(
+          Effect.mapError(
+            (cause) =>
+              new ServerSettingsError({
+                settingsPath,
+                operation: trimmed.length > 0 ? "write-secret" : "remove-secret",
+                cause,
+              }),
+          ),
+        );
+      }
+
+      return next;
+    });
+
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
@@ -852,22 +964,29 @@ const make = Effect.gen(function* () {
     ready: Deferred.await(startedDeferred),
     getSettings: getSettingsFromCache.pipe(
       Effect.flatMap(materializeProviderEnvironmentSecrets),
+      Effect.flatMap(projectModelServiceCredentialState),
       Effect.map(resolveTextGenerationProvider),
     ),
     updateSettings: (patch) =>
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const nextPersisted = yield* persistProviderEnvironmentSecrets(
+          const nextWithProviderSecrets = yield* persistProviderEnvironmentSecrets(
             current,
             applyServerSettingsPatch(current, patch),
+          );
+          const nextPersisted = yield* persistModelServiceCredentials(
+            current,
+            nextWithProviderSecrets,
+            patch.modelServiceCredentials,
           );
           const next = yield* normalizeServerSettings(nextPersisted);
           yield* writeSettingsAtomically(next);
           yield* Cache.set(settingsCache, cacheKey, next);
           yield* emitChange(next);
           const materialized = yield* materializeProviderEnvironmentSecrets(next);
-          return resolveTextGenerationProvider(materialized);
+          const projected = yield* projectModelServiceCredentialState(materialized);
+          return resolveTextGenerationProvider(projected);
         }),
       ),
     get streamChanges() {

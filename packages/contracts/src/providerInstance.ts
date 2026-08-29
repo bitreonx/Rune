@@ -145,6 +145,8 @@ export const ProviderInstanceRuntimeManifest = Schema.Struct({
   instanceId: ProviderInstanceId,
   driver: ProviderDriverKind,
   connectionId: Schema.optional(TrimmedNonEmptyString),
+  /** Model-service kind used to validate the connection route. */
+  serviceKind: Schema.optional(TrimmedNonEmptyString),
   protocol: Schema.optional(ServiceConnectionProtocol),
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   cwd: Schema.optional(TrimmedNonEmptyString),
@@ -183,6 +185,8 @@ export const ProviderInstanceConfig = Schema.Struct({
    * runtime materialization must not fall back to a global service.
   */
   connectionId: Schema.optional(TrimmedNonEmptyString),
+  /** Explicit model-service kind; never inferred from a URL at runtime. */
+  serviceKind: Schema.optionalKey(TrimmedNonEmptyString),
   authMode: Schema.optional(ProviderInstanceAuthMode),
   runtimeHomePolicy: Schema.optional(ProviderInstanceRuntimeHomePolicy),
   modelProfileId: Schema.optional(TrimmedNonEmptyString),

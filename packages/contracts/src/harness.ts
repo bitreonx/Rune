@@ -63,6 +63,7 @@ export const MODEL_SERVICE_KINDS = [
   "openai",
   "anthropic",
   "google",
+  "deepseek",
   "custom-openai-compatible",
   "custom-anthropic-compatible",
 ] as const;

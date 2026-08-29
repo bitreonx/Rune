@@ -133,6 +133,7 @@ import {
 import { SkillInlineText } from "./SkillInlineText";
 import { formatWorkspaceRelativePath, resolveWorkspaceRelativePath } from "../../filePathDisplay";
 import { PierreEntryIcon } from "./PierreEntryIcon";
+import { ChangePulse } from "./ChangePulse";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -3093,6 +3094,19 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         resolvedTheme={shared.resolvedTheme}
         onOpenFile={shared.onOpenFile}
       />
+      {workEntry.activityJob ? (
+        <ChangePulse
+          job={workEntry.activityJob}
+          workspaceRoot={workspaceRoot}
+          onOpenFile={(filePath) => {
+            if (workEntry.turnId !== null && workEntry.turnId !== undefined) {
+              shared.onOpenTurnDiff(workEntry.turnId, filePath);
+            } else {
+              shared.onOpenFile(filePath);
+            }
+          }}
+        />
+      ) : null}
       {expanded && canExpand ? (
         <div
           className="mt-1 ms-7 cursor-default border-s border-border/45 ps-3 pt-0.5"

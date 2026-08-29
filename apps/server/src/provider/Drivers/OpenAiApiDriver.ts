@@ -34,7 +34,7 @@ export const OpenAiApiDriver: ProviderDriver<OpenAiApiSettings, OpenAiApiDriverE
   metadata: { displayName: "OpenAI API", supportsMultipleInstances: true },
   configSchema: OpenAiApiSettings,
   defaultConfig: () => decodeSettings({}),
-  create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
+  create: ({ instanceId, displayName, accentColor, environment, enabled, config, runtime }) =>
     makeApiProviderInstance({
       driver: DRIVER_KIND,
       settings: { ...config, enabled },
@@ -50,6 +50,7 @@ export const OpenAiApiDriver: ProviderDriver<OpenAiApiSettings, OpenAiApiDriverE
         ...(config.organization ? { "OpenAI-Organization": config.organization } : {}),
         ...(config.project ? { "OpenAI-Project": config.project } : {}),
       },
+      ...(runtime === undefined ? {} : { runtime }),
     }).pipe(
       Effect.mapError(
         (cause) =>

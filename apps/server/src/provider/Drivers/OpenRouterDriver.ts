@@ -35,7 +35,7 @@ export const OpenRouterDriver: ProviderDriver<OpenRouterSettings, OpenRouterDriv
   metadata: { displayName: "OpenRouter", supportsMultipleInstances: true },
   configSchema: OpenRouterSettings,
   defaultConfig: () => decodeSettings({}),
-  create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
+  create: ({ instanceId, displayName, accentColor, environment, enabled, config, runtime }) =>
     makeApiProviderInstance({
       driver: DRIVER_KIND,
       settings: { ...config, enabled },
@@ -52,6 +52,7 @@ export const OpenRouterDriver: ProviderDriver<OpenRouterSettings, OpenRouterDriv
         ...(config.siteUrl ? { "HTTP-Referer": config.siteUrl } : {}),
         ...(config.appName ? { "X-Title": config.appName } : {}),
       },
+      ...(runtime === undefined ? {} : { runtime }),
     }).pipe(
       Effect.mapError(
         (cause) =>

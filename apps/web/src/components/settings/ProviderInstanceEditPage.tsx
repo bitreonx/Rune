@@ -4,6 +4,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
+  ProfileId,
   resolveProviderInstanceEnabled,
   type EnvironmentId,
   type ProviderInstanceConfig,
@@ -15,7 +16,7 @@ import type { UnifiedSettings } from "@rune/contracts/settings";
 import { ArrowLeftIcon, Trash2Icon } from "lucide-react";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
@@ -32,7 +33,13 @@ import {
   listProviderInstanceSlots,
   type ResolvedInstanceSlot,
 } from "../../providerInstanceSlots";
+import {
+  buildProfileInstanceUpdatePatch,
+  buildProviderInstanceRemovalPatch,
+  buildProviderInstanceResetPatch,
+} from "../../providerInstanceLifecycle";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -62,8 +69,9 @@ import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeS
 import { getDriverOption } from "./providerDriverMeta";
 import {
   PROVIDER_STATUS_STYLES,
-  getProviderSummary,
-  resolveProviderStatusKey,
+  instanceReadinessLabel,
+  instanceReadinessStatusKey,
+  resolveInstanceReadiness,
 } from "./providerStatus";
 import { buildProviderInstanceUpdatePatch } from "./SettingsPanels.logic";
 import {
@@ -91,6 +99,7 @@ function withoutRecordKey<V>(
 export function ProviderInstanceEditPage(props: {
   readonly instanceId: ProviderInstanceId;
   readonly environmentId: EnvironmentId;
+  readonly recoveryDriver?: ProviderDriverKind;
 }) {
   const { environmentId, instanceId } = props;
   const navigate = useNavigate();
@@ -98,11 +107,29 @@ export function ProviderInstanceEditPage(props: {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const serverProviders =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshInstance = useCallback(() => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    void refreshProviders({ environmentId, input: { instanceId } }).finally(() => {
+      setIsRefreshing(false);
+    });
+  }, [environmentId, instanceId, isRefreshing, refreshProviders]);
 
   // The envelope carries its own driver; for a missing envelope the id itself
   // is the driver slug (default slots are keyed by `defaultInstanceIdForDriver`).
   const explicitEnvelope = settings.providerInstances?.[instanceId];
-  const driver = explicitEnvelope?.driver ?? ProviderDriverKind.make(String(instanceId));
+  const profile = Object.values(settings.harnesses?.profiles ?? {}).find(
+    (candidate) => String(candidate.instanceId) === String(instanceId),
+  );
+  const driver =
+    explicitEnvelope?.driver ??
+    (profile ? ProviderDriverKind.make(String(profile.harnessKind)) : undefined) ??
+    props.recoveryDriver ??
+    ProviderDriverKind.make(String(instanceId));
   const slot: ResolvedInstanceSlot | undefined = resolveProviderInstanceSlot(
     settings,
     driver,
@@ -117,26 +144,38 @@ export function ProviderInstanceEditPage(props: {
       (candidate) => candidate.instanceId === instanceId,
     );
   }, [serverProviders, instanceId]);
+  const [recreateOpen, setRecreateOpen] = useState(false);
 
   if (!slot) {
+    const driverOption = getDriverOption(driver);
     return (
       <SettingsPageContainer>
-        <SettingsSection title="Providers">
+        <SettingsSection title={driverOption?.label ?? "Agent Harness"}>
           <SettingsRow
-            title="Provider not found"
-            description="This provider instance no longer exists in this environment's settings."
+            title="This instance was removed."
+            description="The saved route no longer exists in this environment. Create a new instance to continue."
           />
-          <div className="px-3 sm:px-4">
+          <div className="flex flex-wrap gap-2 px-3 sm:px-4">
             <Button
               size="sm"
               variant="outline"
               onClick={() => void navigate({ to: "/settings/providers" })}
             >
               <ArrowLeftIcon className="size-3.5" />
-              Back to providers
+              Back to {driverOption?.label ?? "harnesses"}
+            </Button>
+            <Button size="sm" onClick={() => setRecreateOpen(true)}>
+              Create new instance
             </Button>
           </div>
         </SettingsSection>
+        <AddProviderInstanceDialog
+          open={recreateOpen}
+          environmentId={environmentId}
+          environmentLabel="this device"
+          initialDriver={driver}
+          onOpenChange={setRecreateOpen}
+        />
       </SettingsPageContainer>
     );
   }
@@ -154,10 +193,12 @@ export function ProviderInstanceEditPage(props: {
         void navigate({
           to: "/settings/providers/$instanceId",
           params: { instanceId: String(nextInstanceId) },
-          search: { env: String(environmentId) },
+          search: { env: String(environmentId), driver: String(slot.driver) },
         })
       }
       onBack={() => void navigate({ to: "/settings/providers" })}
+      onRefresh={refreshInstance}
+      isRefreshing={isRefreshing}
     />
   );
 }
@@ -172,6 +213,8 @@ function ProviderInstanceEditContent(props: {
   readonly familySlots: ReadonlyArray<ResolvedInstanceSlot>;
   readonly onOpenInstance: (instanceId: ProviderInstanceId) => void;
   readonly onBack: () => void;
+  readonly onRefresh: () => void;
+  readonly isRefreshing: boolean;
 }) {
   const {
     slot,
@@ -182,6 +225,8 @@ function ProviderInstanceEditContent(props: {
     familySlots,
     onOpenInstance,
     onBack,
+    onRefresh,
+    isRefreshing,
   } = props;
   const instance = slot.instance;
   const instanceId = slot.instanceId;
@@ -189,11 +234,13 @@ function ProviderInstanceEditContent(props: {
   const isClaude = String(slot.driver) === String(CLAUDE_SUBSCRIPTION_DRIVER);
 
   const enabled = resolveProviderInstanceEnabled(instance);
-  const statusKey = resolveProviderStatusKey(entry?.snapshot, {
-    driver: slot.driver,
-    enabled,
+  const services = settings.harnesses?.services;
+  const readiness = resolveInstanceReadiness({
+    instance,
+    ...(entry?.snapshot === undefined ? {} : { provider: entry.snapshot }),
+    ...(services === undefined ? {} : { services }),
   });
-  const summary = getProviderSummary(entry?.snapshot);
+  const statusKey = instanceReadinessStatusKey(readiness);
   const displayName = instance.displayName?.trim() || driverOption?.label || String(slot.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
   const badge = entry ? instanceBadgePresentation(entry, [entry]) : null;
@@ -206,20 +253,26 @@ function ProviderInstanceEditContent(props: {
       readonly clearTextGeneration?: boolean;
     },
   ) => {
-    updateSettings(
-      buildProviderInstanceUpdatePatch({
+    const selectionPatch = options?.clearTextGeneration
+      ? { textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection }
+      : {};
+    if (slot.source === "profile") {
+      updateSettings({
+        ...buildProfileInstanceUpdatePatch({ settings, slot, instance: next }),
+        ...selectionPatch,
+      });
+      return;
+    }
+    updateSettings({
+      ...buildProviderInstanceUpdatePatch({
         settings,
         instanceId,
         instance: next,
         driver: slot.driver,
         isDefault: slot.isDefault,
-        ...(options?.clearTextGeneration
-          ? {
-              textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-            }
-          : {}),
       }),
-    );
+      ...selectionPatch,
+    });
   };
 
   // Mirrors the flat list's onUpdate branch: disabling the instance that owns
@@ -284,6 +337,15 @@ function ProviderInstanceEditContent(props: {
     );
   };
 
+  const updateConnectionId = (connectionId: string | undefined) => {
+    const { connectionId: _omit, ...rest } = instance;
+    applyUpdate(
+      connectionId === undefined
+        ? ({ ...rest, authMode: "native" } as ProviderInstanceConfig)
+        : ({ ...rest, connectionId, authMode: "rune-managed" } as ProviderInstanceConfig),
+    );
+  };
+
   const updateModelPreferences = (next: {
     readonly hiddenModels: ReadonlyArray<string>;
     readonly modelOrder: ReadonlyArray<string>;
@@ -317,19 +379,7 @@ function ProviderInstanceEditContent(props: {
   };
 
   const resetDefault = () => {
-    const legacyDefaults = DEFAULT_UNIFIED_SETTINGS.providers as Record<
-      string,
-      unknown | undefined
-    >;
-    const blob = legacyDefaults[String(slot.driver)];
-    if (blob === undefined) return;
-    updateSettings({
-      providers: {
-        ...settings.providers,
-        [slot.driver]: blob,
-      } as typeof settings.providers,
-      providerInstances: withoutRecordKey(settings.providerInstances, instanceId),
-    });
+    updateSettings(buildProviderInstanceResetPatch({ settings, instanceId, driver: slot.driver }));
   };
 
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -339,14 +389,15 @@ function ProviderInstanceEditContent(props: {
       setDeleteArmed(true);
       return;
     }
-    updateSettings({
-      providerInstances: withoutRecordKey(settings.providerInstances, instanceId),
-    });
+    updateSettings(buildProviderInstanceRemovalPatch({ settings, instanceId }));
     onBack();
   };
 
   const duplicateInstance = () => {
-    const existingIds = new Set(Object.keys(settings.providerInstances ?? {}));
+    const existingIds = new Set([
+      ...Object.keys(settings.providerInstances ?? {}),
+      ...Object.values(settings.harnesses?.profiles ?? {}).map((profile) => String(profile.instanceId)),
+    ]);
     const base = `${String(instanceId)}_copy`;
     let candidate = base;
     let suffix = 2;
@@ -356,19 +407,41 @@ function ProviderInstanceEditContent(props: {
     }
     const copyId = ProviderInstanceId.make(candidate);
     const copyName = `${displayName} Copy`;
-    updateSettings({
-      providerInstances: {
-        ...settings.providerInstances,
-        [copyId]: {
-          ...instance,
-          displayName: copyName,
-          enabled: true,
-          config: withIsolatedProviderInstanceConfig(slot.driver, copyId, instance.config, {
-            overwriteExisting: true,
-          }),
+    if (slot.source === "profile" && slot.profileId !== undefined) {
+      const profile = settings.harnesses?.profiles?.[slot.profileId];
+      if (profile !== undefined) {
+        const copyProfileId = ProfileId.make(candidate);
+        updateSettings({
+          harnesses: {
+            profiles: {
+              ...settings.harnesses?.profiles,
+              [copyProfileId]: {
+                ...profile,
+                profileId: copyProfileId,
+                instanceId: copyId,
+                displayName: copyName,
+                enabled: true,
+              },
+            },
+            services: settings.harnesses?.services ?? {},
+          },
+        });
+      }
+    } else {
+      updateSettings({
+        providerInstances: {
+          ...settings.providerInstances,
+          [copyId]: {
+            ...instance,
+            displayName: copyName,
+            enabled: true,
+            config: withIsolatedProviderInstanceConfig(slot.driver, copyId, instance.config, {
+              overwriteExisting: true,
+            }),
+          },
         },
-      },
-    });
+      });
+    }
     onOpenInstance(copyId);
   };
 
@@ -400,7 +473,7 @@ function ProviderInstanceEditContent(props: {
             size="icon-sm"
             variant="ghost-muted"
             onClick={onBack}
-            aria-label="Back to providers"
+            aria-label="Back to harnesses"
           >
             <ArrowLeftIcon className="size-4" />
           </Button>
@@ -426,10 +499,17 @@ function ProviderInstanceEditContent(props: {
                   {String(instanceId)}
                 </code>
               ) : null}
-              <StatusBadge statusKey={statusKey} className="bg-background" />
+              <StatusBadge readiness={readiness} className="bg-background" />
             </div>
           </div>
-          <ProviderSetupNotice driver={slot.driver} provider={entry?.snapshot} />
+          <ProviderSetupNotice
+            driver={slot.driver}
+            provider={entry?.snapshot}
+            instanceLabel={displayName}
+            readiness={readiness}
+            onRefresh={onRefresh}
+            isRefreshing={isRefreshing}
+          />
           <div className="flex items-center gap-2">
             {slot.isDefault && slot.isDirty ? (
               <SettingResetButton
@@ -462,10 +542,12 @@ function ProviderInstanceEditContent(props: {
               const candidateEntry = props.serverProviders.find(
                 (provider) => provider.instanceId === candidate.instanceId,
               );
-              const candidateStatus = resolveProviderStatusKey(candidateEntry, {
-                driver: candidate.driver,
-                enabled: resolveProviderInstanceEnabled(candidate.instance),
+              const candidateReadiness = resolveInstanceReadiness({
+                instance: candidate.instance,
+                ...(candidateEntry === undefined ? {} : { provider: candidateEntry }),
+                ...(services === undefined ? {} : { services }),
               });
+              const candidateStatus = instanceReadinessStatusKey(candidateReadiness);
               const candidateName =
                 candidate.instance.displayName?.trim() ||
                 getDriverOption(candidate.driver)?.label ||
@@ -516,7 +598,7 @@ function ProviderInstanceEditContent(props: {
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                       {candidateEntry?.models.length ?? 0} models ·{" "}
-                      {getProviderSummary(candidateEntry).headline}
+                      {instanceReadinessLabel(candidateReadiness)}
                     </span>
                   </span>
                 </button>
@@ -573,6 +655,14 @@ function ProviderInstanceEditContent(props: {
                   environment={instance.environment ?? []}
                   settings={settings}
                   onChange={updateEnvironment}
+                  {...(slot.source === "profile"
+                    ? {
+                        ...(instance.connectionId !== undefined
+                          ? { connectionId: instance.connectionId }
+                          : {}),
+                        onConnectionIdChange: updateConnectionId,
+                      }
+                    : {})}
                 />
               </div>
             </SettingsSection>

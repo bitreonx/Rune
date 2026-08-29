@@ -2,6 +2,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HostProcessPlatform } from "@rune/shared/hostProcess";
+import { getHostCommandProfile } from "@rune/shared/hostCommandProfile";
 import {
   RuneCommandOperation,
   type RuneCommandOperation as RuneCommandOperationType,
@@ -9,7 +10,11 @@ import {
 } from "@rune/contracts";
 import { WINDOWS_SHELL_CANDIDATES, windowsPowerShellArgs } from "@rune/shared/shell";
 
-import { isWindowsCommandNotFound, ProcessRunner } from "../../processRunner.ts";
+import {
+  classifyProcessFailure,
+  isWindowsCommandNotFound,
+  ProcessRunner,
+} from "../../processRunner.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { COMPOUND_MUTATION_TOOLS, COMPOUND_READ_TOOLS } from "./ApiWorkspaceTools.ts";
@@ -28,7 +33,7 @@ export interface NativeToolContext {
   readonly cwd: string;
   readonly workspaceFileSystem: typeof WorkspaceFileSystem.Service;
   readonly workspaceEntries: typeof WorkspaceEntries.Service;
-  /** Required by `bash`; absent contexts fail that tool with an observation. */
+  /** Required by `shell`; absent contexts fail that tool with an observation. */
   readonly processRunner?: typeof ProcessRunner.Service | undefined;
 }
 
@@ -73,6 +78,35 @@ const clamp = (text: string): string =>
   text.length <= MAX_OBSERVATION_CHARS
     ? text
     : `${text.slice(0, MAX_OBSERVATION_CHARS)}\n[clamped]`;
+
+const formatProcessObservation = (input: {
+  readonly platform: NodeJS.Platform;
+  readonly command: string;
+  readonly cwd: string;
+  readonly result: {
+    readonly code: number | null;
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly timedOut: boolean;
+    readonly stdoutTruncated: boolean;
+    readonly stderrTruncated: boolean;
+    readonly stdoutInvalidUtf8: boolean;
+    readonly stderrInvalidUtf8: boolean;
+  };
+}): string => {
+  const failure = classifyProcessFailure({
+    platform: input.platform,
+    runInput: { command: input.command, cwd: input.cwd },
+    output: input.result,
+  });
+  const sections: Array<string> = [];
+  if (failure !== undefined) sections.push(`failure ${failure}`);
+  sections.push(`exit ${String(input.result.code)}${input.result.timedOut ? " (timed out)" : ""}`);
+  if (input.result.stdout.length > 0) sections.push(input.result.stdout.replace(/\n$/u, ""));
+  if (input.result.stderr.length > 0) sections.push(`[stderr]\n${input.result.stderr}`);
+  if (input.result.stdoutTruncated || input.result.stderrTruncated) sections.push("[output truncated]");
+  return clamp(sections.join("\n"));
+};
 
 /**
  * Native API models use this tool to pause the same turn while the composer
@@ -146,7 +180,8 @@ export function parseAskUserQuestions(
       const header = stringArg(question.header).trim() || `Question ${index + 1}`;
       const options = Array.isArray(question.options)
         ? question.options
-            .flatMap((rawOption): ReadonlyArray<{ label: string; description: string }> => {
+            .flatMap(
+              (rawOption): ReadonlyArray<{ id?: string; label: string; description: string }> => {
               if (rawOption === null || typeof rawOption !== "object" || Array.isArray(rawOption))
                 return [];
               const option = rawOption as Record<string, unknown>;
@@ -160,7 +195,8 @@ export function parseAskUserQuestions(
                   description: stringArg(option.description).trim() || label,
                 },
               ];
-            })
+              },
+            )
             .slice(0, 8)
         : [];
       const recommendedOptionId = stringArg(question.recommendedOptionId).trim();
@@ -317,6 +353,81 @@ function pathMatchesRoot(filePath: string, root: string): boolean {
 }
 
 /**
+ * Keep the operation union concrete on the model wire. A generic object
+ * description makes models guess the discriminant and is the main reason
+ * they fall back to raw shell for deterministic repository work.
+ */
+export const RUNE_OPERATION_JSON_SCHEMA: {
+  readonly oneOf: ReadonlyArray<Record<string, unknown>>;
+} = {
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "search" },
+        query: { type: "string", minLength: 1, maxLength: 512 },
+        roots: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 32 },
+        glob: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 32 },
+        contextLines: { type: "integer", minimum: 0 },
+      },
+      required: ["kind", "query", "roots"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "readLines" },
+        path: { type: "string", minLength: 1, maxLength: 1024 },
+        start: { type: "integer", minimum: 1 },
+        end: { type: "integer", minimum: 1 },
+      },
+      required: ["kind", "path", "start", "end"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "listDirectory" },
+        path: { type: "string", minLength: 1, maxLength: 1024 },
+        depth: { type: "integer", minimum: 0 },
+      },
+      required: ["kind", "path"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "findFiles" },
+        query: { type: "string", minLength: 1, maxLength: 512 },
+        root: { type: "string", minLength: 1, maxLength: 1024 },
+      },
+      required: ["kind", "query", "root"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "runProcess" },
+        executable: { type: "string", minLength: 1, maxLength: 1024 },
+        args: { type: "array", items: { type: "string" }, maxItems: 64 },
+        cwd: { type: "string", minLength: 1, maxLength: 1024 },
+      },
+      required: ["kind", "executable", "args", "cwd"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "runTest" },
+        target: { type: "string", minLength: 1, maxLength: 1024 },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+  ],
+};
+
+/**
  * Execute the provider-neutral command IR against the existing confined
  * workspace services. Ordinary repository work never needs shell syntax.
  */
@@ -329,7 +440,8 @@ export const runeOperationTool: NativeToolDef = {
     properties: {
       operation: {
         type: "object",
-        description: "A RuneCommandOperation discriminated by its kind field.",
+        description: "Choose exactly one structured repository operation by its kind field.",
+        ...RUNE_OPERATION_JSON_SCHEMA,
       },
     },
     required: ["operation"],
@@ -348,8 +460,9 @@ export const runeOperationTool: NativeToolDef = {
           ? operation.args
           : ["test", "run", ...(operation.target === undefined ? [] : [operation.target])];
       const cwd = operation.kind === "runProcess" ? operation.cwd : ctx.cwd;
-      return ctx.processRunner
-        .run({
+      return Effect.gen(function* () {
+        const platform = yield* HostProcessPlatform;
+        const result = yield* ctx.processRunner!.run({
           command,
           args: processArgs,
           cwd,
@@ -357,15 +470,9 @@ export const runeOperationTool: NativeToolDef = {
           maxOutputBytes: 64 * 1024,
           outputMode: "truncate",
           timeoutBehavior: "timedOutResult",
-        })
-        .pipe(
-          Effect.map((result) =>
-            clamp(
-              `exit ${String(result.code)}${result.timedOut ? " (timed out)" : ""}\n${result.stdout}${result.stderr.length > 0 ? `\n[stderr]\n${result.stderr}` : ""}`,
-            ),
-          ),
-          observe,
-        );
+        });
+        return formatProcessObservation({ platform, command, cwd, result });
+      }).pipe(observe);
     }
 
     if (operation.kind === "readLines") {
@@ -493,10 +600,9 @@ export const editFileTool: NativeToolDef = {
   },
 };
 
-export const bashTool: NativeToolDef = {
-  name: "bash",
-  description:
-    "Run an explicit raw shell command in the workspace root. Use rune_operation for ordinary repository work; this escape hatch preserves the selected OS shell dialect.",
+export const shellTool: NativeToolDef = {
+  name: "shell",
+  description: `Run an explicit raw ${getHostCommandProfile().preferredShellDialect} command. Prefer rune_operation for file discovery, process execution, and focused tests; use this only when shell grammar is required.`,
   parametersJsonSchema: {
     type: "object",
     properties: {
@@ -509,11 +615,12 @@ export const bashTool: NativeToolDef = {
   execute: (args, ctx) => {
     const runner = ctx.processRunner;
     if (!runner) {
-      return Effect.succeed("Error: bash is unavailable in this context");
+      return Effect.succeed("Error: shell is unavailable in this context");
     }
     const command = stringArg(args.command);
     return Effect.gen(function* () {
-      const isWindows = (yield* HostProcessPlatform) === "win32";
+      const platform = yield* HostProcessPlatform;
+      const isWindows = platform === "win32";
       const output = isWindows
         ? yield* Effect.suspend(() => {
             const runWindowsPowerShell = (index: number): ReturnType<typeof runner.run> => {
@@ -559,11 +666,12 @@ export const bashTool: NativeToolDef = {
             outputMode: "truncate",
             timeoutBehavior: "timedOutResult",
           });
-      const sections: Array<string> = [];
-      if (output.stdout.length > 0) sections.push(output.stdout.replace(/\n$/, ""));
-      if (output.stderr.length > 0) sections.push(`[stderr]\n${output.stderr}`);
-      const suffix = `${output.timedOut ? " (timed out)" : ""}${output.stdoutTruncated || output.stderrTruncated ? " [output truncated]" : ""}`;
-      return clamp(`exit ${String(output.code)}${suffix}\n${sections.join("\n")}`);
+      return formatProcessObservation({
+        platform,
+        command: isWindows ? "powershell.exe" : "bash",
+        cwd: ctx.cwd,
+        result: output,
+      });
     }).pipe(observe);
   },
 };
@@ -572,7 +680,7 @@ export const GATED_TOOLS: ReadonlyArray<NativeToolDef> = [
   ...COMPOUND_MUTATION_TOOLS,
   editFileTool,
   runeOperationTool,
-  bashTool,
+  shellTool,
 ];
 
 export const NATIVE_TOOLS: ReadonlyArray<NativeToolDef> = [...SAFE_TOOLS, ...GATED_TOOLS];

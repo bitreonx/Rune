@@ -1,7 +1,11 @@
 import {
+  HarnessKind,
   type ProviderInstanceConfig,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProfileId,
+  ServiceId,
+  type HarnessProfileConfig,
   type ServerSettings,
 } from "@rune/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@rune/contracts/settings";
@@ -41,6 +45,45 @@ function settingsFrom(input: {
 }
 
 describe("resolveProviderInstanceSlot", () => {
+  it("resolves a profile-backed custom instance through the same slot as legacy instances", () => {
+    const instanceId = ProviderInstanceId.make("claude_work");
+    const profileId = ProfileId.make("claude_work");
+    const profiles: Record<ProfileId, HarnessProfileConfig> = {};
+    profiles[profileId] = {
+      profileId,
+      harnessKind: HarnessKind.make("claudeAgent"),
+      displayName: "Claude Work",
+      enabled: true,
+      instanceId,
+      route: {
+        modelServiceId: ServiceId.make("openrouter_work"),
+        defaultModel: "claude-sonnet-4",
+        sameModelEverywhere: true,
+        roleOverrides: {},
+      },
+      routeVersion: 1,
+    };
+    const settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      harnesses: {
+        ...DEFAULT_UNIFIED_SETTINGS.harnesses,
+        profiles,
+      },
+    } as ServerSettings;
+
+    expect(resolveProviderInstanceSlot(settings, claude, instanceId)).toMatchObject({
+      instanceId,
+      driver: claude,
+      isDefault: false,
+      isDirty: true,
+      source: "profile",
+    });
+    expect(resolveProviderInstanceSlot(settings, claude, instanceId)?.instance).toMatchObject({
+      connectionId: "openrouter_work",
+      modelBindings: { main: "claude-sonnet-4" },
+    });
+  });
+
   it("prefers an explicit envelope over the legacy blob at the default id", () => {
     const settings = settingsFrom({
       providers: { claudeAgent: { enabled: false } },

@@ -19,7 +19,7 @@
  *
  * @module ProviderAdapterRegistry
  */
-import type { ProviderDriverKind, ProviderInstanceId } from "@rune/contracts";
+import type { HarnessModelRoutePlan, ProviderDriverKind, ProviderInstanceId } from "@rune/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as PubSub from "effect/PubSub";
@@ -40,6 +40,8 @@ export interface ProviderInstanceRoutingInfo {
   /** Fingerprint of the compiled launch manifest used by this instance. */
   readonly runtimeManifestFingerprint?: string | undefined;
   readonly serviceConnectionId?: string | undefined;
+  readonly serviceKind?: string | undefined;
+  readonly routePlan?: HarnessModelRoutePlan | undefined;
   readonly modelProfileId?: string | undefined;
   readonly runtimeManifestVersion?: number | undefined;
 }

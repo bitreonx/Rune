@@ -18,20 +18,22 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
-const SERVICE_KIND_LABELS: Record<ModelServiceKind, string> = {
+export const SERVICE_KIND_LABELS: Record<ModelServiceKind, string> = {
   native: "Native Subscription / Account",
   openrouter: "OpenRouter",
   anthropic: "Anthropic API",
   openai: "OpenAI API",
   google: "Google Gemini API",
+  deepseek: "DeepSeek API",
   "custom-openai-compatible": "Custom OpenAI-compatible Gateway",
   "custom-anthropic-compatible": "Custom Anthropic-compatible Gateway",
 };
 
-const DEFAULT_BASE_URLS: Partial<Record<ModelServiceKind, string>> = {
+export const DEFAULT_BASE_URLS: Partial<Record<ModelServiceKind, string>> = {
   openrouter: "https://openrouter.ai/api/v1",
   openai: "https://api.openai.com/v1",
   anthropic: "https://api.anthropic.com",
+  deepseek: "https://api.deepseek.com/v1",
 };
 
 export function AddServiceDialog(props: {
@@ -39,6 +41,8 @@ export function AddServiceDialog(props: {
   onOpenChange: (open: boolean) => void;
   onSave: (service: ModelServiceConfig, apiKey?: string) => void;
   editingService?: ModelServiceConfig | null;
+  usageCount?: number;
+  onDelete?: () => void;
 }) {
   const [kind, setKind] = useState<ModelServiceKind>(
     props.editingService?.kind ?? "openrouter",
@@ -75,11 +79,12 @@ export function AddServiceDialog(props: {
       kind,
       displayName: displayName.trim() || SERVICE_KIND_LABELS[kind],
       ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-      ...(apiKey.trim()
-        ? { credentialRef: `model-service:${serviceId}:api-key` }
-        : props.editingService?.credentialRef
-          ? { credentialRef: props.editingService.credentialRef }
-          : {}),
+      ...(kind !== "native"
+        ? {
+            credentialRef:
+              props.editingService?.credentialRef ?? `model-service:${serviceId}:api-key`,
+          }
+        : {}),
       hasCredential: Boolean(apiKey.trim() || props.editingService?.hasCredential),
     };
 
@@ -157,9 +162,27 @@ export function AddServiceDialog(props: {
                   required={!props.editingService?.hasCredential}
                 />
               </div>
+              {props.editingService && props.usageCount && props.usageCount > 0 ? (
+                <p className="text-xs text-muted-foreground" role="status">
+                  This service is used by {props.usageCount} harness instance
+                  {props.usageCount === 1 ? "" : "s"}. Reconnect those instances before removing
+                  the service.
+                </p>
+              ) : null}
             </div>
 
             <DialogFooter>
+              {props.editingService && props.onDelete ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={props.onDelete}
+                  disabled={Boolean(props.usageCount)}
+                  className="mr-auto"
+                >
+                  Remove service
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

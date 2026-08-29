@@ -154,6 +154,10 @@ function persistClientSettings(settings: ClientSettings): void {
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
+// Write-only fields are intentionally absent from ServerSettings so they can
+// never be hydrated into the client snapshot, but still travel through the
+// server update-settings RPC.
+SERVER_SETTINGS_KEYS.add("modelServiceCredentials");
 
 function splitPatch(patch: UnifiedSettingsPatch): {
   serverPatch: ServerSettingsPatch;

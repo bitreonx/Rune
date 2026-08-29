@@ -302,6 +302,7 @@ function makeProviderServiceLayer() {
           runtimeManifestFingerprint:
             manifestFingerprints.get(instanceId) ?? `manifest:${String(instanceId)}`,
           serviceConnectionId: `service:${String(instanceId)}`,
+          serviceKind: "openai",
           modelProfileId: `profile:${String(instanceId)}`,
           runtimeManifestVersion: 1,
         })),
@@ -1948,6 +1949,48 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         ),
         true,
       );
+    }),
+  );
+
+  it.effect("adds a secret-free runtime route receipt to native turn starts", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-route"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-route"),
+        runtimeMode: "full-access",
+      });
+
+      const receivedRef = yield* Ref.make<Array<ProviderRuntimeEvent>>([]);
+      const consumer = yield* Stream.take(provider.streamEvents, 1).pipe(
+        Stream.runForEach((event) => Ref.update(receivedRef, (current) => [...current, event])),
+        Effect.forkChild,
+      );
+      yield* advanceTestClock(50);
+
+      fanout.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("evt-route"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        threadId: session.threadId,
+        turnId: asTurnId("turn-route"),
+        payload: { model: "gpt-5.6" },
+      });
+
+      yield* Fiber.join(consumer);
+      const [event] = yield* Ref.get(receivedRef);
+      assert.equal(event?.type, "turn.started");
+      if (event?.type === "turn.started") {
+        assert.deepEqual(event.payload.route, {
+          harness: "codex",
+          instanceId: codexInstanceId,
+          connectionId: "service:codex",
+          serviceKind: "openai",
+          model: "gpt-5.6",
+        });
+      }
     }),
   );
 

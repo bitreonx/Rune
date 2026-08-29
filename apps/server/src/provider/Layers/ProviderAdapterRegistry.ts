@@ -64,6 +64,8 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
               continuationIdentity: instance.continuationIdentity,
               runtimeManifestFingerprint: instance.runtime?.manifest.fingerprint,
               serviceConnectionId: instance.runtime?.manifest.connectionId,
+              serviceKind: instance.runtime?.manifest.serviceKind,
+              routePlan: instance.runtime?.routePlan,
               modelProfileId: instance.runtime?.manifest.modelProfileId,
               runtimeManifestVersion: instance.runtime?.manifest.manifestVersion,
             }),

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { commandIntentGuidance } from "../CommandIntentPolicy.ts";
+
 /**
  * Prompt assembly for the native agent loop.
  *
@@ -27,6 +29,7 @@ export const defaultToolGuidance = [
   "- Keep command output small; you will see only what fits.",
   "Verify edits compile/run when the workspace has fast checks available.",
   "Ask at most four focused questions at once, only for decisions that materially change the work; otherwise make a reasonable assumption and continue.",
+  commandIntentGuidance(),
 ].join("\n");
 
 export function compileSystemPrompt(input: {

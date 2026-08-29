@@ -13,7 +13,13 @@ import {
   type ProviderInstanceRuntimeHomePolicy,
   type ProviderInstanceRuntimeManifest,
   type ServiceConnectionProtocol,
+  ModelServiceKind,
+  type HarnessModelRoutePlan,
 } from "@rune/contracts";
+
+import * as Schema from "effect/Schema";
+
+import { planHarnessModelRoute } from "./HarnessModelRoutePlanner.ts";
 
 const ROUTING_ENVIRONMENT_NAMES = [
   "ANTHROPIC_API_KEY",
@@ -41,7 +47,6 @@ const readString = (record: Record<string, unknown>, key: string): string | unde
   const value = record[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 };
-
 const applyEnvironment = (
   target: NodeJS.ProcessEnv,
   variables: ProviderInstanceEnvironment | undefined,
@@ -60,6 +65,8 @@ export interface CompiledProviderInstanceRuntime {
   /** Minimal override list passed to existing provider drivers. */
   readonly environmentOverrides: ProviderInstanceEnvironment;
   readonly manifest: ProviderInstanceRuntimeManifest;
+  /** Validated, secret-free route decision used to build this instance. */
+  readonly routePlan?: HarnessModelRoutePlan;
 }
 
 export interface CompileProviderInstanceRuntimeInput {
@@ -75,9 +82,84 @@ export interface CompileProviderInstanceRuntimeInput {
   readonly generatedAt: string;
   readonly isolatedHomeRoot?: string;
   readonly protocol?: ServiceConnectionProtocol;
+  readonly serviceKind?: string;
   readonly compatibilityProfileVersion?: string;
   readonly modelBindings?: Readonly<Record<string, string>>;
+  readonly routePlan?: HarnessModelRoutePlan;
 }
+
+const firstConfiguredModel = (typedConfig: unknown): string | undefined => {
+  if (typedConfig === null || typeof typedConfig !== "object" || Array.isArray(typedConfig)) {
+    return undefined;
+  }
+  const customModels = (typedConfig as Record<string, unknown>).customModels;
+  if (!Array.isArray(customModels)) return undefined;
+  return customModels.find(
+    (model): model is string => typeof model === "string" && model.trim() !== "",
+  )?.trim();
+};
+
+/**
+ * Plan only routes that carry enough explicit metadata to be authoritative.
+ * Legacy native instances may not have a selected model yet; explicitly bound
+ * services, however, must have a model and a known service kind or they are
+ * rejected before a provider process is created.
+ */
+export const planProviderInstanceRuntimeRoute = (input: {
+  readonly instanceId: ProviderInstanceId;
+  readonly driver: ProviderDriverKind;
+  readonly entry: ProviderInstanceConfig;
+  readonly typedConfig?: unknown;
+  readonly bridgeAvailable?: boolean;
+}) => {
+  const model =
+    input.entry.modelBindings?.main?.trim() ?? firstConfiguredModel(input.typedConfig);
+  const hasExplicitRoute = input.entry.connectionId !== undefined || model !== undefined;
+  if (!hasExplicitRoute) return undefined;
+  if (model === undefined || model.length === 0) {
+    return { tag: "unsupported" as const, reason: "A selected runtime route requires a model." };
+  }
+
+  if (input.entry.connectionId === undefined) {
+    return planHarnessModelRoute({
+      harness: input.driver,
+      instanceId: input.instanceId,
+      requestedModel: model,
+      ...(input.bridgeAvailable === undefined ? {} : { bridgeAvailable: input.bridgeAvailable }),
+    });
+  }
+
+  const serviceKind = input.entry.serviceKind;
+  if (serviceKind === undefined || !Schema.is(ModelServiceKind)(serviceKind)) {
+    return {
+      tag: "unsupported" as const,
+      reason: `Connection '${input.entry.connectionId}' is missing a validated model-service kind.`,
+    };
+  }
+  const protocol = input.entry.protocol;
+  const modelProtocol =
+    protocol === "anthropic-compatible"
+      ? ("anthropic-messages" as const)
+      : protocol === "openai-responses"
+        ? ("openai-responses" as const)
+        : protocol === "openai-chat"
+          ? ("openai-compatible" as const)
+          : protocol === "provider-native"
+            ? ("native" as const)
+            : undefined;
+  return planHarnessModelRoute({
+    harness: input.driver,
+    instanceId: input.instanceId,
+    connection: {
+      connectionId: input.entry.connectionId,
+      kind: serviceKind,
+      ...(protocol === undefined ? {} : { protocol }),
+    },
+    requestedModel: model,
+    ...(modelProtocol === undefined ? {} : { modelProtocol }),
+    ...(input.bridgeAvailable === undefined ? {} : { bridgeAvailable: input.bridgeAvailable }),
+  });
+};
 
 /**
  * Compile one instance's launch inputs with an explicit precedence order.
@@ -166,6 +248,9 @@ export const compileProviderInstanceRuntime = (
     instanceId: input.instanceId,
     driver: input.driver,
     ...(input.entry.connectionId !== undefined ? { connectionId: input.entry.connectionId } : {}),
+    ...((input.serviceKind ?? input.entry.serviceKind) !== undefined
+      ? { serviceKind: input.serviceKind ?? input.entry.serviceKind }
+      : {}),
     ...((input.protocol ?? input.entry.protocol) !== undefined
       ? { protocol: input.protocol ?? input.entry.protocol }
       : {}),
@@ -207,5 +292,6 @@ export const compileProviderInstanceRuntime = (
     environment: effectiveEnvironment,
     environmentOverrides,
     manifest: { ...manifestBase, fingerprint },
+    ...(input.routePlan === undefined ? {} : { routePlan: input.routePlan }),
   };
 };

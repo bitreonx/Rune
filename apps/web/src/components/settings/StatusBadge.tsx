@@ -3,8 +3,11 @@ import type { ProviderDriverKind, ServerProvider } from "@rune/contracts";
 import { cn } from "../../lib/utils";
 import {
   PROVIDER_STATUS_STYLES,
+  instanceReadinessLabel,
+  instanceReadinessStatusKey,
   providerStatusLabel,
   resolveProviderStatusKey,
+  type InstanceReadiness,
   type ProviderStatusKey,
 } from "./providerStatus";
 
@@ -14,16 +17,22 @@ export function StatusBadge(props: {
   readonly provider?: ServerProvider;
   readonly driver?: ProviderDriverKind;
   readonly enabled?: boolean;
+  readonly label?: string;
+  readonly readiness?: InstanceReadiness;
   readonly className?: string;
 }) {
   const status =
-    props.statusKey ??
-    resolveProviderStatusKey(props.provider, {
-      ...(props.driver === undefined ? {} : { driver: props.driver }),
-      ...(props.enabled === undefined ? {} : { enabled: props.enabled }),
-    });
+    props.readiness
+      ? instanceReadinessStatusKey(props.readiness)
+      : (props.statusKey ??
+        resolveProviderStatusKey(props.provider, {
+          ...(props.driver === undefined ? {} : { driver: props.driver }),
+          ...(props.enabled === undefined ? {} : { enabled: props.enabled }),
+        }));
   const style = PROVIDER_STATUS_STYLES[status];
-  const label = providerStatusLabel(status);
+  const label =
+    props.label ??
+    (props.readiness ? instanceReadinessLabel(props.readiness) : providerStatusLabel(status));
 
   return (
     <span
@@ -33,6 +42,7 @@ export function StatusBadge(props: {
         props.className,
       )}
       data-provider-status={status}
+      data-instance-readiness={props.readiness?.tag}
       aria-label={label ?? "Provider status pending"}
     >
       <span className={cn("size-1.5 shrink-0 rounded-full", style.dot)} aria-hidden="true" />

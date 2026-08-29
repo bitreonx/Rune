@@ -281,6 +281,48 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const canonicalEventLogger = options?.canonicalEventLogger ?? eventLoggers.canonical;
 
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
+  const withRuntimeRouteReceipt = (
+    source: { readonly instanceId: ProviderInstanceId; readonly provider: ProviderDriverKind },
+    event: ProviderRuntimeEvent,
+  ): Effect.Effect<ProviderRuntimeEvent> => {
+    if (event.type !== "turn.started" || event.payload.route !== undefined) {
+      return Effect.succeed(event);
+    }
+    return Effect.gen(function* () {
+      const info = yield* registry.getInstanceInfo(source.instanceId);
+      let model = event.payload.model?.trim();
+      if (!model && info.routePlan?.requestedModel) {
+        model = info.routePlan.requestedModel;
+      }
+      if (!model) {
+        const adapter = yield* registry.getByInstance(source.instanceId);
+        const sessions = yield* adapter.listSessions();
+        model = sessions.find((session) => session.threadId === event.threadId)?.model?.trim();
+      }
+      if (!model) return event;
+      return {
+        ...event,
+        payload: {
+          ...event.payload,
+          route: {
+            harness: source.provider,
+            instanceId: source.instanceId,
+            ...(info.serviceConnectionId ? { connectionId: info.serviceConnectionId } : {}),
+            ...(info.serviceKind ? { serviceKind: info.serviceKind } : {}),
+            model,
+          },
+        },
+      };
+    }).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not attach runtime route receipt to turn.started.", {
+          cause,
+          instanceId: source.instanceId,
+          threadId: event.threadId,
+        }).pipe(Effect.as(event)),
+      ),
+    );
+  };
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const issueMcpCredential =
@@ -469,35 +511,39 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     event: ProviderRuntimeEvent,
   ): Effect.Effect<void> =>
     Effect.sync(() => correlateRuntimeEventWithInstance(source, event)).pipe(
-      Effect.flatMap((canonicalEvent) =>
-        increment(providerRuntimeEventsTotal, {
-          provider: canonicalEvent.provider,
-          eventType: canonicalEvent.type,
-        }).pipe(
-          Effect.andThen(publishRuntimeEvent(canonicalEvent)),
-          Effect.andThen(
-            canonicalEvent.type === "session.state.changed" ||
-              canonicalEvent.type === "thread.started" ||
-              canonicalEvent.type === "turn.completed"
-              ? refreshSessionBindingFromAdapter(source, canonicalEvent.threadId, {
-                  lastRuntimeEvent:
-                    canonicalEvent.type === "turn.completed"
-                      ? "provider.turn.completed"
-                      : `provider.${canonicalEvent.type}`,
-                  lastRuntimeEventAt: canonicalEvent.createdAt,
-                }).pipe(
-                  Effect.catch((cause) =>
-                    Effect.logWarning(
-                      "Could not refresh provider session state after a runtime event.",
-                      {
-                        cause,
-                        threadId: canonicalEvent.threadId,
-                        eventType: canonicalEvent.type,
-                      },
-                    ).pipe(Effect.asVoid),
-                  ),
-                )
-              : Effect.void,
+      Effect.flatMap((correlatedEvent) =>
+        withRuntimeRouteReceipt(source, correlatedEvent).pipe(
+          Effect.flatMap((canonicalEvent) =>
+            increment(providerRuntimeEventsTotal, {
+              provider: canonicalEvent.provider,
+              eventType: canonicalEvent.type,
+            }).pipe(
+              Effect.andThen(publishRuntimeEvent(canonicalEvent)),
+              Effect.andThen(
+                canonicalEvent.type === "session.state.changed" ||
+                  canonicalEvent.type === "thread.started" ||
+                  canonicalEvent.type === "turn.completed"
+                  ? refreshSessionBindingFromAdapter(source, canonicalEvent.threadId, {
+                      lastRuntimeEvent:
+                        canonicalEvent.type === "turn.completed"
+                          ? "provider.turn.completed"
+                          : `provider.${canonicalEvent.type}`,
+                      lastRuntimeEventAt: canonicalEvent.createdAt,
+                    }).pipe(
+                      Effect.catch((cause) =>
+                        Effect.logWarning(
+                          "Could not refresh provider session state after a runtime event.",
+                          {
+                            cause,
+                            threadId: canonicalEvent.threadId,
+                            eventType: canonicalEvent.type,
+                          },
+                        ).pipe(Effect.asVoid),
+                      ),
+                    )
+                  : Effect.void,
+              ),
+            ),
           ),
         ),
       ),

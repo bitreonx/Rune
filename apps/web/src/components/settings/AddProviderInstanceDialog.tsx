@@ -259,14 +259,14 @@ export function AddProviderInstanceDialog({
       updateSettings({ providerInstances: nextMap });
       toastManager.add({
         type: "success",
-        title: "Provider instance added",
+        title: "Harness instance added",
         description: `${driverOption.label} instance '${instanceId}' was added.`,
       });
       onOpenChange(false);
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Could not add provider instance",
+        title: "Could not add harness instance",
         description: error instanceof Error ? error.message : "Update failed.",
       });
     }
@@ -277,9 +277,9 @@ export function AddProviderInstanceDialog({
       <DialogPopup className="max-w-xl overflow-hidden">
         <div className="flex min-h-0 flex-col overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Add provider instance</DialogTitle>
+            <DialogTitle>Add harness instance</DialogTitle>
             <DialogDescription>
-              Configure an additional provider instance on {environmentLabel} — for example, a
+              Configure an additional harness instance on {environmentLabel} — for example, a
               second Codex install pointed at a different workspace.
             </DialogDescription>
             <AddProviderInstanceWizardSteps

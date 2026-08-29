@@ -382,8 +382,6 @@ export default function FileBrowserPanel({
     const position = pointerIsFresh
       ? { x: pointer.x, y: pointer.y }
       : { x: anchorRect.left, y: anchorRect.bottom };
-    const treeItem = directoryHandle(treeModelRef.current?.getItem(item.path));
-    const isExpanded = treeItem?.isExpanded() ?? false;
     const isChanged = chatDiff?.some((file) => file.path === relativePath) ?? false;
     const lastSeparator = relativePath.lastIndexOf("/");
     const entryTarget =
@@ -400,32 +398,6 @@ export default function FileBrowserPanel({
               id: "focus-entry",
               label: "Open / focus",
               icon: "folder-open",
-            },
-            {
-              id: "toggle-folder",
-              label: isExpanded ? "Collapse folder" : "Expand folder",
-              icon: isExpanded ? "chevron-right" : "chevron-down",
-            },
-            {
-              id: "expand-descendants",
-              label: "Expand descendants",
-              icon: "folder-tree",
-            },
-            {
-              id: "collapse-descendants",
-              label: "Collapse descendants",
-              icon: "folder-tree",
-            },
-            {
-              id: "expand-all",
-              label: "Expand all folders",
-              icon: "folder-tree",
-              separatorBefore: true,
-            },
-            {
-              id: "collapse-all",
-              label: "Collapse all folders",
-              icon: "folder-tree",
             },
           ]
         : []),
@@ -501,31 +473,6 @@ export default function FileBrowserPanel({
       }
       if (clicked === "open-diff") {
         onOpenDiffFile?.(relativePath);
-        return;
-      }
-      if (clicked === "toggle-folder" && treeItem) {
-        treeItem.toggle();
-        return;
-      }
-      if (clicked === "expand-descendants" || clicked === "collapse-descendants") {
-        const prefix = `${item.path.replace(/[\\/]$/, "")}/`;
-        for (const path of directoryPathsRef.current) {
-          if (path !== item.path && !path.startsWith(prefix)) continue;
-          const directory = directoryHandle(treeModelRef.current?.getItem(path));
-          if (directory) {
-            if (clicked === "expand-descendants") directory.expand();
-            else directory.collapse();
-          }
-        }
-        return;
-      }
-      if (clicked === "expand-all" || clicked === "collapse-all") {
-        for (const path of directoryPathsRef.current) {
-          const directory = directoryHandle(treeModelRef.current?.getItem(path));
-          if (!directory) continue;
-          if (clicked === "expand-all") directory.expand();
-          else directory.collapse();
-        }
         return;
       }
       if (clicked === "copy-mention") {

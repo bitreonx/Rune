@@ -572,11 +572,11 @@ export function EnvironmentProviderSettings({
               settings={settings}
               serverProviders={serverProviders}
               onUpdateSettings={updateSettings}
-              onOpenInstance={(instanceId) =>
+              onOpenInstance={(instanceId, driver) =>
                 void navigate({
                   to: "/settings/providers/$instanceId",
                   params: { instanceId },
-                  search: { env: String(environmentId) },
+                  search: { env: String(environmentId), driver: String(driver) },
                 })
               }
               onRunUpdate={(instanceId) => {

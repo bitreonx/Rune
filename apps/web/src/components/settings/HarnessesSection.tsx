@@ -39,7 +39,7 @@ export function HarnessesSection(props: {
   settings: ServerSettings;
   serverProviders?: ReadonlyArray<ServerProvider>;
   onUpdateSettings: (patch: Partial<ServerSettings>) => void;
-  onOpenInstance?: (instanceId: string) => void;
+  onOpenInstance?: (instanceId: string, driver: ProviderDriverKind) => void;
   onRunUpdate?: (instanceId: ProviderInstanceId) => void;
   onDeleteInstance?: (instanceId: ProviderInstanceId) => void;
   onResetInstance?: (driver: ProviderDriverKind) => void;
@@ -143,10 +143,12 @@ export function HarnessesSection(props: {
     });
   }
 
-  const handleCardClick = (kind: string, kindProfiles: HarnessProfileConfig[]) => {
-    const targetInstanceId = kindProfiles[0]?.instanceId ?? kind;
+  const handleCardClick = (
+    targetInstanceId: ProviderInstanceId | string,
+    driver: ProviderDriverKind,
+  ) => {
     if (props.onOpenInstance) {
-      props.onOpenInstance(String(targetInstanceId));
+      props.onOpenInstance(String(targetInstanceId), driver);
     }
   };
 
@@ -216,7 +218,12 @@ export function HarnessesSection(props: {
             <div key={kind} className="flex min-w-0 flex-col gap-2">
               <button
                 type="button"
-                onClick={() => handleCardClick(kind, kindProfiles)}
+                onClick={() =>
+                  handleCardClick(
+                    kindInstances[0]?.instanceId ?? kind,
+                    ProviderDriverKind.make(String(kind)),
+                  )
+                }
                 className={cn(
                   "group flex min-w-0 items-center justify-between rounded-xl border border-border/60 bg-card p-3.5 text-left transition-[background-color,border-color,transform] duration-200 ease-out",
                   "hover:-translate-y-px hover:border-border hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring",

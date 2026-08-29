@@ -1,9 +1,6 @@
 import { formatWorkspaceRelativePath } from "./filePathDisplay";
-import {
-  isTerminalLinkActivation,
-  resolvePathLinkTarget,
-  splitPathAndPosition,
-} from "./terminal-links";
+import { isTerminalLinkActivation } from "./terminalActivation";
+import { resolvePathLinkTarget, splitPathAndPosition } from "./workspacePath";
 
 const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;

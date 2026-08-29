@@ -1,4 +1,4 @@
-import { splitPathAndPosition } from "./terminal-links";
+import { splitPathAndPosition } from "./workspacePath";
 
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/");

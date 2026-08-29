@@ -17,6 +17,8 @@ import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { SubagentAvatar } from "./SubagentAvatar";
+import { AgentPassport } from "./AgentPassport";
+import { AgentTrail } from "./AgentTrail";
 import {
   agentChatErrorMessage,
   canInterruptAgentChat,
@@ -266,6 +268,9 @@ export function AgentChatPanel({
               <p className="mt-1 text-[10px] text-muted-foreground">Role: {agent.role}</p>
             ) : null}
           </div>
+
+          <AgentPassport agent={agent} />
+          <AgentTrail agent={agent} />
 
           {!readSupported ? (
             <div className="border border-dashed border-border/70 px-3 py-3 text-xs text-muted-foreground">

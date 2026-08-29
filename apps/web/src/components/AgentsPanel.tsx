@@ -32,7 +32,14 @@ import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
 import { AgentChatPanel } from "./agent-chat/AgentChatPanel";
+import { AgentPassport } from "./agent-chat/AgentPassport";
+import { AgentTrail } from "./agent-chat/AgentTrail";
 import { SubagentAvatar } from "./agent-chat/SubagentAvatar";
+import {
+  agentDockStatusMeta,
+  deriveAgentDockRows,
+  resolveAgentDockStatus,
+} from "./agent-chat/agentDock.logic";
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -158,8 +165,8 @@ function AgentRow({
   focusedAgentId,
   onFocusAgent,
 }: { agent: RuntimeSubagent } & AgentSelectionProps) {
-  const visuals = STATUS_VISUALS[agent.status];
   const activity = agentActivityText(agent);
+  const dockStatus = agentDockStatusMeta(resolveAgentDockStatus(agent));
   const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
   const focused = focusedAgentId === agent.id;
   const role =
@@ -236,12 +243,12 @@ function AgentRow({
           agent.status === "failed" ? "text-destructive-foreground" : "text-muted-foreground",
         )}
       >
-        {activity ?? visuals.label}
+        {activity ?? dockStatus.label}
       </span>
       <span className="col-start-2 col-end-4 row-start-4 truncate font-mono text-[.65rem] tabular-nums text-muted-foreground/65">
         {metadata.join(" · ")}
       </span>
-      <span className="sr-only">{visuals.label}</span>
+      <span className="sr-only">{dockStatus.label}</span>
     </button>
   );
 }
@@ -740,6 +747,8 @@ function AgentActivityDetail({
           This agent can report activity but cannot be continued here.
         </p>
       ) : null}
+      <AgentPassport agent={agent} />
+      <AgentTrail agent={agent} />
       <div
         className="max-h-52 space-y-1.5 overflow-y-auto px-3 py-2"
         data-rune-agent-activity-stream
@@ -823,6 +832,8 @@ export function AgentsPanel({
 
   const focusedAgent = focusedAgentId ? findAgentById(model, focusedAgentId) : null;
   const agents = allAgents(model);
+  const dockRows = deriveAgentDockRows(agents);
+  const needsYouCount = dockRows.filter((row) => row.status.needsUser).length;
   const canOpenFocusedChat =
     focusedAgent !== null &&
     focusedAgent.chat?.canRead === true &&
@@ -871,6 +882,21 @@ export function AgentsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <header
+        className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2"
+        data-rune-agent-dock
+      >
+        <Bot aria-hidden className="size-3.5 text-[var(--rune-violet-strong)]" />
+        <span className="text-xs font-semibold">Agent Dock</span>
+        <span className="font-mono text-[10px] text-muted-foreground/70">
+          {agents.length} {agents.length === 1 ? "agent" : "agents"}
+        </span>
+        {needsYouCount > 0 ? (
+          <span className="ml-auto font-mono text-[10px] text-warning-foreground">
+            ! {needsYouCount} waiting for you
+          </span>
+        ) : null}
+      </header>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-2">
           {model.workflows.map((group) => (

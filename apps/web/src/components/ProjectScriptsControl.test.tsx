@@ -54,12 +54,10 @@ describe("ProjectScriptsControl compact controls", () => {
     );
   });
 
-  it("keeps the standalone Add control compact and expands it with its label", () => {
+  it("keeps the standalone Add control icon-first and compact", () => {
     const html = renderControl([]);
 
     expectResponsiveXsControl(buttonTag(html, "Add action"));
-    expect(html).toContain(
-      'class="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"',
-    );
+    expect(html).not.toContain("@3xl/header-actions:not-sr-only");
   });
 });

@@ -3,6 +3,7 @@ import {
   normalizeSearchQuery,
   scoreQueryMatch,
 } from "@rune/shared/searchRanking";
+import { getProviderSkillIdentity } from "@rune/client-runtime/providerSkills";
 
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
 import { scoreProviderSkill } from "../../providerSkillSearch";
@@ -88,7 +89,7 @@ export function searchSlashCommandItems(
             ? `0\u0000${item.command}`
             : item.type === "provider-slash-command"
               ? `1\u0000${item.command.name}\u0000${item.provider}`
-              : `2\u0000${item.skill.name}\u0000${item.provider}`,
+              : `2\u0000${getProviderSkillIdentity(item.skill)}\u0000${item.provider}`,
       },
       Number.POSITIVE_INFINITY,
     );

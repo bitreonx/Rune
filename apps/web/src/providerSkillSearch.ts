@@ -2,6 +2,7 @@ import type { ServerProviderSkill } from "@rune/contracts";
 import {
   dedupeProviderSkills,
   formatProviderSkillDisplayName,
+  getProviderSkillIdentity,
 } from "@rune/client-runtime/providerSkills";
 import {
   insertRankedSearchResult,
@@ -97,11 +98,16 @@ export function searchProviderSkills(
       {
         item: skill,
         score,
-        tieBreaker: `${formatProviderSkillDisplayName(skill).toLowerCase()}\u0000${skill.name}`,
+        tieBreaker: `${formatProviderSkillDisplayName(skill).toLowerCase()}\u0000${getProviderSkillIdentity(skill)}`,
       },
       limit,
     );
   }
 
   return ranked.map((entry) => entry.item);
+}
+
+/** React/menu identity must follow the same provenance-aware skill identity as deduplication. */
+export function providerSkillMenuItemId(provider: string, skill: ServerProviderSkill): string {
+  return `skill:${provider}:${getProviderSkillIdentity(skill)}`;
 }

@@ -300,7 +300,7 @@ import {
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
 } from "@rune/client-runtime/providerSkills";
-import { searchProviderSkills } from "../../providerSkillSearch";
+import { providerSkillMenuItemId, searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 
@@ -1321,7 +1321,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }));
       const query = composerTrigger.query.trim().toLowerCase();
       const skillItems = slashMenuSkills.map((skill) => ({
-        id: `skill:${selectedProvider}:${skill.name}`,
+        id: providerSkillMenuItemId(selectedProvider, skill),
         type: "skill" as const,
         provider: selectedProvider,
         skill,
@@ -1341,7 +1341,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (composerTrigger.kind === "skill") {
       return searchProviderSkills(selectedProviderStatus?.skills ?? [], composerTrigger.query).map(
         (skill) => ({
-          id: `skill:${selectedProvider}:${skill.name}`,
+          id: providerSkillMenuItemId(selectedProvider, skill),
           type: "skill" as const,
           provider: selectedProvider,
           skill,

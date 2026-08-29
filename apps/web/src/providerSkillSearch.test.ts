@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ServerProviderSkill } from "@rune/contracts";
 
-import { searchProviderSkills } from "./providerSkillSearch";
+import { providerSkillMenuItemId, searchProviderSkills } from "./providerSkillSearch";
 
 function makeSkill(input: Partial<ServerProviderSkill> & Pick<ServerProviderSkill, "name">) {
   return {
@@ -13,6 +13,21 @@ function makeSkill(input: Partial<ServerProviderSkill> & Pick<ServerProviderSkil
 }
 
 describe("searchProviderSkills", () => {
+  it("gives same-named skills distinct menu ids when repositories differ", () => {
+    const first = makeSkill({
+      name: "review",
+      repositoryUrl: "https://github.com/acme/first-review",
+    });
+    const second = makeSkill({
+      name: "review",
+      repositoryUrl: "https://github.com/acme/second-review",
+    });
+
+    expect(providerSkillMenuItemId("codex", first)).not.toBe(
+      providerSkillMenuItemId("codex", second),
+    );
+  });
+
   it("moves exact ui matches ahead of broader ui matches", () => {
     const skills = [
       makeSkill({

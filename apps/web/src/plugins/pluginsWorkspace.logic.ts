@@ -1,10 +1,14 @@
 import type { EnvironmentId, ProviderInstanceId, ServerProvider } from "@rune/contracts";
-import { formatProviderSkillDisplayName, resolveProviderSkillSourceKind } from "@rune/client-runtime/providerSkills";
+import {
+  formatProviderSkillDisplayName,
+  resolveProviderSkillSourceKind,
+} from "@rune/client-runtime/providerSkills";
 
 import { deriveProviderInstanceEntries } from "../providerInstances";
 
 export type PluginScope = "project" | "user";
 export type PluginState = "enabled" | "disabled";
+export type PluginPermission = "filesystem" | "network" | "terminal" | "browser";
 
 export interface PluginWorkspaceEntry {
   readonly key: string;
@@ -16,6 +20,9 @@ export interface PluginWorkspaceEntry {
   readonly scope: PluginScope;
   readonly state: PluginState;
   readonly capabilities: ReadonlyArray<"skills">;
+  /** Empty is meaningful: provider reported no permissions, or did not report them. */
+  readonly permissions: ReadonlyArray<PluginPermission>;
+  readonly permissionsKnown: boolean;
   readonly skillNames: ReadonlyArray<string>;
   readonly safePath: string;
 }
@@ -27,9 +34,7 @@ function normalizePath(pathValue: string): string {
 function pluginIdFromSkillPath(pathValue: string): string | null {
   const segments = normalizePath(pathValue).split("/").filter(Boolean);
   const pluginIndex = segments.findIndex((segment) => segment === "plugins");
-  return pluginIndex >= 0 && segments[pluginIndex + 1]
-    ? segments[pluginIndex + 1]!
-    : null;
+  return pluginIndex >= 0 && segments[pluginIndex + 1] ? segments[pluginIndex + 1]! : null;
 }
 
 function scopeFromSkill(skill: ServerProvider["skills"][number]): PluginScope {
@@ -62,7 +67,9 @@ export function buildPluginWorkspaceEntries(input: {
 
   for (const provider of input.providers) {
     const providerDisplayName =
-      providerEntries.get(provider.instanceId)?.displayName ?? provider.displayName ?? provider.driver;
+      providerEntries.get(provider.instanceId)?.displayName ??
+      provider.displayName ??
+      provider.driver;
     for (const skill of provider.skills) {
       const id = pluginIdFromSkillPath(skill.path);
       if (!id) continue;
@@ -91,6 +98,8 @@ export function buildPluginWorkspaceEntries(input: {
         scope,
         state: skill.enabled ? "enabled" : "disabled",
         capabilities: ["skills"],
+        permissions: [],
+        permissionsKnown: false,
         skillNames: [formatProviderSkillDisplayName(skill)],
         safePath: safePath(skill.path),
       });
@@ -98,7 +107,8 @@ export function buildPluginWorkspaceEntries(input: {
   }
 
   return [...aggregate.values()].sort(
-    (a, b) => a.scope.localeCompare(b.scope) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key),
+    (a, b) =>
+      a.scope.localeCompare(b.scope) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key),
   );
 }
 
@@ -112,7 +122,10 @@ export function groupPluginsByScope(entries: ReadonlyArray<PluginWorkspaceEntry>
   };
 }
 
-export function resolvePluginActionState(entry: Pick<PluginWorkspaceEntry, "state" | "capabilities">): "ready" | "review" | "enable" {
+export function resolvePluginActionState(
+  entry: Pick<PluginWorkspaceEntry, "state" | "capabilities" | "permissionsKnown">,
+): "ready" | "review" | "enable" {
   if (entry.state === "disabled") return "enable";
+  if (!entry.permissionsKnown) return "review";
   return entry.capabilities.some((capability) => capability !== "skills") ? "review" : "ready";
 }

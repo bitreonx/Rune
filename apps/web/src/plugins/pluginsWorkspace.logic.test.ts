@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@rune/contracts";
 
-import { buildPluginWorkspaceEntries, groupPluginsByScope, resolvePluginActionState } from "./pluginsWorkspace.logic";
+import {
+  buildPluginWorkspaceEntries,
+  groupPluginsByScope,
+  resolvePluginActionState,
+} from "./pluginsWorkspace.logic";
 
 function provider(): ServerProvider {
   return {
@@ -17,22 +21,58 @@ function provider(): ServerProvider {
     models: [],
     slashCommands: [],
     skills: [
-      { name: "review", path: "/repo/.agents/plugins/superpowers/skills/review/SKILL.md", scope: "project", enabled: true },
-      { name: "brainstorm", path: "/home/.codex/plugins/superpowers/skills/brainstorm/SKILL.md", scope: "user", enabled: true },
+      {
+        name: "review",
+        path: "/repo/.agents/plugins/superpowers/skills/review/SKILL.md",
+        scope: "project",
+        enabled: true,
+      },
+      {
+        name: "brainstorm",
+        path: "/home/.codex/plugins/superpowers/skills/brainstorm/SKILL.md",
+        scope: "user",
+        enabled: true,
+      },
     ],
   };
 }
 
 describe("pluginsWorkspace.logic", () => {
   it("projects plugin roots into project and user scopes", () => {
-    const entries = buildPluginWorkspaceEntries({ environmentId: "env-a" as never, providers: [provider()] });
+    const entries = buildPluginWorkspaceEntries({
+      environmentId: "env-a" as never,
+      providers: [provider()],
+    });
     expect(groupPluginsByScope(entries).project.map((entry) => entry.id)).toEqual(["superpowers"]);
     expect(groupPluginsByScope(entries).user.map((entry) => entry.id)).toEqual(["superpowers"]);
+    expect(entries[0]).toMatchObject({
+      capabilities: ["skills"],
+      permissions: [],
+      permissionsKnown: false,
+    });
   });
 
-  it("keeps disabled plugins out of the ready state", () => {
-    expect(resolvePluginActionState({ state: "disabled", capabilities: ["skills"] })).toBe("enable");
-    expect(resolvePluginActionState({ state: "enabled", capabilities: ["skills"] })).toBe("ready");
+  it("keeps disabled or permission-opaque plugins out of the ready state", () => {
+    expect(
+      resolvePluginActionState({
+        state: "disabled",
+        capabilities: ["skills"],
+        permissionsKnown: false,
+      }),
+    ).toBe("enable");
+    expect(
+      resolvePluginActionState({
+        state: "enabled",
+        capabilities: ["skills"],
+        permissionsKnown: false,
+      }),
+    ).toBe("review");
+    expect(
+      resolvePluginActionState({
+        state: "enabled",
+        capabilities: ["skills"],
+        permissionsKnown: true,
+      }),
+    ).toBe("ready");
   });
 });
-

@@ -15,8 +15,11 @@ export type FileKind =
   | "svg"
   | "json"
   | "pdf"
+  | "audio"
+  | "video"
   | "truncated-text"
   | "text"
+  | "code"
   | "binary"
   | "unknown";
 
@@ -78,6 +81,8 @@ const JSON_LIKE_EXTENSIONS = new Set([".json", ".jsonc", ".json5"]);
 
 const SVG_EXTENSION = ".svg";
 const PDF_EXTENSION = ".pdf";
+const AUDIO_EXTENSION = /\.(?:mp3|wav|ogg|oga|m4a|aac|flac|opus)$/i;
+const VIDEO_EXTENSION = /\.(?:mp4|m4v|webm|mov|ogv)$/i;
 
 const isTextLike = (relativePath: string): boolean => {
   const lower = relativePath.toLowerCase();
@@ -108,11 +113,9 @@ const isJsonLike = (relativePath: string): boolean => {
   return false;
 };
 
-const isSvg = (relativePath: string): boolean =>
-  relativePath.toLowerCase().endsWith(SVG_EXTENSION);
+const isSvg = (relativePath: string): boolean => relativePath.toLowerCase().endsWith(SVG_EXTENSION);
 
-const isPdf = (relativePath: string): boolean =>
-  relativePath.toLowerCase().endsWith(PDF_EXTENSION);
+const isPdf = (relativePath: string): boolean => relativePath.toLowerCase().endsWith(PDF_EXTENSION);
 
 const isBrowserPreview = (relativePath: string): boolean =>
   /\.(?:html?|pdf)$/i.test(relativePath.split(/[?#]/, 1)[0] ?? "");
@@ -172,6 +175,26 @@ export function describeFile(input: {
       isMarkdown: true,
       isBrowserPreview: false,
       isEditable: true,
+    };
+  }
+  if (AUDIO_EXTENSION.test(relativePath)) {
+    return {
+      kind: "audio",
+      relativePath,
+      isImage: false,
+      isMarkdown: false,
+      isBrowserPreview: false,
+      isEditable: false,
+    };
+  }
+  if (VIDEO_EXTENSION.test(relativePath)) {
+    return {
+      kind: "video",
+      relativePath,
+      isImage: false,
+      isMarkdown: false,
+      isBrowserPreview: false,
+      isEditable: false,
     };
   }
   if (isPreviewSupportedInRuntime && isBrowserPreview(relativePath)) {

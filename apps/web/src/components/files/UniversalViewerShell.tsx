@@ -29,10 +29,13 @@ export type UniversalViewerShellProps = {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
   readonly threadRef: ScopedThreadRef;
+  readonly byteLength?: number;
+  readonly revision?: number;
   readonly resolvedTheme: "light" | "dark";
   readonly wordWrap: boolean;
   readonly revealRequestId: number;
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
+  readonly onToggleWordWrap?: () => void;
 };
 
 /**
@@ -54,20 +57,20 @@ function ShellError({ message }: { readonly message: string }): ReactElement {
  * Build a viewer's prop bag from the shell's input. The shell owns the
  * descriptor, so the viewer doesn't need to recompute it.
  */
-function viewerPropsFor(
-  props: UniversalViewerShellProps,
-  descriptor: FileDescriptor,
-): ViewerProps {
+function viewerPropsFor(props: UniversalViewerShellProps, descriptor: FileDescriptor): ViewerProps {
   return {
     descriptor,
     environmentId: props.environmentId,
     cwd: props.cwd,
     threadRef: props.threadRef,
     contents: props.contents,
+    byteLength: props.byteLength ?? new TextEncoder().encode(props.contents).byteLength,
+    revision: props.revision ?? 0,
     resolvedTheme: props.resolvedTheme,
     wordWrap: props.wordWrap,
     revealRequestId: props.revealRequestId,
     onPendingChange: props.onPendingChange,
+    onToggleWordWrap: props.onToggleWordWrap ?? (() => undefined),
   };
 }
 

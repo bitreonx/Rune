@@ -81,6 +81,23 @@ describe("describeFile", () => {
     expect(d.kind).toBe("json");
   });
 
+  it("classifies audio and video as media", () => {
+    expect(
+      describeFile({
+        relativePath: "artifacts/demo.MP3",
+        truncated: false,
+        isPreviewSupportedInRuntime: true,
+      }).kind,
+    ).toBe("audio");
+    expect(
+      describeFile({
+        relativePath: "artifacts/demo.webm",
+        truncated: false,
+        isPreviewSupportedInRuntime: true,
+      }).kind,
+    ).toBe("video");
+  });
+
   it("classifies TypeScript as text", () => {
     const d = describeFile({
       relativePath: "apps/web/src/index.ts",

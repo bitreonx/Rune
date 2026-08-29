@@ -1,6 +1,6 @@
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 import { RotateCw } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -152,6 +152,20 @@ export function ImageViewer(props: ImageViewerProps) {
 export function MediaViewer(props: ImageViewerProps) {
   const assetUrl = useWorkspacePreviewAssetUrl(props);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [volume, setVolume] = useState(readStoredMediaVolume);
+  const mediaRef = useRef<HTMLMediaElement>(null);
+
+  useEffect(() => {
+    if (mediaRef.current) mediaRef.current.volume = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("rune.viewer.media-volume", String(volume));
+    } catch {
+      // Storage is optional; playback remains usable when it is unavailable.
+    }
+  }, [volume]);
   if (assetUrl._tag === "Failure") {
     return (
       <ViewerLoadError
@@ -174,13 +188,27 @@ export function MediaViewer(props: ImageViewerProps) {
       <div className="flex min-h-0 flex-1 items-center justify-center bg-neutral-950 p-4">
         {isVideo ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption -- workspace files, not authored content
-          <video key={assetUrl.url} src={assetUrl.url} controls className="max-h-full max-w-full" />
+          <video
+            key={assetUrl.url}
+            ref={mediaRef}
+            src={assetUrl.url}
+            controls
+            muted={false}
+            onVolumeChange={(event) => setVolume(event.currentTarget.volume)}
+            className="max-h-full max-w-full"
+          />
         ) : (
-          <audio key={`${assetUrl.url}:${reloadNonce}`} src={assetUrl.url} controls />
+          <audio
+            key={`${assetUrl.url}:${reloadNonce}`}
+            ref={mediaRef}
+            src={assetUrl.url}
+            controls
+            muted={false}
+            onVolumeChange={(event) => setVolume(event.currentTarget.volume)}
+          />
         )}
       </div>
-      <div className="surface-glass flex h-8 shrink-0 items-center border-t border-border/60 px-3 text-[11px] text-muted-foreground">
-        {props.name}
+      <div className="surface-glass flex h-8 shrink-0 items-center justify-end border-t border-border/60 px-3 text-[11px] text-muted-foreground">
         <ViewerToolbarButton
           label="Reload media"
           onClick={() => setReloadNonce((nonce) => nonce + 1)}
@@ -190,4 +218,13 @@ export function MediaViewer(props: ImageViewerProps) {
       </div>
     </div>
   );
+}
+
+function readStoredMediaVolume(): number {
+  try {
+    const value = Number(window.localStorage.getItem("rune.viewer.media-volume"));
+    return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+  } catch {
+    return 1;
+  }
 }

@@ -20,7 +20,10 @@ export function BinaryViewer({
   byteLength,
   relativePath,
 }: BinaryViewerProps): ReactElement {
-  const sizeLabel = formatBytes(byteLength ?? contents.length);
+  const sizeLabel =
+    byteLength === undefined && contents.length === 0
+      ? "Size unavailable"
+      : formatBytes(byteLength ?? contents.length);
   return (
     <div
       className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-xs leading-relaxed text-muted-foreground"
@@ -32,16 +35,21 @@ export function BinaryViewer({
           {relativePath}
         </div>
         <div className="mt-1" data-binary-hint>
-          Rune doesn't have a viewer for this file. {sizeLabel} of binary data.
+          Rune doesn&apos;t have a viewer for this file.
+          {sizeLabel === "Size unavailable"
+            ? " The file size is unavailable."
+            : ` ${sizeLabel} of binary data.`}
         </div>
       </div>
-      <div
-        className="mt-1 inline-flex items-center gap-1.5 rounded border border-border/40 bg-background/60 px-2 py-1 text-[11px] text-foreground/80"
-        data-binary-size
-      >
-        <FolderOpen className="size-3" />
-        {sizeLabel}
-      </div>
+      {sizeLabel !== "Size unavailable" ? (
+        <div
+          className="mt-1 inline-flex items-center gap-1.5 rounded border border-border/40 bg-background/60 px-2 py-1 text-[11px] text-foreground/80"
+          data-binary-size
+        >
+          <FolderOpen className="size-3" />
+          {sizeLabel}
+        </div>
+      ) : null}
     </div>
   );
 }

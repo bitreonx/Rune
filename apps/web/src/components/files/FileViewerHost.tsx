@@ -1,10 +1,14 @@
 import type { EnvironmentId, ScopedThreadRef } from "@rune/contracts";
 import { describeWorkspaceFile, type WorkspaceFileKind } from "@rune/shared/fileKind";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
+import { BinaryViewer } from "./viewers/BinaryViewer";
 import { ImageViewer, MediaViewer } from "./viewers/ImageViewer";
 import { JsonViewer } from "./viewers/JsonViewer";
+import { PdfViewer } from "./viewers/PdfViewer";
 import { SvgViewer } from "./viewers/SvgViewer";
+import { ViewerShell } from "./viewers/ViewerShell";
+import { buildWorkspaceFileRef } from "./filePreviewWorkspaceRef";
 
 export interface FileViewerContext {
   readonly environmentId: EnvironmentId;
@@ -13,6 +17,11 @@ export interface FileViewerContext {
   readonly relativePath: string;
   /** Bumped on every observed disk change; busts binary asset caches. */
   readonly revision: number;
+  readonly originKey?: string;
+  readonly onOpenExternally?: () => void;
+  readonly onCopyPath?: () => void;
+  readonly onAddToChat?: () => void;
+  readonly onClose?: () => void;
 }
 
 export type ViewerMode = "preview" | "source" | "split" | "rendered";
@@ -59,14 +68,15 @@ export function FilePreviewSurface(props: {
   readonly descriptor: FileViewerDescriptor;
   readonly context: FileViewerContext;
   readonly contents: string;
-  readonly byteLength: number;
+  readonly byteLength?: number;
   readonly mode: ViewerMode;
 }) {
   const { descriptor, context } = props;
+  let content: ReactNode = null;
 
   switch (descriptor.kind) {
     case "image":
-      return (
+      content = (
         <ImageViewer
           environmentId={context.environmentId}
           threadRef={context.threadRef}
@@ -76,9 +86,10 @@ export function FilePreviewSurface(props: {
           revision={context.revision}
         />
       );
+      break;
     case "svg":
-      if (props.mode === "preview") {
-        return (
+      if (props.mode === "preview" || props.mode === "split") {
+        content = (
           <SvgViewer
             environmentId={context.environmentId}
             threadRef={context.threadRef}
@@ -89,10 +100,10 @@ export function FilePreviewSurface(props: {
           />
         );
       }
-      return null;
+      break;
     case "audio":
     case "video":
-      return (
+      content = (
         <MediaViewer
           environmentId={context.environmentId}
           threadRef={context.threadRef}
@@ -102,20 +113,69 @@ export function FilePreviewSurface(props: {
           revision={context.revision}
         />
       );
+      break;
     case "json":
-      if (props.mode === "preview") {
-        return (
+      if (props.mode === "preview" || props.mode === "split") {
+        content = (
           <JsonViewer
             relativePath={context.relativePath}
             contents={props.contents}
-            byteLength={props.byteLength}
+            byteLength={props.byteLength ?? props.contents.length}
           />
         );
       }
-      return null;
+      break;
+    case "pdf": {
+      const fileRef = buildWorkspaceFileRef({
+        environmentId: context.environmentId,
+        cwd: context.cwd,
+        projectWorkspaceRoot: undefined,
+        projectId: undefined,
+        relativePath: context.relativePath,
+      });
+      if (fileRef) {
+        content = (
+          <PdfViewer
+            environmentId={context.environmentId}
+            threadRef={context.threadRef}
+            fileRef={fileRef}
+            relativePath={context.relativePath}
+          />
+        );
+      }
+      break;
+    }
+    case "binary":
+    case "unknown":
+      content = (
+        <BinaryViewer
+          contents={props.contents}
+          byteLength={props.byteLength}
+          relativePath={context.relativePath}
+        />
+      );
+      break;
     default:
-      return null;
+      break;
   }
+
+  if (content === null) return null;
+  return (
+    <ViewerShell
+      name={descriptor.name}
+      relativePath={context.relativePath}
+      kind={descriptor.kind}
+      mime={descriptor.mime}
+      byteLength={props.byteLength}
+      {...(context.originKey !== undefined ? { originKey: context.originKey } : {})}
+      {...(context.onOpenExternally ? { onOpenExternally: context.onOpenExternally } : {})}
+      {...(context.onCopyPath ? { onCopyPath: context.onCopyPath } : {})}
+      {...(context.onAddToChat ? { onAddToChat: context.onAddToChat } : {})}
+      {...(context.onClose ? { onClose: context.onClose } : {})}
+    >
+      {content}
+    </ViewerShell>
+  );
 }
 
 export function useFileDescriptor(
@@ -125,9 +185,7 @@ export function useFileDescriptor(
 ): FileViewerDescriptor | null {
   return useMemo(
     () =>
-      relativePath === null
-        ? null
-        : describeWorkspaceFile({ environmentId, cwd, relativePath }),
+      relativePath === null ? null : describeWorkspaceFile({ environmentId, cwd, relativePath }),
     [cwd, environmentId, relativePath],
   );
 }

@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -113,12 +114,14 @@ const handleFatalStartupError = Effect.fn("desktop.startup.handleFatalStartupErr
   | DesktopEnvironment.DesktopEnvironment
   | ElectronApp.ElectronApp
   | ElectronDialog.ElectronDialog
+  | DesktopWindow.DesktopWindow
 > {
   const shutdown = yield* DesktopShutdown.DesktopShutdown;
   const state = yield* DesktopState.DesktopState;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const electronApp = yield* ElectronApp.ElectronApp;
   const electronDialog = yield* ElectronDialog.ElectronDialog;
+  const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const message = error instanceof Error ? error.message : String(error);
   const detail =
     error instanceof Error && typeof error.stack === "string" ? `\n${error.stack}` : "";
@@ -126,6 +129,11 @@ const handleFatalStartupError = Effect.fn("desktop.startup.handleFatalStartupErr
     stage,
     message,
     ...(detail.length > 0 ? { detail } : {}),
+  });
+  yield* desktopWindow.transitionStartup({
+    type: "failed",
+    at: yield* Clock.currentTimeMillis,
+    message,
   });
   const wasQuitting = yield* Ref.getAndSet(state.quitting, true);
   if (!wasQuitting) {
@@ -271,6 +279,10 @@ const startup = Effect.gen(function* () {
     Effect.catchCause((cause) => fatalStartupCause("whenReady", cause)),
   );
   yield* desktopWindow.showStartupSplash;
+  yield* desktopWindow.transitionStartup({
+    type: "electron-ready",
+    at: yield* Clock.currentTimeMillis,
+  });
   if (process.env.RUNE_DESKTOP_SMOKE_TEST === "1") {
     process.stdout.write("RUNE_DESKTOP_SMOKE_ELECTRON_READY\n");
   }

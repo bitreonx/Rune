@@ -20,6 +20,10 @@ import {
 } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@rune/client-runtime/state/runtime";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
 import { useRemoteOpenState } from "~/remoteOpen";
@@ -41,6 +45,7 @@ import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { projectEnvironment } from "~/state/projects";
+import { shellEnvironment } from "~/state/shell";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
@@ -64,7 +69,7 @@ import { FILE_TREE_MIN_WIDTH, getFileTreeMaxWidth } from "./fileTreeSizing";
 import { RightPanelResizeHandle } from "../preview/RightPanelResizeHandle";
 import { Virtualizer, File } from "@pierre/diffs/react";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
-import { useProjectFileQuery } from "./projectFilesQueryState";
+import { useProjectFileMetadataQuery, useProjectFileQuery } from "./projectFilesQueryState";
 import { useWorkspaceFileEvents } from "~/state/projectFileEvents";
 
 interface FilePreviewPanelProps {
@@ -194,6 +199,13 @@ export default function FilePreviewPanel({
     descriptor !== null &&
     (isWorkspaceExactPreviewPath(relativePath ?? "") || descriptor.kind === "binary");
   const file = useProjectFileQuery(environmentId, cwd, relativePath, !isBinaryPreview);
+  const binaryMetadata = useProjectFileMetadataQuery(
+    environmentId,
+    cwd,
+    relativePath,
+    isBinaryPreview,
+  );
+  const openInFileManager = useAtomCommand(shellEnvironment.openInEditor, "reveal file");
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
@@ -347,6 +359,27 @@ export default function FilePreviewPanel({
         });
       });
   }, [relativePath]);
+
+  const handleRevealInFiles = useCallback(() => {
+    if (relativePath) onOpenFile(relativePath);
+  }, [onOpenFile, relativePath]);
+
+  const handleRevealInExplorer = useCallback(() => {
+    if (!absolutePath) return;
+    void openInFileManager({
+      environmentId,
+      input: { cwd: absolutePath, editor: "file-manager" },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Could not reveal file",
+          description: error instanceof Error ? error.message : "Unable to open the file manager.",
+        });
+      }
+    });
+  }, [absolutePath, environmentId, openInFileManager]);
 
   const handleAddViewerToChat = useCallback(() => {
     if (!relativePath) return;
@@ -525,11 +558,17 @@ export default function FilePreviewPanel({
                 originKey: `workspace-file:${environmentId}:${cwd}:${relativePath}`,
                 onCopyPath: handleCopyViewerPath,
                 onAddToChat: handleAddViewerToChat,
+                onRevealInFiles: handleRevealInFiles,
+                onRevealInExplorer: handleRevealInExplorer,
                 ...(canOpenInBrowser ? { onOpenExternally: handleOpenInBrowser } : {}),
                 ...(onClose ? { onClose } : {}),
               }}
               contents=""
+              byteLength={binaryMetadata.data?.byteLength}
+              mimeType={(binaryMetadata.data?.mimeType ?? descriptor.mime) || undefined}
+              modifiedAt={binaryMetadata.data?.modifiedAt}
               mode="preview"
+              sha256={binaryMetadata.data?.sha256}
             />
           ) : file.error && file.data === null ? (
             <div

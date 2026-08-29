@@ -8,6 +8,7 @@
  * @module WorkspaceFileSystem
  */
 import * as NodeFSP from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 import type {
   ProjectCreateEntryInput,
@@ -35,6 +36,7 @@ import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+const PROJECT_METADATA_HASH_MAX_BYTES = 16 * 1024 * 1024;
 
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
@@ -290,6 +292,37 @@ export const make = Effect.gen(function* () {
               relativePath: input.relativePath,
               resolvedPath: realTargetPath,
             });
+          }
+
+          if (input.metadataOnly === true) {
+            const sha256 =
+              stat.size <= PROJECT_METADATA_HASH_MAX_BYTES
+                ? createHash("sha256")
+                    .update(
+                      yield* Effect.tryPromise({ try: () => handle.readFile() }).pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new WorkspaceFileSystemOperationError({
+                              workspaceRoot: input.cwd,
+                              relativePath: input.relativePath,
+                              resolvedPath: realTargetPath,
+                              operationPath: realTargetPath,
+                              operation: "read",
+                              cause,
+                            }),
+                        ),
+                      ),
+                    )
+                    .digest("hex")
+                : undefined;
+            return {
+              relativePath: target.relativePath,
+              contents: "",
+              byteLength: stat.size,
+              truncated: false,
+              modifiedAt: stat.mtime.toISOString(),
+              ...(sha256 === undefined ? {} : { sha256 }),
+            };
           }
 
           const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);

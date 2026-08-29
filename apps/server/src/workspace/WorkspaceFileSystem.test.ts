@@ -184,6 +184,33 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect("returns bounded metadata for binary files without decoding contents", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const absolutePath = path.join(cwd, "release", "RUNE-Next.exe");
+        yield* fileSystem.makeDirectory(path.dirname(absolutePath), { recursive: true });
+        yield* fileSystem.writeFile(absolutePath, Uint8Array.from([0x61, 0, 0x62]));
+
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "release/RUNE-Next.exe",
+          metadataOnly: true,
+        });
+
+        expect(result.relativePath).toBe("release/RUNE-Next.exe");
+        expect(result.contents).toBe("");
+        expect(result.byteLength).toBe(3);
+        expect(result.truncated).toBe(false);
+        expect(result.modifiedAt).toMatch(/^20\d\d-\d\d-\d\dT/);
+        expect(result.sha256).toBe(
+          "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
+        );
+      }),
+    );
+
     it.effect("preserves the real cause and path for I/O failures", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;

@@ -212,6 +212,8 @@ export class ProjectListEntriesError extends Schema.TaggedErrorClass<ProjectList
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  /** Return file identity metadata without decoding file contents. */
+  metadataOnly: Schema.optional(Schema.Boolean),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 
@@ -220,6 +222,12 @@ export const ProjectReadFileResult = Schema.Struct({
   contents: Schema.String,
   byteLength: NonNegativeInt,
   truncated: Schema.Boolean,
+  /** Best-effort path-derived type label, omitted when no type is known. */
+  mimeType: Schema.optional(TrimmedNonEmptyString),
+  /** Filesystem modification time in ISO-8601 form. */
+  modifiedAt: Schema.optional(Schema.String),
+  /** SHA-256 is omitted for files above the bounded hashing threshold. */
+  sha256: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 

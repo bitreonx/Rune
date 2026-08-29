@@ -18,6 +18,8 @@ export const SkillRegistrySkill = Schema.Struct({
   version: Schema.Int,
   source: TrimmedNonEmptyString,
   sourceAdapter: TrimmedNonEmptyString,
+  /** Explicit upstream provenance; never inferred from a local source path. */
+  repositoryUrl: Schema.optional(TrimmedNonEmptyString),
   scope: SkillScope,
   explicitOnly: Schema.Boolean,
   aliases: Schema.Array(TrimmedNonEmptyString),

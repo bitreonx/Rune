@@ -294,6 +294,10 @@
     "./commandRegistry": {
       "types": "./src/commandRegistry.ts",
       "import": "./src/commandRegistry.ts"
+    },
+    "./skillsIdentity": {
+      "types": "./src/skillsIdentity.ts",
+      "import": "./src/skillsIdentity.ts"
     }
   },
   "scripts": {

@@ -1,6 +1,7 @@
 import {
   CheckCircle2Icon,
   ClipboardIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   FolderTreeIcon,
   GitBranchIcon,
@@ -15,17 +16,24 @@ import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import type { SkillWorkspaceEntry } from "../../skills/skillsWorkspace.logic";
+import type { SkillMarketplaceView } from "../../skills/marketplaceRegistry";
 
 export function SkillDetailPanel({
   entry,
+  isInstalling = false,
+  marketplaceEntry,
+  onInstallMarketplace,
   onUseSkill,
 }: {
   readonly entry: SkillWorkspaceEntry | null;
+  readonly marketplaceEntry?: SkillMarketplaceView | null;
+  readonly onInstallMarketplace?: (entry: SkillMarketplaceView) => void;
+  readonly isInstalling?: boolean;
   readonly onUseSkill: (entry: SkillWorkspaceEntry) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
-  if (!entry) {
+  if (!entry && !marketplaceEntry) {
     return (
       <aside className="flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-center">
         <Layers3Icon className="size-5 text-muted-foreground/70" aria-hidden />
@@ -33,6 +41,131 @@ export function SkillDetailPanel({
         <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
           RUNE keeps the provider and environment boundary visible so a skill never appears to come
           from the wrong workspace.
+        </p>
+      </aside>
+    );
+  }
+
+  if (marketplaceEntry) {
+    const repositoryUrl = (() => {
+      try {
+        const url = new URL(marketplaceEntry.repository);
+        return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+      } catch {
+        return null;
+      }
+    })();
+    const copyInstallCommand = async () => {
+      try {
+        await navigator.clipboard.writeText(
+          `npx skills add ${new URL(marketplaceEntry.repository).pathname.replace(/^\//u, "")} --skill=${marketplaceEntry.slug}`,
+        );
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      } catch {
+        setCopied(false);
+      }
+    };
+
+    return (
+      <aside
+        className="sticky top-5 rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+        data-rune-skill-marketplace-detail
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_35%,var(--border))] bg-[var(--rune-violet-soft)]/20 text-[var(--rune-violet-strong)]">
+              <SparklesIcon className="size-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h2 className="truncate text-lg font-semibold tracking-[-0.025em] text-foreground">
+                {marketplaceEntry.slug}
+              </h2>
+              <p className="mt-1 truncate text-xs text-muted-foreground">Marketplace discovery</p>
+            </div>
+          </div>
+          <Badge
+            variant={marketplaceEntry.status === "available" ? "outline" : "success"}
+            size="sm"
+          >
+            {marketplaceEntry.status === "available"
+              ? "Available"
+              : marketplaceEntry.status === "update"
+                ? "Update"
+                : "Installed"}
+          </Badge>
+        </div>
+
+        <p className="mt-5 text-sm leading-relaxed text-muted-foreground">
+          {marketplaceEntry.description}
+        </p>
+
+        <dl className="mt-5 grid gap-2 text-xs">
+          <div className="rounded-xl bg-muted/35 px-3 py-2.5">
+            <dt className="text-muted-foreground">Source</dt>
+            <dd className="mt-1 break-all font-medium text-foreground">
+              {marketplaceEntry.repository}
+            </dd>
+            <dd className="mt-1 text-muted-foreground">{marketplaceEntry.path}</dd>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
+            <dt className="text-muted-foreground">Catalog version</dt>
+            <dd className="font-medium text-foreground">v{marketplaceEntry.version}</dd>
+          </div>
+          <div className="rounded-xl bg-muted/35 px-3 py-2.5">
+            <dt className="text-muted-foreground">Compatible harnesses</dt>
+            <dd className="mt-2 flex flex-wrap gap-1.5">
+              {marketplaceEntry.compatibility.map((harness) => (
+                <Badge key={harness} variant="outline" size="sm">
+                  {harness}
+                </Badge>
+              ))}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {marketplaceEntry.status !== "installed" ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onInstallMarketplace?.(marketplaceEntry)}
+              disabled={!onInstallMarketplace || isInstalling}
+              title={onInstallMarketplace ? undefined : "Connect a writable project first"}
+            >
+              <DownloadIcon className="size-3.5" />
+              {isInstalling
+                ? "Installing…"
+                : marketplaceEntry.status === "update"
+                  ? "Install update"
+                  : "Install to project"}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void copyInstallCommand()}
+          >
+            <ClipboardIcon
+              className={cn("size-3.5", copied && "text-[var(--rune-violet-strong)]")}
+            />
+            {copied ? "Copied" : "Copy install command"}
+          </Button>
+          {repositoryUrl ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost-muted"
+              render={<a href={repositoryUrl} target="_blank" rel="noreferrer" />}
+            >
+              <ExternalLinkIcon className="size-3.5" /> Open on GitHub
+            </Button>
+          ) : null}
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+          RUNE does not execute marketplace content while browsing. Installing remains an explicit
+          project or user action.
         </p>
       </aside>
     );

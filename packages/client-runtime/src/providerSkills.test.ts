@@ -4,6 +4,7 @@ import {
   formatProviderSkillDisplayName,
   formatRegistrySkillDisplayName,
   dedupeProviderSkills,
+  getProviderSkillIdentity,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   resolveProviderSkillSourceKind,
@@ -72,6 +73,45 @@ describe("getProviderSkillsForSlashMenu", () => {
     ];
 
     expect(dedupeProviderSkills(skills).map((skill) => skill.path)).toEqual(["/enabled/SKILL.md"]);
+  });
+
+  it("keeps same-named skills from different repositories distinct", () => {
+    const skills = [
+      {
+        name: "review",
+        path: "/repo/.agents/skills/review/SKILL.md",
+        repositoryUrl: "https://github.com/acme/first-review.git",
+        enabled: true,
+      },
+      {
+        name: "review",
+        path: "/repo/.agents/skills/review/SKILL.md",
+        repositoryUrl: "https://github.com/acme/second-review",
+        enabled: true,
+      },
+    ];
+
+    expect(getProviderSkillsForSlashMenu(skills, true)).toHaveLength(2);
+    expect(getProviderSkillIdentity(skills[0]!)).not.toBe(getProviderSkillIdentity(skills[1]!));
+  });
+
+  it("deduplicates equivalent repository URLs reported by multiple harnesses", () => {
+    const skills = [
+      {
+        name: "review",
+        path: "/repo/.agents/skills/review/SKILL.md",
+        repositoryUrl: "https://github.com/acme/review.git",
+        enabled: true,
+      },
+      {
+        name: "Review",
+        path: "/home/.claude/skills/review/SKILL.md",
+        repositoryUrl: "git@github.com:acme/review.git",
+        enabled: true,
+      },
+    ];
+
+    expect(getProviderSkillsForSlashMenu(skills, true)).toHaveLength(1);
   });
 });
 

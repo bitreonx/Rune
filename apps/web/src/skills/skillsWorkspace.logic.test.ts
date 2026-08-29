@@ -94,6 +94,7 @@ describe("skillsWorkspace.logic", () => {
             name: "Grill Me",
             path: "/Users/maria/.codex/skills/grill-me/SKILL.md",
             scope: "personal",
+            repositoryUrl: "https://github.com/example/grill-me.git",
             enabled: true,
           },
         ]),

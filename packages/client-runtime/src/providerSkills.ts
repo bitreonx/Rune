@@ -3,8 +3,21 @@ import type {
   ServerProviderSlashCommand,
   SkillRegistrySkill,
 } from "@rune/contracts";
+import {
+  canonicalSkillIdentity,
+  normalizeSkillRepositoryUrl,
+  normalizeSkillSlug,
+} from "@rune/shared/skillsIdentity";
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
+
+export function getProviderSkillIdentity(
+  skill: Pick<ServerProviderSkill, "name" | "repositoryUrl">,
+): string {
+  return canonicalSkillIdentity({ slug: skill.name, repositoryUrl: skill.repositoryUrl });
+}
+
+export { normalizeSkillRepositoryUrl, normalizeSkillSlug };
 
 function titleCaseWords(value: string): string {
   const words: string[] = [];
@@ -38,20 +51,23 @@ export function formatRegistrySkillDisplayName(
 export function dedupeProviderSkills(
   skills: ReadonlyArray<ServerProviderSkill>,
 ): ServerProviderSkill[] {
-  const unique = new Map<string, ServerProviderSkill>();
-  for (const skill of skills) {
+  const unique = new Map<string, { skill: ServerProviderSkill; index: number }>();
+  for (const [index, skill] of skills.entries()) {
     if (!skill.enabled) continue;
-    const key = skill.name
-      .trim()
-      .toLocaleLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+    const key = getProviderSkillIdentity(skill);
     const existing = unique.get(key);
-    // Keep the first enabled report for stable ordering while making repeated
-    // provider discovery records invisible to the user.
-    if (!existing) unique.set(key, skill);
+    if (!existing || providerSkillPriority(skill) < providerSkillPriority(existing.skill)) {
+      unique.set(key, { skill, index });
+    }
   }
-  return [...unique.values()];
+  return [...unique.values()]
+    .sort((left, right) => left.index - right.index)
+    .map(({ skill }) => skill);
+}
+
+function providerSkillPriority(skill: Pick<ServerProviderSkill, "path" | "scope">): number {
+  const sourceKind = resolveProviderSkillSourceKind(skill);
+  return { project: 0, repo: 1, personal: 2, app: 3, system: 4, other: 5 }[sourceKind];
 }
 
 export function getProviderSkillsForSlashMenu(

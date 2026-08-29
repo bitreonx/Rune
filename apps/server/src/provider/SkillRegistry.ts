@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Semaphore from "effect/Semaphore";
 import { parse as parseYaml } from "yaml";
 
+import { canonicalSkillIdentity, normalizeSkillSlug } from "@rune/shared/skillsIdentity";
 import { ServerConfig } from "../config.ts";
 import { getMattPocockMetadata, MATT_POCOCK_PACK } from "./mattPocockPack.ts";
 
@@ -35,6 +36,7 @@ export interface SkillCandidate {
   readonly source: string;
   readonly sourceAdapter: string;
   readonly sourcePath: string;
+  readonly repositoryUrl?: string;
   readonly scope: SkillScope;
   readonly contentHash: string;
   readonly explicitOnly: boolean;
@@ -70,14 +72,6 @@ interface BodyCacheEntry {
 
 function fail(kind: ConstructorParameters<typeof SkillRegistryError>[0]["kind"], message: string) {
   return Effect.fail(new SkillRegistryError({ kind, message }));
-}
-
-function slugify(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function normalizeList(value: unknown): string[] {
@@ -145,6 +139,7 @@ function toWire(skill: RegisteredSkill): SkillRegistrySkill {
     version: skill.version,
     source: skill.source,
     sourceAdapter: skill.sourceAdapter,
+    ...(skill.repositoryUrl ? { repositoryUrl: skill.repositoryUrl } : {}),
     scope: skill.scope,
     explicitOnly: skill.explicitOnly,
     aliases: [...skill.aliases],
@@ -179,6 +174,23 @@ function makeSourceRoots(
   return [...projectRoots, ...personalRoots];
 }
 
+function skillCandidatePriority(candidate: SkillCandidate): string {
+  const scopeRank = { project: "0", repo: "1", personal: "2", app: "3", system: "4" }[
+    candidate.scope
+  ];
+  const adapter = candidate.sourceAdapter.toLocaleLowerCase();
+  const rootRank = adapter.includes(".agents/skills")
+    ? "0"
+    : adapter.includes(".cursor/skills")
+      ? "1"
+      : adapter.includes(".claude/skills")
+        ? "2"
+        : adapter.includes(".codex/skills")
+          ? "3"
+          : "9";
+  return `${scopeRank}${rootRank}:${candidate.sourcePath.toLocaleLowerCase()}`;
+}
+
 function makeFilesystemAdapter(
   root: { path: string; scope: SkillScope; id: string },
   projectCwd: string,
@@ -210,7 +222,7 @@ function makeFilesystemAdapter(
           if (!sourceRealPath || !isWithin(skillDirectoryRealPath, sourceRealPath)) continue;
           const contents = await NodeFS.readFile(sourceRealPath, "utf8").catch(() => undefined);
           if (contents === undefined) continue;
-          const slug = slugify(entry.name);
+          const slug = normalizeSkillSlug(entry.name);
           if (!slug) continue;
           const frontmatter = parseFrontmatter(contents);
           const name =
@@ -218,6 +230,13 @@ function makeFilesystemAdapter(
               ? frontmatter.name.trim()
               : entry.name;
           const metadata = getMattPocockMetadata(name);
+          const repositoryValue = frontmatter.repositoryUrl ?? frontmatter.repository;
+          const repositoryUrl =
+            typeof repositoryValue === "string" && repositoryValue.trim()
+              ? repositoryValue.trim()
+              : metadata
+                ? MATT_POCOCK_PACK.source
+                : undefined;
           const metadataDependencies =
             metadata !== undefined && "dependencies" in metadata
               ? metadata.dependencies
@@ -237,6 +256,7 @@ function makeFilesystemAdapter(
             source: metadata ? MATT_POCOCK_PACK.source : "local-filesystem",
             sourceAdapter: root.id,
             sourcePath: sourceRealPath,
+            ...(repositoryUrl ? { repositoryUrl } : {}),
             scope: root.scope,
             contentHash: await hashSkillDirectory(
               skillDirectoryRealPath,
@@ -321,40 +341,44 @@ export const makeSkillRegistry = (input: {
           typeof adapter.discover === "function" ? adapter.discover() : adapter.discover,
         { concurrency: "unbounded" },
       );
-      const next = new Map<SkillId, RegisteredSkill>();
+      const candidatesByIdentity = new Map<string, SkillCandidate[]>();
       for (const candidate of discovered.flat()) {
-        const id = `${candidate.contentHash}:${candidate.slug}` as SkillId;
-        const old = previousVersions.get(candidate.slug.toLocaleLowerCase());
+        const identity = canonicalSkillIdentity(candidate);
+        const matches = candidatesByIdentity.get(identity);
+        if (matches) matches.push(candidate);
+        else candidatesByIdentity.set(identity, [candidate]);
+      }
+      const next = new Map<SkillId, RegisteredSkill>();
+      for (const [identity, candidates] of [...candidatesByIdentity.entries()].sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        const orderedCandidates = [...candidates].sort((left, right) =>
+          skillCandidatePriority(left).localeCompare(skillCandidatePriority(right)),
+        );
+        const candidate = orderedCandidates[0];
+        if (!candidate) continue;
+        const id = `${candidate.contentHash}:${identity}` as SkillId;
+        const old = previousVersions.get(identity);
         const version = old
           ? old.hash === candidate.contentHash
             ? old.version
             : old.version + 1
           : 1;
-        previousVersions.set(candidate.slug.toLocaleLowerCase(), {
+        previousVersions.set(identity, {
           hash: candidate.contentHash,
           version,
         });
-        const existing = next.get(id);
-        // Same body and slug discovered from multiple compatibility roots is
-        // one identity. Keep the first deterministic source, but aggregate
-        // compatibility labels without exposing duplicate UI entries.
-        if (existing) {
-          next.set(id, {
-            ...existing,
-            compatibility: [
-              ...new Set([
-                ...existing.compatibility,
-                ...candidate.compatibility,
-                candidate.sourceAdapter,
-              ]),
-            ],
-          });
-          continue;
-        }
+        const sourceAvailability = orderedCandidates.flatMap((source) => [
+          ...source.compatibility,
+          source.sourceAdapter,
+        ]);
         next.set(id, {
           ...candidate,
           id,
           version,
+          // The highest-precedence source owns execution. Other reports stay
+          // visible as availability metadata without creating duplicates.
+          compatibility: [...new Set(sourceAvailability)],
           enabled: records.get(id)?.enabled ?? true,
           lastUsedAt: records.get(id)?.lastUsedAt ?? null,
         });

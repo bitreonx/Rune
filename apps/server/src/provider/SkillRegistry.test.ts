@@ -89,6 +89,61 @@ describe("SkillRegistry", () => {
     ),
   );
 
+  it.effect("keeps same slugs from different repositories distinct", () =>
+    Effect.promise(() =>
+      withTempProject(async (projectCwd) => {
+        const first = candidate(NodePath.join(projectCwd, "first", "SKILL.md"), "review", "one", {
+          repositoryUrl: "https://github.com/acme/first-review",
+        });
+        const second = candidate(NodePath.join(projectCwd, "second", "SKILL.md"), "review", "two", {
+          repositoryUrl: "https://github.com/acme/second-review",
+        });
+        const registry = makeSkillRegistry({
+          projectCwd,
+          adapters: [{ id: "test", discover: Effect.succeed([first, second]) }],
+        });
+
+        const snapshot = await Effect.runPromise(registry.refresh);
+        expect(snapshot.skills).toHaveLength(2);
+        expect(new Set(snapshot.skills.map((skill) => skill.id)).size).toBe(2);
+      }),
+    ),
+  );
+
+  it.effect("uses the project source as the execution winner and keeps availability", () =>
+    Effect.promise(() =>
+      withTempProject(async (projectCwd) => {
+        const personal = candidate(
+          "/home/user/.codex/skills/review/SKILL.md",
+          "review",
+          "personal",
+          {
+            sourceAdapter: "filesystem:user:.codex/skills",
+            scope: "personal",
+          },
+        );
+        const project = candidate("/repo/.agents/skills/review/SKILL.md", "review", "project", {
+          sourceAdapter: "filesystem:.agents/skills",
+          scope: "project",
+        });
+        const registry = makeSkillRegistry({
+          projectCwd,
+          adapters: [{ id: "test", discover: Effect.succeed([personal, project]) }],
+        });
+
+        const snapshot = await Effect.runPromise(registry.refresh);
+        expect(snapshot.skills).toHaveLength(1);
+        expect(snapshot.skills[0]).toMatchObject({
+          contentHash: project.contentHash,
+          sourceAdapter: project.sourceAdapter,
+        });
+        expect(snapshot.skills[0]?.compatibility).toEqual(
+          expect.arrayContaining([personal.sourceAdapter, project.sourceAdapter]),
+        );
+      }),
+    ),
+  );
+
   it.effect("loads the body lazily, caches it, and rejects escaped sources", () =>
     Effect.promise(() =>
       withTempProject(async (projectCwd) => {

@@ -6,6 +6,7 @@ import type {
 } from "@rune/contracts";
 import {
   formatProviderSkillDisplayName,
+  getProviderSkillIdentity,
   resolveProviderSkillSourceKind,
   type ProviderSkillSourceKind,
 } from "@rune/client-runtime/providerSkills";
@@ -58,11 +59,7 @@ function normalizePath(pathValue: string): string {
 
 /** Stable UI identity used when providers report the same skill with different paths. */
 export function normalizeSkillIdentity(name: string): string {
-  return name
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+  return getProviderSkillIdentity({ name });
 }
 
 /** Keep the useful tail of a path without leaking an entire host filesystem path. */
@@ -83,8 +80,8 @@ function compareEntries(a: SkillWorkspaceEntry, b: SkillWorkspaceEntry): number 
 
 function compareSources(a: SkillWorkspaceSource, b: SkillWorkspaceSource): number {
   return (
-    SOURCE_ORDER[a.sourceKind] - SOURCE_ORDER[b.sourceKind] ||
     Number(b.skill.enabled) - Number(a.skill.enabled) ||
+    SOURCE_ORDER[a.sourceKind] - SOURCE_ORDER[b.sourceKind] ||
     a.providerDisplayName.localeCompare(b.providerDisplayName) ||
     a.safePath.localeCompare(b.safePath)
   );
@@ -105,7 +102,7 @@ export function buildSkillWorkspaceEntries(input: {
       providerEntry?.displayName ?? provider.displayName ?? provider.driver;
     for (const skill of provider.skills) {
       const sourceKind = resolveProviderSkillSourceKind(skill);
-      const identity = normalizeSkillIdentity(skill.name);
+      const identity = getProviderSkillIdentity(skill);
       const source: SkillWorkspaceSource = {
         providerInstanceId: provider.instanceId,
         providerDisplayName,

@@ -54,7 +54,10 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import { buildUnavailableProviderSnapshot } from "../unavailableProviderSnapshot.ts";
-import { compileProviderInstanceRuntime } from "../ProviderInstanceRuntime.ts";
+import {
+  compileProviderInstanceRuntime,
+  planProviderInstanceRuntimeRoute,
+} from "../ProviderInstanceRuntime.ts";
 import {
   ProviderInstanceRegistry,
   type ProviderInstanceRegistryShape,
@@ -168,6 +171,33 @@ const buildEntry = <R>(input: {
     }
 
     const typedConfig = decodeResult.success;
+    const routeDecision = planProviderInstanceRuntimeRoute({
+      instanceId,
+      driver: entry.driver,
+      entry,
+      typedConfig,
+      // The bridge supervisor is not installed in this runtime yet. Passing
+      // false makes cross-family routes fail closed instead of appearing
+      // configured while still launching the wrong native protocol.
+      bridgeAvailable: false,
+    });
+    if (routeDecision?.tag === "unsupported") {
+      yield* Effect.logWarning("Provider instance route is unavailable", {
+        instanceId: rawInstanceId,
+        driver: entry.driver,
+        reason: routeDecision.reason,
+      });
+      return {
+        kind: "unavailable" as const,
+        snapshot: yield* buildUnavailableProviderSnapshot({
+          driverKind: entry.driver,
+          instanceId,
+          displayName: entry.displayName,
+          accentColor: entry.accentColor,
+          reason: routeDecision.reason,
+        }),
+      };
+    }
     const runtime = compileProviderInstanceRuntime({
       instanceId,
       driver: entry.driver,
@@ -175,10 +205,12 @@ const buildEntry = <R>(input: {
       typedConfig,
       generatedAt: DateTime.formatIso(yield* DateTime.now),
       ...(entry.protocol !== undefined ? { protocol: entry.protocol } : {}),
+      ...(entry.serviceKind !== undefined ? { serviceKind: entry.serviceKind } : {}),
       ...(entry.compatibilityProfileVersion !== undefined
         ? { compatibilityProfileVersion: entry.compatibilityProfileVersion }
         : {}),
       ...(entry.modelBindings !== undefined ? { modelBindings: entry.modelBindings } : {}),
+      ...(routeDecision?.tag === "planned" ? { routePlan: routeDecision.plan } : {}),
     });
     const childScope = yield* Scope.make();
     // Attach the child scope to the registry's parent scope: if the

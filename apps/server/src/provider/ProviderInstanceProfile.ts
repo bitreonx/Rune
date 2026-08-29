@@ -120,6 +120,7 @@ export const compileHarnessProfileProviderInstance = (
     ...(profile.accentColor !== undefined ? { accentColor: profile.accentColor } : {}),
     enabled: profile.enabled,
     ...(connectionId !== undefined ? { connectionId } : {}),
+    ...(service?.kind !== undefined ? { serviceKind: String(service.kind) } : {}),
     authMode: profile.route.modelServiceId === "native" ? "native" : "rune-managed",
     runtimeHomePolicy,
     modelProfileId: String(profile.profileId),
@@ -149,6 +150,9 @@ export const mergeHarnessProfileIntoProviderInstance = (
   ...instance,
   ...(instance.connectionId === undefined && profileInstance.connectionId !== undefined
     ? { connectionId: profileInstance.connectionId }
+    : {}),
+  ...(instance.serviceKind === undefined && profileInstance.serviceKind !== undefined
+    ? { serviceKind: profileInstance.serviceKind }
     : {}),
   ...(instance.authMode === undefined && profileInstance.authMode !== undefined
     ? { authMode: profileInstance.authMode }

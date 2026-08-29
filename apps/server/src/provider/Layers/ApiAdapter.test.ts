@@ -220,6 +220,10 @@ describe("ApiAdapter streaming turns", () => {
       yield* adapter.startSession({ threadId: THREAD_ID, runtimeMode: "full-access" });
 
       const queue = yield* Stream.toQueue(adapter.streamEvents, { capacity: 256 });
+      // `Stream.toQueue` starts the PubSub subscription concurrently. Yield
+      // once before sending so this test observes the first turn event rather
+      // than depending on scheduler timing.
+      yield* Effect.yieldNow;
       const started = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "hi there" });
 
       const events: Array<ProviderRuntimeEvent> = [];

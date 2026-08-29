@@ -634,6 +634,7 @@ const make = Effect.gen(function* () {
           providerInstances[instanceId] = {
             ...instance,
             environment: materializedEnvironment,
+            ...(boundService?.kind !== undefined ? { serviceKind: String(boundService.kind) } : {}),
             ...(isManagedConnection && instance.authMode === undefined
               ? { authMode: "rune-managed" as const }
               : {}),

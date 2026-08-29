@@ -144,6 +144,7 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@rune/shared/git";
@@ -214,7 +215,11 @@ import {
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
+import {
+  formatProviderDriverKindLabel,
+  getProviderModelCapabilities,
+  resolveSelectableProvider,
+} from "../providerModels";
 import {
   NO_PROVIDER_MODEL_SELECTION,
   resolveSelectableProviderInstance,
@@ -331,7 +336,14 @@ import {
   shouldShowThreadErrorBanner,
   threadErrorOffersContinue,
   ThreadErrorBanner,
+  type ThreadContinuationOption,
 } from "./chat/ThreadErrorBanner";
+import {
+  buildHandoffCapsule,
+  buildHandoffPrompt,
+  isUsageExhaustionError,
+  resolveHandoffDestinations,
+} from "./handoff/handoffSurface.logic";
 import {
   resolveDisplayedThreadPr,
   threadChangeRequestSnapshotsAtom,
@@ -3138,6 +3150,34 @@ function ChatViewContent(props: ChatViewProps) {
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
   }, [effectiveActiveProviderInstanceId, providerStatuses, selectedProvider]);
+  const handoffDestinations = useMemo(
+    () =>
+      resolveHandoffDestinations({
+        providers: providerStatuses,
+        currentInstanceId:
+          activeThread?.session?.providerInstanceId ??
+          activeThread?.modelSelection.instanceId ??
+          null,
+        currentModel: activeThread?.modelSelection.model ?? "",
+      }),
+    [
+      activeThread?.modelSelection.instanceId,
+      activeThread?.modelSelection.model,
+      activeThread?.session?.providerInstanceId,
+      providerStatuses,
+    ],
+  );
+  const handoffContinuationOptions = useMemo<ReadonlyArray<ThreadContinuationOption>>(
+    () =>
+      isUsageExhaustionError(visibleThreadError)
+        ? handoffDestinations.map((destination) => ({
+            id: String(destination.instanceId),
+            label: `Continue with ${destination.label}`,
+            description: `${destination.model} · ${destination.instanceId}`,
+          }))
+        : [],
+    [handoffDestinations, visibleThreadError],
+  );
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -4071,6 +4111,32 @@ function ChatViewContent(props: ChatViewProps) {
       }
     });
   }, [activeProjectCwd, activeThread, openInEditor]);
+  const openEnvironmentEditor = useCallback(() => {
+    if (!activeThread || !activeWorkspaceRoot) return;
+    const editor = resolveAndPersistPreferredEditor(availableEditors);
+    if (!editor) {
+      toastManager.add({
+        type: "warning",
+        title: "No editor available",
+        description: "Choose or install an editor for this environment first.",
+      });
+      return;
+    }
+    void openInEditor({
+      environmentId: activeThread.environmentId,
+      input: { cwd: activeWorkspaceRoot, editor },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open editor",
+            description: "The workspace could not be opened in the preferred editor.",
+          }),
+        );
+      }
+    });
+  }, [activeThread, activeWorkspaceRoot, availableEditors, openInEditor]);
   // The thread's own change request, placed against the project it belongs to. Without a
   // project there is nothing to resolve it against, so the caller falls back to the browser.
   const threadRepository = activeProject?.repositoryIdentity?.displayName ?? null;
@@ -7869,6 +7935,167 @@ function ChatViewContent(props: ChatViewProps) {
     composerRef,
   ]);
 
+  const continueWithHandoff = useCallback(
+    async (destinationInstanceId: string) => {
+      if (
+        !activeThread ||
+        !activeProject ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
+      const destination = handoffDestinations.find(
+        (candidate) => String(candidate.instanceId) === destinationInstanceId,
+      );
+      if (!destination) return;
+
+      const createdAt = new Date().toISOString();
+      const changedPaths = [
+        ...activeThread.chatDiff.files.map((file) => file.path),
+        ...(gitStatusQuery.data?.workingTree.files.map((file) => file.path) ?? []),
+      ];
+      const capsule = buildHandoffCapsule({
+        missionId: String(activeThread.id),
+        objective: activeGoal || activeThread.title,
+        acceptance: activePlan?.steps.map((step) => step.step),
+        workspaceId: String(activeThread.environmentId),
+        workspaceRoot: activeWorkspaceRoot ?? activeProject.workspaceRoot,
+        changedPaths,
+        steps: activePlan?.steps,
+        now: createdAt,
+        nextAction: activePlan?.steps.find((step) => step.status !== "completed")?.step,
+      });
+      const nextThreadId = newThreadId();
+      const nextThreadTitle = truncate(`Continue · ${activeThread.title}`);
+      const nextModelSelection: ModelSelection = {
+        instanceId: destination.instanceId,
+        model: destination.model,
+      };
+
+      sendInFlightRef.current = true;
+      beginLocalDispatch({ preparingWorktree: false });
+      const finish = () => {
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+      };
+
+      let failure: AtomCommandResult<unknown, unknown> | null = null;
+      const createResult = await createThread({
+        environmentId,
+        input: {
+          threadId: nextThreadId,
+          projectId: activeProject.id,
+          title: nextThreadTitle,
+          modelSelection: nextModelSelection,
+          runtimeMode,
+          interactionMode,
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
+          createdAt,
+        },
+      });
+      if (createResult._tag === "Failure") {
+        failure = createResult;
+      }
+
+      if (failure === null) {
+        const startResult = await startThreadTurn({
+          environmentId,
+          input: {
+            threadId: nextThreadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: buildHandoffPrompt(capsule),
+              attachments: [],
+            },
+            modelSelection: nextModelSelection,
+            titleSeed: nextThreadTitle,
+            runtimeMode,
+            interactionMode,
+            createdAt,
+          },
+        });
+        if (startResult._tag === "Failure") {
+          failure = startResult;
+        }
+      }
+
+      if (failure === null) {
+        const startedResult = await settlePromise(() =>
+          waitForStartedServerThread(scopeThreadRef(activeThread.environmentId, nextThreadId)),
+        );
+        if (startedResult._tag === "Failure") {
+          failure = startedResult;
+        }
+      }
+
+      if (failure === null) {
+        const navigateResult = await settlePromise(() =>
+          navigate({
+            to: "/$environmentId/$threadId",
+            params: {
+              environmentId: activeThread.environmentId,
+              threadId: nextThreadId,
+            },
+          }),
+        );
+        if (navigateResult._tag === "Failure") {
+          failure = navigateResult;
+        }
+      }
+
+      if (failure !== null) {
+        const cleanupResult = await deleteThread({
+          environmentId,
+          input: { threadId: nextThreadId },
+        });
+        if (cleanupResult._tag === "Failure" && !isAtomCommandInterrupted(cleanupResult)) {
+          console.warn(
+            "Failed to clean up handoff thread after start failure.",
+            squashAtomCommandFailure(cleanupResult),
+          );
+        }
+        if (!isAtomCommandInterrupted(failure)) {
+          const error = squashAtomCommandFailure(failure);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not continue with this runtime",
+              description:
+                error instanceof Error ? error.message : "The handoff could not be started.",
+            }),
+          );
+        }
+      }
+      finish();
+    },
+    [
+      activeGoal,
+      activePlan,
+      activeProject,
+      activeThread,
+      activeWorkspaceRoot,
+      beginLocalDispatch,
+      createThread,
+      deleteThread,
+      environmentId,
+      gitStatusQuery.data?.workingTree.files,
+      handoffDestinations,
+      interactionMode,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      navigate,
+      resetLocalDispatch,
+      runtimeMode,
+      startThreadTurn,
+    ],
+  );
+
   const getModelDisabledReason = useCallback(
     (instanceId: ProviderInstanceId, model: string): string | null => {
       if (!activeThread) {
@@ -8236,6 +8463,7 @@ function ChatViewContent(props: ChatViewProps) {
         environmentLabel={activeEnvironment?.label ?? activeThread.environmentId}
         threadRef={activeThreadRef}
         cwd={activeWorkspaceRoot ?? null}
+        gitCwd={gitStatusCwd}
         chatDiff={activeThread.chatDiff.files}
         gitStatus={gitStatusQuery.data ?? null}
         gitStatusPending={gitStatusQuery.isPending}
@@ -8245,6 +8473,7 @@ function ChatViewContent(props: ChatViewProps) {
         actionProposals={actionProposalsQuery.data?.proposals}
         configuredPreviewUrls={configuredPreviewUrls}
         onOpenFiles={openFilesSurface}
+        onOpenEditor={openEnvironmentEditor}
         onOpenDiff={addDiffSurface}
         onOpenTerminal={addTerminalSurface}
         onOpenBrowser={createBrowserSurface}
@@ -8255,6 +8484,19 @@ function ChatViewContent(props: ChatViewProps) {
         }}
         onOpenServer={openEnvironmentServer}
         onOpenExplorer={openEnvironmentExplorer}
+        {...(supportsPullRequests ? { onOpenPullRequest: openThreadPullRequest } : {})}
+        providerLabel={
+          activeProviderStatus?.displayName?.trim() ??
+          activeThread.session?.providerName ??
+          formatProviderDriverKindLabel(selectedProvider)
+        }
+        providerInstanceId={
+          activeThread.session?.providerInstanceId ?? activeThread.modelSelection.instanceId
+        }
+        modelLabel={activeThread.modelSelection.model}
+        sessionStatus={activeThread.session?.status ?? null}
+        sessionError={threadError}
+        agentSteps={activePlan?.steps}
       />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
@@ -8314,28 +8556,21 @@ function ChatViewContent(props: ChatViewProps) {
         >
           {!rightPanelOpen ? panelLayoutControls(rightPanelToggleRef) : null}
           <ChatHeader
-            {...(!supportsPullRequests || threadRepository === null
-              ? {}
-              : { onOpenPullRequest: openThreadPullRequest })}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             environmentLabel={activeEnvironment?.label ?? activeThread.environmentId}
-            {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
             changeRequest={activeThreadChangeRequest}
             activeProjectName={activeProject?.title}
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             activeProjectFaviconPath={activeProject?.faviconPath ?? null}
-            openInCwd={gitCwd}
             activeProjectScripts={activeProject?.scripts}
             preferredScriptId={
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
             keybindings={keybindings}
-            availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
-            gitCwd={gitCwd}
             gitStatus={gitStatusQuery.data ?? null}
             chatDiff={activeThread.chatDiff.files}
             configuredPreviewUrls={configuredPreviewUrls}
@@ -8354,6 +8589,8 @@ function ChatViewContent(props: ChatViewProps) {
         {!threadErrorOffersContinue(visibleThreadError) ? (
           <ThreadErrorBanner
             error={visibleThreadError}
+            continuations={handoffContinuationOptions}
+            onContinueWith={(destinationId) => void continueWithHandoff(destinationId)}
             onDismiss={() => {
               setThreadError(activeThread.id, null);
               dismissThreadErrorBannerForSession(threadErrorBannerKey);

@@ -6,6 +6,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   ClientOrchestrationCommand,
+  ChatFileAttachment,
   ModelSelection,
   OrchestrationCommand,
   OrchestrationDispatchCommandError,
@@ -37,6 +38,7 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeFullThreadDiffInput = Schema.decodeUnknownEffect(OrchestrationGetFullThreadDiffInput);
 const decodeChatDiffInput = Schema.decodeUnknownEffect(OrchestrationGetChatDiffInput);
+const decodeChatFileAttachment = Schema.decodeUnknownEffect(ChatFileAttachment);
 
 it.effect("decodes chat diff input and rejects negative turn counts", () =>
   Effect.gen(function* () {
@@ -347,6 +349,102 @@ it.effect("accepts both inline and uploaded image attachments from clients", () 
     assert.strictEqual(command.message.attachments.length, 2);
     assert.strictEqual("dataUrl" in command.message.attachments[0]!, true);
     assert.strictEqual("id" in command.message.attachments[1]!, true);
+  }),
+);
+
+it.effect("decodes typed file attachments and rejects non-canonical or oversized paths", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeChatFileAttachment({
+      type: "file",
+      kind: "file",
+      id: "attachment-video-1",
+      name: "clip.mp4",
+      mimeType: "video/mp4",
+      sizeBytes: 42,
+      path: " D:\\media\\clip.mp4 ",
+    });
+
+    assert.strictEqual(parsed.path, "D:\\media\\clip.mp4");
+    assert.strictEqual(parsed.kind, "file");
+
+    const folder = yield* decodeChatFileAttachment({
+      type: "file",
+      kind: "folder",
+      id: "attachment-folder-1",
+      name: "recordings",
+      mimeType: "application/x-directory",
+      sizeBytes: 0,
+      path: "/tmp/recordings",
+    });
+    assert.strictEqual(folder.kind, "folder");
+
+    const relativePath = yield* Effect.exit(
+      decodeChatFileAttachment({
+        type: "file",
+        kind: "file",
+        id: "attachment-relative-1",
+        name: "notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+        path: "notes.pdf",
+      }),
+    );
+    assert.strictEqual(relativePath._tag, "Failure");
+
+    const oversizedPath = yield* Effect.exit(
+      decodeChatFileAttachment({
+        type: "file",
+        kind: "file",
+        id: "attachment-oversized-1",
+        name: "large.bin",
+        mimeType: "application/octet-stream",
+        sizeBytes: 1,
+        path: `D:\\\\${"x".repeat(5000)}`,
+      }),
+    );
+    assert.strictEqual(oversizedPath._tag, "Failure");
+  }),
+);
+
+it.effect("accepts typed non-image attachments in client turn commands", () =>
+  Effect.gen(function* () {
+    const command = yield* decodeClientOrchestrationCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-file-attachment",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-file-attachment",
+        role: "user",
+        text: "inspect this PDF",
+        attachments: [
+          {
+            type: "file",
+            kind: "file",
+            id: "attachment-pdf-1",
+            name: "report.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1024,
+            path: "/tmp/report.pdf",
+          },
+        ],
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    if (command.type !== "thread.turn.start") {
+      assert.fail(`Expected thread.turn.start, received ${command.type}.`);
+    }
+    assert.deepStrictEqual(command.message.attachments[0], {
+      type: "file",
+      kind: "file",
+      id: "attachment-pdf-1",
+      name: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      path: "/tmp/report.pdf",
+    });
   }),
 );
 

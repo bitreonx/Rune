@@ -32,7 +32,10 @@ export interface PickedAttachmentInput {
   readonly sizeBytes: number;
   /** Absolute filesystem path, resolvable on the desktop shell only. */
   readonly absolutePath: string | null;
-  readonly modelSupport: ModelMediaSupport;
+  /** The classifier only needs image support; the remaining fields are kept
+   * optional so older callers can continue passing the pre-document shape. */
+  readonly modelSupport: Pick<ModelMediaSupport, "image"> &
+    Partial<Pick<ModelMediaSupport, "audio" | "video" | "pdf" | "folder">>;
   readonly supportsUploads: boolean;
 }
 
@@ -48,7 +51,7 @@ export function classifyPickedAttachment(input: PickedAttachmentInput): PickedAt
     isImage &&
     input.supportsUploads &&
     input.sizeBytes <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES &&
-    input.modelSupport.image;
+    input.modelSupport.image === true;
   if (uploadableImage) {
     return { kind: "upload-image" };
   }
@@ -58,7 +61,7 @@ export function classifyPickedAttachment(input: PickedAttachmentInput): PickedAt
     why = input.supportsUploads ? "binary-upload-unsupported" : "uploads-unavailable";
   } else if (input.sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
     why = "image-too-large";
-  } else if (!input.modelSupport.image) {
+  } else if (input.modelSupport.image !== true) {
     why = "model-lacks-image-input";
   } else {
     why = "uploads-unavailable";

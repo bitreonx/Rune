@@ -25,19 +25,25 @@ describe("getProviderModelMediaSupport", () => {
       image: true,
       audio: true,
       video: true,
+      pdf: false,
+      folder: "unknown",
     });
   });
 
-  it("falls back to images-only defaults for unknown or silent models", () => {
+  it("keeps unknown catalog capabilities explicit instead of guessing support", () => {
     expect(getProviderModelMediaSupport([], "anything", codex)).toEqual({
-      image: true,
-      audio: false,
-      video: false,
+      image: "unknown",
+      audio: "unknown",
+      video: "unknown",
+      pdf: "unknown",
+      folder: "unknown",
     });
     expect(getProviderModelMediaSupport([model("gpt-5.6-sol")], "gpt-5.6-sol", codex)).toEqual({
-      image: true,
-      audio: false,
-      video: false,
+      image: "unknown",
+      audio: "unknown",
+      video: "unknown",
+      pdf: "unknown",
+      folder: "unknown",
     });
   });
 
@@ -48,6 +54,8 @@ describe("getProviderModelMediaSupport", () => {
       image: false,
       audio: false,
       video: false,
+      pdf: false,
+      folder: "unknown",
     });
   });
 });

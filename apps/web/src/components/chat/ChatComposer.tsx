@@ -151,7 +151,7 @@ import {
   submitComposerDraft,
 } from "./composerSubmission";
 import { ComposerPromptLengthValidation } from "./ComposerPromptLengthValidation";
-import { ComposerAttachmentCapabilityDetails } from "./ComposerAttachmentCapability";
+import { ComposerAttachmentCapability } from "./ComposerAttachmentCapability";
 import { ComposerContextTray } from "./ComposerContextTray";
 import { ComposerPromptQueue } from "./ComposerPromptQueue";
 import type { PromptQueueThreadState } from "@rune/client-runtime/state/promptQueue";
@@ -1062,9 +1062,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedProviderModels.find((candidate) => candidate.slug === slug)?.name ?? slug;
     return {
       modelName,
-      supportsNativeImageUpload: selectedModelMediaSupport.image,
+      mediaSupport: selectedModelMediaSupport,
     };
-  }, [selectedModelMediaSupport.image, selectedModel, selectedProvider, selectedProviderModels]);
+  }, [selectedModelMediaSupport, selectedModel, selectedProvider, selectedProviderModels]);
 
   const composerPromptInjectionState = useMemo(
     () => getComposerPromptInjectionState(prompt),
@@ -2916,7 +2916,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     for (const file of files) {
       if (
         supportsAttachmentUploads &&
-        selectedModelMediaSupport.image &&
+        selectedModelMediaSupport.image === true &&
         isProviderSendTurnSupportedImageMimeType(file.type)
       ) {
         uploadableImages.push(file);
@@ -3978,11 +3978,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           {isElectron ? "Attach folder…" : "Browse workspace folders…"}
                         </MenuItem>
                         <MenuSeparator />
-                        <ComposerAttachmentCapabilityDetails
+                        <ComposerAttachmentCapability
                           modelName={attachCapabilitySummary.modelName}
-                          supportsNativeImageUpload={
-                            attachCapabilitySummary.supportsNativeImageUpload
-                          }
+                          mediaSupport={attachCapabilitySummary.mediaSupport}
                           compact
                         />
                       </MenuPopup>

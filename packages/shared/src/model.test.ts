@@ -12,6 +12,7 @@ import {
   getProviderOptionStringSelectionValue,
   normalizeCustomModelSlug,
   normalizeModelSlug,
+  resolveModelMediaSupport,
 } from "./model.ts";
 
 const codexCaps: ModelCapabilities = createModelCapabilities({
@@ -153,5 +154,31 @@ describe("model slug normalization", () => {
 
     expect(normalizeModelSlug("opus", claude)).toBe("claude-opus-5");
     expect(normalizeCustomModelSlug(" opus ")).toBe("opus");
+  });
+});
+
+describe("model media capability resolution", () => {
+  it("keeps every attachment capability unknown when the catalog is silent", () => {
+    expect(resolveModelMediaSupport(undefined)).toEqual({
+      image: "unknown",
+      audio: "unknown",
+      video: "unknown",
+      pdf: "unknown",
+      folder: "unknown",
+    });
+  });
+
+  it("derives advertised media and document capabilities without inferring folders", () => {
+    expect(
+      resolveModelMediaSupport({
+        inputModalities: ["text", "image", "audio", "video", "document"],
+      }),
+    ).toEqual({
+      image: true,
+      audio: true,
+      video: true,
+      pdf: true,
+      folder: "unknown",
+    });
   });
 });

@@ -1,23 +1,147 @@
+import type { ModelCapabilityState, ModelMediaSupport } from "@rune/shared/model";
 import { InfoIcon } from "lucide-react";
 
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
-export function resolveAttachmentCapabilityCopy(supportsNativeImageUpload: boolean) {
+type AttachmentCapabilityInput = {
+  readonly image?: ModelCapabilityState;
+  readonly audio?: ModelCapabilityState;
+  readonly video?: ModelCapabilityState;
+  readonly pdf?: ModelCapabilityState;
+  readonly folder?: ModelCapabilityState;
+};
+
+type AttachmentCapabilityCopy = {
+  image: string;
+  audio: string;
+  video: string;
+  pdf: string;
+  folder: string;
+  /** Kept for callers of the original image-plus-other copy helper. */
+  other: string;
+};
+
+const UNKNOWN_MEDIA_SUPPORT: ModelMediaSupport = {
+  image: "unknown",
+  audio: "unknown",
+  video: "unknown",
+  pdf: "unknown",
+  folder: "unknown",
+};
+
+function normalizeAttachmentCapabilityInput(
+  input: AttachmentCapabilityInput | ModelMediaSupport | boolean | undefined,
+): ModelMediaSupport {
+  if (typeof input === "boolean") {
+    return {
+      ...UNKNOWN_MEDIA_SUPPORT,
+      image: input,
+    };
+  }
+
   return {
-    image: supportsNativeImageUpload
-      ? "Images upload directly, up to 10 MB."
-      : "Images are shared as file paths because this model has no image input.",
+    image: input?.image ?? "unknown",
+    audio: input?.audio ?? "unknown",
+    video: input?.video ?? "unknown",
+    pdf: input?.pdf ?? "unknown",
+    folder: input?.folder ?? "unknown",
+  };
+}
+
+function capabilityStateLabel(
+  state: ModelCapabilityState,
+): "Available" | "Unavailable" | "Unknown" {
+  if (state === true) return "Available";
+  if (state === false) return "Unavailable";
+  return "Unknown";
+}
+
+function capabilityCopy(label: string, state: ModelCapabilityState): string {
+  if (state === true) {
+    return label === "Images"
+      ? "Direct vision — Images upload directly, up to 10 MB."
+      : `${label} input is available.`;
+  }
+  if (state === false) {
+    return label === "Images"
+      ? "Unavailable — images are shared as file paths because this model has no image input."
+      : `Unavailable — this model did not advertise ${label.toLowerCase()} input.`;
+  }
+  return label === "Images"
+    ? "Unknown — the provider did not advertise direct vision; use a file path when available."
+    : `Unknown — the provider did not advertise ${label.toLowerCase()} input; use a path when available.`;
+}
+
+export function resolveAttachmentCapabilityCopy(
+  input: AttachmentCapabilityInput | ModelMediaSupport | boolean,
+): AttachmentCapabilityCopy {
+  const mediaSupport = normalizeAttachmentCapabilityInput(input);
+  return {
+    image: capabilityCopy("Images", mediaSupport.image),
+    audio: capabilityCopy("Audio", mediaSupport.audio),
+    video: capabilityCopy("Video", mediaSupport.video),
+    folder: capabilityCopy("Folders", mediaSupport.folder),
+    pdf: capabilityCopy("PDF", mediaSupport.pdf),
     other: "Audio, video, and folders are shared as paths for the agent to read.",
   };
 }
 
+function CapabilityStateIndicator({ state }: { state: ModelCapabilityState }) {
+  const label = capabilityStateLabel(state);
+  return (
+    <span
+      aria-label={label}
+      className={
+        state === true
+          ? "font-medium text-foreground"
+          : state === false
+            ? "text-muted-foreground"
+            : "text-secondary-label"
+      }
+      data-composer-attachment-capability-state={
+        state === "unknown" ? "unknown" : state ? "true" : "false"
+      }
+    >
+      {state === "unknown" ? "Unknown" : state ? "✓" : "○"}
+    </span>
+  );
+}
+
+function CapabilityRow({
+  label,
+  state,
+  description,
+}: {
+  label: string;
+  state: ModelCapabilityState;
+  description: string;
+}) {
+  return (
+    <div
+      aria-label={`${label}: ${capabilityStateLabel(state)}`}
+      className="flex min-h-7 items-center justify-between gap-3 rounded-md px-2 py-1 text-xs"
+      data-composer-attachment-capability-row={label.toLowerCase()}
+      role="listitem"
+      title={description}
+    >
+      <span className="min-w-0 truncate text-foreground">{label}</span>
+      <CapabilityStateIndicator state={state} />
+    </div>
+  );
+}
+
 export function ComposerAttachmentCapabilityDetails(props: {
   modelName: string;
-  supportsNativeImageUpload: boolean;
+  mediaSupport?: AttachmentCapabilityInput | ModelMediaSupport;
+  /** Compatibility for callers from the original image-only capability API. */
+  supportsNativeImageUpload?: boolean;
   compact?: boolean;
 }) {
-  const copy = resolveAttachmentCapabilityCopy(props.supportsNativeImageUpload);
+  const mediaSupport = normalizeAttachmentCapabilityInput(
+    props.mediaSupport ?? props.supportsNativeImageUpload,
+  );
+  const copy = resolveAttachmentCapabilityCopy(mediaSupport);
 
   return (
     <div
@@ -30,56 +154,66 @@ export function ComposerAttachmentCapabilityDetails(props: {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-medium text-foreground text-xs">Attachment handling</div>
+          <div className="font-medium text-foreground text-xs">What can this model use?</div>
           <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{props.modelName}</div>
         </div>
         <InfoIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </div>
-      <div className="grid gap-1.5 text-[11px] leading-4 text-secondary-label">
-        <div className="flex items-start gap-2">
-          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
-          <span>{copy.image}</span>
-        </div>
-        <div className="flex items-start gap-2">
-          <span
-            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/60"
-            aria-hidden="true"
-          />
-          <span>{copy.other}</span>
-        </div>
+      <div className="grid gap-0.5" role="list" aria-label="Attachment capabilities">
+        <CapabilityRow label="Images" state={mediaSupport.image} description={copy.image} />
+        <CapabilityRow label="Video" state={mediaSupport.video} description={copy.video} />
+        <CapabilityRow label="Audio" state={mediaSupport.audio} description={copy.audio} />
+        <CapabilityRow label="Folders" state={mediaSupport.folder} description={copy.folder} />
+        <CapabilityRow label="PDF" state={mediaSupport.pdf} description={copy.pdf} />
       </div>
+      <p className="px-2 text-[11px] leading-4 text-muted-foreground">
+        Native input is used only when the provider advertises it. Unknown items use a path when one
+        is available.
+      </p>
     </div>
   );
 }
 
 export function ComposerAttachmentCapability(props: {
   modelName: string;
-  supportsNativeImageUpload: boolean;
+  mediaSupport?: AttachmentCapabilityInput | ModelMediaSupport;
+  /** Compatibility for callers from the original image-only capability API. */
+  supportsNativeImageUpload?: boolean;
+  compact?: boolean;
 }) {
+  const mediaSupport = normalizeAttachmentCapabilityInput(
+    props.mediaSupport ?? props.supportsNativeImageUpload,
+  );
+
   return (
     <Popover>
       <PopoverTrigger
         render={
           <ComposerControl
             type="button"
-            size="icon-sm"
-            aria-label="Attachment capabilities"
-            className="size-7 shrink-0 rounded-full px-0 text-muted-foreground hover:text-foreground"
+            size="sm"
+            aria-label="What can this model use?"
+            className={
+              props.compact ? "w-full justify-between rounded-sm px-2 text-xs" : "shrink-0 gap-1.5"
+            }
             data-composer-attachment-capability-trigger="true"
           />
         }
       >
-        <ComposerControlIcon icon={InfoIcon} />
+        <span className="min-w-0 flex-1 truncate text-left">What can this model use?</span>
+        <ComposerControlIcon icon={InfoIcon} className="text-muted-foreground" />
       </PopoverTrigger>
       <PopoverPopup
-        tooltipStyle
         side="top"
         align="start"
-        className="w-64 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
+        className="w-72 max-w-[calc(100vw-2rem)] text-left whitespace-normal"
         viewportClassName="p-0"
         data-composer-attachment-capability-popover="true"
       >
-        <ComposerAttachmentCapabilityDetails {...props} />
+        <ComposerAttachmentCapabilityDetails
+          modelName={props.modelName}
+          mediaSupport={mediaSupport}
+        />
       </PopoverPopup>
     </Popover>
   );

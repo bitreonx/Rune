@@ -1987,7 +1987,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 /* The rounded chat panel owns the meaningful shell edge; avoid a second hard
    boundary on the rail itself. */
 [data-app-sidebar] [data-slot="sidebar-container"] {
-  border-right-width: 0;
+  border-right: 0 !important;
+  border-left: 0 !important;
 }
 
 [data-rune-sidebar-rail] {

@@ -4,6 +4,15 @@ import { useMemo, useState } from "react";
 
 import type { DailyTotals, HourlyTotals } from "@rune/shared/usageMerge";
 import { deriveUsageCoverage } from "@rune/shared/usageCoverage";
+import {
+  deriveUsageDiagnostics,
+  deriveUsageIntelligenceSummary,
+  deriveUsageProviderDrilldown,
+  makeUsageRange,
+  USAGE_RANGE_OPTIONS,
+  validateCustomUsageWindow,
+  type UsageRangeKey,
+} from "@rune/shared/usageIntelligence";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -18,7 +27,6 @@ import {
   formatPercent,
   formatTokens,
   formatUsd,
-  makeWindow,
 } from "@rune/shared/usageFormat";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -35,22 +43,43 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
 
-const WINDOW_OPTIONS = [
-  { days: 1, label: "Past 24h" },
-  { days: 7, label: "7 days" },
-  { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
-] as const;
+type UsageSelectionKey = UsageRangeKey | "custom";
+
+const DEFAULT_USAGE_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+function daysForRange(key: UsageRangeKey): number {
+  switch (key) {
+    case "1h":
+    case "24h":
+      return 1;
+    case "7d":
+      return 7;
+    case "30d":
+      return 30;
+    case "90d":
+      return 90;
+  }
+}
 
 export function UsagePage() {
   const [windowSelection, setWindowSelection] = useState(() => ({
+    range: "30d" as UsageSelectionKey,
     days: 30,
-    window: makeWindow(30),
+    window: makeUsageRange("30d"),
   }));
   const [metric, setMetric] = useState<UsageChartMetric>("cost");
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState({
+    sinceDay: "",
+    untilDay: "",
+    timeZone: DEFAULT_USAGE_TIME_ZONE,
+  });
+  const [customError, setCustomError] = useState<string | null>(null);
   const { days: windowDays, window } = windowSelection;
-  const isPast24Hours = windowDays === 1;
+  const rangeKey: UsageSelectionKey =
+    windowSelection.range ?? (windowDays === 1 ? "24h" : (`${windowDays}d` as UsageSelectionKey));
+  const isHourly = window.resolution === "hour";
   const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
 
   // Hold the content until every environment is terminal. Rendering merged
@@ -72,8 +101,8 @@ export function UsagePage() {
   // Newest first: the window can run 90 periods, so the interesting end
   // belongs at the top of the table.
   const breakdownPeriods = useMemo<readonly (DailyTotals | HourlyTotals)[]>(
-    () => (isPast24Hours ? merged.hourly : merged.daily).toReversed(),
-    [isPast24Hours, merged.daily, merged.hourly],
+    () => (isHourly ? merged.hourly : merged.daily).toReversed(),
+    [isHourly, merged.daily, merged.hourly],
   );
   const activeProviders = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const coverageNotices = useMemo(
@@ -86,28 +115,50 @@ export function UsagePage() {
     [activeProviders, merged],
   );
   const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
+  const intelligenceSummary = useMemo(() => deriveUsageIntelligenceSummary(merged), [merged]);
+  const diagnostics = useMemo(() => deriveUsageDiagnostics(merged), [merged]);
+  const providerDrilldown = useMemo(() => deriveUsageProviderDrilldown(merged), [merged]);
 
-  const selectWindow = (days: number) => {
+  const selectRange = (key: UsageRangeKey) => {
     setWindowSelection({
-      days,
-      window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
+      range: key,
+      days: daysForRange(key),
+      window: makeUsageRange(key),
     });
+    setCustomOpen(false);
+    setCustomError(null);
   };
   const refreshWindow = () => {
-    const nextWindow = makeWindow(windowDays, undefined, isPast24Hours ? "hour" : "day");
+    if (rangeKey === "custom") {
+      refresh();
+      return;
+    }
+    const nextWindow = makeUsageRange(rangeKey);
     if (
       nextWindow.sinceDay === window.sinceDay &&
       nextWindow.untilDay === window.untilDay &&
+      nextWindow.timeZone === window.timeZone &&
+      nextWindow.resolution === window.resolution &&
       nextWindow.sinceTime === window.sinceTime &&
       nextWindow.untilTime === window.untilTime
     ) {
       refresh();
     } else {
-      setWindowSelection({ days: windowDays, window: nextWindow });
+      setWindowSelection({ range: rangeKey, days: windowDays, window: nextWindow });
     }
   };
+  const applyCustomWindow = () => {
+    const result = validateCustomUsageWindow(customDraft);
+    if (!result.valid) {
+      setCustomError(result.reason);
+      return;
+    }
+    setWindowSelection({ range: "custom", days: 0, window: result.window });
+    setCustomError(null);
+    setCustomOpen(false);
+  };
   const windowLabel =
-    isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
+    isHourly && window.sinceTime !== undefined && window.untilTime !== undefined
       ? `${formatDateTimeShort(window.sinceTime, window.timeZone)} to ${formatDateTimeShort(window.untilTime, window.timeZone)}`
       : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
   const topbarContent = (
@@ -140,18 +191,28 @@ export function UsagePage() {
         <ToggleGroup
           aria-label="Usage period"
           variant="segmented"
-          value={[String(windowDays)]}
+          value={rangeKey === "custom" ? [] : [rangeKey]}
           onValueChange={(next) => {
             const value = next[0];
-            if (value) selectWindow(Number(value));
+            if (USAGE_RANGE_OPTIONS.some((option) => option.key === value)) {
+              selectRange(value as UsageRangeKey);
+            }
           }}
         >
-          {WINDOW_OPTIONS.map((option) => (
-            <Toggle key={option.days} value={String(option.days)}>
+          {USAGE_RANGE_OPTIONS.map((option) => (
+            <Toggle key={option.key} value={option.key}>
               {option.label}
             </Toggle>
           ))}
         </ToggleGroup>
+        <Button
+          onClick={() => setCustomOpen((open) => !open)}
+          aria-label="Choose a custom usage range"
+          variant={rangeKey === "custom" || customOpen ? "secondary" : "ghost"}
+          size="sm"
+        >
+          Custom
+        </Button>
         <Button onClick={refreshWindow} aria-label="Refresh usage" size="icon-sm" variant="ghost">
           <RefreshCwIcon className="size-3.5" />
         </Button>
@@ -176,7 +237,16 @@ export function UsagePage() {
             <SelectItem value="tokens">Tokens</SelectItem>
           </SelectPopup>
         </Select>
-        <Select value={String(windowDays)} onValueChange={(value) => selectWindow(Number(value))}>
+        <Select
+          value={rangeKey}
+          onValueChange={(value) => {
+            if (value === "custom") {
+              setCustomOpen(true);
+            } else if (USAGE_RANGE_OPTIONS.some((option) => option.key === value)) {
+              selectRange(value as UsageRangeKey);
+            }
+          }}
+        >
           <SelectTrigger
             aria-label="Usage period"
             size="compact"
@@ -184,15 +254,18 @@ export function UsagePage() {
             className="w-auto min-w-0"
           >
             <SelectValue>
-              {WINDOW_OPTIONS.find((option) => option.days === windowDays)?.label}
+              {rangeKey === "custom"
+                ? "Custom"
+                : USAGE_RANGE_OPTIONS.find((option) => option.key === rangeKey)?.label}
             </SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
-            {WINDOW_OPTIONS.map((option) => (
-              <SelectItem key={option.days} value={String(option.days)}>
+            {USAGE_RANGE_OPTIONS.map((option) => (
+              <SelectItem key={option.key} value={option.key}>
                 {option.label}
               </SelectItem>
             ))}
+            <SelectItem value="custom">Custom…</SelectItem>
           </SelectPopup>
         </Select>
         <Button onClick={refreshWindow} aria-label="Refresh usage" size="icon-sm" variant="ghost">
@@ -206,6 +279,59 @@ export function UsagePage() {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>{topbarContent}</WorkspacePageHeader>
+
+        {customOpen ? (
+          <div className="border-b border-border/70 bg-card/30 px-4 py-3 md:px-6">
+            <form
+              className="mx-auto flex max-w-5xl flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyCustomWindow();
+              }}
+            >
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Start date
+                <input
+                  type="date"
+                  value={customDraft.sinceDay}
+                  onChange={(event) =>
+                    setCustomDraft((draft) => ({ ...draft, sinceDay: event.target.value }))
+                  }
+                  className="h-8 rounded-sm border border-border bg-background px-2 text-sm text-foreground"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                End date
+                <input
+                  type="date"
+                  value={customDraft.untilDay}
+                  onChange={(event) =>
+                    setCustomDraft((draft) => ({ ...draft, untilDay: event.target.value }))
+                  }
+                  className="h-8 rounded-sm border border-border bg-background px-2 text-sm text-foreground"
+                  required
+                />
+              </label>
+              <label className="flex min-w-40 flex-col gap-1 text-xs text-muted-foreground">
+                Time zone
+                <input
+                  value={customDraft.timeZone}
+                  onChange={(event) =>
+                    setCustomDraft((draft) => ({ ...draft, timeZone: event.target.value }))
+                  }
+                  className="h-8 rounded-sm border border-border bg-background px-2 text-sm text-foreground"
+                  placeholder="UTC"
+                  required
+                />
+              </label>
+              <Button type="submit" size="sm">
+                Apply range
+              </Button>
+              {customError ? <span className="text-xs text-destructive">{customError}</span> : null}
+            </form>
+          </div>
+        ) : null}
 
         <ScrollArea className="min-h-0 flex-1">
           <WorkspacePageContainer width="wide">
@@ -298,7 +424,7 @@ export function UsagePage() {
 
                   <div className="flex min-w-0 flex-col gap-3">
                     <h2 className="text-sm font-medium text-foreground">
-                      {isPast24Hours ? "Hourly" : "Daily"}{" "}
+                      {isHourly ? "Hourly" : "Daily"}{" "}
                       {metric === "tokens" ? "processed tokens" : "cost"}
                     </h2>
                     <UsageProviderChart
@@ -309,9 +435,76 @@ export function UsagePage() {
                       hourly={merged.hourly}
                       metric={metric}
                       referenceTime={window.untilTime}
-                      resolution={isPast24Hours ? "hour" : "day"}
+                      resolution={isHourly ? "hour" : "day"}
                       timeZone={window.timeZone}
                     />
+                  </div>
+                </section>
+
+                <section className="flex flex-col gap-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h2 className="text-sm font-medium text-foreground">Intelligence</h2>
+                    <span className="text-xs text-muted-foreground">
+                      Measured from provider transcript telemetry
+                    </span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <IntelligenceMetric
+                      label="API-equivalent cost"
+                      value={formatUsd(intelligenceSummary.costUsd)}
+                    />
+                    <IntelligenceMetric
+                      label="Requests"
+                      value={formatCount(intelligenceSummary.requests)}
+                    />
+                    <IntelligenceMetric
+                      label="Input tokens"
+                      value={formatTokens(intelligenceSummary.inputTokens)}
+                    />
+                    <IntelligenceMetric
+                      label="Output tokens"
+                      value={formatTokens(intelligenceSummary.outputTokens)}
+                    />
+                    <IntelligenceMetric
+                      label="Cache hit"
+                      value={
+                        intelligenceSummary.cacheHitRate === null
+                          ? "Not reported"
+                          : formatPercent(intelligenceSummary.cacheHitRate)
+                      }
+                    />
+                    <IntelligenceMetric label="Active agent time" value="Not reported" />
+                  </div>
+                </section>
+
+                <section className="flex flex-col gap-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h2 className="text-sm font-medium text-foreground">Efficiency signals</h2>
+                    <span className="text-xs text-muted-foreground">
+                      Deterministic, no inferred scores
+                    </span>
+                  </div>
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    {diagnostics.map((diagnostic) => (
+                      <div
+                        key={diagnostic.id}
+                        className={cn(
+                          "border px-3 py-2",
+                          diagnostic.tone === "positive"
+                            ? "border-emerald-500/30 bg-emerald-500/5"
+                            : diagnostic.tone === "attention"
+                              ? "border-amber-500/40 bg-amber-500/5"
+                              : "border-border/70 bg-card/20",
+                        )}
+                      >
+                        <div className="text-xs font-medium text-foreground">
+                          {diagnostic.title}
+                        </div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {diagnostic.detail}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </section>
 
@@ -347,7 +540,7 @@ export function UsagePage() {
                       {(
                         [
                           { value: "model", label: "Model" },
-                          { value: "time", label: isPast24Hours ? "Hour" : "Day" },
+                          { value: "time", label: isHourly ? "Hour" : "Day" },
                         ] as const
                       ).map((option) => (
                         <Toggle key={option.value} value={option.value}>
@@ -374,35 +567,37 @@ export function UsagePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {merged.models.length === 0 ? (
+                        {providerDrilldown.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="py-6 text-center text-muted-foreground">
                               No activity in this window.
                             </td>
                           </tr>
                         ) : (
-                          merged.models.map((model) => (
-                            <tr
-                              key={`${model.provider}:${model.model}`}
-                              className="border-b border-border/50 transition-colors hover:bg-muted/50"
-                            >
-                              <td className="py-2 text-foreground">
-                                <span className="flex items-center gap-2">
-                                  <ProviderMark provider={model.provider} className="size-3.5" />
-                                  {model.model}
-                                </span>
-                              </td>
-                              <td className="py-2 text-right text-foreground tabular-nums">
-                                {formatUsd(model.costUsd)}
-                              </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
-                                {formatPercent(model.costShare)}
-                              </td>
-                              <td className="py-2 text-right text-muted-foreground tabular-nums">
-                                {formatTokens(model.totalTokens)}
-                              </td>
-                            </tr>
-                          ))
+                          providerDrilldown.flatMap((provider) =>
+                            provider.models.map((model) => (
+                              <tr
+                                key={`${model.provider}:${model.model}`}
+                                className="border-b border-border/50 transition-colors hover:bg-muted/50"
+                              >
+                                <td className="py-2 text-foreground">
+                                  <span className="flex items-center gap-2">
+                                    <ProviderMark provider={model.provider} className="size-3.5" />
+                                    {model.model}
+                                  </span>
+                                </td>
+                                <td className="py-2 text-right text-foreground tabular-nums">
+                                  {formatUsd(model.costUsd)}
+                                </td>
+                                <td className="py-2 text-right text-muted-foreground tabular-nums">
+                                  {formatPercent(model.costShare)}
+                                </td>
+                                <td className="py-2 text-right text-muted-foreground tabular-nums">
+                                  {formatTokens(model.totalTokens)}
+                                </td>
+                              </tr>
+                            )),
+                          )
                         )}
                       </tbody>
                     </table>
@@ -418,7 +613,7 @@ export function UsagePage() {
                       </colgroup>
                       <thead>
                         <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                          <th className="py-2 font-normal">{isPast24Hours ? "Hour" : "Day"}</th>
+                          <th className="py-2 font-normal">{isHourly ? "Hour" : "Day"}</th>
                           {activeProviders.map((provider) => (
                             <th key={provider} className="py-2 text-right font-normal">
                               {PROVIDER_PRESENTATION[provider].label}
@@ -496,6 +691,15 @@ function Metric({ label, value }: { readonly label: string; readonly value: stri
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-base font-medium text-foreground tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function IntelligenceMetric({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <div className="border border-border/70 bg-card/20 px-3 py-2.5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-base font-medium text-foreground tabular-nums">{value}</div>
     </div>
   );
 }

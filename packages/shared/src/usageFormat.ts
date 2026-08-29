@@ -170,6 +170,53 @@ export function formatRelativeHourShort(
   return formatDateTimeShort(hourStart, timeZone);
 }
 
+function resolvedUsageTimeZone(): {
+  readonly timeZone: string;
+  readonly formatDay: Intl.DateTimeFormat;
+} {
+  let timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  try {
+    return {
+      timeZone,
+      formatDay: new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }),
+    };
+  } catch {
+    timeZone = "UTC";
+    return {
+      timeZone,
+      formatDay: new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }),
+    };
+  }
+}
+
+/** Builds an exact rolling hourly request of the requested duration. */
+export function makeRollingWindow(hours: number, now = new Date()): UsageSummaryInput {
+  const { timeZone, formatDay } = resolvedUsageTimeZone();
+  const durationHours = Math.max(1, Math.floor(hours));
+  const untilTimeMs = Math.floor(now.getTime() / 60_000) * 60_000;
+  const sinceTimeMs = untilTimeMs - durationHours * HOUR_MS;
+  const sinceTime = new Date(sinceTimeMs);
+  const untilTime = new Date(untilTimeMs);
+  return {
+    sinceDay: UsageDay.make(formatDay.format(sinceTime)),
+    untilDay: UsageDay.make(formatDay.format(untilTime)),
+    timeZone,
+    resolution: "hour",
+    sinceTime: sinceTime.toISOString(),
+    untilTime: untilTime.toISOString(),
+  };
+}
+
 /**
  * The window the page requests, expressed in the viewer's own time zone so days
  * line up with what they actually experienced.
@@ -179,42 +226,10 @@ export function makeWindow(
   now = new Date(),
   resolution: UsageResolution = "day",
 ): UsageSummaryInput {
-  let timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  let format: Intl.DateTimeFormat;
-  try {
-    format = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  } catch {
-    // An unknown zone should degrade to UTC rather than crash the page.
-    timeZone = "UTC";
-    format = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "UTC",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  }
+  const { timeZone, formatDay: format } = resolvedUsageTimeZone();
   const untilDay = format.format(now);
   if (resolution === "hour") {
-    // Minute-aligned bounds keep labels readable while still representing an
-    // exact rolling 24-hour duration. Fixed-duration buckets remain correct
-    // across offset changes and daylight-saving transitions.
-    const untilTimeMs = Math.floor(now.getTime() / 60_000) * 60_000;
-    const sinceTimeMs = untilTimeMs - 24 * HOUR_MS;
-    const sinceTime = new Date(sinceTimeMs);
-    const untilTime = new Date(untilTimeMs);
-    return {
-      sinceDay: UsageDay.make(format.format(sinceTime)),
-      untilDay: UsageDay.make(format.format(untilTime)),
-      timeZone,
-      resolution,
-      sinceTime: sinceTime.toISOString(),
-      untilTime: untilTime.toISOString(),
-    };
+    return makeRollingWindow(24, now);
   }
   // Subtracting fixed milliseconds from `now` lands on the wrong calendar day
   // around a DST transition. The window start is pure calendar arithmetic on

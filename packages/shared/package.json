@@ -298,6 +298,10 @@
     "./skillsIdentity": {
       "types": "./src/skillsIdentity.ts",
       "import": "./src/skillsIdentity.ts"
+    },
+    "./usageIntelligence": {
+      "types": "./src/usageIntelligence.ts",
+      "import": "./src/usageIntelligence.ts"
     }
   },
   "scripts": {

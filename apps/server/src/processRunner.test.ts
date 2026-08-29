@@ -412,3 +412,60 @@ describe("isWindowsCommandNotFound", () => {
     }),
   );
 });
+
+describe("classifyProcessFailure", () => {
+  it("distinguishes a missing Windows shell from a failed script", () => {
+    expect(
+      ProcessRunner.classifyProcessFailure({
+        platform: "win32",
+        runInput: { command: "pwsh.exe" },
+        output: {
+          stdout: "",
+          stderr: "pwsh.exe is not recognized as an internal or external command",
+          code: 9009,
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        },
+      }),
+    ).toBe(ProcessRunner.ProcessFailureClass.shellNotFound);
+  });
+
+  it("keeps a non-zero application exit distinct from shell failure", () => {
+    expect(
+      ProcessRunner.classifyProcessFailure({
+        platform: "win32",
+        runInput: { command: "node", cwd: "C:/repo" },
+        output: {
+          stdout: "",
+          stderr: "artifact builder failed",
+          code: 1,
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        },
+      }),
+    ).toBe(ProcessRunner.ProcessFailureClass.nonzeroExit);
+  });
+
+  it("classifies output limits without exposing command arguments", () => {
+    expect(
+      ProcessRunner.classifyProcessFailure({
+        platform: "linux",
+        runInput: { command: "rg", cwd: "/repo" },
+        error: new ProcessRunner.ProcessOutputLimitError({
+          command: "rg",
+          argumentCount: 2,
+          cwd: "/repo",
+          stream: "stdout",
+          maxBytes: 10,
+          observedBytes: 11,
+        }),
+      }),
+    ).toBe(ProcessRunner.ProcessFailureClass.outputLimit);
+  });
+});

@@ -106,7 +106,20 @@ const TREE_UNSAFE_CSS = `
     --trees-font-family-override: var(--font-sans);
     --trees-font-size-override: 12px;
   }
-  button[data-type='item'] { border-radius: 5px; }
+  button[data-type='item'] {
+    border-radius: 5px;
+    transition: opacity 160ms ease, transform 160ms ease, clip-path 160ms ease;
+  }
+  @starting-style {
+    button[data-type='item'] {
+      opacity: 0;
+      transform: translateY(-2px);
+      clip-path: inset(0 0 4px 0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button[data-type='item'] { transition: none; }
+  }
 `;
 
 function treePath(entry: ProjectEntry): string {

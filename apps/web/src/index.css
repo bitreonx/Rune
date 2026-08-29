@@ -1899,11 +1899,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --sidebar-row-selected: var(--color-white);
   --sidebar-border: var(--color-zinc-200);
   --sidebar-stage-fade: var(--sidebar);
-  --rune-sidebar-surface: var(--sidebar);
+  /* The rail is part of the workspace canvas. Rows and controls retain their
+     own tones below so hierarchy does not depend on a panel boundary. */
+  --rune-sidebar-surface: var(--background);
   --rune-sidebar-surface-subtle: color-mix(
     in srgb,
     var(--sidebar-control-surface) 70%,
-    var(--sidebar)
+    var(--background)
   );
   --rune-sidebar-ink: var(--sidebar-foreground);
   --rune-sidebar-ink-muted: var(--sidebar-muted-foreground);
@@ -1932,11 +1934,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     --sidebar-row-selected: color-mix(in srgb, var(--contrast-foreground) 7%, transparent);
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
-    --rune-sidebar-surface: var(--sidebar);
+    --rune-sidebar-surface: var(--background);
     --rune-sidebar-surface-subtle: color-mix(
       in srgb,
       var(--sidebar-control-surface) 82%,
-      var(--sidebar)
+      var(--background)
     );
   }
 }
@@ -1968,6 +1970,23 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* `bg-sidebar` remains in the primitive for compatibility, but the app shell
+   should continue the page canvas through the rail. */
+[data-app-sidebar] [data-sidebar="sidebar"] {
+  background: var(--shell-surface, var(--rune-sidebar-surface));
+}
+
+/* Mobile renders its popup through a portal, outside `[data-app-sidebar]`. */
+[data-mobile="true"][data-sidebar="sidebar"] {
+  background: var(--shell-surface, var(--rune-sidebar-surface, var(--background)));
+}
+
+/* The rounded chat panel owns the meaningful shell edge; avoid a second hard
+   boundary on the rail itself. */
+[data-app-sidebar] [data-slot="sidebar-container"] {
+  border-right-width: 0;
 }
 
 [data-rune-sidebar-rail] {
@@ -3288,6 +3307,7 @@ html[data-theme-id] [data-app-sidebar] {
   --sidebar-row-selected: var(--app-theme-sidebar-row-selected);
   --sidebar-border: var(--app-theme-sidebar-border);
   --sidebar-stage-fade: var(--app-theme-sidebar);
+  --rune-sidebar-surface: var(--background);
   border-color: color-mix(in srgb, var(--contrast-sidebar-foreground) 10%, transparent);
 
   @variant dark {

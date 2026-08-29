@@ -191,15 +191,18 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? getWindowFullscreenState()
       : false;
   });
-  // The user-tunable shell surface color. `"default"` leaves the CSS rule
-  // to use its `var(--rune-sidebar-surface)` fallback so theme-driven
-  // surfaces keep working; any other value flows through as a literal hex
-  // that the inner wrapper paints directly.
+  // Keep the custom color on the sidebar root so the header, footer, toolbar,
+  // desktop rail, and mobile sheet all share one surface. Default stays
+  // entirely theme-driven.
   const sidebarShellStyle = useMemo<CSSProperties>(
     () =>
       shellSidebarBackground === "default"
         ? {}
-        : ({ "--shell-surface": shellSidebarBackground } as CSSProperties),
+        : ({
+            "--shell-surface": shellSidebarBackground,
+            "--rune-sidebar-surface": shellSidebarBackground,
+            "--rune-sidebar-surface-subtle": `color-mix(in srgb, var(--sidebar-control-surface) 82%, ${shellSidebarBackground})`,
+          } as CSSProperties),
     [shellSidebarBackground],
   );
   const sidebarProviderStyle = {

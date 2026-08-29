@@ -1880,6 +1880,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
    zinc hierarchy: zinc-50 navigation, zinc-25 hover, and white selected/raised
    surfaces. */
 [data-app-sidebar] {
+  --rune-shell-canvas: #0b0a0a;
   --background: var(--color-zinc-25);
   --foreground: var(--color-zinc-800);
   --card: var(--color-white);
@@ -1901,7 +1902,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --sidebar-stage-fade: var(--sidebar);
   /* The rail is part of the workspace canvas. Rows and controls retain their
      own tones below so hierarchy does not depend on a panel boundary. */
-  --rune-sidebar-surface: var(--background);
+  --rune-sidebar-surface: var(--rune-shell-canvas);
   --rune-sidebar-surface-subtle: color-mix(
     in srgb,
     var(--sidebar-control-surface) 70%,
@@ -1934,7 +1935,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     --sidebar-row-selected: color-mix(in srgb, var(--contrast-foreground) 7%, transparent);
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
-    --rune-sidebar-surface: var(--background);
+    --rune-sidebar-surface: var(--rune-shell-canvas);
     --rune-sidebar-surface-subtle: color-mix(
       in srgb,
       var(--sidebar-control-surface) 82%,
@@ -2017,8 +2018,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 
 @media (min-width: 64rem) {
   .rune-chat-column {
-    margin: 1rem;
+    margin: 1rem 1rem 1.25rem;
   }
+}
+
+/* The rail and the inset chat panel sit on one continuous desktop canvas. */
+.rune-chat-workspace {
+  background: #0b0a0a;
 }
 
 /* Override the header's `bg-background` so it inherits the panel surface and

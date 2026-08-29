@@ -8272,7 +8272,6 @@ function ChatViewContent(props: ChatViewProps) {
       className="rune-chat-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
       data-rune-chat-workspace
     >
-      {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls() : null}
       <div
         className={cn(
           "rune-chat-column flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -8292,7 +8291,7 @@ function ChatViewContent(props: ChatViewProps) {
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           className="rune-chat-header relative bg-background"
         >
-          {!rightPanelOpen ? panelLayoutControls(rightPanelToggleRef) : null}
+          {panelLayoutControls(rightPanelToggleRef)}
           <ChatHeader
             {...(!supportsPullRequests || threadRepository === null
               ? {}

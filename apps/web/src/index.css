@@ -2011,9 +2011,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-active="true"],
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"] {
+[data-app-sidebar]
+  [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"]:not(
+    [data-rune-sidebar-active="true"]
+  ) {
   background: var(--sidebar-row-active);
-  border-color: var(--sidebar-border);
+  border-color: color-mix(in srgb, var(--sidebar-foreground) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rune-sidebar-focus) 18%, transparent),
+    0 1px 2px color-mix(in srgb, black 18%, transparent);
+}
+
+[data-app-sidebar]
+  [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"]:not(
+    [data-rune-sidebar-active="true"]
+  ) {
+  background: var(--sidebar-row-selected);
+  border-color: color-mix(in srgb, var(--sidebar-foreground) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sidebar-foreground) 8%, transparent);
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"]:focus-visible {

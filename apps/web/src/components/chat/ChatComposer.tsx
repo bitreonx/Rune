@@ -151,7 +151,7 @@ import {
   submitComposerDraft,
 } from "./composerSubmission";
 import { ComposerPromptLengthValidation } from "./ComposerPromptLengthValidation";
-import { ComposerAttachmentCapability } from "./ComposerAttachmentCapability";
+import { ComposerAttachmentCapabilityDetails } from "./ComposerAttachmentCapability";
 import { ComposerContextTray } from "./ComposerContextTray";
 import { ComposerPromptQueue } from "./ComposerPromptQueue";
 import type { PromptQueueThreadState } from "@rune/client-runtime/state/promptQueue";
@@ -253,7 +253,7 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
   );
 }
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -3977,12 +3977,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           <FolderOpenIcon className="size-4" />
                           {isElectron ? "Attach folder…" : "Browse workspace folders…"}
                         </MenuItem>
+                        <MenuSeparator />
+                        <ComposerAttachmentCapabilityDetails
+                          modelName={attachCapabilitySummary.modelName}
+                          supportsNativeImageUpload={
+                            attachCapabilitySummary.supportsNativeImageUpload
+                          }
+                          compact
+                        />
                       </MenuPopup>
                     </Menu>
-                    <ComposerAttachmentCapability
-                      modelName={attachCapabilitySummary.modelName}
-                      supportsNativeImageUpload={attachCapabilitySummary.supportsNativeImageUpload}
-                    />
                     {noProviderAvailable ? (
                       <Button
                         type="button"

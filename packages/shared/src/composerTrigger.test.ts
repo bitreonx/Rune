@@ -1,10 +1,36 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  detectComposerTrigger,
   parseStandaloneComposerSlashCommand,
   serializeComposerFileLink,
   serializeComposerMentionPath,
 } from "./composerTrigger.ts";
+
+describe("detectComposerTrigger", () => {
+  it("detects slash commands inside natural-language prompts", () => {
+    const text = "make a new usage page and use /grillme";
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "slash-command",
+      query: "grillme",
+      rangeStart: 30,
+      rangeEnd: text.length,
+    });
+    expect(detectComposerTrigger("make a new usage page and use\n/grillme", 38)).toEqual({
+      kind: "slash-command",
+      query: "grillme",
+      rangeStart: 30,
+      rangeEnd: 38,
+    });
+  });
+
+  it("does not trigger inside URLs, paths, markdown links, or code spans", () => {
+    expect(detectComposerTrigger("open https://example.com/a/b", 29)).toBeNull();
+    expect(detectComposerTrigger("open docs/a/b", 13)).toBeNull();
+    expect(detectComposerTrigger("open [the link](/grillme)", 26)).toBeNull();
+    expect(detectComposerTrigger("run `/grillme`", 13)).toBeNull();
+  });
+});
 
 describe("parseStandaloneComposerSlashCommand", () => {
   it("uses the canonical command registry for every user-facing command", () => {

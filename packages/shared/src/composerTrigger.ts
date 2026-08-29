@@ -51,6 +51,22 @@ function isWhitespace(char: string): boolean {
   return char === " " || char === "\n" || char === "\t" || char === "\r";
 }
 
+function isInsideCodeSpan(text: string, cursor: number): boolean {
+  let escaped = false;
+  let delimiterCount = 0;
+  for (const char of text.slice(0, cursor)) {
+    if (char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (char === "`" && !escaped) {
+      delimiterCount += 1;
+    }
+    escaped = false;
+  }
+  return delimiterCount % 2 === 1;
+}
+
 /**
  * Detect an active trigger (@path, $skill, /command) at the cursor position.
  *
@@ -64,40 +80,6 @@ export function detectComposerTrigger(
   isWhitespaceChar?: (char: string) => boolean,
 ): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
-  const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
-  const linePrefix = text.slice(lineStart, cursor);
-
-  if (linePrefix.startsWith("/")) {
-    const commandMatch = /^\/(\S*)$/.exec(linePrefix);
-    if (commandMatch) {
-      const commandQuery = commandMatch[1] ?? "";
-      if (commandQuery.toLowerCase() === "model") {
-        return {
-          kind: "slash-model",
-          query: "",
-          rangeStart: lineStart,
-          rangeEnd: cursor,
-        };
-      }
-      return {
-        kind: "slash-command",
-        query: commandQuery,
-        rangeStart: lineStart,
-        rangeEnd: cursor,
-      };
-    }
-
-    const modelMatch = /^\/model(?:\s+(.*))?$/.exec(linePrefix);
-    if (modelMatch) {
-      return {
-        kind: "slash-model",
-        query: (modelMatch[1] ?? "").trim(),
-        rangeStart: lineStart,
-        rangeEnd: cursor,
-      };
-    }
-  }
-
   const wsCheck = isWhitespaceChar ?? isWhitespace;
   let tokenIdx = cursor - 1;
   while (tokenIdx >= 0 && !wsCheck(text[tokenIdx] ?? "")) {
@@ -106,6 +88,30 @@ export function detectComposerTrigger(
   const tokenStart = tokenIdx + 1;
 
   const token = text.slice(tokenStart, cursor);
+  // Slash commands are token-based so prose such as "use /grillme" behaves
+  // like a command typed at the start of a line. URLs, paths, markdown links,
+  // and inline code do not produce a token that starts with a slash.
+  if (token.startsWith("/") && !isInsideCodeSpan(text, cursor)) {
+    const commandMatch = /^\/(\S*)$/.exec(token);
+    if (commandMatch) {
+      const commandQuery = commandMatch[1] ?? "";
+      if (commandQuery.toLowerCase() === "model") {
+        return {
+          kind: "slash-model",
+          query: "",
+          rangeStart: tokenStart,
+          rangeEnd: cursor,
+        };
+      }
+      return {
+        kind: "slash-command",
+        query: commandQuery,
+        rangeStart: tokenStart,
+        rangeEnd: cursor,
+      };
+    }
+  }
+
   if (token.startsWith("$")) {
     return {
       kind: "skill",

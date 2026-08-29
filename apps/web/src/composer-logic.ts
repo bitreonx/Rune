@@ -1,6 +1,7 @@
 import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 import { findRuneCommand, type RuneCommandId } from "@rune/shared/commandRegistry";
+import { detectComposerTrigger as detectSharedComposerTrigger } from "@rune/shared/composerTrigger";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "skill" | "thread";
 export type ComposerSlashCommand = RuneCommandId;
@@ -46,14 +47,6 @@ function isWhitespace(char: string): boolean {
     char === "\r" ||
     char === INLINE_TERMINAL_CONTEXT_PLACEHOLDER
   );
-}
-
-function tokenStartForCursor(text: string, cursor: number): number {
-  let index = cursor - 1;
-  while (index >= 0 && !isWhitespace(text[index] ?? "")) {
-    index -= 1;
-  }
-  return index + 1;
 }
 
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
@@ -230,53 +223,37 @@ export function isCollapsedCursorAdjacentToInlineToken(
 export const isCollapsedCursorAdjacentToMention = isCollapsedCursorAdjacentToInlineToken;
 
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
-  const cursor = clampCursor(text, cursorInput);
-  const tokenStart = tokenStartForCursor(text, cursor);
-  const token = text.slice(tokenStart, cursor);
-
-  // Slash discovery is intentionally token-based rather than line-based. A
-  // skill mention in natural language ("make a page with /grillme") should
-  // open the same picker as a command typed on its own line. The result list
-  // still decides whether the token is a known command or skill, so URLs and
-  // ordinary slash text do not become actionable entries.
-  if (token.startsWith("/")) {
-    const commandMatch = /^\/(\S*)$/.exec(token);
-    if (commandMatch) {
-      return {
-        kind: "slash-command",
-        query: commandMatch[1] ?? "",
-        rangeStart: tokenStart,
-        rangeEnd: cursor,
-      };
-    }
-  }
-
-  if (token.startsWith("$")) {
+  const sharedTrigger = detectSharedComposerTrigger(text, cursorInput, isWhitespace);
+  if (!sharedTrigger) return null;
+  if (sharedTrigger.kind === "slash-model") {
     return {
-      kind: "skill",
-      query: token.slice(1),
-      rangeStart: tokenStart,
-      rangeEnd: cursor,
+      kind: "slash-command",
+      query: "model",
+      rangeStart: sharedTrigger.rangeStart,
+      rangeEnd: sharedTrigger.rangeEnd,
     };
   }
-  if (!token.startsWith("@")) {
-    return null;
+  if (sharedTrigger.kind === "slash-command") {
+    return sharedTrigger;
+  }
+  if (sharedTrigger.kind === "skill") {
+    return sharedTrigger;
   }
 
-  if (token.toLowerCase().startsWith("@thread:")) {
+  if (sharedTrigger.query.toLowerCase().startsWith("thread:")) {
     return {
       kind: "thread",
-      query: token.slice("@thread:".length),
-      rangeStart: tokenStart,
-      rangeEnd: cursor,
+      query: sharedTrigger.query.slice("thread:".length),
+      rangeStart: sharedTrigger.rangeStart,
+      rangeEnd: sharedTrigger.rangeEnd,
     };
   }
 
   return {
     kind: "path",
-    query: token.slice(1),
-    rangeStart: tokenStart,
-    rangeEnd: cursor,
+    query: sharedTrigger.query,
+    rangeStart: sharedTrigger.rangeStart,
+    rangeEnd: sharedTrigger.rangeEnd,
   };
 }
 

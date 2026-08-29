@@ -77,7 +77,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type Ref,
 } from "react";
 import { flushSync } from "react-dom";
@@ -2096,7 +2095,6 @@ function ChatViewContent(props: ChatViewProps) {
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const simplifiedActivity = useClientSettings((settings) => settings.simplifiedActivity);
   const showDeveloperTrace = useClientSettings((settings) => settings.showDeveloperTrace);
-  const shellChatBackground = useClientSettings((settings) => settings.shellChatBackground);
   const clientSettingsHydrated = useClientSettingsHydrated();
   const [pendingFileSurfaceIdsByProject, setPendingFileSurfaceIdsByProject] = useState<
     ReadonlyMap<string, ReadonlySet<string>>
@@ -8272,17 +8270,13 @@ function ChatViewContent(props: ChatViewProps) {
       className="rune-chat-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
       data-rune-chat-workspace
     >
+      {rightPanelOpen && !shouldUseRightPanelSheet ? panelLayoutControls() : null}
       <div
         className={cn(
           "rune-chat-column flex min-h-0 min-w-0 flex-col overflow-x-hidden",
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
-        style={
-          shellChatBackground === "default"
-            ? undefined
-            : ({ "--shell-surface": shellChatBackground } as CSSProperties)
-        }
       >
         {/* Top bar */}
         <WorkspacePageHeader
@@ -8291,7 +8285,7 @@ function ChatViewContent(props: ChatViewProps) {
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           className="rune-chat-header relative bg-background"
         >
-          {panelLayoutControls(rightPanelToggleRef)}
+          {!rightPanelOpen ? panelLayoutControls(rightPanelToggleRef) : null}
           <ChatHeader
             {...(!supportsPullRequests || threadRepository === null
               ? {}

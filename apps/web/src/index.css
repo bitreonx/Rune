@@ -1880,7 +1880,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
    zinc hierarchy: zinc-50 navigation, zinc-25 hover, and white selected/raised
    surfaces. */
 [data-app-sidebar] {
-  --rune-shell-canvas: #0b0a0a;
   --background: var(--color-zinc-25);
   --foreground: var(--color-zinc-800);
   --card: var(--color-white);
@@ -1900,13 +1899,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --sidebar-row-selected: var(--color-white);
   --sidebar-border: var(--color-zinc-200);
   --sidebar-stage-fade: var(--sidebar);
-  /* The rail is part of the workspace canvas. Rows and controls retain their
-     own tones below so hierarchy does not depend on a panel boundary. */
-  --rune-sidebar-surface: var(--rune-shell-canvas);
+  --rune-sidebar-surface: var(--sidebar);
   --rune-sidebar-surface-subtle: color-mix(
     in srgb,
     var(--sidebar-control-surface) 70%,
-    var(--background)
+    var(--sidebar)
   );
   --rune-sidebar-ink: var(--sidebar-foreground);
   --rune-sidebar-ink-muted: var(--sidebar-muted-foreground);
@@ -1935,11 +1932,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     --sidebar-row-selected: color-mix(in srgb, var(--contrast-foreground) 7%, transparent);
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
-    --rune-sidebar-surface: var(--rune-shell-canvas);
+    --rune-sidebar-surface: var(--sidebar);
     --rune-sidebar-surface-subtle: color-mix(
       in srgb,
       var(--sidebar-control-surface) 82%,
-      var(--background)
+      var(--sidebar)
     );
   }
 }
@@ -1958,81 +1955,20 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-app-sidebar] [data-slot="sidebar-inner"] {
-  /* The shell surface is set inline on the inner wrapper from
-     `shellSidebarBackground`. When the user picks `"default"` the
-     `--shell-surface` custom property is undefined and the rule falls back to
-     the theme-driven value, so the two paths share a single visual surface.
-     The previous inner border + backdrop blur made the rail read as a
-     separate panel; with both removed the sidebar becomes part of the
-     workspace rather than a card sitting on top of it. */
-  background: var(--shell-surface, var(--rune-sidebar-surface));
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--sidebar-border) 84%, transparent);
   border-radius: 0;
+  background: color-mix(in srgb, var(--rune-sidebar-surface) 94%, transparent);
   box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
+  -webkit-backdrop-filter: blur(10px) saturate(106%);
+  backdrop-filter: blur(10px) saturate(106%);
 
-/* `bg-sidebar` remains in the primitive for compatibility, but the app shell
-   should continue the page canvas through the rail. */
-[data-app-sidebar] [data-sidebar="sidebar"] {
-  background: var(--shell-surface, var(--rune-sidebar-surface));
-}
-
-/* Mobile renders its popup through a portal, outside `[data-app-sidebar]`. */
-[data-mobile="true"][data-sidebar="sidebar"] {
-  background: var(--shell-surface, var(--rune-sidebar-surface, var(--background)));
-}
-
-/* The rounded chat panel owns the meaningful shell edge; avoid a second hard
-   boundary on the rail itself. */
-[data-app-sidebar] [data-slot="sidebar-container"] {
-  border-right: 0 !important;
-  border-left: 0 !important;
+  @variant dark {
+    box-shadow: none;
+  }
 }
 
 [data-rune-sidebar-rail] {
   animation: rune-sidebar-rail-in var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-/* RUNE chat panel: a rounded component that floats inside the workspace. The
-   surface color is set inline from `shellChatBackground`; falling back to
-   `var(--card)` keeps the theme-driven default. The radius + 1px outline
-   pair mirrors the sidebar rail's outer treatment so the two shell surfaces
-   read as siblings of one another, not stacked panels. The header bar and
-   timeline surface share the wrapper so the whole column is one rounded
-   panel, not a header stacked on top of a body. */
-.rune-chat-column {
-  background: var(--shell-surface, var(--card));
-  border: 1px solid color-mix(in srgb, var(--sidebar-border) 64%, transparent);
-  border-radius: 1rem;
-  margin: 0.5rem;
-  overflow: hidden;
-  min-width: 0;
-}
-
-@media (min-width: 40rem) {
-  .rune-chat-column {
-    margin: 0.75rem;
-  }
-}
-
-@media (min-width: 64rem) {
-  .rune-chat-column {
-    margin: 1rem 1rem 1.25rem;
-  }
-}
-
-/* The rail and the inset chat panel sit on one continuous desktop canvas. */
-.rune-chat-workspace {
-  background: #0b0a0a;
-}
-
-/* Override the header's `bg-background` so it inherits the panel surface and
-   the header/timeline seam disappears. The page background still bleeds
-   through any transparent areas, but the column's background covers them. */
-.rune-chat-column .rune-chat-header {
-  background: transparent;
 }
 
 @keyframes rune-sidebar-rail-in {
@@ -3314,7 +3250,6 @@ html[data-theme-id] [data-app-sidebar] {
   --sidebar-row-selected: var(--app-theme-sidebar-row-selected);
   --sidebar-border: var(--app-theme-sidebar-border);
   --sidebar-stage-fade: var(--app-theme-sidebar);
-  --rune-sidebar-surface: var(--background);
   border-color: color-mix(in srgb, var(--contrast-sidebar-foreground) 10%, transparent);
 
   @variant dark {

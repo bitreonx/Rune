@@ -36,8 +36,6 @@ import {
   MIN_PROMPT_FONT_SIZE,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_TERMINAL_FONT_SIZE,
-  DEFAULT_SHELL_SURFACE_COLOR,
-  type ShellSurfaceColor,
 } from "@rune/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@rune/shared/backgroundActivitySettings";
 import { createModelSelection } from "@rune/shared/model";
@@ -1187,38 +1185,6 @@ export function AppearanceSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          {...searchableSetting("setting-shell-sidebar-background")}
-          description="Retint the sidebar. Leave on Default to follow the active theme."
-          resetAction={
-            settings.shellSidebarBackground !== DEFAULT_SHELL_SURFACE_COLOR ? (
-              <SettingResetButton
-                label="sidebar background"
-                onClick={() =>
-                  updateSettings({ shellSidebarBackground: DEFAULT_SHELL_SURFACE_COLOR })
-                }
-              />
-            ) : null
-          }
-          control={<ShellSurfaceColorControl field="shellSidebarBackground" />}
-        />
-
-        <SettingsRow
-          {...searchableSetting("setting-shell-chat-background")}
-          description="Retint the chat panel. Leave on Default to follow the active theme."
-          resetAction={
-            settings.shellChatBackground !== DEFAULT_SHELL_SURFACE_COLOR ? (
-              <SettingResetButton
-                label="chat background"
-                onClick={() =>
-                  updateSettings({ shellChatBackground: DEFAULT_SHELL_SURFACE_COLOR })
-                }
-              />
-            ) : null
-          }
-          control={<ShellSurfaceColorControl field="shellChatBackground" />}
-        />
-
         {showEnvironmentIdentification ? (
           <SettingsRow
             {...searchableSetting("environment-identification")}
@@ -1264,82 +1230,6 @@ export function AppearanceSettingsPanel() {
 
       <TypographySection />
     </SettingsPageContainer>
-  );
-}
-
-/**
- * Two-state control: a small swatch + hex text input that writes the chosen
- * color back to the named shell-surface field. The "Default" placeholder is
- * always visible so the user can clear a custom value without having to
- * guess the right hex.
- */
-function ShellSurfaceColorControl({
-  field,
-}: {
-  field: "shellSidebarBackground" | "shellChatBackground";
-}) {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
-  const value: ShellSurfaceColor = settings[field];
-  const isDefault = value === DEFAULT_SHELL_SURFACE_COLOR;
-  const writeColor = (next: ShellSurfaceColor) => {
-    if (field === "shellSidebarBackground") {
-      updateSettings({ shellSidebarBackground: next });
-    } else {
-      updateSettings({ shellChatBackground: next });
-    }
-  };
-  // `<input type="color">` only emits `#rrggbb`. The picker is opaque hex
-  // anyway and the surface is fully painted, so we accept `#rrggbb` from the
-  // picker and let the text input accept the wider 3/4/6/8-digit form.
-  const handlePickerChange = (next: string) => {
-    if (/^#[0-9a-fA-F]{6}$/.test(next)) {
-      writeColor(next.toLowerCase());
-    }
-  };
-  const handleTextCommit = (next: string) => {
-    const trimmed = next.trim();
-    if (trimmed.length === 0) {
-      writeColor(DEFAULT_SHELL_SURFACE_COLOR);
-      return;
-    }
-    if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(trimmed)) {
-      writeColor(trimmed);
-    }
-  };
-  return (
-    <div className="flex w-full items-center gap-2 sm:w-64">
-      <span
-        aria-hidden="true"
-        className="size-7 shrink-0 rounded-md border border-border/70 shadow-inner"
-        style={{
-          background: isDefault ? "var(--card)" : value,
-        }}
-      />
-      <Input
-        aria-label={`${field} hex value`}
-        className="h-7 flex-1 font-mono text-xs"
-        nativeInput
-        defaultValue={isDefault ? "" : (value as string)}
-        placeholder="Default (theme)"
-        onBlur={(event) => handleTextCommit(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            (event.currentTarget as HTMLInputElement).blur();
-          }
-        }}
-      />
-      <label className="flex h-7 cursor-pointer items-center rounded-md border border-border/70 bg-background px-2 text-xs font-medium text-foreground hover:bg-accent">
-        Pick
-        <input
-          aria-label={`${field} color picker`}
-          className="sr-only"
-          onChange={(event) => handlePickerChange(event.currentTarget.value)}
-          type="color"
-          value={isDefault ? "#000000" : (value as string).slice(0, 7)}
-        />
-      </label>
-    </div>
   );
 }
 

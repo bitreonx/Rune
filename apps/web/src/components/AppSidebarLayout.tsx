@@ -2,7 +2,6 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
-  useMemo,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -15,11 +14,7 @@ import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalSt
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import {
-  useClientSettings,
-  useEnvironmentIdentificationMode,
-  useLegacySidebarEnabled,
-} from "../hooks/useSettings";
+import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import LegacyThreadSidebar from "./LegacySidebar";
 import { RunePageTransition } from "./RunePageTransition";
 import ThreadSidebar from "./Sidebar";
@@ -176,7 +171,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // that would otherwise refresh a render-time snapshot.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth);
-  const shellSidebarBackground = useClientSettings((s) => s.shellSidebarBackground);
   const resetSidebarWidth = () => {
     try {
       removeLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY);
@@ -191,20 +185,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? getWindowFullscreenState()
       : false;
   });
-  // Keep the custom color on the sidebar root so the header, footer, toolbar,
-  // desktop rail, and mobile sheet all share one surface. Default stays
-  // entirely theme-driven.
-  const sidebarShellStyle = useMemo<CSSProperties>(
-    () =>
-      shellSidebarBackground === "default"
-        ? {}
-        : ({
-            "--shell-surface": shellSidebarBackground,
-            "--rune-sidebar-surface": shellSidebarBackground,
-            "--rune-sidebar-surface-subtle": `color-mix(in srgb, var(--sidebar-control-surface) 82%, ${shellSidebarBackground})`,
-          } as CSSProperties),
-    [shellSidebarBackground],
-  );
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     ...(isMacosDesktop && !isWindowFullscreen
@@ -260,7 +240,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           isOnSettings ? "settings" : legacySidebarEnabled ? "legacy-threads" : "threads"
         }
         className="text-sidebar-foreground"
-        style={sidebarShellStyle}
         resizable={{
           maxWidth: sidebarMaximumWidth,
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,

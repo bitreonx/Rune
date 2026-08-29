@@ -1270,9 +1270,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left outline-none select-none transition-colors duration-150",
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground"
+      ? "bg-sidebar-row-active text-sidebar-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
       : isSelected
-        ? "bg-sidebar-row-selected text-sidebar-foreground"
+        ? "bg-sidebar-row-selected text-sidebar-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-sidebar-foreground/60"
         : shouldRecede
           ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
           : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
@@ -4005,7 +4005,7 @@ export default function Sidebar() {
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup
-            className="rune-sidebar-toolbar relative z-[1] gap-1 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
+            className="rune-sidebar-toolbar relative z-[1] gap-1 border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
             data-rune-sidebar-section="search"
           >
             <div className="flex items-center gap-1">

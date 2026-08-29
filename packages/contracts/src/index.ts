@@ -45,3 +45,4 @@ export * from "./harnessModelRoute.ts";
 export * from "./pocket.ts";
 export * from "./promptQueue.ts";
 export * from "./mutation.ts";
+export * from "./handoff.ts";

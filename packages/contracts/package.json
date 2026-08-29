@@ -34,6 +34,10 @@
     "./mutation": {
       "types": "./src/mutation.ts",
       "import": "./src/mutation.ts"
+    },
+    "./handoff": {
+      "types": "./src/handoff.ts",
+      "import": "./src/handoff.ts"
     }
   },
   "scripts": {

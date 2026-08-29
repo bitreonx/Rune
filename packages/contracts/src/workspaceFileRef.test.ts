@@ -27,6 +27,10 @@ describe("WorkspaceFileRef", () => {
   it("rejects absolute relative paths", () => {
     expect(() => Schema.decodeUnknownSync(WorkspaceFileRefPath)("/etc/passwd")).toThrow();
     expect(() => Schema.decodeUnknownSync(WorkspaceFileRefPath)("D:\\file.png")).toThrow();
+    expect(() => Schema.decodeUnknownSync(WorkspaceFileRefPath)("D:/file.png")).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(WorkspaceFileRefPath)("//server/share/file.png"),
+    ).toThrow();
   });
 
   it("rejects traversal segments", () => {
@@ -45,9 +49,7 @@ describe("WorkspaceFileRef", () => {
     // are normal file names. Only leading or interior `..` / `.` segments are traversal.
     expect(Schema.decodeUnknownSync(WorkspaceFileRefPath)(".gitignore")).toBe(".gitignore");
     expect(Schema.decodeUnknownSync(WorkspaceFileRefPath)(".env")).toBe(".env");
-    expect(Schema.decodeUnknownSync(WorkspaceFileRefPath)("app.config.ts")).toBe(
-      "app.config.ts",
-    );
+    expect(Schema.decodeUnknownSync(WorkspaceFileRefPath)("app.config.ts")).toBe("app.config.ts");
     expect(Schema.decodeUnknownSync(WorkspaceFileRefPath)("a/.env")).toBe("a/.env");
     expect(Schema.decodeUnknownSync(WorkspaceFileRefPath)("a/b.config.json")).toBe(
       "a/b.config.json",

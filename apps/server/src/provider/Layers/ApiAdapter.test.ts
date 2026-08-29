@@ -214,6 +214,7 @@ describe("ApiAdapter streaming turns", () => {
         baseUrl: "https://example.invalid/v1",
         apiKey: "key",
         defaultModel: "test/default-model",
+        runtimeRoute: { connectionId: "openrouter-work", accountLabel: "Work API" },
       });
 
       yield* adapter.startSession({ threadId: THREAD_ID, runtimeMode: "full-access" });
@@ -235,6 +236,20 @@ describe("ApiAdapter streaming turns", () => {
       );
       expect(deltas.length).toBeGreaterThan(0);
       expect(deltas.join("")).toBe("Hello world");
+
+      const startedEvent = events.find(
+        (event) => event.type === "turn.started" && event.turnId === started.turnId,
+      );
+      expect(startedEvent && startedEvent.type === "turn.started" ? startedEvent.payload : undefined).toMatchObject({
+        model: "test/default-model",
+        route: {
+          harness: "openrouter",
+          instanceId: "openrouter-test",
+          connectionId: "openrouter-work",
+          model: "test/default-model",
+          accountLabel: "Work API",
+        },
+      });
 
       const completed = events.find((event) => event.type === "item.completed");
       expect(

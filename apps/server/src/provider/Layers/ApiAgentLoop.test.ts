@@ -218,7 +218,7 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
         "run_checks",
         "edit_file",
         "rune_operation",
-        "bash",
+        "shell",
       ]);
       expect((firstBody?.messages as Array<{ role: string }>)[0]).toMatchObject({
         role: "system",
@@ -411,18 +411,18 @@ it.layer(TestLayer, { excludeTestServices: true })("ApiAgentLoop", (it) => {
           approvalGate: (input) =>
             Effect.suspend(() => {
               gates.push(input.toolName);
-              return Effect.fail(requestError("User denied bash"));
+              return Effect.fail(requestError("User denied shell"));
             }),
         },
       );
 
       const result = yield* runTurn(harness.deps);
 
-      expect(gates).toEqual(["bash"]);
+      expect(gates).toEqual(["shell"]);
       expect(result.finalText).toBe("skipped");
       const secondMessages = harness.requests[1]?.body.messages as Array<Record<string, unknown>>;
       const toolResult = secondMessages.find((message) => message.role === "tool");
-      expect(String(toolResult?.content)).toBe("Error: user denied bash");
+      expect(String(toolResult?.content)).toBe("Error: user denied shell");
     }),
   );
 

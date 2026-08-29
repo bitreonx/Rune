@@ -40,7 +40,7 @@ export const RuneNativeDriver: ProviderDriver<OpenAiApiSettings, RuneNativeDrive
   metadata: { displayName: "Rune Native", supportsMultipleInstances: true },
   configSchema: OpenAiApiSettings,
   defaultConfig: () => decodeSettings({}),
-  create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
+  create: ({ instanceId, displayName, accentColor, environment, enabled, config, runtime }) =>
     makeApiProviderInstance({
       driver: DRIVER_KIND,
       settings: { ...config, enabled },
@@ -55,6 +55,7 @@ export const RuneNativeDriver: ProviderDriver<OpenAiApiSettings, RuneNativeDrive
       requestHeaders: {
         "X-Rune-Driver": "rune-native",
       },
+      ...(runtime === undefined ? {} : { runtime }),
     }).pipe(
       Effect.mapError(
         (cause) =>

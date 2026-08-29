@@ -9,7 +9,9 @@ import {
 } from "@rune/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
+import { ProcessRunner } from "../../processRunner.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
@@ -27,7 +29,11 @@ import {
   providerModelsFromSettings,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
-import { defaultProviderContinuationIdentity, type ProviderInstance } from "../ProviderDriver.ts";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderInstance,
+} from "../ProviderDriver.ts";
+import type { CompiledProviderInstanceRuntime } from "../ProviderInstanceRuntime.ts";
 import { makeApiAdapter } from "./ApiAdapter.ts";
 
 export type ApiProviderSettings = OpenAiApiSettings | OpenRouterSettings;
@@ -44,6 +50,7 @@ export interface ApiProviderFactoryInput<Settings extends ApiProviderSettings> {
   readonly defaultModel: string;
   readonly apiKeyLabel: string;
   readonly requestHeaders: Readonly<Record<string, string>>;
+  readonly runtime?: CompiledProviderInstanceRuntime;
   /** Provider-owned catalog normalization; the fallback only preserves IDs. */
   readonly parseModelCatalog?: (payload: unknown) => ReadonlyArray<ServerProviderModel>;
 }
@@ -123,9 +130,11 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
     driverKind: input.driver,
     instanceId: input.instanceId,
   });
+  const optionalProcessRunner = yield* Effect.serviceOption(ProcessRunner);
   const toolServices = {
     workspaceFileSystem: yield* WorkspaceFileSystem,
     workspaceEntries: yield* WorkspaceEntries,
+    ...(Option.isSome(optionalProcessRunner) ? { processRunner: optionalProcessRunner.value } : {}),
   };
   const stampIdentity = withInstanceIdentity({
     instanceId: input.instanceId,
@@ -139,8 +148,14 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
     instanceId: input.instanceId,
     baseUrl,
     apiKey,
-    defaultModel: input.settings.customModels[0] ?? input.defaultModel,
+    defaultModel:
+      input.runtime?.manifest.modelBindings.main ??
+      input.settings.customModels[0] ??
+      input.defaultModel,
     requestHeaders: input.requestHeaders,
+    ...(input.runtime?.manifest.connectionId
+      ? { runtimeRoute: { connectionId: input.runtime.manifest.connectionId } }
+      : {}),
     toolServices,
   });
   const textGeneration = yield* makeApiTextGeneration(input.settings, {

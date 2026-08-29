@@ -1,4 +1,6 @@
 import * as Effect from "effect/Effect";
+import { HostProcessPlatform } from "@rune/shared/hostProcess";
+import { classifyProcessFailure } from "../../processRunner.ts";
 
 import type { NativeToolContext, NativeToolDef } from "./ApiTools.ts";
 
@@ -282,6 +284,7 @@ export const runChecksTool: NativeToolDef = {
     const processRunner = ctx.processRunner;
     if (!processRunner) return Effect.succeed("Error: focused checks are unavailable");
     return Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
       const output: string[] = [];
       for (const check of checks) {
         const command = stringArg(check.command);
@@ -297,8 +300,13 @@ export const runChecksTool: NativeToolDef = {
           outputMode: "truncate",
           timeoutBehavior: "timedOutResult",
         });
+        const failure = classifyProcessFailure({
+          platform,
+          runInput: { command, cwd: ctx.cwd },
+          output: result,
+        });
         output.push(
-          `${command} exit ${String(result.code)}\n${result.stdout}${result.stderr.length > 0 ? `\n[stderr]\n${result.stderr}` : ""}`,
+          `${command}${failure === undefined ? "" : ` failure ${failure}`} exit ${String(result.code)}\n${result.stdout}${result.stderr.length > 0 ? `\n[stderr]\n${result.stderr}` : ""}`,
         );
       }
       return clamp(output.join("\n\n") || "No checks.");

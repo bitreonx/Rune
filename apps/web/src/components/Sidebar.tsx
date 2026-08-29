@@ -4216,8 +4216,13 @@ export default function Sidebar() {
             <PocketSidebarSection
               environmentId={primaryEnvironmentId}
               snapshot={pocketSnapshot}
+              threads={threads}
+              providerEntryByInstanceId={
+                providerEntriesByEnvironment.get(primaryEnvironmentId) ?? EMPTY_PROVIDER_ENTRIES
+              }
               selectedPocketId={selectedPocketId}
               onSelectPocket={setSelectedPocketId}
+              onThreadActivate={navigateToThread}
               onDispatch={dispatchPocketCommand}
               onThreadDrop={handleThreadDrop}
               onFileDrop={handlePocketFileDrop}

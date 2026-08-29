@@ -2,6 +2,69 @@ import type { EnvironmentId, PocketId, PocketSnapshot } from "@rune/contracts";
 
 import { scopeThreadRef, scopedThreadKey } from "@rune/client-runtime/environment";
 
+export type PocketView = "flow" | "compact" | "board";
+export type PocketSort = "activity" | "title" | "created";
+
+export interface PocketViewState {
+  readonly view: PocketView;
+  readonly sort: PocketSort;
+  readonly lastThreadKey?: string;
+  readonly scrollTop?: number;
+  readonly expandedChildPocketIds: ReadonlyArray<PocketId>;
+}
+
+export const DEFAULT_POCKET_VIEW_STATE: PocketViewState = {
+  view: "flow",
+  sort: "activity",
+  expandedChildPocketIds: [],
+};
+
+export function sanitizePocketViewState(value: unknown): PocketViewState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_POCKET_VIEW_STATE;
+  }
+  const candidate = value as Record<string, unknown>;
+  const view = candidate.view;
+  const sort = candidate.sort;
+  const expanded = candidate.expandedChildPocketIds;
+  return {
+    view: view === "compact" || view === "board" ? view : "flow",
+    sort: sort === "title" || sort === "created" ? sort : "activity",
+    ...(typeof candidate.lastThreadKey === "string" && candidate.lastThreadKey.length > 0
+      ? { lastThreadKey: candidate.lastThreadKey }
+      : {}),
+    ...(typeof candidate.scrollTop === "number" &&
+    Number.isFinite(candidate.scrollTop) &&
+    candidate.scrollTop >= 0
+      ? { scrollTop: candidate.scrollTop }
+      : {}),
+    expandedChildPocketIds: Array.isArray(expanded)
+      ? expanded.filter((id): id is PocketId => typeof id === "string" && id.length > 0)
+      : [],
+  };
+}
+
+const pocketViewStateStorageKey = (pocketId: PocketId): string => `rune:pocket-view:v1:${pocketId}`;
+
+export function readPocketViewState(pocketId: PocketId): PocketViewState {
+  if (typeof window === "undefined") return DEFAULT_POCKET_VIEW_STATE;
+  try {
+    const raw = window.localStorage.getItem(pocketViewStateStorageKey(pocketId));
+    return raw === null ? DEFAULT_POCKET_VIEW_STATE : sanitizePocketViewState(JSON.parse(raw));
+  } catch {
+    return DEFAULT_POCKET_VIEW_STATE;
+  }
+}
+
+export function writePocketViewState(pocketId: PocketId, state: PocketViewState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(pocketViewStateStorageKey(pocketId), JSON.stringify(state));
+  } catch {
+    // Storage is a preference, never a reason to break the Pocket workspace.
+  }
+}
+
 export function pocketDescendantIds(
   snapshot: PocketSnapshot,
   pocketId: PocketId,

@@ -14,18 +14,33 @@ import {
   type EnvironmentId,
   type PocketCommand,
   type PocketSnapshot,
+  type ScopedThreadRef,
 } from "@rune/contracts";
+import type { EnvironmentThreadShell } from "@rune/client-runtime/state/models";
+import { scopeThreadRef } from "@rune/client-runtime/environment";
 
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { pocketThreadCount } from "../../pockets/pocketProjection";
+import { pocketDescendantIds } from "../../pockets/pocketProjection";
+import { PocketWorkspace } from "../pockets/PocketWorkspace";
+import {
+  type PocketThreadStatus,
+  type PocketWorkspaceThreadData,
+} from "../pockets/pocketWorkspace.logic";
+import { resolveSidebarThreadStatus } from "../Sidebar.logic";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import type { ProviderInstanceEntry } from "../../providerInstances";
 import { SidebarEntityRow } from "./SidebarEntityRow";
 
 interface PocketSidebarSectionProps {
   readonly environmentId: EnvironmentId;
   readonly snapshot: PocketSnapshot | null;
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   readonly selectedPocketId: PocketId | null;
   readonly onSelectPocket: (pocketId: PocketId | null) => void;
+  readonly onThreadActivate: (threadRef: ScopedThreadRef) => void;
   readonly onDispatch: (command: PocketCommand) => Promise<unknown>;
   readonly onThreadDrop: (
     pocketId: PocketId,
@@ -84,6 +99,7 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
   const [editingPocketId, setEditingPocketId] = useState<PocketId | null>(null);
   const [editingName, setEditingName] = useState("");
   const [focusedPocketId, setFocusedPocketId] = useState<PocketId | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const typeaheadRef = useRef({ text: "", at: 0 });
   const springTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,6 +130,77 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
     },
     [],
   );
+
+  useEffect(() => {
+    setWorkspaceOpen(false);
+  }, [props.selectedPocketId]);
+
+  const selectedPocket =
+    props.selectedPocketId === null
+      ? null
+      : (activePockets.find((pocket) => pocket.id === props.selectedPocketId) ?? null);
+  const workspaceThreads = useMemo<ReadonlyArray<PocketWorkspaceThreadData>>(() => {
+    if (selectedPocket === null || props.snapshot === null) return [];
+    const pocketIds = pocketDescendantIds(props.snapshot, selectedPocket.id);
+    const threadIds = new Set(
+      props.snapshot.threadMemberships
+        .filter((membership) => pocketIds.has(membership.pocketId))
+        .map((membership) => membership.threadId),
+    );
+    return props.threads
+      .filter((thread) => thread.environmentId === props.environmentId && threadIds.has(thread.id))
+      .map((thread) => {
+        const status = resolveSidebarThreadStatus(thread);
+        const workspaceStatus: PocketThreadStatus =
+          status === "working"
+            ? "working"
+            : status === "approval" || status === "input" || status === "failed"
+              ? "needs-you"
+              : status === "ready" && thread.latestTurn?.completedAt != null
+                ? "done"
+                : "waiting";
+        const modelInstanceId =
+          thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+        const providerEntry = props.providerEntryByInstanceId.get(modelInstanceId);
+        return {
+          id: thread.id,
+          title: thread.title,
+          updatedAt: thread.updatedAt,
+          createdAt: thread.createdAt,
+          status: workspaceStatus,
+          pinned: thread.pinnedAt != null,
+          providerLabel: providerEntry?.displayName ?? String(modelInstanceId),
+          subtitle: thread.branch ?? undefined,
+        } satisfies PocketWorkspaceThreadData;
+      });
+  }, [
+    activePockets,
+    props.environmentId,
+    props.providerEntryByInstanceId,
+    props.snapshot,
+    props.threads,
+    selectedPocket,
+  ]);
+
+  const renderProviderMark = (thread: PocketWorkspaceThreadData) => {
+    const source = props.threads.find((candidate) => candidate.id === thread.id);
+    const modelInstanceId =
+      source?.session?.providerInstanceId ?? source?.modelSelection.instanceId;
+    const entry =
+      modelInstanceId === undefined
+        ? undefined
+        : props.providerEntryByInstanceId.get(modelInstanceId);
+    return entry ? (
+      <ProviderInstanceIcon
+        driverKind={entry.driverKind}
+        displayName={entry.displayName}
+        accentColor={entry.accentColor}
+        className="size-4"
+        iconClassName="size-4"
+        showBadge={false}
+      />
+    ) : null;
+  };
 
   const startSpringOpen = (pocketId: PocketId) => {
     clearSpringTimer();
@@ -497,21 +584,33 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
       data-rune-sidebar-section="pockets"
     >
       {props.selectedPocketId !== null ? (
-        <button
-          type="button"
-          data-rune-action="pocket.exit-focus"
-          onClick={() => props.onSelectPocket(null)}
-          className="mb-1 flex w-full cursor-pointer items-center gap-1 px-1.5 text-left text-[11px] text-sidebar-muted-foreground hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Exit Pocket Focus"
-        >
-          <ChevronRightIcon className="size-3 rotate-180" aria-hidden />
-          <span>All Pockets</span>
-          <span aria-hidden>/</span>
-          <span className="min-w-0 truncate text-sidebar-foreground">
-            {activePockets.find((pocket) => pocket.id === props.selectedPocketId)?.title ??
-              "Pocket"}
-          </span>
-        </button>
+        <div className="mb-1 flex items-center gap-1 px-1.5">
+          <button
+            type="button"
+            data-rune-action="pocket.exit-focus"
+            onClick={() => props.onSelectPocket(null)}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left text-[11px] text-sidebar-muted-foreground hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Exit Pocket Focus"
+          >
+            <ChevronRightIcon className="size-3 shrink-0 rotate-180" aria-hidden />
+            <span>All Pockets</span>
+            <span aria-hidden>/</span>
+            <span className="min-w-0 truncate text-sidebar-foreground">
+              {selectedPocket?.title ?? "Pocket"}
+            </span>
+          </button>
+          {selectedPocket && !workspaceOpen ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost-muted"
+              data-rune-action="pocket.open-workspace"
+              onClick={() => setWorkspaceOpen(true)}
+            >
+              Open workspace
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <div className="flex items-center gap-2 px-1.5 pb-1">
         <LayersIcon className="size-3.5 text-sidebar-muted-foreground/75" />
@@ -550,6 +649,33 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
             <PlusIcon className="size-3.5" />
           </Button>
         </form>
+      ) : null}
+      {workspaceOpen && selectedPocket ? (
+        <PocketWorkspace
+          pocketId={selectedPocket.id}
+          title={selectedPocket.title}
+          threads={workspaceThreads}
+          children={activePockets
+            .filter((pocket) => pocket.parentPocketId === selectedPocket.id)
+            .map((pocket) => ({
+              id: pocket.id,
+              title: pocket.title,
+              threadCount: props.snapshot ? pocketThreadCount(props.snapshot, pocket.id) : 0,
+            }))}
+          fileReferenceCount={
+            props.snapshot
+              ? props.snapshot.fileReferences.filter((reference) =>
+                  pocketDescendantIds(props.snapshot!, selectedPocket.id).has(reference.pocketId),
+                ).length
+              : 0
+          }
+          onClose={() => setWorkspaceOpen(false)}
+          onOpenThread={(thread) => {
+            const source = props.threads.find((candidate) => candidate.id === thread.id);
+            if (source) props.onThreadActivate(scopeThreadRef(source.environmentId, source.id));
+          }}
+          renderProviderMark={renderProviderMark}
+        />
       ) : null}
       {activePockets.length > 0 ? (
         <ul

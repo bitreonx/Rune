@@ -21,6 +21,7 @@ import {
   type ProviderInstanceEnvironmentVariable,
   type ProviderInstanceId,
   type ProviderDriverKind,
+  type ModelServiceConfig,
   type ServerProvider,
   type ServerProviderModel,
 } from "@rune/contracts";
@@ -57,8 +58,10 @@ import {
   PROVIDER_STATUS_STYLES,
   getProviderSummary,
   getProviderVersionLabel,
+  instanceReadinessLabel,
+  instanceReadinessStatusKey,
+  resolveInstanceReadiness,
   type ProviderStatusKey,
-  resolveProviderStatusKey,
 } from "./providerStatus";
 
 /**
@@ -142,6 +145,7 @@ interface ProviderInstanceCardProps {
   readonly instance: ProviderInstanceConfig;
   readonly driverOption: DriverOption | undefined;
   readonly liveProvider: ServerProvider | undefined;
+  readonly services?: Readonly<Record<string, ModelServiceConfig | undefined>>;
   readonly isExpanded: boolean;
   readonly onExpandedChange: (open: boolean) => void;
   /** Navigate to the dedicated instance editor instead of expanding inline. */
@@ -213,12 +217,15 @@ export function ProviderInstanceCard({
   onModelOrderChange,
   onRunUpdate,
   isUpdating = false,
+  services,
 }: ProviderInstanceCardProps) {
   const enabled = resolveProviderInstanceEnabled(instance);
-  const statusKey: ProviderStatusKey = resolveProviderStatusKey(liveProvider, {
-    driver: instance.driver,
-    enabled,
+  const readiness = resolveInstanceReadiness({
+    instance,
+    ...(liveProvider === undefined ? {} : { provider: liveProvider }),
+    ...(services === undefined ? {} : { services }),
   });
+  const statusKey: ProviderStatusKey = instanceReadinessStatusKey(readiness);
   const statusStyle = PROVIDER_STATUS_STYLES[statusKey];
   const rawSummary = getProviderSummary(liveProvider);
   const authEmail = liveProvider?.auth.email;
@@ -227,7 +234,17 @@ export function ProviderInstanceCard({
   const authenticatedDetail = hasAuthenticatedEmail
     ? (liveProvider?.auth.label ?? liveProvider?.auth.type ?? null)
     : null;
-  const summary = rawSummary;
+  const summary = {
+    headline: instanceReadinessLabel(readiness),
+    detail:
+      readiness.tag === "needs-attention"
+        ? `${readiness.reason} ${readiness.recovery}`
+        : readiness.tag === "sign-in-required"
+          ? readiness.action
+          : readiness.tag === "discovering-models" && readiness.fallbackModel
+            ? `Using ${readiness.fallbackModel} until model discovery completes.`
+            : rawSummary.detail,
+  };
   const versionLabel = getProviderVersionLabel(liveProvider?.version);
   const versionAdvisory = getProviderVersionAdvisoryPresentation(liveProvider?.versionAdvisory);
   const updateCommand = versionAdvisory?.updateCommand ?? null;

@@ -148,14 +148,6 @@ function renderHarnesses(panel: ReactElement<Record<string, unknown>>) {
   )(harnessElement?.props ?? {});
 }
 
-function renderInstanceActions(instanceElement: ReactElement<Record<string, unknown>>) {
-  return (
-    instanceElement.type as (
-      props: Record<string, unknown>,
-    ) => ReactElement<Record<string, unknown>>
-  )(instanceElement.props);
-}
-
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -185,7 +177,7 @@ describe("EnvironmentProviderSettings routing", () => {
     const harnesses = renderHarnesses(panel);
     const refreshButton = visitElements(
       panel,
-      (element) => element.props["aria-label"] === "Refresh provider status",
+      (element) => element.props["aria-label"] === "Refresh connection status",
     );
     expect(refreshButton).not.toBeNull();
     (refreshButton?.props.onClick as (() => void) | undefined)?.();
@@ -195,21 +187,11 @@ describe("EnvironmentProviderSettings routing", () => {
 
     const providerCard = visitElements(
       harnesses,
-      (element) =>
-        element.props.instanceId === codexId && typeof element.props.onRunUpdate === "function",
+      (element) => element.props["aria-label"] === "Open Codex harness settings",
     );
     expect(providerCard).not.toBeNull();
-    const actionDetails = renderInstanceActions(providerCard!);
-    expect(
-      visitElements(actionDetails, (element) => element.props["aria-label"] === "Update Codex"),
-    ).not.toBeNull();
-    (providerCard?.props.onRunUpdate as (() => void) | undefined)?.();
-    await flushPromises();
-
-    expect(commands.updateProvider).toHaveBeenCalledWith({
-      environmentId,
-      input: { provider: ProviderDriverKind.make("codex"), instanceId: codexId },
-    });
+    expect(providerCard?.props.instanceId).toBeUndefined();
+    expect(commands.updateProvider).not.toHaveBeenCalled();
   });
 
   it("renders the provider layout inert with a limited-permissions notice when read only", () => {
@@ -219,26 +201,18 @@ describe("EnvironmentProviderSettings routing", () => {
 
     const inertWrapper = visitElements(panel, (element) => element.props.inert === true);
     expect(inertWrapper).not.toBeNull();
-    const providerCard = visitElements(
-      harnesses,
-      (element) => element.props.instanceId === codexId,
-    );
-    expect(providerCard).not.toBeNull();
     expect(
-      visitElements(
-        renderInstanceActions(providerCard!),
-        (element) => element.props["aria-label"] === "Open Codex settings",
-      ),
+      visitElements(harnesses, (element) => element.props["aria-label"] === "Open Codex harness settings"),
     ).not.toBeNull();
 
     const notice = visitElements(panel, (element) => element.props.title === "Limited permissions");
     expect(notice).not.toBeNull();
 
     expect(
-      visitElements(panel, (element) => element.props["aria-label"] === "Add provider instance"),
+      visitElements(panel, (element) => element.props["aria-label"] === "Add harness instance"),
     ).toBeNull();
     expect(
-      visitElements(panel, (element) => element.props["aria-label"] === "Refresh provider status"),
+      visitElements(panel, (element) => element.props["aria-label"] === "Refresh connection status"),
     ).toBeNull();
   });
 
@@ -251,7 +225,7 @@ describe("EnvironmentProviderSettings routing", () => {
     ).toBeNull();
   });
 
-  it("deletes and resets provider configuration without erasing shared preferences", () => {
+  it("keeps instance management on the dedicated harness page", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -271,37 +245,7 @@ describe("EnvironmentProviderSettings routing", () => {
     };
     const panel = renderPanel();
     const harnesses = renderHarnesses(panel);
-    const customCard = visitElements(harnesses, (element) => element.props.instanceId === customId);
-    expect(customCard).not.toBeNull();
-    expect(
-      visitElements(
-        renderInstanceActions(customCard!),
-        (element) => element.props["aria-label"] === "Delete provider instance codex_work",
-      ),
-    ).not.toBeNull();
-    (customCard?.props.onDelete as (() => void) | undefined)?.();
-
-    expect(settingsState.updateSettings).toHaveBeenLastCalledWith({
-      providerInstances: {
-        [codexId]: settingsState.value.providerInstances?.[codexId],
-      },
-    });
-
-    settingsState.updateSettings.mockClear();
-    const defaultCard = visitElements(harnesses, (element) => element.props.instanceId === codexId);
-    const resetAction = defaultCard?.props.headerAction;
-    const resetButton = visitElements(
-      resetAction,
-      (element) => typeof element.props.onClick === "function",
-    );
-    expect(resetButton).not.toBeNull();
-    (resetButton?.props.onClick as (() => void) | undefined)?.();
-
-    const resetPatch = settingsState.updateSettings.mock.lastCall?.[0] as
-      | Record<string, unknown>
-      | undefined;
-    expect(Object.keys(resetPatch ?? {}).sort()).toEqual(["providerInstances", "providers"]);
-    expect(resetPatch).not.toHaveProperty("favorites");
-    expect(resetPatch).not.toHaveProperty("providerModelPreferences");
+    expect(visitElements(harnesses, (element) => element.props.instanceId === customId)).toBeNull();
+    expect(visitElements(harnesses, (element) => element.props.instanceId === codexId)).toBeNull();
   });
 });

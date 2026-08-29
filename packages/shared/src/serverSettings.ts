@@ -132,6 +132,7 @@ export function applyServerSettingsPatch(
     providerHealthRefreshInterval,
     backgroundActivityProfile,
     backgroundActivity,
+    modelServiceCredentials: _modelServiceCredentials,
     ...patchForMerge
   } = patch;
   const currentBackgroundActivity = normalizeServerBackgroundActivitySettings(current);
@@ -187,6 +188,19 @@ export function applyServerSettingsPatch(
       : {}),
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
+      : {}),
+    ...(patch.harnesses?.profiles !== undefined || patch.harnesses?.services !== undefined
+      ? {
+          harnesses: {
+            ...next.harnesses,
+            ...(patch.harnesses.profiles !== undefined
+              ? { profiles: patch.harnesses.profiles }
+              : {}),
+            ...(patch.harnesses.services !== undefined
+              ? { services: patch.harnesses.services }
+              : {}),
+          },
+        }
       : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }

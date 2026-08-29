@@ -1,5 +1,6 @@
 import {
   type HarnessProfileConfig,
+  ServiceId,
   type ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
@@ -29,11 +30,28 @@ function profileWithInstanceConfig(
     ...(configPatch !== undefined ? { configPatch } : {}),
     ...(environment !== undefined ? { environment } : {}),
   };
+  const modelServiceId = instance.connectionId?.trim()
+    ? ServiceId.make(instance.connectionId.trim())
+    : "native";
+  const defaultModel = instance.modelBindings?.main?.trim() || profile.route.defaultModel;
+  const roleOverrides = instance.modelBindings
+    ? Object.fromEntries(
+        Object.entries(instance.modelBindings).filter(
+          ([role, model]) => role !== "main" && model.trim().length > 0,
+        ),
+      )
+    : profile.route.roleOverrides;
   return {
     ...profileRest,
     displayName: instance.displayName?.trim() || profile.displayName,
     enabled: instance.enabled ?? true,
     ...(instance.accentColor ? { accentColor: instance.accentColor } : {}),
+    route: {
+      ...profile.route,
+      modelServiceId,
+      defaultModel,
+      roleOverrides,
+    },
     ...(Object.keys(advanced).length > 0 ? { advanced } : {}),
   };
 }

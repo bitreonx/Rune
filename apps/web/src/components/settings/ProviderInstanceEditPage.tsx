@@ -16,7 +16,7 @@ import type { UnifiedSettings } from "@rune/contracts/settings";
 import { ArrowLeftIcon, Trash2Icon } from "lucide-react";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
@@ -39,6 +39,7 @@ import {
   buildProviderInstanceResetPatch,
 } from "../../providerInstanceLifecycle";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -68,8 +69,9 @@ import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeS
 import { getDriverOption } from "./providerDriverMeta";
 import {
   PROVIDER_STATUS_STYLES,
-  getProviderSummary,
-  resolveProviderStatusKey,
+  instanceReadinessLabel,
+  instanceReadinessStatusKey,
+  resolveInstanceReadiness,
 } from "./providerStatus";
 import { buildProviderInstanceUpdatePatch } from "./SettingsPanels.logic";
 import {
@@ -105,6 +107,17 @@ export function ProviderInstanceEditPage(props: {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const serverProviders =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshInstance = useCallback(() => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    void refreshProviders({ environmentId, input: { instanceId } }).finally(() => {
+      setIsRefreshing(false);
+    });
+  }, [environmentId, instanceId, isRefreshing, refreshProviders]);
 
   // The envelope carries its own driver; for a missing envelope the id itself
   // is the driver slug (default slots are keyed by `defaultInstanceIdForDriver`).
@@ -184,6 +197,8 @@ export function ProviderInstanceEditPage(props: {
         })
       }
       onBack={() => void navigate({ to: "/settings/providers" })}
+      onRefresh={refreshInstance}
+      isRefreshing={isRefreshing}
     />
   );
 }
@@ -198,6 +213,8 @@ function ProviderInstanceEditContent(props: {
   readonly familySlots: ReadonlyArray<ResolvedInstanceSlot>;
   readonly onOpenInstance: (instanceId: ProviderInstanceId) => void;
   readonly onBack: () => void;
+  readonly onRefresh: () => void;
+  readonly isRefreshing: boolean;
 }) {
   const {
     slot,
@@ -208,6 +225,8 @@ function ProviderInstanceEditContent(props: {
     familySlots,
     onOpenInstance,
     onBack,
+    onRefresh,
+    isRefreshing,
   } = props;
   const instance = slot.instance;
   const instanceId = slot.instanceId;
@@ -215,11 +234,13 @@ function ProviderInstanceEditContent(props: {
   const isClaude = String(slot.driver) === String(CLAUDE_SUBSCRIPTION_DRIVER);
 
   const enabled = resolveProviderInstanceEnabled(instance);
-  const statusKey = resolveProviderStatusKey(entry?.snapshot, {
-    driver: slot.driver,
-    enabled,
+  const services = settings.harnesses?.services;
+  const readiness = resolveInstanceReadiness({
+    instance,
+    ...(entry?.snapshot === undefined ? {} : { provider: entry.snapshot }),
+    ...(services === undefined ? {} : { services }),
   });
-  const summary = getProviderSummary(entry?.snapshot);
+  const statusKey = instanceReadinessStatusKey(readiness);
   const displayName = instance.displayName?.trim() || driverOption?.label || String(slot.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
   const badge = entry ? instanceBadgePresentation(entry, [entry]) : null;
@@ -313,6 +334,15 @@ function ProviderInstanceEditContent(props: {
       cleaned.length > 0
         ? ({ ...rest, environment: cleaned } as ProviderInstanceConfig)
         : (rest as ProviderInstanceConfig),
+    );
+  };
+
+  const updateConnectionId = (connectionId: string | undefined) => {
+    const { connectionId: _omit, ...rest } = instance;
+    applyUpdate(
+      connectionId === undefined
+        ? ({ ...rest, authMode: "native" } as ProviderInstanceConfig)
+        : ({ ...rest, connectionId, authMode: "rune-managed" } as ProviderInstanceConfig),
     );
   };
 
@@ -443,7 +473,7 @@ function ProviderInstanceEditContent(props: {
             size="icon-sm"
             variant="ghost-muted"
             onClick={onBack}
-            aria-label="Back to providers"
+            aria-label="Back to harnesses"
           >
             <ArrowLeftIcon className="size-4" />
           </Button>
@@ -469,10 +499,17 @@ function ProviderInstanceEditContent(props: {
                   {String(instanceId)}
                 </code>
               ) : null}
-              <StatusBadge statusKey={statusKey} className="bg-background" />
+              <StatusBadge readiness={readiness} className="bg-background" />
             </div>
           </div>
-          <ProviderSetupNotice driver={slot.driver} provider={entry?.snapshot} />
+          <ProviderSetupNotice
+            driver={slot.driver}
+            provider={entry?.snapshot}
+            instanceLabel={displayName}
+            readiness={readiness}
+            onRefresh={onRefresh}
+            isRefreshing={isRefreshing}
+          />
           <div className="flex items-center gap-2">
             {slot.isDefault && slot.isDirty ? (
               <SettingResetButton
@@ -505,10 +542,12 @@ function ProviderInstanceEditContent(props: {
               const candidateEntry = props.serverProviders.find(
                 (provider) => provider.instanceId === candidate.instanceId,
               );
-              const candidateStatus = resolveProviderStatusKey(candidateEntry, {
-                driver: candidate.driver,
-                enabled: resolveProviderInstanceEnabled(candidate.instance),
+              const candidateReadiness = resolveInstanceReadiness({
+                instance: candidate.instance,
+                ...(candidateEntry === undefined ? {} : { provider: candidateEntry }),
+                ...(services === undefined ? {} : { services }),
               });
+              const candidateStatus = instanceReadinessStatusKey(candidateReadiness);
               const candidateName =
                 candidate.instance.displayName?.trim() ||
                 getDriverOption(candidate.driver)?.label ||
@@ -559,7 +598,7 @@ function ProviderInstanceEditContent(props: {
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                       {candidateEntry?.models.length ?? 0} models ·{" "}
-                      {getProviderSummary(candidateEntry).headline}
+                      {instanceReadinessLabel(candidateReadiness)}
                     </span>
                   </span>
                 </button>
@@ -616,6 +655,14 @@ function ProviderInstanceEditContent(props: {
                   environment={instance.environment ?? []}
                   settings={settings}
                   onChange={updateEnvironment}
+                  {...(slot.source === "profile"
+                    ? {
+                        ...(instance.connectionId !== undefined
+                          ? { connectionId: instance.connectionId }
+                          : {}),
+                        onConnectionIdChange: updateConnectionId,
+                      }
+                    : {})}
                 />
               </div>
             </SettingsSection>

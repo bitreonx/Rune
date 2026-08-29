@@ -1,10 +1,18 @@
 import { useState } from "react";
 import { type ModelServiceConfig, type ServerSettings, ServiceId } from "@rune/contracts";
-import { GlobeIcon, PlusIcon, ChevronRightIcon } from "lucide-react";
+import { SparklesIcon, PlusIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "../ui/button";
-import { AddServiceDialog } from "./AddServiceDialog";
+import { AddServiceDialog, DEFAULT_BASE_URLS, SERVICE_KIND_LABELS } from "./AddServiceDialog";
 import { cn } from "../../lib/utils";
-import { getProviderOrServiceIcon } from "../chat/providerIconUtils";
+import { getProviderOrServiceIcon, SERVICE_ICON_BY_KIND } from "../chat/providerIconUtils";
+
+const BUILT_IN_SERVICE_KINDS = [
+  "openrouter",
+  "openai",
+  "anthropic",
+  "google",
+  "deepseek",
+] as const;
 
 export function ModelServicesSection(props: {
   settings: ServerSettings;
@@ -15,8 +23,27 @@ export function ModelServicesSection(props: {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<ModelServiceConfig | null>(null);
 
-  const services = Object.values(props.settings.harnesses?.services ?? {});
+  const configuredServices = Object.values(props.settings.harnesses?.services ?? {});
   const profiles = Object.values(props.settings.harnesses?.profiles ?? {});
+
+  const serviceCards = [
+    ...BUILT_IN_SERVICE_KINDS.flatMap((kind) => {
+      const configured = configuredServices.filter((service) => service.kind === kind);
+      if (configured.length > 0) return configured;
+      return [
+        {
+          serviceId: ServiceId.make(kind),
+          kind,
+          displayName: SERVICE_KIND_LABELS[kind],
+          ...(DEFAULT_BASE_URLS[kind] ? { baseUrl: DEFAULT_BASE_URLS[kind] } : {}),
+          hasCredential: false,
+        },
+      ];
+    }),
+    ...configuredServices.filter(
+      (service) => !BUILT_IN_SERVICE_KINDS.some((kind) => kind === service.kind),
+    ),
+  ];
 
   const handleSaveService = (service: ModelServiceConfig, apiKey?: string) => {
     const nextServices = {
@@ -37,14 +64,29 @@ export function ModelServicesSection(props: {
   };
 
   const getProfilesUsingService = (serviceId: ServiceId) => {
-    return profiles.filter((p) => p.route?.modelServiceId === serviceId);
+    const profileUsers = profiles.filter((p) => p.route?.modelServiceId === serviceId);
+    const legacyUsers = Object.values(props.settings.providerInstances ?? {}).filter(
+      (instance) => instance.connectionId === serviceId,
+    );
+    return [...profileUsers, ...legacyUsers];
+  };
+
+  const handleDeleteService = (serviceId: ServiceId) => {
+    const nextServices = { ...(props.settings.harnesses?.services ?? {}) };
+    delete nextServices[serviceId];
+    props.onUpdateSettings({
+      harnesses: {
+        profiles: props.settings.harnesses?.profiles ?? {},
+        services: nextServices,
+      },
+    });
   };
 
   return (
     <div className="space-y-3 pt-2">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold tracking-tight text-foreground">API Providers</h3>
+          <h3 className="text-base font-semibold tracking-tight text-foreground">Model Services</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             Connect model APIs for RUNE Native and for harness instances that support external model
             routing.
@@ -60,16 +102,16 @@ export function ModelServicesSection(props: {
             className="gap-1.5 h-8 text-xs font-medium"
           >
             <PlusIcon className="size-3.5" />
-            Add provider
+            Add model service
           </Button>
         ) : null}
       </div>
 
-      {services.length === 0 ? (
+      {serviceCards.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/10 py-6 px-4 text-center">
-          <GlobeIcon className="size-6 text-muted-foreground/60 mb-2" />
+          <SparklesIcon className="size-6 text-muted-foreground/60 mb-2" />
           <p className="text-xs text-muted-foreground max-w-sm mb-3">
-            Connect OpenRouter or another API provider to power RUNE Native or compatible coding
+            Connect OpenRouter or another model service to power RUNE Native or compatible coding
             harnesses.
           </p>
           {!props.readOnly ? (
@@ -83,17 +125,19 @@ export function ModelServicesSection(props: {
               className="h-7 text-xs gap-1.5"
             >
               <PlusIcon className="size-3" />
-              Add provider
+              Add model service
             </Button>
           ) : null}
         </div>
       ) : (
         <div className="grid gap-2.5 sm:grid-cols-2">
-          {services.map((service) => {
+          {serviceCards.map((service) => {
             const usingProfiles = getProfilesUsingService(service.serviceId);
-            const isConnected = Boolean(service.hasCredential || service.status === "connected");
+            const isConnected = service.hasCredential === true;
             const ServiceIcon =
-              getProviderOrServiceIcon(String(service.serviceId)) ?? GlobeIcon;
+              SERVICE_ICON_BY_KIND[service.kind] ??
+              getProviderOrServiceIcon(String(service.kind)) ??
+              SparklesIcon;
 
             return (
               <button
@@ -121,7 +165,9 @@ export function ModelServicesSection(props: {
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {usingProfiles.length > 0
                         ? `Used by ${usingProfiles.length} harness instance${usingProfiles.length === 1 ? "" : "s"}`
-                        : "Ready to route"}
+                        : isConnected
+                          ? service.maskedLabel ?? "Stored API key"
+                          : "Not configured"}
                     </p>
                   </div>
                 </div>
@@ -150,10 +196,15 @@ export function ModelServicesSection(props: {
       )}
 
       <AddServiceDialog
+        key={editingService?.serviceId ?? "new"}
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
         editingService={editingService}
         onSave={handleSaveService}
+        usageCount={editingService ? getProfilesUsingService(editingService.serviceId).length : 0}
+        {...(editingService && props.settings.harnesses?.services?.[editingService.serviceId] !== undefined
+          ? { onDelete: () => handleDeleteService(editingService.serviceId) }
+          : {})}
       />
     </div>
   );

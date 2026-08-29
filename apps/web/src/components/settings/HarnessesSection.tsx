@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import {
   BUILT_IN_HARNESS_DEFINITIONS,
   defaultInstanceIdForDriver,
@@ -11,20 +11,36 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@rune/contracts";
-import { PlusIcon, ChevronRightIcon, SparklesIcon, Trash2Icon } from "lucide-react";
-import {
-  canOneClickUpdateProviderCandidate,
-  collectProviderUpdateCandidates,
-  hasOneClickUpdateProviderCandidate,
-} from "../ProviderUpdateLaunchNotification.logic";
+import { PlusIcon, ChevronRightIcon, SparklesIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
 import { AddHarnessDialog } from "./AddHarnessDialog";
 import { cn } from "../../lib/utils";
-import { ProviderSetupNotice } from "./ProviderSetupNotice";
 import { StatusBadge } from "./StatusBadge";
-import { resolveProviderStatusKey } from "./providerStatus";
-import { SettingResetButton } from "./settingsLayout";
+import {
+  instanceReadinessLabel,
+  instanceReadinessStatusKey,
+  resolveInstanceReadiness,
+  resolveProviderStatusKey,
+  type InstanceReadiness,
+} from "./providerStatus";
+
+function readinessPriority(readiness: InstanceReadiness): number {
+  switch (readiness.tag) {
+    case "ready":
+      return 0;
+    case "sign-in-required":
+      return 1;
+    case "needs-attention":
+      return 2;
+    case "discovering-models":
+      return 3;
+    case "missing":
+      return 4;
+    case "disabled":
+      return 5;
+  }
+}
 
 interface HarnessInstanceView {
   readonly instanceId: ProviderInstanceId;
@@ -40,10 +56,6 @@ export function HarnessesSection(props: {
   serverProviders?: ReadonlyArray<ServerProvider>;
   onUpdateSettings: (patch: Partial<ServerSettings>) => void;
   onOpenInstance?: (instanceId: string, driver: ProviderDriverKind) => void;
-  onRunUpdate?: (instanceId: ProviderInstanceId) => void;
-  onDeleteInstance?: (instanceId: ProviderInstanceId) => void;
-  onResetInstance?: (driver: ProviderDriverKind) => void;
-  environmentId?: string;
   readOnly?: boolean;
 }) {
   const [addHarnessOpen, setAddHarnessOpen] = useState(false);
@@ -60,7 +72,7 @@ export function HarnessesSection(props: {
     profilesByKind.set(kind, list);
   }
 
-  // Also group legacy provider instances if any exist
+  // Also group legacy provider instances if any exist.
   const legacyInstances = props.settings.providerInstances ?? {};
   for (const [id, inst] of Object.entries(legacyInstances)) {
     const driver = String(inst.driver);
@@ -85,11 +97,6 @@ export function HarnessesSection(props: {
   }
 
   const allHarnesses = [...BUILT_IN_HARNESS_DEFINITIONS];
-  const updateCandidates = collectProviderUpdateCandidates(props.serverProviders ?? []);
-  const updateCandidateByInstanceId = new Map(
-    updateCandidates.map((candidate) => [String(candidate.instanceId), candidate]),
-  );
-
   const instancesByKind = new Map<string, Map<string, HarnessInstanceView>>();
   const upsertInstance = (
     driver: ProviderDriverKind,
@@ -157,7 +164,7 @@ export function HarnessesSection(props: {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold tracking-tight text-foreground">
-            Coding Harnesses
+            Agent Harnesses
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             One calm place to connect harnesses, accounts, models, tools, subagents, and execution
@@ -174,7 +181,7 @@ export function HarnessesSection(props: {
             className="gap-1.5 h-8 text-xs font-medium"
           >
             <PlusIcon className="size-3.5" />
-            Add provider
+            Add harness
           </Button>
         ) : null}
       </div>
@@ -192,26 +199,58 @@ export function HarnessesSection(props: {
           const instanceCount = Math.max(kindProfiles.length, kindInstances.length);
           const hasProfiles = instanceCount > 0;
 
-          // Find live status for this harness from serverProviders
           const liveProvider = props.serverProviders?.find(
-            (sp) =>
-              String(sp.driver) === String(kind) ||
-              kindProfiles.some((p) => String(p.instanceId) === String(sp.instanceId)),
+            (sp) => String(sp.driver) === String(kind),
           );
 
-          const isEnabled = kindProfiles.some((p) => p.enabled);
-          const statusKey = resolveProviderStatusKey(liveProvider, {
-            driver: ProviderDriverKind.make(String(kind)),
-            enabled: hasProfiles ? isEnabled : true,
+          const readinesses = kindInstances.map((instance) => {
+            const profile = kindProfiles.find(
+              (candidate) => String(candidate.instanceId) === String(instance.instanceId),
+            );
+            const configuredInstance = props.settings.providerInstances?.[instance.instanceId];
+            const profileInstance = profile
+              ? {
+                  driver: instance.driver,
+                  enabled: profile.enabled,
+                  ...(profile.route.modelServiceId !== "native"
+                    ? { connectionId: String(profile.route.modelServiceId) }
+                    : {}),
+                  modelBindings: { main: profile.route.defaultModel },
+                }
+              : undefined;
+            const liveInstance = props.serverProviders?.find(
+              (provider) => String(provider.instanceId) === String(instance.instanceId),
+            );
+            const readinessInstance = configuredInstance ?? profileInstance;
+            const services = props.settings.harnesses?.services;
+            const fallbackModel = profile?.route.defaultModel;
+            return resolveInstanceReadiness({
+              ...(readinessInstance === undefined ? {} : { instance: readinessInstance }),
+              ...(liveInstance === undefined ? {} : { provider: liveInstance }),
+              ...(services === undefined ? {} : { services }),
+              ...(fallbackModel === undefined ? {} : { fallbackModel }),
+            });
           });
-          const subtitle = hasProfiles
-            ? !isEnabled
-              ? `${instanceCount} connection${instanceCount === 1 ? "" : "s"} · Disabled`
-              : (liveProvider?.message ??
-                `${instanceCount} connection${instanceCount === 1 ? "" : "s"} configured`)
+          const primaryReadiness = readinesses
+            .slice()
+            .sort((left, right) => readinessPriority(left) - readinessPriority(right))[0];
+
+          const isEnabled = kindInstances.some((instance) => instance.enabled);
+          const statusKey = primaryReadiness
+            ? instanceReadinessStatusKey(primaryReadiness)
+            : resolveProviderStatusKey(liveProvider, {
+                driver: ProviderDriverKind.make(String(kind)),
+                enabled: hasProfiles ? isEnabled : true,
+              });
+          const statusLabel = primaryReadiness
+            ? instanceReadinessLabel(primaryReadiness)
             : liveProvider?.installed
-              ? "CLI installed · Click to configure"
-              : "No instance yet · Click to set up";
+              ? "Installed · Click to configure"
+              : "Not configured";
+          const subtitle =
+            instanceCount > 0
+              ? `${statusLabel} · ${instanceCount} instance${instanceCount === 1 ? "" : "s"}${!isEnabled ? " · Disabled" : ""}`
+              : statusLabel;
 
           const IconComp = PROVIDER_ICON_BY_PROVIDER[kind as any];
           return (
@@ -224,6 +263,7 @@ export function HarnessesSection(props: {
                     ProviderDriverKind.make(String(kind)),
                   )
                 }
+                aria-label={`Open ${def.displayName} harness settings`}
                 className={cn(
                   "group flex min-w-0 items-center justify-between rounded-xl border border-border/60 bg-card p-3.5 text-left transition-[background-color,border-color,transform] duration-200 ease-out",
                   "hover:-translate-y-px hover:border-border hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring",
@@ -248,7 +288,9 @@ export function HarnessesSection(props: {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
-                  {statusKey === "pending" ? (
+                  {primaryReadiness ? (
+                    <StatusBadge readiness={primaryReadiness} />
+                  ) : statusKey === "pending" ? (
                     <span
                       className="size-1.5 rounded-full bg-muted-foreground/45"
                       aria-label="Provider status pending"
@@ -259,57 +301,6 @@ export function HarnessesSection(props: {
                   <ChevronRightIcon className="size-4 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
                 </div>
               </button>
-              <ProviderSetupNotice
-                driver={ProviderDriverKind.make(String(kind))}
-                provider={liveProvider}
-              />
-              {kindInstances.map((instance) => {
-                const instanceProvider = props.serverProviders?.find(
-                  (provider) => String(provider.instanceId) === String(instance.instanceId),
-                );
-                const updateCandidate = updateCandidateByInstanceId.get(
-                  String(instance.instanceId),
-                );
-                const canRunUpdate =
-                  updateCandidate !== undefined &&
-                  hasOneClickUpdateProviderCandidate(
-                    updateCandidate,
-                    props.serverProviders ?? [],
-                  ) &&
-                  canOneClickUpdateProviderCandidate(updateCandidate, props.serverProviders ?? []);
-                const headerAction =
-                  instance.isDefault && instance.isDirty && props.onResetInstance ? (
-                    <SettingResetButton
-                      label={`${instance.displayName} provider settings`}
-                      onClick={() => props.onResetInstance?.(instance.driver)}
-                    />
-                  ) : null;
-                return (
-                  <ProviderInstanceActionDetails
-                    key={String(instance.instanceId)}
-                    instanceId={instance.instanceId}
-                    displayName={instance.displayName}
-                    enabled={instance.enabled}
-                    provider={instanceProvider}
-                    headerAction={headerAction}
-                    onOpen={
-                      props.onOpenInstance
-                        ? () => props.onOpenInstance?.(String(instance.instanceId))
-                        : undefined
-                    }
-                    onRunUpdate={
-                      canRunUpdate && props.onRunUpdate
-                        ? () => props.onRunUpdate?.(instance.instanceId)
-                        : undefined
-                    }
-                    onDelete={
-                      !instance.isDefault && props.onDeleteInstance
-                        ? () => props.onDeleteInstance?.(instance.instanceId)
-                        : undefined
-                    }
-                  />
-                );
-              })}
             </div>
           );
         })}
@@ -333,80 +324,6 @@ export function HarnessesSection(props: {
           });
         }}
       />
-    </div>
-  );
-}
-
-function ProviderInstanceActionDetails(props: {
-  readonly instanceId: ProviderInstanceId;
-  readonly displayName: string;
-  readonly enabled: boolean;
-  readonly provider: ServerProvider | undefined;
-  readonly headerAction: ReactNode;
-  readonly onOpen: (() => void) | undefined;
-  readonly onRunUpdate: (() => void) | undefined;
-  readonly onDelete: (() => void) | undefined;
-}) {
-  return (
-    <div
-      className="flex min-w-0 items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2"
-      aria-label={`${props.displayName} provider instance ${props.instanceId}`}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span
-            className={cn(
-              "size-1.5 shrink-0 rounded-full",
-              props.enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
-            )}
-            aria-hidden
-          />
-          <span className="truncate text-xs font-medium text-foreground">{props.displayName}</span>
-          <code className="truncate text-[10px] text-muted-foreground">
-            {String(props.instanceId)}
-          </code>
-        </div>
-        <span className="block truncate text-[11px] text-muted-foreground">
-          {props.provider?.models.length ?? 0} models · {props.provider?.status ?? "not checked"}
-        </span>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {props.headerAction}
-        {props.onRunUpdate ? (
-          <Button
-            type="button"
-            size="compact"
-            variant="ghost-muted"
-            onClick={props.onRunUpdate}
-            aria-label={`Update ${props.displayName}`}
-          >
-            Update
-          </Button>
-        ) : null}
-        {props.onDelete ? (
-          <Button
-            type="button"
-            size="icon-micro"
-            variant="ghost"
-            className="text-muted-foreground hover:text-destructive"
-            onClick={props.onDelete}
-            aria-label={`Delete provider instance ${props.instanceId}`}
-          >
-            <Trash2Icon className="size-3" aria-hidden />
-          </Button>
-        ) : null}
-        {props.onOpen ? (
-          <Button
-            type="button"
-            size="icon-micro"
-            variant="ghost-muted"
-            onClick={props.onOpen}
-            aria-label={`Open ${props.displayName} settings`}
-          >
-            <ChevronRightIcon className="size-3.5" />
-          </Button>
-        ) : null}
-      </div>
     </div>
   );
 }

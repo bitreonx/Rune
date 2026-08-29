@@ -1,16 +1,17 @@
 "use client";
 
-import { useMemo, type KeyboardEvent } from "react";
+import { useMemo, type ComponentType, type KeyboardEvent } from "react";
 import {
   type ProviderDriverKind,
   type ProviderInstanceEnvironmentVariable,
   type ServerSettings,
 } from "@rune/contracts";
-import { Globe2Icon, ShieldCheckIcon } from "lucide-react";
+import { CheckIcon, Globe2Icon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { cn } from "../../lib/utils";
+import { getProviderOrServiceIcon, SERVICE_ICON_BY_KIND } from "../chat/providerIconUtils";
 
 export type ServiceConnectionMode = "native" | "openrouter" | "custom";
 
@@ -129,6 +130,9 @@ export function UniversalServiceSettings(props: {
   environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>;
   settings: ServerSettings;
   onChange: (nextEnvironment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void;
+  /** Profile-backed instances choose a canonical model service by ID. */
+  connectionId?: string;
+  onConnectionIdChange?: (connectionId: string | undefined) => void;
   onOpenAddApiProvider?: () => void;
 }) {
   const {
@@ -139,6 +143,8 @@ export function UniversalServiceSettings(props: {
     environment,
     settings,
     onChange,
+    connectionId,
+    onConnectionIdChange,
     onOpenAddApiProvider,
   } = props;
   const driver = String(driverKind);
@@ -151,6 +157,7 @@ export function UniversalServiceSettings(props: {
 
   const connectedServices = Object.values(settings.harnesses?.services ?? {});
   const openRouterService = connectedServices.find((s) => s.kind === "openrouter");
+  const usesCanonicalServiceConnections = onConnectionIdChange !== undefined;
   const validation = validateServiceConnection(connection);
 
   const moveConnectionMode = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -245,12 +252,57 @@ export function UniversalServiceSettings(props: {
         ) : null}
       </div>
 
-      {/* Radio Cards */}
-      <div
-        className="grid gap-2.5 sm:grid-cols-3"
-        role="radiogroup"
-        aria-label="Service connection"
-      >
+      {usesCanonicalServiceConnections ? (
+        <div className="space-y-2.5" role="radiogroup" aria-label="Model service connection">
+          <div>
+            <p className="text-xs font-semibold text-foreground">Model service</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+              Choose the reusable service connection for this harness instance. Keys and base URLs
+              are owned by Model Services.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ServiceConnectionCard
+              id={`${idPrefix}-service-native`}
+              label={nativeTitle}
+              detail={nativeDescription}
+              selected={connectionId === undefined}
+              onSelect={() => onConnectionIdChange?.(undefined)}
+              icon={SparklesIcon}
+            />
+            {connectedServices.map((service) => {
+              const ServiceIcon =
+                SERVICE_ICON_BY_KIND[service.kind] ??
+                getProviderOrServiceIcon(String(service.kind)) ??
+                SparklesIcon;
+              return (
+                <ServiceConnectionCard
+                  key={service.serviceId}
+                  id={`${idPrefix}-service-${service.serviceId}`}
+                  label={service.displayName}
+                  detail={service.hasCredential ? "Credential stored" : "Needs API key"}
+                  selected={connectionId === service.serviceId}
+                  onSelect={() => onConnectionIdChange?.(String(service.serviceId))}
+                  icon={ServiceIcon}
+                />
+              );
+            })}
+          </div>
+          {connectedServices.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              Add a model service above before selecting an API-backed route.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Legacy environment-backed connection modes */}
+      {!usesCanonicalServiceConnections ? (
+        <div
+          className="grid gap-2.5 sm:grid-cols-3"
+          role="radiogroup"
+          aria-label="Service connection"
+        >
         {/* Native Account */}
         <button
           id={`${idPrefix}-mode-native`}
@@ -347,10 +399,11 @@ export function UniversalServiceSettings(props: {
             Connect to any custom compatible endpoint with your own base URL and API key.
           </p>
         </button>
-      </div>
+        </div>
+      ) : null}
 
       {/* Details for OpenRouter Mode */}
-      {connection.mode === "openrouter" ? (
+      {!usesCanonicalServiceConnections && connection.mode === "openrouter" ? (
         <div className="rounded-xl border border-border/60 bg-card/60 p-3.5 shadow-[0_14px_36px_-28px_hsl(var(--foreground)/0.6)] backdrop-blur-xl space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-medium text-foreground">
@@ -384,7 +437,7 @@ export function UniversalServiceSettings(props: {
                 aria-describedby={validation.credential ? `${idPrefix}-openrouter-key-error` : undefined}
               />
               <p className="text-[11px] text-muted-foreground">
-                Enter your key once here or connect OpenRouter in Settings → API Providers to share
+                Enter your key once here or connect OpenRouter in Settings → Model Services to share
                 across all profiles.
               </p>
               {validation.credential ? (
@@ -408,7 +461,7 @@ export function UniversalServiceSettings(props: {
       ) : null}
 
       {/* Details for Custom Gateway Mode */}
-      {connection.mode === "custom" ? (
+      {!usesCanonicalServiceConnections && connection.mode === "custom" ? (
         <div className="rounded-xl border border-border/60 bg-card/60 p-3.5 shadow-[0_14px_36px_-28px_hsl(var(--foreground)/0.6)] backdrop-blur-xl space-y-3">
           <div className="space-y-1.5">
             <label
@@ -459,5 +512,40 @@ export function UniversalServiceSettings(props: {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ServiceConnectionCard(props: {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly selected: boolean;
+  readonly onSelect: () => void;
+  readonly icon: ComponentType<{ readonly className?: string; readonly "aria-hidden"?: boolean }>;
+}) {
+  const Icon = props.icon;
+  return (
+    <button
+      id={props.id}
+      type="button"
+      role="radio"
+      aria-checked={props.selected}
+      onClick={props.onSelect}
+      className={cn(
+        "flex min-w-0 items-center gap-2.5 rounded-xl border p-3 text-left transition-colors",
+        props.selected
+          ? "border-primary/50 bg-primary/8 ring-1 ring-primary/30"
+          : "border-border/60 bg-card hover:border-border hover:bg-muted/30",
+      )}
+    >
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted/80">
+        <Icon className="size-4 text-foreground/80" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-semibold text-foreground">{props.label}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{props.detail}</span>
+      </span>
+      {props.selected ? <CheckIcon className="size-4 shrink-0 text-primary" aria-hidden /> : null}
+    </button>
   );
 }

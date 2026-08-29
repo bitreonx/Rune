@@ -40,6 +40,7 @@ const resolveProtocol = (
     case "openrouter":
       return driver === "claudeAgent" ? "anthropic-compatible" : "openai-responses";
     case "openai":
+    case "deepseek":
       return "openai-responses";
     case "anthropic":
     case "custom-anthropic-compatible":

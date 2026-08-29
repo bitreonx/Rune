@@ -26,7 +26,7 @@ const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 
 const makeServerSettingsLayer = () =>
   ServerSettingsModule.layer.pipe(
-    Layer.provide(ServerSecretStore.layer),
+    Layer.provide(Layer.fresh(ServerSecretStore.layer)),
     Layer.provideMerge(
       Layer.fresh(
         ServerConfig.layerTest(process.cwd(), {
@@ -113,6 +113,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             options: [{ id: "fastMode", value: false }],
           },
         },
+      );
+
+      const serviceId = ServiceId.make("openrouter_work");
+      assert.deepEqual(
+        yield* decodeSettingsPatch({
+          modelServiceCredentials: { [serviceId]: "sk-write-only" },
+        }),
+        { modelServiceCredentials: { [serviceId]: "sk-write-only" } },
       );
     }),
   );
@@ -922,4 +930,66 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       ),
     ),
   );
+
+  it.effect("stores model service credentials outside settings.json and projects presence", () => {
+    const storedSecrets = new Map<string, Uint8Array>();
+    const secretStoreLayer = Layer.succeed(
+      ServerSecretStore.ServerSecretStore,
+      ServerSecretStore.ServerSecretStore.of({
+        get: (name) =>
+          Effect.succeed(
+            storedSecrets.has(name)
+              ? Option.some(storedSecrets.get(name)!)
+              : Option.none(),
+          ),
+        set: (name, value) => Effect.sync(() => void storedSecrets.set(name, value)),
+        create: (name, value) => Effect.sync(() => void storedSecrets.set(name, value)),
+        getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
+        remove: (name) => Effect.sync(() => void storedSecrets.delete(name)),
+      }),
+    );
+    const settingsLayer = ServerSettingsModule.layer.pipe(
+      Layer.provide(secretStoreLayer),
+      Layer.provideMerge(
+        Layer.fresh(
+          ServerConfig.layerTest(process.cwd(), {
+            prefix: "rune-server-settings-service-secret-test-",
+          }),
+        ),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serviceId = ServiceId.make("openrouter_work");
+
+      const connected = yield* serverSettings.updateSettings({
+        harnesses: {
+          services: {
+            [serviceId]: {
+              serviceId,
+              kind: "openrouter",
+              displayName: "OpenRouter Work",
+              credentialRef: "model-service:openrouter_work:api-key",
+            },
+          },
+        },
+        modelServiceCredentials: { [serviceId]: "sk-service-secret" },
+      });
+
+      assert.isTrue(connected.harnesses.services[serviceId]?.hasCredential);
+      assert.deepEqual(storedSecrets.get("model-service:openrouter_work:api-key"), new TextEncoder().encode("sk-service-secret"));
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.notInclude(raw, "sk-service-secret");
+      assert.notInclude(raw, "modelServiceCredentials");
+
+      const removed = yield* serverSettings.updateSettings({
+        harnesses: { services: {} },
+      });
+      assert.deepEqual(removed.harnesses.services, {});
+      assert.isFalse(storedSecrets.has("model-service:openrouter_work:api-key"));
+    }).pipe(Effect.provide(settingsLayer));
+  });
 });

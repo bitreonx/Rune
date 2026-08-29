@@ -87,6 +87,15 @@ function profileConfig(profile: HarnessProfileConfig): ProviderInstanceConfig {
     displayName: profile.displayName,
     ...(profile.accentColor ? { accentColor: profile.accentColor } : {}),
     enabled: profile.enabled,
+    ...(profile.route.modelServiceId === "native"
+      ? {}
+      : { connectionId: String(profile.route.modelServiceId) }),
+    modelBindings: {
+      main: profile.route.defaultModel,
+      ...(profile.route.sameModelEverywhere
+        ? {}
+        : profile.route.roleOverrides),
+    },
     ...(profile.advanced?.environment ? { environment: profile.advanced.environment } : {}),
     ...(config ? { config } : {}),
   };

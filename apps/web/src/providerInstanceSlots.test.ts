@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ProfileId,
+  ServiceId,
   type HarnessProfileConfig,
   type ServerSettings,
 } from "@rune/contracts";
@@ -55,7 +56,7 @@ describe("resolveProviderInstanceSlot", () => {
       enabled: true,
       instanceId,
       route: {
-        modelServiceId: "native",
+        modelServiceId: ServiceId.make("openrouter_work"),
         defaultModel: "claude-sonnet-4",
         sameModelEverywhere: true,
         roleOverrides: {},
@@ -76,6 +77,10 @@ describe("resolveProviderInstanceSlot", () => {
       isDefault: false,
       isDirty: true,
       source: "profile",
+    });
+    expect(resolveProviderInstanceSlot(settings, claude, instanceId)?.instance).toMatchObject({
+      connectionId: "openrouter_work",
+      modelBindings: { main: "claude-sonnet-4" },
     });
   });
 

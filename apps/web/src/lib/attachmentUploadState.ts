@@ -23,15 +23,23 @@ export type AttachmentUploadState =
     };
 
 export function attachmentUploadBlockReason(input: {
-  readonly imageIds: ReadonlyArray<string>;
+  /**
+   * Kept as an alias for the original image-only caller. New callers should
+   * pass attachmentIds so the same gate protects generic file uploads.
+   */
+  readonly imageIds?: ReadonlyArray<string>;
+  readonly attachmentIds?: ReadonlyArray<string>;
   readonly uploadsByImageId: Readonly<Record<string, AttachmentUploadState>>;
   readonly environmentId: EnvironmentId;
+  readonly attachmentLabel?: string;
 }): string | null {
+  const attachmentIds = input.attachmentIds ?? input.imageIds ?? [];
+  const label = input.attachmentLabel ?? (input.attachmentIds ? "attachment" : "image");
   let pending = 0;
   let failed = 0;
 
-  for (const imageId of input.imageIds) {
-    const upload = input.uploadsByImageId[imageId];
+  for (const attachmentId of attachmentIds) {
+    const upload = input.uploadsByImageId[attachmentId];
     if (upload?.status === "failed" && upload.environmentId === input.environmentId) {
       failed += 1;
     } else if (upload?.status !== "ready" || upload.environmentId !== input.environmentId) {
@@ -40,10 +48,13 @@ export function attachmentUploadBlockReason(input: {
   }
 
   if (failed > 0) {
-    return failed === 1 ? "Retry or remove the failed image" : "Retry or remove the failed images";
+    return failed === 1
+      ? `Retry or remove the failed ${label}`
+      : `Retry or remove the failed ${label}s`;
   }
   if (pending > 0) {
-    return pending === 1 ? "Image still uploading" : "Images still uploading";
+    const displayLabel = label[0]?.toUpperCase() + label.slice(1);
+    return pending === 1 ? `${displayLabel} still uploading` : `${displayLabel}s still uploading`;
   }
   return null;
 }

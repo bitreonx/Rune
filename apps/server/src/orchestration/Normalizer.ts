@@ -143,11 +143,109 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           if (attachment.type === "thread-mention") {
             return attachment;
           }
-          // Non-image file selections already carry a canonical provider-host
-          // path. They are references, not pending uploads to claim or copy.
+
           if (attachment.type === "file") {
-            return attachment;
+            if (attachment.path === undefined) {
+              if (attachment.kind !== "file") {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Attachment '${attachment.name}' cannot be sent: uploaded folders are not supported.`,
+                });
+              }
+
+              const claim = planAttachmentClaim({
+                attachmentsDir: serverConfig.attachmentsDir,
+                threadId: canonicalCommand.threadId,
+                attachmentId: attachment.id,
+              });
+              if (!claim.ok) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Attachment '${attachment.name}' cannot be sent: ${claim.reason}.`,
+                });
+              }
+
+              const info = yield* fileSystem.stat(claim.currentPath).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: `Attachment '${attachment.name}' cannot be sent: attachment not found.`,
+                      cause,
+                    }),
+                ),
+              );
+              if (info.type !== "File") {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Attachment '${attachment.name}' cannot be sent: uploaded attachment is not a regular file.`,
+                });
+              }
+              if (info.size !== BigInt(attachment.sizeBytes)) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Attachment '${attachment.name}' cannot be sent: stored size does not match.`,
+                });
+              }
+
+              // The final file remains server-owned. Do not carry the pending
+              // upload's renderer path into the persisted command.
+              const normalizedAttachment = {
+                type: "file" as const,
+                kind: attachment.kind,
+                id: claim.finalId,
+                name: attachment.name,
+                mimeType: attachment.mimeType.toLowerCase(),
+                sizeBytes: attachment.sizeBytes,
+              };
+              yield* fileSystem.copyFile(claim.currentPath, claim.finalPath).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: `Failed to claim attachment '${attachment.name}' for this thread.`,
+                      cause,
+                    }),
+                ),
+              );
+              claimedAttachmentPaths.push(claim.finalPath);
+
+              return normalizedAttachment;
+            }
+
+            const canonicalPath = yield* fileSystem.realPath(attachment.path).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: `Attachment '${attachment.name}' cannot be sent: path not found.`,
+                    cause,
+                  }),
+              ),
+            );
+            const info = yield* fileSystem.stat(canonicalPath).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: `Attachment '${attachment.name}' cannot be sent: path not found.`,
+                    cause,
+                  }),
+              ),
+            );
+            const expectedType = attachment.kind === "file" ? "File" : "Directory";
+            if (info.type !== expectedType) {
+              return yield* new OrchestrationDispatchCommandError({
+                message: `Attachment '${attachment.name}' cannot be sent: expected a ${
+                  attachment.kind === "file" ? "regular file" : "directory"
+                }.`,
+              });
+            }
+            if (attachment.kind === "file" && info.size !== BigInt(attachment.sizeBytes)) {
+              return yield* new OrchestrationDispatchCommandError({
+                message: `Attachment '${attachment.name}' cannot be sent: file size does not match.`,
+              });
+            }
+
+            return {
+              ...attachment,
+              mimeType: attachment.mimeType.toLowerCase(),
+              path: canonicalPath,
+            };
           }
+
           if (!("dataUrl" in attachment)) {
             const claim = planAttachmentClaim({
               attachmentsDir: serverConfig.attachmentsDir,
@@ -169,7 +267,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                   }),
               ),
             );
-            if (Number(info.size) !== attachment.sizeBytes) {
+            if (info.size !== BigInt(attachment.sizeBytes)) {
               return yield* new OrchestrationDispatchCommandError({
                 message: `Attachment '${attachment.name}' cannot be sent: stored size does not match.`,
               });
@@ -291,6 +389,7 @@ export const cleanupFailedUploadedAttachments = Effect.fn(
       !original ||
       original.type === "thread-mention" ||
       "dataUrl" in original ||
+      (original.type === "file" && original.path !== undefined) ||
       parseThreadSegmentFromAttachmentId(original.id) !== PENDING_ATTACHMENT_THREAD_SEGMENT
     ) {
       continue;

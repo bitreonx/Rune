@@ -3,8 +3,8 @@ import * as Schema from "effect/Schema";
 import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { WorkspaceFileRefPath, type WorkspaceFileRef } from "./workspaceFileRef.ts";
 import {
+  isProviderSendTurnSupportedImageMimeType,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-  PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
   ProjectFaviconPath,
 } from "./orchestration.ts";
 
@@ -134,14 +134,40 @@ export type AssetCreateUrlResult = typeof AssetCreateUrlResult.Type;
 
 export const ATTACHMENT_UPLOAD_URL_TTL_MS = 10 * 60_000;
 
-export const AttachmentCreateUploadUrlInput = Schema.Struct({
+// Uploaded non-image attachments are buffered in memory by the HTTP upload
+// route, so keep the server-owned store bounded while covering ordinary video,
+// audio, PDF, and binary files. Images retain their existing 10 MiB limit.
+export const ATTACHMENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
+const AttachmentUploadMimeType = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(100),
+  Schema.isPattern(/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/),
+);
+
+const AttachmentCreateUploadUrlInputBase = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
-  mimeType: Schema.Literals(PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES),
-  sizeBytes: NonNegativeInt.check(
-    Schema.isGreaterThanOrEqualTo(1),
-    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES),
-  ),
+  mimeType: AttachmentUploadMimeType,
+  sizeBytes: NonNegativeInt.check(Schema.isGreaterThanOrEqualTo(1)),
 });
+
+export const AttachmentCreateUploadUrlInput = AttachmentCreateUploadUrlInputBase.check(
+  Schema.makeFilter((input) => {
+    const mimeType = input.mimeType.toLowerCase();
+    if (input.sizeBytes > ATTACHMENT_UPLOAD_MAX_BYTES) {
+      return `Attachment uploads cannot exceed ${ATTACHMENT_UPLOAD_MAX_BYTES} bytes.`;
+    }
+    if (
+      mimeType.startsWith("image/") &&
+      !isProviderSendTurnSupportedImageMimeType(mimeType)
+    ) {
+      return `Image attachment type '${input.mimeType}' is not supported.`;
+    }
+    if (mimeType.startsWith("image/") && input.sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+      return `Image attachments cannot exceed ${PROVIDER_SEND_TURN_MAX_IMAGE_BYTES} bytes.`;
+    }
+    return true;
+  }),
+);
 export type AttachmentCreateUploadUrlInput = typeof AttachmentCreateUploadUrlInput.Type;
 
 export const AttachmentCreateUploadUrlResult = Schema.Struct({

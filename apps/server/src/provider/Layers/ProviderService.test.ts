@@ -337,6 +337,7 @@ function makeProviderServiceLayer() {
       directoryLayer,
 
       runtimeRepositoryLayer,
+      serverConfigTestLayer,
       NodeServices.layer,
     ),
   );
@@ -1243,6 +1244,12 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("appends canonical paths for non-image attachments without inlining them", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
+      const attachmentPath = NodePath.join(
+        NodeOS.tmpdir(),
+        "provider-file-attachment.pdf",
+      );
+      NodeFS.mkdirSync(NodePath.dirname(attachmentPath), { recursive: true });
+      NodeFS.writeFileSync(attachmentPath, Buffer.alloc(123));
 
       const session = yield* provider.startSession(asThreadId("thread-file-attach"), {
         provider: ProviderDriverKind.make("codex"),
@@ -1259,7 +1266,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         name: "report.pdf",
         mimeType: "application/pdf",
         sizeBytes: 123,
-        path: "D:\\documents\\report.pdf",
+        path: attachmentPath,
       } satisfies ChatFileAttachment;
 
       routing.codex.sendTurn.mockClear();
@@ -1277,6 +1284,54 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         true,
       );
+
+      yield* provider.stopSession({ threadId: session.threadId });
+      NodeFS.rmSync(attachmentPath, { force: true });
+    }),
+  );
+
+  it.effect("resolves server-owned generic uploads before routing the turn", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const config = yield* ServerConfig.ServerConfig;
+      const session = yield* provider.startSession(asThreadId("thread-uploaded-file"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-uploaded-file"),
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+
+      const attachmentId = "pending-uploaded-file-12345678-1234-1234-1234-123456789abc";
+      const attachmentPath = NodePath.join(config.attachmentsDir, `${attachmentId}.pdf`);
+      NodeFS.mkdirSync(config.attachmentsDir, { recursive: true });
+      NodeFS.writeFileSync(attachmentPath, Buffer.alloc(12));
+      try {
+        const attachment = {
+          type: "file",
+          kind: "file",
+          id: attachmentId,
+          name: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 12,
+        } satisfies ChatFileAttachment;
+
+        routing.codex.sendTurn.mockClear();
+        yield* provider.sendTurn({
+          threadId: session.threadId,
+          input: "summarize this uploaded document",
+          attachments: [attachment],
+        });
+
+        const turnInput = routing.codex.sendTurn.mock.calls[0]?.[0] as ProviderSendTurnInput;
+        assert.deepStrictEqual(turnInput.attachments, [attachment]);
+        assert.include(
+          turnInput.input,
+          `[Attached file "report.pdf" is available at: ${attachmentPath}]`,
+        );
+      } finally {
+        NodeFS.rmSync(attachmentPath, { force: true });
+      }
 
       yield* provider.stopSession({ threadId: session.threadId });
     }),

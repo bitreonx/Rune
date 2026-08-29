@@ -247,6 +247,73 @@ function buildAssistantTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders sent file attachments as path-free, actionable chips", () => {
+    const attachmentPath = "C:\\workspace\\private\\notes.pdf";
+    const onOpenAttachment = vi.fn();
+    const baseEntry = buildUserTimelineEntry(
+      "[User attached one or more files without additional text. Inspect the attached file(s) and respond using the conversation context.]",
+    );
+    const timelineEntry = {
+      ...baseEntry,
+      message: {
+        ...baseEntry.message,
+        attachments: [
+          {
+            type: "file" as const,
+            kind: "file" as const,
+            id: "notes-pdf",
+            name: "notes.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 2_048,
+            path: attachmentPath,
+          },
+          {
+            type: "file" as const,
+            kind: "folder" as const,
+            id: "assets-folder",
+            name: "assets",
+            mimeType: "inode/directory",
+            sizeBytes: 0,
+            path: "C:\\workspace\\private\\assets",
+          },
+          {
+            type: "file" as const,
+            kind: "file" as const,
+            id: "archive-binary",
+            name: "archive.bin",
+            mimeType: "application/octet-stream",
+            sizeBytes: 512,
+            path: "C:\\workspace\\private\\archive.bin",
+          },
+        ],
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        onOpenAttachment={onOpenAttachment}
+        timelineEntries={[timelineEntry]}
+      />,
+    );
+
+    expect(markup).toContain('data-sent-file-attachments="true"');
+    expect(markup).toContain('data-sent-file-attachment-kind="file"');
+    expect(markup).toContain('data-sent-file-attachment-kind="folder"');
+    expect(markup).toContain('data-sent-file-attachment-type="pdf"');
+    expect(markup).toContain('data-sent-file-attachment-type="folder"');
+    expect(markup).toContain('data-sent-file-attachment-type="binary"');
+    expect(markup).toContain("notes.pdf");
+    expect(markup).toContain("2.0 KB");
+    expect(markup).toContain("assets");
+    expect(markup).toContain("archive.bin");
+    expect(markup).toContain('aria-label="Open notes.pdf · PDF"');
+    expect(markup).toContain('aria-label="Attachment actions for notes.pdf"');
+    expect(markup).toContain("Open attachment");
+    expect(markup).toContain("motion-reduce:transition-none");
+    expect(markup).not.toContain(attachmentPath);
+  });
+
   it("keeps developer trace opt-in and exposes bounded request details", () => {
     const trace: TurnTrace = {
       turnId: TurnId.make("turn-trace"),

@@ -15,6 +15,8 @@ import { formatBytes } from "../files/viewers/formatBytes";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
 import type { ComposerFileAttachment } from "../../composerDraftStore";
+import type { AttachmentUploadState } from "../../lib/attachmentUploadState";
+import { formatAttachmentUploadProgress } from "../../lib/attachmentUploadState";
 
 export const COMPOSER_FILE_ATTACHMENT_ACTIONS = [
   "Preview",
@@ -47,16 +49,26 @@ export const ComposerFileAttachmentChip = memo(function ComposerFileAttachmentCh
   onRevealInFiles: () => void;
   onRevealInExplorer: () => void;
   onRemove: () => void;
+  upload?: AttachmentUploadState;
+  onRetryUpload?: () => void;
 }) {
   const { attachment } = props;
   const kindLabel = attachmentKindLabel(attachment);
   const accessibleName = `${attachment.name} · ${kindLabel}`;
+  const upload = props.upload;
+  const uploadMessage =
+    upload?.status === "uploading"
+      ? `Uploading ${formatAttachmentUploadProgress(upload.progress)}`
+      : upload?.status === "failed"
+        ? upload.reason
+        : null;
 
   return (
     <div
-      className="group flex min-w-0 max-w-full items-center gap-1 rounded-lg border border-border/75 bg-background/75 px-1.5 py-1 shadow-sm transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-primary/45 hover:bg-background"
+      className="group flex min-w-0 max-w-full items-center gap-1 rounded-lg border border-border/75 bg-background/75 px-1.5 py-1 shadow-sm transition-[border-color,background-color,transform] duration-200 hover:-translate-y-px hover:border-primary/45 hover:bg-background motion-reduce:transition-none motion-reduce:hover:translate-y-0"
       data-composer-file-attachment="true"
       data-composer-file-attachment-kind={attachment.kind}
+      data-composer-file-attachment-upload-status={upload?.status ?? "none"}
     >
       <button
         type="button"
@@ -75,6 +87,7 @@ export const ComposerFileAttachmentChip = memo(function ComposerFileAttachmentCh
           <span className="font-medium">{attachment.name}</span>
           <span className="text-muted-foreground">
             {` · ${formatBytes(attachment.sizeBytes)} · ${kindLabel}`}
+            {uploadMessage ? ` · ${uploadMessage}` : ""}
           </span>
         </span>
       </button>
@@ -93,6 +106,9 @@ export const ComposerFileAttachmentChip = memo(function ComposerFileAttachmentCh
           <EllipsisIcon className="size-4" aria-hidden="true" />
         </MenuTrigger>
         <MenuPopup align="end" side="top" className="min-w-48">
+          {upload?.status === "failed" && props.onRetryUpload ? (
+            <MenuItem onClick={props.onRetryUpload}>Retry upload</MenuItem>
+          ) : null}
           <MenuItem onClick={props.onPreview}>
             <FileIcon className="size-4" /> Preview
           </MenuItem>

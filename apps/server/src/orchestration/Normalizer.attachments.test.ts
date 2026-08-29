@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -66,7 +67,7 @@ function expectImage(
   return attachment;
 }
 
-function fileAttachmentCommand(): Extract<
+function fileAttachmentCommand(path: string): Extract<
   ClientOrchestrationCommand,
   { readonly type: "thread.turn.start" }
 > {
@@ -86,7 +87,7 @@ function fileAttachmentCommand(): Extract<
           name: "clip.mp4",
           mimeType: "video/mp4",
           sizeBytes: 1234,
-          path: "D:\\media\\clip.mp4",
+          path,
         },
       ],
     },
@@ -99,14 +100,21 @@ function fileAttachmentCommand(): Extract<
 describe("normalizeDispatchCommand attachments", () => {
   it.effect("preserves typed non-image attachments without claiming an upload", () =>
     Effect.gen(function* () {
-      const command = fileAttachmentCommand();
-      const normalized = yield* normalizeDispatchCommand(command);
+      const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "rune-file-attachment-"));
+      const filePath = NodePath.join(tempDir, "clip.mp4");
+      NodeFS.writeFileSync(filePath, Buffer.alloc(1234));
+      try {
+        const command = fileAttachmentCommand(filePath);
+        const normalized = yield* normalizeDispatchCommand(command);
 
-      if (normalized.type !== "thread.turn.start") {
-        throw new Error("Expected a thread.turn.start command.");
+        if (normalized.type !== "thread.turn.start") {
+          throw new Error("Expected a thread.turn.start command.");
+        }
+
+        expect(normalized.message.attachments).toEqual(command.message.attachments);
+      } finally {
+        NodeFS.rmSync(tempDir, { recursive: true, force: true });
       }
-
-      expect(normalized.message.attachments).toEqual(command.message.attachments);
     }).pipe(Effect.provide(testLayer)),
   );
 

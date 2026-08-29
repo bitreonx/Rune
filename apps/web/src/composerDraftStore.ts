@@ -98,8 +98,15 @@ export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "prev
   file: File;
 }
 
-/** Metadata-only attachment kept in the draft and sent as a canonical path. */
-export type ComposerFileAttachment = ChatFileAttachment;
+/**
+ * A file attachment being composed may still have a renderer-local File while
+ * it is uploading. The File is deliberately never persisted or sent over the
+ * wire; successful uploads become server-owned ChatFileAttachment references.
+ */
+export interface ComposerFileAttachment extends Omit<ChatFileAttachment, "path"> {
+  readonly path?: string;
+  readonly file?: File;
+}
 
 const PersistedComposerFileAttachment = Schema.Struct({
   type: Schema.Literal("file"),
@@ -708,7 +715,7 @@ function composerImageDedupKey(image: ComposerImageAttachment): string {
 }
 
 function composerFileAttachmentDedupKey(attachment: ComposerFileAttachment): string {
-  return `${attachment.kind}\u0000${attachment.path}`;
+  return `${attachment.kind}\u0000${attachment.path ?? `upload:${attachment.id}`}`;
 }
 
 function terminalContextDedupKey(context: TerminalContextDraft): string {
@@ -2018,12 +2025,31 @@ function partializeComposerDraftStoreState(
     ) {
       continue;
     }
+    const persistedFileAttachments = draft.fileAttachments.flatMap((attachment) => {
+      // A renderer-local File cannot survive reload. Keep only host path
+      // references in the durable draft; an in-flight remote upload is
+      // intentionally retried by the user instead of becoming a broken blob.
+      if (typeof attachment.path !== "string" || attachment.path.trim().length === 0) {
+        return [];
+      }
+      return [
+        {
+          type: "file" as const,
+          kind: attachment.kind,
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          path: attachment.path,
+        },
+      ];
+    });
     const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
       prompt: draft.prompt,
       attachments: draft.persistedAttachments,
-      ...(draft.fileAttachments.length > 0
+      ...(persistedFileAttachments.length > 0
         ? {
-            fileAttachments: draft.fileAttachments.map((attachment) => ({ ...attachment })),
+            fileAttachments: persistedFileAttachments,
           }
         : {}),
       ...(draft.terminalContexts.length > 0
@@ -3212,7 +3238,8 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 attachment.type !== "file" ||
                 attachment.id.length === 0 ||
                 attachment.name.length === 0 ||
-                attachment.path.length === 0 ||
+                (attachment.path === undefined && attachment.file === undefined) ||
+                (attachment.path !== undefined && attachment.path.length === 0) ||
                 existingIds.has(attachment.id) ||
                 existingPaths.has(composerFileAttachmentDedupKey(attachment))
               ) {

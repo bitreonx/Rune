@@ -308,6 +308,10 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import {
+  AttachmentViewerDialog,
+  type AttachmentViewerItem,
+} from "./chat/AttachmentViewerDialog";
 import { RunePageTransition } from "./RunePageTransition";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -408,8 +412,11 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import {
   awaitAttachmentUploads,
+  getUploadedFileAttachment,
   getUploadedAttachments,
+  releaseFileAttachmentUploads,
   releaseAttachmentUploads,
+  startFileAttachmentUpload,
   startAttachmentUpload,
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
@@ -1475,6 +1482,7 @@ function ChatViewContent(props: ChatViewProps) {
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
+  const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerItem | null>(null);
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.runtimeMode ?? null,
@@ -4081,9 +4089,9 @@ function ChatViewContent(props: ChatViewProps) {
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
   const openComposerAttachment = useCallback(
-    (attachment: ComposerFileAttachment) => {
-      if (attachment.kind === "folder" || !activeWorkspaceRoot) {
-        openFilesSurface();
+    (attachment: AttachmentViewerItem) => {
+      if (attachment.kind === "folder" || !attachment.path || !activeWorkspaceRoot) {
+        setAttachmentViewer(attachment);
         return;
       }
       const normalizedRoot = activeWorkspaceRoot.replaceAll("\\", "/").replace(/\/+$/, "");
@@ -4094,21 +4102,21 @@ function ChatViewContent(props: ChatViewProps) {
         pathForComparison !== rootForComparison &&
         !pathForComparison.startsWith(`${rootForComparison}/`)
       ) {
-        openFilesSurface();
+        setAttachmentViewer(attachment);
         return;
       }
       const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot);
       if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) {
-        openFilesSurface();
+        setAttachmentViewer(attachment);
         return;
       }
       openFileSurface(relativePath);
     },
-    [activeWorkspaceRoot, openFileSurface, openFilesSurface],
+    [activeWorkspaceRoot, openFileSurface],
   );
   const revealComposerAttachmentInExplorer = useCallback(
-    (attachment: ComposerFileAttachment) => {
-      if (!activeThread || attachment.path.length === 0) return;
+    (attachment: AttachmentViewerItem) => {
+      if (!activeThread || !attachment.path) return;
       void openInEditor({
         environmentId: activeThread.environmentId,
         input: { cwd: attachment.path, editor: "file-manager", mode: "reveal" },
@@ -6768,14 +6776,36 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     setIsTurnPaused(false);
-    if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
+    const composerFileUploadsSnapshot = composerFileAttachmentsSnapshot.filter(
+      (attachment): attachment is ComposerFileAttachment & { readonly file: File } =>
+        attachment.file !== undefined && attachment.path === undefined,
+    );
+    if (
+      supportsAttachmentUploads &&
+      (composerImagesSnapshot.length > 0 || composerFileUploadsSnapshot.length > 0)
+    ) {
       for (const image of composerImagesSnapshot) {
         startAttachmentUpload({ environmentId, image });
       }
-      await awaitAttachmentUploads(composerImagesSnapshot.map((image) => image.id));
+      for (const attachment of composerFileUploadsSnapshot) {
+        startFileAttachmentUpload({ environmentId, attachment });
+      }
+      await awaitAttachmentUploads([
+        ...composerImagesSnapshot.map((image) => image.id),
+        ...composerFileUploadsSnapshot.map((attachment) => attachment.id),
+      ]);
       if (getUploadedAttachments({ environmentId, images: composerImagesSnapshot }) === null) {
         sendInFlightRef.current = false;
         setThreadError(threadIdForSend, "Retry or remove failed image uploads before sending.");
+        return;
+      }
+      if (
+        composerFileUploadsSnapshot.some(
+          (attachment) => getUploadedFileAttachment({ environmentId, attachment }) === null,
+        )
+      ) {
+        sendInFlightRef.current = false;
+        setThreadError(threadIdForSend, "Retry or remove failed file uploads before sending.");
         return;
       }
     }
@@ -6830,7 +6860,17 @@ function ChatViewContent(props: ChatViewProps) {
       }),
     ).then((images) => [
       ...images,
-      ...composerFileAttachmentsSnapshot.map((attachment) => ({ ...attachment })),
+      ...composerFileAttachmentsSnapshot.map((attachment) => {
+        if (attachment.file !== undefined && attachment.path === undefined) {
+          const uploaded = getUploadedFileAttachment({ environmentId, attachment });
+          if (!uploaded) {
+            throw new Error(`File '${attachment.name}' did not finish uploading.`);
+          }
+          return uploaded;
+        }
+        const { file: _file, ...wireAttachment } = attachment;
+        return wireAttachment;
+      }),
       ...threadAttachments,
     ]);
     const optimisticAttachments = [
@@ -6842,9 +6882,10 @@ function ChatViewContent(props: ChatViewProps) {
         sizeBytes: image.sizeBytes,
         previewUrl: image.previewUrl,
       })),
-      ...composerFileAttachmentsSnapshot.map(
-        (attachment): ChatFileAttachment => ({ ...attachment }),
-      ),
+      ...composerFileAttachmentsSnapshot.map((attachment): ChatFileAttachment => {
+        const { file: _file, ...wireAttachment } = attachment;
+        return wireAttachment;
+      }),
     ];
     const shouldAnchorFirstMessage =
       activeThread.latestTurn === null &&
@@ -7040,6 +7081,7 @@ function ChatViewContent(props: ChatViewProps) {
         }
         if (supportsAttachmentUploads) {
           releaseAttachmentUploads(composerImagesSnapshot);
+          releaseFileAttachmentUploads(composerFileUploadsSnapshot);
         }
         acknowledgeActiveThreadWoke();
         if (backgroundThreadRef) {
@@ -8746,6 +8788,7 @@ function ChatViewContent(props: ChatViewProps) {
                   onDeleteUserMessage={onDeleteUserMessage}
                   isRevertingCheckpoint={isRevertingCheckpoint}
                   onImageExpand={onExpandTimelineImage}
+                  onOpenAttachment={openComposerAttachment}
                   markdownCwd={gitCwd ?? undefined}
                   resolvedTheme={resolvedTheme}
                   timestampFormat={timestampFormat}
@@ -9169,6 +9212,16 @@ function ChatViewContent(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
+      <AttachmentViewerDialog
+        open={attachmentViewer !== null}
+        attachment={attachmentViewer}
+        environmentId={activeThread?.environmentId ?? environmentId}
+        onOpenChange={(open) => {
+          if (!open) setAttachmentViewer(null);
+        }}
+        onRevealInFiles={() => openFilesSurface()}
+        onRevealInExplorer={revealComposerAttachmentInExplorer}
+      />
     </div>
   );
 }

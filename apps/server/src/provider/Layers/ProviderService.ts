@@ -1032,6 +1032,25 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
+    // Resolve file references at the provider boundary. Normalization has
+    // already claimed uploads and canonicalized host paths, but this second
+    // check keeps an invalid/stale reference from becoming prompt text.
+    const resolvedFilePaths = new Map<string, string>();
+    for (const attachment of attachments) {
+      if (attachment.type !== "file") continue;
+      const attachmentPath = resolveAttachmentPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachment,
+      });
+      if (attachmentPath === null) {
+        return yield* toValidationError(
+          "ProviderService.sendTurn",
+          `Attachment '${attachment.name}' is no longer available on the provider environment.`,
+        );
+      }
+      resolvedFilePaths.set(attachment.id, attachmentPath);
+    }
+
     // Native image adapters inline attachment pixels into the model prompt,
     // but the model's tools cannot dereference pixels. Appending the on-disk
     // path is what lets a turn like "include this screenshot in the PR" copy
@@ -1052,10 +1071,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ? []
             : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
         }
-        case "file":
+        case "file": {
+          const attachmentPath = resolvedFilePaths.get(attachment.id);
+          if (!attachmentPath) return [];
           return [
-            `[Attached ${attachment.kind} "${attachment.name}" is available at: ${attachment.path}]`,
+            `[Attached ${attachment.kind} "${attachment.name}" is available at: ${attachmentPath}]`,
           ];
+        }
         case "thread-mention":
           return [];
       }

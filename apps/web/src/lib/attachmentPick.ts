@@ -18,6 +18,7 @@ export type PickedAttachmentFallback =
 
 export type PickedAttachmentRoute =
   | { readonly kind: "upload-image" }
+  | { readonly kind: "upload-file" }
   | {
       readonly kind: "path-reference";
       readonly why: PickedAttachmentFallback;
@@ -56,6 +57,14 @@ export function classifyPickedAttachment(input: PickedAttachmentInput): PickedAt
     return { kind: "upload-image" };
   }
 
+  // The renderer's filesystem path belongs to the device that picked the
+  // file. When the environment is remote (or the browser intentionally hides
+  // local paths), a generic server upload is the only portable reference the
+  // provider can actually read for non-image media.
+  if (!isImage && input.supportsUploads) {
+    return { kind: "upload-file" };
+  }
+
   let why: PickedAttachmentFallback;
   if (!isImage) {
     why = input.supportsUploads ? "binary-upload-unsupported" : "uploads-unavailable";
@@ -67,9 +76,10 @@ export function classifyPickedAttachment(input: PickedAttachmentInput): PickedAt
     why = "uploads-unavailable";
   }
 
-  // Without a resolvable path nothing can be sent, but keep "too large"
-  // specific — shrinking the image is an action the user can still take.
-  // Every other web block is really "we cannot reach your local files".
+  // Without a resolvable path nothing can be sent when the environment cannot
+  // accept uploads. Keep "too large" specific — shrinking the image is an
+  // action the user can still take. Every other web block is really "we cannot
+  // reach your local files".
   return input.absolutePath
     ? { kind: "path-reference", why }
     : { kind: "blocked", why: why === "image-too-large" ? "image-too-large" : "no-local-path" };

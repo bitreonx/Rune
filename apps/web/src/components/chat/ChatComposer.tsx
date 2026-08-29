@@ -91,8 +91,12 @@ import {
   resolvePickedFileAbsolutePath,
 } from "../../lib/attachmentPick";
 import {
+  getUploadedFileAttachment,
   releaseAttachmentUpload,
+  releaseFileAttachmentUploads,
   retryAttachmentUpload,
+  retryFileAttachmentUpload,
+  startFileAttachmentUpload,
   startAttachmentUpload,
   useAttachmentUploadStore,
 } from "../../lib/attachmentUploadQueue";
@@ -860,11 +864,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerReviewComments = composerDraft.reviewComments;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
+  const uploadableFileAttachments = composerFileAttachments.filter(
+    (attachment): attachment is ComposerFileAttachment & { readonly file: File } =>
+      attachment.file !== undefined && attachment.path === undefined,
+  );
   const attachmentBlockReason = supportsAttachmentUploads
     ? attachmentUploadBlockReason({
-        imageIds: composerImages.map((image) => image.id),
+        attachmentIds: [
+          ...composerImages.map((image) => image.id),
+          ...uploadableFileAttachments.map((attachment) => attachment.id),
+        ],
         uploadsByImageId,
         environmentId,
+        attachmentLabel:
+          composerImages.length > 0 && uploadableFileAttachments.length === 0
+            ? "image"
+            : "attachment",
       })
     : null;
   const sendDisabledReason =
@@ -927,12 +942,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       for (const image of composerImages) {
         releaseAttachmentUpload(image.id);
       }
+      for (const attachment of uploadableFileAttachments) {
+        releaseAttachmentUpload(attachment.id);
+      }
       return;
     }
     for (const image of composerImages) {
       startAttachmentUpload({ environmentId, image });
     }
-  }, [attachmentUploadsCapabilityKnown, composerImages, environmentId, supportsAttachmentUploads]);
+    for (const attachment of uploadableFileAttachments) {
+      startFileAttachmentUpload({ environmentId, attachment });
+    }
+  }, [
+    attachmentUploadsCapabilityKnown,
+    composerImages,
+    environmentId,
+    supportsAttachmentUploads,
+    uploadableFileAttachments,
+  ]);
 
   // ------------------------------------------------------------------
   // Model state
@@ -2944,6 +2971,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const handlePickedAttachmentFiles = (files: File[]) => {
     if (files.length === 0) return;
     const uploadableImages: File[] = [];
+    const uploadableFiles: File[] = [];
     const fileAttachments: ComposerFileAttachment[] = [];
     const blockedNames: string[] = [];
     const limitedNames: string[] = [];
@@ -2980,6 +3008,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         remainingSlots -= 1;
         continue;
       }
+      if (route.kind === "upload-file") {
+        uploadableFiles.push(file);
+        remainingSlots -= 1;
+        continue;
+      }
       // The classifier only emits path-reference when a path was resolvable.
       if (!absolutePath) continue;
       fileAttachments.push({
@@ -2996,6 +3029,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
     if (uploadableImages.length > 0) {
       addComposerImages(uploadableImages);
+    }
+    if (uploadableFiles.length > 0) {
+      addComposerFileAttachments(
+        uploadableFiles.map((file) => ({
+          type: "file" as const,
+          kind: "file" as const,
+          id: randomUUID(),
+          name: file.name || "attachment",
+          mimeType: file.type || "application/octet-stream",
+          sizeBytes: Math.max(0, Math.floor(file.size)),
+          file,
+        })),
+      );
     }
     if (fileAttachments.length > 0) {
       addComposerFileAttachments(fileAttachments);
@@ -3934,6 +3980,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           onRevealInFiles={() => onOpenFiles()}
                           onRevealInExplorer={() => onRevealAttachmentInExplorer?.(attachment)}
                           onRemove={() => removeComposerFileAttachment(attachment.id)}
+                          upload={uploadsByImageId[attachment.id]}
+                          {...(attachment.file
+                            ? {
+                                onRetryUpload: () =>
+                                  retryFileAttachmentUpload({
+                                    environmentId,
+                                    attachment: attachment as ComposerFileAttachment & {
+                                      readonly file: File;
+                                    },
+                                  }),
+                              }
+                            : {})}
                         />
                       ))}
                     </div>

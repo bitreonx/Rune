@@ -198,8 +198,9 @@ export const ChatImageAttachment = Schema.Struct({
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
 
-// File attachments point at an existing path on the provider host. They are
-// references only; the server must never treat them as uploaded image bytes.
+// File attachments may point at an existing path on the provider host. A
+// missing path means the id names a server-owned uploaded file instead; the
+// renderer must not invent a path for that representation.
 const isCanonicalHostPath = (value: string): boolean => {
   const hasControlCharacter = [...value].some(
     (character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
@@ -227,7 +228,7 @@ export const ChatFileAttachment = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
   sizeBytes: NonNegativeInt,
-  path: ChatAttachmentPath,
+  path: Schema.optional(ChatAttachmentPath),
 });
 export type ChatFileAttachment = typeof ChatFileAttachment.Type;
 

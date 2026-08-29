@@ -49,18 +49,18 @@ describe("classifyPickedAttachment", () => {
     });
   });
 
-  it("path-references non-image media picked on desktop", () => {
+  it("uploads non-image media when the environment supports generic uploads", () => {
     expect(
       classify({ mimeType: "audio/mpeg", absolutePath: "C:/Users/me/clip.mp3" }),
-    ).toMatchObject({ kind: "path-reference", why: "binary-upload-unsupported" });
+    ).toEqual({ kind: "upload-file" });
     expect(
       classify({ mimeType: "video/mp4", absolutePath: "C:/Users/me/clip.mp4" }),
-    ).toMatchObject({ kind: "path-reference", why: "binary-upload-unsupported" });
+    ).toEqual({ kind: "upload-file" });
   });
 
-  it("blocks non-image media on web where local paths are unreachable", () => {
+  it("uploads non-image media on web without exposing a local path", () => {
     const route = classify({ mimeType: "audio/mpeg", absolutePath: null });
-    expect(route).toMatchObject({ kind: "blocked", why: "no-local-path" });
+    expect(route).toEqual({ kind: "upload-file" });
   });
 
   it("path-references an image the model cannot ingest natively", () => {
@@ -80,14 +80,10 @@ describe("classifyPickedAttachment", () => {
     expect(route).toMatchObject({ kind: "path-reference", why: "uploads-unavailable" });
   });
 
-  it("treats files with unknown mime types like other non-uploadable files", () => {
-    expect(classify({ mimeType: "", absolutePath: null })).toMatchObject({
-      kind: "blocked",
-      why: "no-local-path",
-    });
+  it("uploads unknown files through the generic file transport", () => {
+    expect(classify({ mimeType: "", absolutePath: null })).toEqual({ kind: "upload-file" });
     expect(classify({ mimeType: "", absolutePath: "C:/bin/blob" })).toMatchObject({
-      kind: "path-reference",
-      why: "binary-upload-unsupported",
+      kind: "upload-file",
     });
   });
 });

@@ -165,7 +165,16 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
   const adapterScope = yield* Effect.scope;
   const sessions = new Map<ThreadId, ApiSessionContext>();
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
-  const capabilities: ProviderAdapterCapabilities = { sessionModelSwitch: "in-session" };
+  const capabilities: ProviderAdapterCapabilities = {
+    sessionModelSwitch: "in-session",
+    supportsResume: false,
+    supportsSteering: false,
+    supportsApprovals: true,
+    supportsToolStream: true,
+    supportsUsage: true,
+    supportsNativeSubagents: false,
+    supportsPlanEvents: false,
+  };
   const baseUrl = normalizeApiProviderBaseUrl(options.baseUrl, options.baseUrl);
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);

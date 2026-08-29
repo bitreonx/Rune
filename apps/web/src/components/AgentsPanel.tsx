@@ -242,7 +242,11 @@ function AgentRow({
       <span
         className={cn(
           "col-start-2 col-end-4 row-start-3 block truncate text-[.7rem]",
-          agent.status === "failed" ? "text-destructive-foreground" : "text-muted-foreground",
+          agent.status === "failed"
+            ? "text-destructive-foreground"
+            : dockStatus.needsUser
+              ? "text-warning-foreground"
+              : "text-muted-foreground",
         )}
       >
         {activity ?? dockStatus.label}
@@ -711,7 +715,8 @@ function AgentActivityDetail({
     agent.result ??
     agent.error ??
     (agent.lastToolName ? `▸ ${agent.lastToolName}` : null);
-  const statusLabel = STATUS_VISUALS[agent.status].label;
+  const dockStatus = agentDockStatusMeta(resolveAgentDockStatus(agent));
+  const statusLabel = dockStatus.label;
 
   return (
     <section
@@ -720,7 +725,12 @@ function AgentActivityDetail({
       aria-label={`${formatSubagentDisplayName(agent)} activity`}
     >
       <div className="flex items-start gap-2 border-b border-border/55 px-3 py-2.5">
-        <span className="mt-1 size-2 shrink-0 rounded-full bg-[var(--rune-violet-strong)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--rune-violet-soft)_12%,transparent)]" />
+        <span
+          className={cn(
+            "mt-1 size-2 shrink-0 rounded-full shadow-[0_0_0_4px_color-mix(in_srgb,var(--rune-violet-soft)_12%,transparent)]",
+            dockStatus.needsUser ? "bg-warning" : "bg-[var(--rune-violet-strong)]",
+          )}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-xs font-semibold text-foreground">
@@ -804,6 +814,41 @@ function formatActivityTime(iso: string): string {
   );
 }
 
+function NeedsYouCard({
+  row,
+  onFocusAgent,
+}: {
+  row: ReturnType<typeof deriveAgentDockRows>[number];
+  onFocusAgent?: (agentId: string) => void;
+}) {
+  return (
+    <section
+      className="mx-2 mt-2 border border-warning/45 bg-warning/8 px-3 py-2"
+      data-rune-agent-needs-you
+      aria-label="Agent needs your input"
+    >
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 font-mono text-xs font-semibold text-warning-foreground">!</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-warning-foreground">
+            Waiting for you
+          </p>
+          <p className="mt-0.5 truncate text-xs text-foreground/85">{row.primary}</p>
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{row.secondary}</p>
+        </div>
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          onClick={() => onFocusAgent?.(row.agent.id)}
+          disabled={!onFocusAgent}
+        >
+          Answer
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 export function AgentsPanel({
   model,
   environmentId = null,
@@ -839,7 +884,8 @@ export function AgentsPanel({
   const focusedAgent = focusedAgentId ? findAgentById(model, focusedAgentId) : null;
   const agents = allAgents(model);
   const dockRows = deriveAgentDockRows(agents);
-  const needsYouCount = dockRows.filter((row) => row.status.needsUser).length;
+  const needsYouRows = dockRows.filter((row) => row.status.needsUser);
+  const needsYouCount = needsYouRows.length;
   const canOpenFocusedChat =
     focusedAgent !== null &&
     focusedAgent.chat?.canRead === true &&
@@ -905,6 +951,7 @@ export function AgentsPanel({
           </span>
         ) : null}
       </header>
+      {needsYouRows[0] ? <NeedsYouCard row={needsYouRows[0]} onFocusAgent={onFocusAgent} /> : null}
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-2">
           {model.workflows.map((group) => (

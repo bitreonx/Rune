@@ -16,7 +16,7 @@ import {
   type ThreadId,
   type TurnId,
 } from "@rune/contracts";
-import { deriveAgentActivityJob } from "@rune/shared/agentActivity";
+import { deriveAgentActivityJob, type AgentActivity } from "@rune/shared/agentActivity";
 
 import type {
   ChatMessage,
@@ -95,6 +95,8 @@ export interface WorkLogEntry {
   sourceActivityKind?: OrchestrationThreadActivity["kind"];
   /** Marks rows produced by the semantic activity projection. */
   isSimplifiedActivity?: boolean;
+  /** Semantic activity backing this row; raw operations remain available in its trace. */
+  activityJob?: AgentActivity;
   /** Grouping key for subagent lifecycle rows (one row per agent). */
   taskId?: string;
   /** Agent role (subagent_type) for labeled timeline rows. */
@@ -947,6 +949,7 @@ export function deriveSimplifiedWorkLogEntries(
       turnId: activity.operations[0]?.rawTrace.turnId ?? null,
       label: activity.label,
       isSimplifiedActivity: true,
+      activityJob: activity,
       ...(files.length > 0 ? { filePaths: files } : {}),
       ...(activity.phase === "implement" && files.length > 0 ? { changedFiles: files } : {}),
       ...(detail ? { detail } : {}),

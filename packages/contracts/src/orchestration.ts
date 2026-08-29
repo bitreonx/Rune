@@ -178,6 +178,7 @@ export function isProviderSendTurnSupportedImageMimeType(mimeType: string): bool
 }
 const PROVIDER_SEND_TURN_MAX_IMAGE_DATA_URL_CHARS = 14_000_000;
 const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
+const CHAT_ATTACHMENT_PATH_MAX_CHARS = 4_096;
 // Correlation id is command id by design in this model.
 export const CorrelationId = CommandId;
 export type CorrelationId = typeof CorrelationId.Type;
@@ -196,6 +197,39 @@ export const ChatImageAttachment = Schema.Struct({
   sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES)),
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
+
+// File attachments point at an existing path on the provider host. They are
+// references only; the server must never treat them as uploaded image bytes.
+const isCanonicalHostPath = (value: string): boolean => {
+  const hasControlCharacter = [...value].some(
+    (character) => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f,
+  );
+  if (hasControlCharacter) return false;
+
+  const portablePath = value.replaceAll("\\", "/");
+  const isAbsolute =
+    portablePath.startsWith("/") ||
+    /^[A-Za-z]:\//u.test(portablePath) ||
+    portablePath.startsWith("//");
+  if (!isAbsolute) return false;
+
+  return !portablePath.split("/").some((segment) => segment === "." || segment === "..");
+};
+
+const ChatAttachmentPath = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(CHAT_ATTACHMENT_PATH_MAX_CHARS),
+).check(Schema.makeFilter<typeof TrimmedNonEmptyString.Type>(isCanonicalHostPath));
+
+export const ChatFileAttachment = Schema.Struct({
+  type: Schema.Literal("file"),
+  kind: Schema.Literals(["file", "folder"]),
+  id: ChatAttachmentId,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
+  sizeBytes: NonNegativeInt,
+  path: ChatAttachmentPath,
+});
+export type ChatFileAttachment = typeof ChatFileAttachment.Type;
 
 const UploadChatImageAttachment = Schema.Struct({
   type: Schema.Literal("image"),
@@ -217,7 +251,11 @@ export const ChatThreadAttachment = Schema.Struct({
 });
 export type ChatThreadAttachment = typeof ChatThreadAttachment.Type;
 
-export const ChatAttachment = Schema.Union([ChatImageAttachment, ChatThreadAttachment]);
+export const ChatAttachment = Schema.Union([
+  ChatImageAttachment,
+  ChatFileAttachment,
+  ChatThreadAttachment,
+]);
 export type ChatAttachment = typeof ChatAttachment.Type;
 const UploadChatAttachment = Schema.Union([UploadChatImageAttachment]);
 export type UploadChatAttachment = typeof UploadChatAttachment.Type;

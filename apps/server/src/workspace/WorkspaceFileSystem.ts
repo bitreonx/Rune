@@ -31,6 +31,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { workspaceFileMimeType } from "@rune/shared/fileKind";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
@@ -321,6 +322,7 @@ export const make = Effect.gen(function* () {
               byteLength: stat.size,
               truncated: false,
               modifiedAt: stat.mtime.toISOString(),
+              mimeType: workspaceFileMimeType(target.relativePath) || undefined,
               ...(sha256 === undefined ? {} : { sha256 }),
             };
           }

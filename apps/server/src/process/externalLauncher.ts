@@ -234,6 +234,26 @@ function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
   }
 }
 
+function fileManagerRevealArgs(
+  platform: NodeJS.Platform,
+  target: string,
+  path: Path.Path,
+): ReadonlyArray<string> {
+  switch (platform) {
+    case "darwin":
+      return ["-R", target];
+    case "win32":
+      // `/select,` asks Explorer to highlight the path and never dispatches
+      // the target through its file association (important for .exe/.msi).
+      return ["/select,", target];
+    default:
+      // Linux file managers do not share a portable select-file flag. Open
+      // the containing directory, which is reveal-only and cannot execute a
+      // picked binary through xdg-open.
+      return [path.dirname(target)];
+  }
+}
+
 function buildBrowserLaunch(
   target: string,
   platform: NodeJS.Platform,
@@ -376,11 +396,13 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     return yield* new ExternalLauncherUnsupportedEditorError({ editor: input.editor });
   }
 
+  const path = yield* Path.Path;
+
   return {
     editor: editorDef.id,
     target: input.cwd,
     command: fileManagerCommandForPlatform(platform),
-    args: [input.cwd],
+    args: input.mode === "reveal" ? fileManagerRevealArgs(platform, input.cwd, path) : [input.cwd],
   };
 });
 

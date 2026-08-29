@@ -257,6 +257,8 @@ export default function FilePreviewPanel({
   const pendingPathsRef = useRef<ReadonlySet<string>>(new Set());
   const fileRefreshRef = useRef<() => void>(() => {});
   fileRefreshRef.current = file.refresh;
+  const metadataRefreshRef = useRef<() => void>(() => {});
+  metadataRefreshRef.current = binaryMetadata.refresh;
   useWorkspaceFileEvents(
     environmentId,
     cwd,
@@ -270,6 +272,7 @@ export default function FilePreviewPanel({
         if (!hit) return;
         if (isBinaryPreview) {
           setDiskRevision((revision) => revision + 1);
+          metadataRefreshRef.current();
           return;
         }
         // A user buffer with unsaved edits wins: the save coordinator owns
@@ -368,7 +371,7 @@ export default function FilePreviewPanel({
     if (!absolutePath) return;
     void openInFileManager({
       environmentId,
-      input: { cwd: absolutePath, editor: "file-manager" },
+      input: { cwd: absolutePath, editor: "file-manager", mode: "reveal" },
     }).then((result) => {
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
@@ -483,7 +486,8 @@ export default function FilePreviewPanel({
               modes={modes}
             />
           ) : null}
-          {absolutePath &&
+          {descriptor?.kind !== "binary" &&
+          absolutePath &&
           (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
             <OpenInPicker
               environmentId={environmentId}

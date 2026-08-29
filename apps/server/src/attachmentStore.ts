@@ -80,6 +80,10 @@ export function attachmentRelativePath(attachment: ChatAttachment): string | nul
       });
       return `${attachment.id}${extension}`;
     }
+    // File attachments already reference a canonical path on the provider
+    // host; they are not copied into the server's image upload store.
+    case "file":
+      return null;
     // Thread mentions are cross-thread references, not uploaded artifacts;
     // there is no on-disk path to resolve.
     case "thread-mention":

@@ -1032,22 +1032,33 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
-    // Adapters inline attachment pixels into the model prompt, but the model's
-    // tools cannot dereference pixels. Appending the on-disk path is what lets
-    // a turn like "include this screenshot in the PR" copy the actual file.
+    // Native image adapters inline attachment pixels into the model prompt,
+    // but the model's tools cannot dereference pixels. Appending the on-disk
+    // path is what lets a turn like "include this screenshot in the PR" copy
+    // the actual file. Non-image selections already carry a canonical path;
+    // keep them typed for adapters and expose only that reference in text.
     // This runs after schema decode, so the appended lines are exempt from the
     // PROVIDER_SEND_TURN_MAX_INPUT_CHARS check; attachment count is capped, so
-    // the overhead is bounded. Unresolvable ids are skipped here and surface
-    // as adapter errors when the file is read for inlining.
+    // the overhead is bounded. Unresolvable image ids are skipped here and
+    // surface as adapter errors when the file is read for inlining.
     const attachmentPathLines = attachments.flatMap((attachment) => {
-      if (attachment.type !== "image") return [];
-      const attachmentPath = resolveAttachmentPath({
-        attachmentsDir: serverConfig.attachmentsDir,
-        attachment,
-      });
-      return attachmentPath === null
-        ? []
-        : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
+      switch (attachment.type) {
+        case "image": {
+          const attachmentPath = resolveAttachmentPath({
+            attachmentsDir: serverConfig.attachmentsDir,
+            attachment,
+          });
+          return attachmentPath === null
+            ? []
+            : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
+        }
+        case "file":
+          return [
+            `[Attached ${attachment.kind} "${attachment.name}" is available at: ${attachment.path}]`,
+          ];
+        case "thread-mention":
+          return [];
+      }
     });
     const inputTextWithAttachmentPaths =
       attachmentPathLines.length === 0

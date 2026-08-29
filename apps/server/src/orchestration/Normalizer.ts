@@ -143,6 +143,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           if (attachment.type === "thread-mention") {
             return attachment;
           }
+          // Non-image file selections already carry a canonical provider-host
+          // path. They are references, not pending uploads to claim or copy.
+          if (attachment.type === "file") {
+            return attachment;
+          }
           if (!("dataUrl" in attachment)) {
             const claim = planAttachmentClaim({
               attachmentsDir: serverConfig.attachmentsDir,

@@ -56,6 +56,7 @@ function turnStartCommand(input: {
 function expectImage(
   attachment:
     | { readonly type: "image"; readonly id: string }
+    | { readonly type: "file"; readonly id: string }
     | { readonly type: "thread-mention" }
     | undefined,
 ): { readonly id: string } {
@@ -65,7 +66,50 @@ function expectImage(
   return attachment;
 }
 
+function fileAttachmentCommand(): Extract<
+  ClientOrchestrationCommand,
+  { readonly type: "thread.turn.start" }
+> {
+  return {
+    type: "thread.turn.start",
+    commandId: CommandId.make("command-file-attachment"),
+    threadId: ThreadId.make("thread-file-attachment"),
+    message: {
+      messageId: MessageId.make("message-file-attachment"),
+      role: "user",
+      text: "inspect this file",
+      attachments: [
+        {
+          type: "file",
+          kind: "file",
+          id: "attachment-file-1",
+          name: "clip.mp4",
+          mimeType: "video/mp4",
+          sizeBytes: 1234,
+          path: "D:\\media\\clip.mp4",
+        },
+      ],
+    },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    createdAt: "2026-08-01T00:00:00.000Z",
+  };
+}
+
 describe("normalizeDispatchCommand attachments", () => {
+  it.effect("preserves typed non-image attachments without claiming an upload", () =>
+    Effect.gen(function* () {
+      const command = fileAttachmentCommand();
+      const normalized = yield* normalizeDispatchCommand(command);
+
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+
+      expect(normalized.message.attachments).toEqual(command.message.attachments);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("preserves inline image attachments from existing mobile clients", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

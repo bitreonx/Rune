@@ -205,6 +205,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         expect(result.byteLength).toBe(3);
         expect(result.truncated).toBe(false);
         expect(result.modifiedAt).toMatch(/^20\d\d-\d\d-\d\dT/);
+        expect(result.mimeType).toBe("application/vnd.microsoft.portable-executable");
         expect(result.sha256).toBe(
           "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
         );

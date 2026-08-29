@@ -65,6 +65,7 @@ import {
   markPromotedDraftThreadByRef,
   markPromotedDraftThreads,
   markPromotedDraftThreadsByRef,
+  type ComposerFileAttachment,
   type ComposerImageAttachment,
   useComposerDraftStore,
   DraftId,
@@ -101,6 +102,19 @@ function makeImage(input: {
     sizeBytes: file.size,
     previewUrl: input.previewUrl,
     file,
+  };
+}
+
+function makeFileAttachment(input: Partial<ComposerFileAttachment> = {}): ComposerFileAttachment {
+  return {
+    type: "file",
+    kind: "file",
+    id: "file-1",
+    name: "notes.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 128,
+    path: "C:\\repo\\notes.pdf",
+    ...input,
   };
 }
 
@@ -254,6 +268,47 @@ describe("composerDraftStore addImages", () => {
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
     expect(draft?.images.map((image) => image.id)).toEqual(["img-shared"]);
     expect(revokeSpy).not.toHaveBeenCalledWith("blob:shared");
+  });
+});
+
+describe("composerDraftStore file attachments", () => {
+  const threadId = ThreadId.make("thread-file-attachments");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("deduplicates file references by path and survives draft clearing", () => {
+    const first = makeFileAttachment({ id: "file-a" });
+    const duplicate = makeFileAttachment({ id: "file-b" });
+    const store = useComposerDraftStore.getState();
+
+    store.addFileAttachments(threadRef, [first, duplicate]);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.fileAttachments).toEqual([first]);
+    store.clearComposerContent(threadRef);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
+  it("persists file references without embedding file bytes or raw prompt text", () => {
+    const attachment = makeFileAttachment();
+    useComposerDraftStore.getState().addFileAttachment(threadRef, attachment);
+
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+      };
+    };
+    const persisted = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadKey?: Record<string, { fileAttachments?: Array<Record<string, unknown>> }>;
+    };
+    const persistedAttachment =
+      persisted.draftsByThreadKey?.[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]
+        ?.fileAttachments?.[0];
+
+    expect(persistedAttachment).toEqual(attachment);
+    expect(persistedAttachment).not.toHaveProperty("dataUrl");
   });
 });
 

@@ -2096,6 +2096,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      supportsResume: true,
+      supportsSteering: false,
+      supportsApprovals: true,
+      supportsToolStream: true,
+      supportsUsage: true,
+      supportsNativeSubagents: true,
+      supportsPlanEvents: true,
     },
     startSession,
     sendTurn,

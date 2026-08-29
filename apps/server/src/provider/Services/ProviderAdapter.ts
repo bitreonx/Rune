@@ -28,12 +28,37 @@ import type * as Stream from "effect/Stream";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
 
-export interface ProviderAdapterCapabilities {
+/** Native protocol features surfaced by an adapter. */
+export interface ProviderAdapterCapabilityFlags {
+  readonly supportsResume: boolean;
+  readonly supportsSteering: boolean;
+  readonly supportsApprovals: boolean;
+  readonly supportsToolStream: boolean;
+  readonly supportsUsage: boolean;
+  readonly supportsNativeSubagents: boolean;
+  readonly supportsPlanEvents: boolean;
+}
+
+export interface ProviderAdapterCapabilities extends Partial<ProviderAdapterCapabilityFlags> {
   /**
    * Declares whether changing the model on an existing session is supported.
    */
   readonly sessionModelSwitch: ProviderSessionModelSwitchMode;
 }
+
+/** Legacy adapters fail closed until they advertise each capability. */
+export const normalizeProviderAdapterCapabilities = (
+  capabilities: ProviderAdapterCapabilities,
+): ProviderAdapterCapabilities & ProviderAdapterCapabilityFlags => ({
+  supportsResume: false,
+  supportsSteering: false,
+  supportsApprovals: false,
+  supportsToolStream: false,
+  supportsUsage: false,
+  supportsNativeSubagents: false,
+  supportsPlanEvents: false,
+  ...capabilities,
+});
 
 export interface ProviderThreadTurnSnapshot {
   readonly id: TurnId;

@@ -55,7 +55,10 @@ import {
   ProviderUnsupportedError,
   ProviderValidationError,
 } from "../Errors.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import {
+  normalizeProviderAdapterCapabilities,
+  type ProviderAdapterShape,
+} from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
@@ -1462,7 +1465,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   );
 
   const getCapabilities: ProviderServiceMethod<"getCapabilities"> = (instanceId) =>
-    registry.getByInstance(instanceId).pipe(Effect.map((adapter) => adapter.capabilities));
+    registry
+      .getByInstance(instanceId)
+      .pipe(Effect.map((adapter) => normalizeProviderAdapterCapabilities(adapter.capabilities)));
 
   const getInstanceInfo: ProviderServiceMethod<"getInstanceInfo"> = (instanceId) =>
     registry.getInstanceInfo(instanceId);

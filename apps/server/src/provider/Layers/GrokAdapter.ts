@@ -1452,7 +1452,16 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session" },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        supportsResume: true,
+        supportsSteering: true,
+        supportsApprovals: true,
+        supportsToolStream: true,
+        supportsUsage: false,
+        supportsNativeSubagents: false,
+        supportsPlanEvents: true,
+      },
       startSession,
       sendTurn,
       interruptTurn,

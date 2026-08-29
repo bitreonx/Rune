@@ -1195,7 +1195,16 @@ export function makeAntigravityAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "unsupported" },
+      capabilities: {
+        sessionModelSwitch: "unsupported",
+        supportsResume: true,
+        supportsSteering: false,
+        supportsApprovals: false,
+        supportsToolStream: true,
+        supportsUsage: true,
+        supportsNativeSubagents: false,
+        supportsPlanEvents: false,
+      },
       startSession,
       sendTurn,
       interruptTurn,

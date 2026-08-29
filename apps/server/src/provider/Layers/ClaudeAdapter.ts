@@ -4683,6 +4683,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      supportsResume: true,
+      supportsSteering: true,
+      supportsApprovals: true,
+      supportsToolStream: true,
+      supportsUsage: true,
+      supportsNativeSubagents: true,
+      supportsPlanEvents: true,
     },
     startSession,
     sendTurn,

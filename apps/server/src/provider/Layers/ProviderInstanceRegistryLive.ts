@@ -176,9 +176,10 @@ const buildEntry = <R>(input: {
       driver: entry.driver,
       entry,
       typedConfig,
-      // The bridge supervisor is not installed in this runtime yet. Passing
-      // false makes cross-family routes fail closed instead of appearing
-      // configured while still launching the wrong native protocol.
+      // The supervisor boundary is installed at the server runtime, but no
+      // validated translator is bundled yet. Passing false makes
+      // cross-family routes fail closed instead of appearing configured while
+      // still launching the wrong native protocol.
       bridgeAvailable: false,
     });
     if (routeDecision?.tag === "unsupported") {

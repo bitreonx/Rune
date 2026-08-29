@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveWizardNavigation } from "./AddProviderInstanceDialog.logic";
+import { resolveInitialWizardStep, resolveWizardNavigation } from "./AddProviderInstanceDialog.logic";
 
 describe("resolveWizardNavigation", () => {
   const invalidId = { instanceIdError: "Instance ID is required." };
@@ -40,5 +40,13 @@ describe("resolveWizardNavigation", () => {
   it("clamps requested steps to the wizard bounds", () => {
     expect(resolveWizardNavigation(2, 8, 3, validId)).toEqual({ kind: "navigate", step: 2 });
     expect(resolveWizardNavigation(0, -1, 3, invalidId)).toEqual({ kind: "navigate", step: 0 });
+  });
+});
+
+describe("contextual instance wizard", () => {
+  it("starts inside the selected harness instead of asking for a driver again", () => {
+    expect(resolveInitialWizardStep(undefined)).toBe(0);
+    expect(resolveInitialWizardStep("claudeAgent")).toBe(1);
+    expect(resolveInitialWizardStep("opencode")).toBe(1);
   });
 });

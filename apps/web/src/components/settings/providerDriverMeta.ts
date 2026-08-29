@@ -119,7 +119,25 @@ export const PROVIDER_CLIENT_DEFINITION_BY_VALUE: Partial<
   PROVIDER_CLIENT_DEFINITIONS.map((definition) => [definition.value, definition]),
 );
 
-export const DRIVER_OPTIONS = PROVIDER_CLIENT_DEFINITIONS;
+const MODEL_SERVICE_DRIVER_VALUES = new Set<ProviderDriverKind>([
+  ProviderDriverKind.make("openaiApi"),
+  ProviderDriverKind.make("openrouter"),
+]);
+
+/**
+ * Drivers that can own a harness instance. Model services are deliberately
+ * excluded: they have their own Connections/Model Services flow and must not
+ * appear in the contextual "Add instance" wizard.
+ */
+export const HARNESS_DRIVER_OPTIONS = PROVIDER_CLIENT_DEFINITIONS.filter(
+  (definition) => !MODEL_SERVICE_DRIVER_VALUES.has(definition.value),
+);
+
+export const MODEL_SERVICE_OPTIONS = PROVIDER_CLIENT_DEFINITIONS.filter((definition) =>
+  MODEL_SERVICE_DRIVER_VALUES.has(definition.value),
+);
+
+export const DRIVER_OPTIONS = HARNESS_DRIVER_OPTIONS;
 export const DRIVER_OPTION_BY_VALUE = PROVIDER_CLIENT_DEFINITION_BY_VALUE;
 export type DriverOption = ProviderClientDefinition;
 

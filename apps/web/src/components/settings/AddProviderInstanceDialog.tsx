@@ -2,7 +2,7 @@
 
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { BookOpenIcon, CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ProviderInstanceId,
   ProviderDriverKind,
@@ -42,6 +42,7 @@ import { ProviderSettingsForm, deriveProviderSettingsFields } from "./ProviderSe
 import { AnimatedHeight } from "../AnimatedHeight";
 import {
   ADD_PROVIDER_WIZARD_STEPS,
+  resolveInitialWizardStep,
   resolveWizardNavigation,
   type WizardNavigation,
 } from "./AddProviderInstanceDialog.logic";
@@ -144,7 +145,7 @@ export function AddProviderInstanceDialog({
   const settings = useEnvironmentSettings(environmentId);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
 
-  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardStep, setWizardStep] = useState(() => resolveInitialWizardStep(initialDriver));
   const [driver, setDriver] = useState<ProviderDriverKind>(
     () => initialDriver ?? DEFAULT_DRIVER_KIND,
   );
@@ -158,6 +159,13 @@ export function AddProviderInstanceDialog({
   // Errors are suppressed until the user has tried to submit once. After that
   // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setDriver(initialDriver ?? DEFAULT_DRIVER_KIND);
+    setWizardStep(resolveInitialWizardStep(initialDriver));
+    setHasAttemptedSubmit(false);
+  }, [initialDriver, open]);
 
   const existingIds = useMemo(
     () => new Set(Object.keys(settings.providerInstances ?? {})),
@@ -277,10 +285,13 @@ export function AddProviderInstanceDialog({
       <DialogPopup className="max-w-xl overflow-hidden">
         <div className="flex min-h-0 flex-col overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Add harness instance</DialogTitle>
+            <DialogTitle>
+              {initialDriver ? `Add ${driverOption.label} instance` : "Add harness instance"}
+            </DialogTitle>
             <DialogDescription>
-              Configure an additional harness instance on {environmentLabel} — for example, a
-              second Codex install pointed at a different workspace.
+              {initialDriver
+                ? `Configure this ${driverOption.label} instance on ${environmentLabel}.`
+                : `Configure an additional harness instance on ${environmentLabel} — for example, a second Codex install pointed at a different workspace.`}
             </DialogDescription>
             <AddProviderInstanceWizardSteps
               currentStep={wizardStep}

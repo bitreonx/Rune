@@ -7,6 +7,15 @@ const IDENTITY_STEP = 1;
 export const ADD_PROVIDER_WIZARD_STEPS = ["Driver", "Identity", "Config"] as const;
 
 /**
+ * Contextual instance entry points already know the harness family. Keep the
+ * first screen for the global add flow only; an instance page must open on
+ * identity instead of making the user select the same harness twice.
+ */
+export function resolveInitialWizardStep(initialDriver: string | undefined): number {
+  return initialDriver === undefined ? 0 : IDENTITY_STEP;
+}
+
+/**
  * Resolve navigation within the add-provider wizard.
  *
  * Moving forward past Identity requires a valid instance id, whether the user

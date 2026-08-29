@@ -7,6 +7,7 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { deriveAgentActivityJob } from "@rune/shared/agentActivity";
 import type { OrchestrationThreadActivity } from "@rune/contracts";
+import type { WorkrailStep } from "./taskWorkrail.logic";
 
 export interface ComposerTasksProgress {
   readonly step: string;
@@ -14,11 +15,7 @@ export interface ComposerTasksProgress {
   readonly totalSteps: number;
 }
 
-export interface ComposerTaskStep {
-  readonly durationMs?: number;
-  readonly step: string;
-  readonly status: "pending" | "inProgress" | "completed" | "blocked" | "failed" | "skipped";
-}
+export type ComposerTaskStep = WorkrailStep;
 
 /** Long lists stagger only their first rows; the tail enters with the pack. */
 const TASKS_STAGGER_MAX_ROWS = 8;
@@ -102,6 +99,29 @@ export function TaskStatusIcon({ status }: { status: ComposerTaskStep["status"] 
         )}
       ></span>
     </span>
+  );
+}
+
+/** Structural progress shared by the composer, drawer, and Workrail panel. */
+export function TaskStageStrip({ steps }: { readonly steps: readonly ComposerTaskStep[] }) {
+  return (
+    <div className="rune-task-stages" role="list" aria-label="Task stages">
+      {steps.map((step, index) => (
+        <span
+          key={`${index}:${step.step}`}
+          className={cn(
+            "rune-task-stage",
+            step.status === "completed" && "rune-task-stage-completed",
+            step.status === "inProgress" && "rune-task-stage-active",
+            (step.status === "blocked" || step.status === "failed") && "rune-task-stage-blocked",
+            step.status === "skipped" && "rune-task-stage-skipped",
+          )}
+          role="listitem"
+          aria-label={`${step.step}: ${TASK_STATUS_LABEL[step.status]}`}
+          title={step.step}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -335,9 +355,6 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           <span className="font-medium text-foreground">Tasks</span>
           <span className={cn("tabular-nums", allDone && "text-success")}>
             {progress.completedSteps}/{progress.totalSteps}
-            <span className="text-muted-foreground/60">
-              {tasksProgressPercent(progress.completedSteps, progress.totalSteps)}%
-            </span>
           </span>
         </button>
         {onOpenSidePanel ? (
@@ -370,12 +387,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         data-rune-tasks-progress={allDone ? "done" : "running"}
         role="progressbar"
       >
-        <span
-          className="rune-tasks-progress-fill"
-          style={{
-            width: `${tasksProgressPercent(progress.completedSteps, progress.totalSteps)}%`,
-          }}
-        />
+        <TaskStageStrip steps={steps} />
       </div>
       <div className="space-y-1 px-3 pb-4 pt-2 sm:px-4" role="list">
         {visibleSteps.map(({ index, step }) => {

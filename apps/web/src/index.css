@@ -2755,25 +2755,42 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 .rune-tasks-progress {
-  height: 2px;
-  overflow: hidden;
+  padding: 0;
+}
+
+.rune-task-stages {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+  min-height: 4px;
+}
+
+.rune-task-stage {
+  min-width: 0;
+  height: 4px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
+  transition:
+    background-color 180ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.rune-tasks-progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
+.rune-task-stage-completed {
+  background: var(--success);
+}
+
+.rune-task-stage-active {
   background: var(--primary);
-  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1);
-
-  @starting-style {
-    width: 0;
-  }
+  transform: scaleY(1.45);
 }
 
-[data-rune-tasks-progress="done"] .rune-tasks-progress-fill {
+.rune-task-stage-blocked,
+.rune-task-stage-skipped {
+  background: color-mix(in srgb, var(--warning, #f59e0b) 70%, transparent);
+}
+
+[data-rune-tasks-progress="done"] .rune-task-stage-completed {
   background: var(--success);
 }
 
@@ -2909,7 +2926,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   .rune-task-check svg path,
   .rune-task-segment-fill,
   .rune-task-step-swap,
-  .rune-tasks-progress-fill {
+  .rune-task-stage {
     transition: none;
     animation: none;
   }

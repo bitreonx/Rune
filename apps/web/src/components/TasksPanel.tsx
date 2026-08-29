@@ -6,9 +6,10 @@ import {
   type ComposerTaskStep,
   type ComposerTasksProgress,
   TaskEvidence,
+  TaskStageStrip,
   TaskStatusIcon,
-  tasksProgressPercent,
 } from "./chat/ComposerTasksBadge";
+import { deriveWorkrailModel } from "./chat/taskWorkrail.logic";
 
 /** The side-panel projection of the same turn plan shown above the composer. */
 export function TasksPanel({
@@ -20,18 +21,9 @@ export function TasksPanel({
   progress: ComposerTasksProgress | null;
   steps: readonly ComposerTaskStep[] | null;
 }) {
-  const currentStep = useMemo(
-    () =>
-      steps?.find((step) => step.status === "inProgress") ??
-      steps?.find((step) => step.status === "pending"),
-    [steps],
-  );
-  const completedCount = progress?.completedSteps ?? 0;
-  const totalCount = progress?.totalSteps ?? 0;
-  const percent = tasksProgressPercent(completedCount, totalCount);
-  const remainingCount = Math.max(0, totalCount - completedCount);
+  const workrail = useMemo(() => deriveWorkrailModel(progress, steps), [progress, steps]);
 
-  if (!progress || !steps || progress.totalSteps <= 0) {
+  if (workrail === null) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <p className="text-sm font-medium">No active task plan</p>
@@ -57,48 +49,39 @@ export function TasksPanel({
               Work in motion
             </h2>
             <p className="rune-tasks-panel-subtitle" aria-live="polite">
-              {completedCount >= totalCount
-                ? "Everything is complete"
-                : (currentStep?.step ?? progress.step ?? "Preparing the next step")}
+              {workrail.complete >= workrail.total ? "Everything is complete" : "One shared plan"}
             </p>
           </div>
-          <div className="rune-tasks-panel-score" aria-label={`${percent}% complete`}>
-            <span>{percent}</span>
-            <small>%</small>
+          <div
+            className="rune-tasks-panel-score"
+            aria-label={`${workrail.complete} of ${workrail.total} tasks complete`}
+          >
+            {workrail.complete}/{workrail.total}
           </div>
         </div>
-        <div
-          className="rune-tasks-panel-meter"
-          role="progressbar"
-          aria-label="Task progress"
-          aria-valuemin={0}
-          aria-valuemax={totalCount}
-          aria-valuenow={completedCount}
-        >
-          <span style={{ width: `${percent}%` }} />
-        </div>
+        <TaskStageStrip steps={steps ?? []} />
         <div className="rune-tasks-panel-stats" aria-label="Task summary">
           <span>
-            <CheckCircle2 aria-hidden="true" /> {completedCount} done
+            <CheckCircle2 aria-hidden="true" /> {workrail.complete} done
           </span>
           <span>
-            <CircleDashed aria-hidden="true" /> {remainingCount} remaining
+            <CircleDashed aria-hidden="true" /> {workrail.queued.length} queued
           </span>
           <span>
-            <Gauge aria-hidden="true" /> {totalCount} total
+            <Gauge aria-hidden="true" /> {workrail.total} total
           </span>
         </div>
       </section>
 
-      {currentStep ? (
+      {workrail.active ? (
         <section className="rune-tasks-focus" aria-labelledby="rune-tasks-focus-title">
           <div className="rune-tasks-section-label">
             <Activity aria-hidden="true" /> NOW
           </div>
           <div className="rune-tasks-focus-card">
-            <TaskStatusIcon status={currentStep.status} />
+            <TaskStatusIcon status={workrail.active.step.status} />
             <div className="min-w-0 flex-1">
-              <h3 id="rune-tasks-focus-title">{currentStep.step}</h3>
+              <h3 id="rune-tasks-focus-title">{workrail.active.step.step}</h3>
               <p>Agent is actively working on this step</p>
             </div>
             <span className="rune-tasks-live-dot" aria-hidden="true" />
@@ -111,19 +94,22 @@ export function TasksPanel({
         <div className="rune-tasks-section-heading">
           <h3 id="rune-tasks-roadmap-title">Roadmap</h3>
           <span>
-            {completedCount}/{totalCount}
+            {workrail.complete}/{workrail.total}
           </span>
         </div>
         <div className="rune-tasks-panel-list" role="list">
-          {steps.map((step) => (
+          {[...workrail.queued, ...workrail.blocked, ...workrail.completed].map(({ id, step }) => (
             <div
-              key={`${step.step}:${step.status}`}
+              key={id}
               className="rune-tasks-panel-row"
               data-rune-task-status={step.status}
               role="listitem"
             >
               <TaskStatusIcon status={step.status} />
               <span className="min-w-0 flex-1">{step.step}</span>
+              {step.status === "blocked" || step.status === "failed" ? (
+                <span className="text-[10px] text-amber-600 dark:text-amber-300">Needs you</span>
+              ) : null}
               <span className="sr-only">{step.status}</span>
             </div>
           ))}
@@ -131,7 +117,7 @@ export function TasksPanel({
       </section>
 
       <div className="sr-only" aria-live="polite">
-        {completedCount} of {totalCount} tasks complete
+        {workrail.complete} of {workrail.total} tasks complete
       </div>
     </div>
   );

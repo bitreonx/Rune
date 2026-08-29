@@ -192,7 +192,7 @@ describe("ComposerTasksDrawer", () => {
     expect(markup).toContain("rune-task-row-active");
   });
 
-  it("reports completion through a progress bar", () => {
+  it("reports structural completion through accessible task stages", () => {
     const markup = renderToStaticMarkup(
       <ComposerTasksDrawer
         onCollapse={() => undefined}
@@ -206,8 +206,8 @@ describe("ComposerTasksDrawer", () => {
     expect(markup).toContain('aria-valuemin="0"');
     expect(markup).toContain('aria-valuemax="3"');
     expect(markup).toContain('aria-valuenow="1"');
-    expect(markup).toContain("rune-tasks-progress-fill");
-    expect(markup).toContain("width:33%");
+    expect(markup).toContain("rune-task-stages");
+    expect(markup).toContain('aria-label="Task stages"');
   });
 
   it("draws status icons instead of text glyphs", () => {

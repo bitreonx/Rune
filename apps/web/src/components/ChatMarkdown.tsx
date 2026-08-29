@@ -1344,16 +1344,22 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       try {
         const clicked = await api.contextMenu.show(
           [
+            { id: "open-in-rune", label: "Open in RUNE Files" },
             { id: "open", label: "Open in editor" },
             ...(onOpenInBrowser
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
             { id: "copy-relative", label: "Copy relative path" },
+            { id: "copy-reference", label: "Copy reference" },
             { id: "copy-full", label: "Copy full path" },
           ] as const,
           { x: event.clientX, y: event.clientY },
         );
 
+        if (clicked === "open-in-rune") {
+          handleOpenInFilePreview();
+          return;
+        }
         if (clicked === "open") {
           handleOpenInEditor();
           return;
@@ -1363,7 +1369,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           return;
         }
         if (clicked === "copy-relative") {
-          handleCopy(displayPath, "Relative path");
+          handleCopy(workspaceRelativePath ?? displayPath, "Relative path");
+          return;
+        }
+        if (clicked === "copy-reference") {
+          handleCopy(copyMarkdown, "Reference");
           return;
         }
         if (clicked === "copy-full") {
@@ -1376,7 +1386,17 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         );
       }
     },
-    [displayPath, handleCopy, handleOpenInBrowser, handleOpenInEditor, onOpenInBrowser, targetPath],
+    [
+      copyMarkdown,
+      displayPath,
+      handleCopy,
+      handleOpenInBrowser,
+      handleOpenInEditor,
+      handleOpenInFilePreview,
+      onOpenInBrowser,
+      targetPath,
+      workspaceRelativePath,
+    ],
   );
 
   return (
@@ -1385,6 +1405,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         render={
           <a
             href={href}
+            aria-label={`Workspace file ${label}`}
             className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, MARKDOWN_FILE_LINK_CLASS_NAME, className)}
             data-markdown-copy={copyMarkdown}
             onClick={(event) => {
@@ -1392,10 +1413,6 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
               event.stopPropagation();
               if (shouldOpenMarkdownFileLinkInEditor(event)) {
                 handleOpenInEditor();
-                return;
-              }
-              if (onOpenInBrowser) {
-                handleOpenInBrowser();
                 return;
               }
               handleOpenInFilePreview();

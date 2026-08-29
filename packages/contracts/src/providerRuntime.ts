@@ -406,6 +406,21 @@ const ThreadStartedPayload = Schema.Struct({
 });
 export type ThreadStartedPayload = typeof ThreadStartedPayload.Type;
 
+/**
+ * Secret-free proof of the exact harness/instance/model route used by a turn.
+ * Credentials, generated environment variables, bridge endpoints, and auth
+ * file paths never cross this boundary.
+ */
+export const RuntimeRouteReceipt = Schema.Struct({
+  harness: ProviderDriverKind,
+  instanceId: ProviderInstanceId,
+  connectionId: Schema.optional(TrimmedNonEmptyStringSchema),
+  serviceKind: Schema.optional(TrimmedNonEmptyStringSchema),
+  model: TrimmedNonEmptyStringSchema,
+  accountLabel: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type RuntimeRouteReceipt = typeof RuntimeRouteReceipt.Type;
+
 const ThreadStateChangedPayload = Schema.Struct({
   state: RuntimeThreadState,
   detail: Schema.optional(Schema.Unknown),
@@ -512,6 +527,7 @@ const TurnStartedPayload = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   effort: Schema.optional(TrimmedNonEmptyStringSchema),
   budget: Schema.optional(RuntimeRequestBudget),
+  route: Schema.optional(RuntimeRouteReceipt),
   /** Provider-native child turn owner, when this is a nested conversation. */
   agentId: Schema.optional(TrimmedNonEmptyStringSchema),
 });

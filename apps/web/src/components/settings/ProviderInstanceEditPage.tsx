@@ -4,6 +4,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
+  ProfileId,
   resolveProviderInstanceEnabled,
   type EnvironmentId,
   type ProviderInstanceConfig,
@@ -32,6 +33,11 @@ import {
   listProviderInstanceSlots,
   type ResolvedInstanceSlot,
 } from "../../providerInstanceSlots";
+import {
+  buildProfileInstanceUpdatePatch,
+  buildProviderInstanceRemovalPatch,
+  buildProviderInstanceResetPatch,
+} from "../../providerInstanceLifecycle";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { Badge } from "../ui/badge";
@@ -91,6 +97,7 @@ function withoutRecordKey<V>(
 export function ProviderInstanceEditPage(props: {
   readonly instanceId: ProviderInstanceId;
   readonly environmentId: EnvironmentId;
+  readonly recoveryDriver?: ProviderDriverKind;
 }) {
   const { environmentId, instanceId } = props;
   const navigate = useNavigate();
@@ -102,7 +109,14 @@ export function ProviderInstanceEditPage(props: {
   // The envelope carries its own driver; for a missing envelope the id itself
   // is the driver slug (default slots are keyed by `defaultInstanceIdForDriver`).
   const explicitEnvelope = settings.providerInstances?.[instanceId];
-  const driver = explicitEnvelope?.driver ?? ProviderDriverKind.make(String(instanceId));
+  const profile = Object.values(settings.harnesses?.profiles ?? {}).find(
+    (candidate) => String(candidate.instanceId) === String(instanceId),
+  );
+  const driver =
+    explicitEnvelope?.driver ??
+    (profile ? ProviderDriverKind.make(String(profile.harnessKind)) : undefined) ??
+    props.recoveryDriver ??
+    ProviderDriverKind.make(String(instanceId));
   const slot: ResolvedInstanceSlot | undefined = resolveProviderInstanceSlot(
     settings,
     driver,
@@ -117,26 +131,38 @@ export function ProviderInstanceEditPage(props: {
       (candidate) => candidate.instanceId === instanceId,
     );
   }, [serverProviders, instanceId]);
+  const [recreateOpen, setRecreateOpen] = useState(false);
 
   if (!slot) {
+    const driverOption = getDriverOption(driver);
     return (
       <SettingsPageContainer>
-        <SettingsSection title="Providers">
+        <SettingsSection title={driverOption?.label ?? "Agent Harness"}>
           <SettingsRow
-            title="Provider not found"
-            description="This provider instance no longer exists in this environment's settings."
+            title="This instance was removed."
+            description="The saved route no longer exists in this environment. Create a new instance to continue."
           />
-          <div className="px-3 sm:px-4">
+          <div className="flex flex-wrap gap-2 px-3 sm:px-4">
             <Button
               size="sm"
               variant="outline"
               onClick={() => void navigate({ to: "/settings/providers" })}
             >
               <ArrowLeftIcon className="size-3.5" />
-              Back to providers
+              Back to {driverOption?.label ?? "harnesses"}
+            </Button>
+            <Button size="sm" onClick={() => setRecreateOpen(true)}>
+              Create new instance
             </Button>
           </div>
         </SettingsSection>
+        <AddProviderInstanceDialog
+          open={recreateOpen}
+          environmentId={environmentId}
+          environmentLabel="this device"
+          initialDriver={driver}
+          onOpenChange={setRecreateOpen}
+        />
       </SettingsPageContainer>
     );
   }
@@ -154,7 +180,7 @@ export function ProviderInstanceEditPage(props: {
         void navigate({
           to: "/settings/providers/$instanceId",
           params: { instanceId: String(nextInstanceId) },
-          search: { env: String(environmentId) },
+          search: { env: String(environmentId), driver: String(slot.driver) },
         })
       }
       onBack={() => void navigate({ to: "/settings/providers" })}
@@ -206,20 +232,26 @@ function ProviderInstanceEditContent(props: {
       readonly clearTextGeneration?: boolean;
     },
   ) => {
-    updateSettings(
-      buildProviderInstanceUpdatePatch({
+    const selectionPatch = options?.clearTextGeneration
+      ? { textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection }
+      : {};
+    if (slot.source === "profile") {
+      updateSettings({
+        ...buildProfileInstanceUpdatePatch({ settings, slot, instance: next }),
+        ...selectionPatch,
+      });
+      return;
+    }
+    updateSettings({
+      ...buildProviderInstanceUpdatePatch({
         settings,
         instanceId,
         instance: next,
         driver: slot.driver,
         isDefault: slot.isDefault,
-        ...(options?.clearTextGeneration
-          ? {
-              textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-            }
-          : {}),
       }),
-    );
+      ...selectionPatch,
+    });
   };
 
   // Mirrors the flat list's onUpdate branch: disabling the instance that owns
@@ -317,19 +349,7 @@ function ProviderInstanceEditContent(props: {
   };
 
   const resetDefault = () => {
-    const legacyDefaults = DEFAULT_UNIFIED_SETTINGS.providers as Record<
-      string,
-      unknown | undefined
-    >;
-    const blob = legacyDefaults[String(slot.driver)];
-    if (blob === undefined) return;
-    updateSettings({
-      providers: {
-        ...settings.providers,
-        [slot.driver]: blob,
-      } as typeof settings.providers,
-      providerInstances: withoutRecordKey(settings.providerInstances, instanceId),
-    });
+    updateSettings(buildProviderInstanceResetPatch({ settings, instanceId, driver: slot.driver }));
   };
 
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -339,14 +359,15 @@ function ProviderInstanceEditContent(props: {
       setDeleteArmed(true);
       return;
     }
-    updateSettings({
-      providerInstances: withoutRecordKey(settings.providerInstances, instanceId),
-    });
+    updateSettings(buildProviderInstanceRemovalPatch({ settings, instanceId }));
     onBack();
   };
 
   const duplicateInstance = () => {
-    const existingIds = new Set(Object.keys(settings.providerInstances ?? {}));
+    const existingIds = new Set([
+      ...Object.keys(settings.providerInstances ?? {}),
+      ...Object.values(settings.harnesses?.profiles ?? {}).map((profile) => String(profile.instanceId)),
+    ]);
     const base = `${String(instanceId)}_copy`;
     let candidate = base;
     let suffix = 2;
@@ -356,19 +377,41 @@ function ProviderInstanceEditContent(props: {
     }
     const copyId = ProviderInstanceId.make(candidate);
     const copyName = `${displayName} Copy`;
-    updateSettings({
-      providerInstances: {
-        ...settings.providerInstances,
-        [copyId]: {
-          ...instance,
-          displayName: copyName,
-          enabled: true,
-          config: withIsolatedProviderInstanceConfig(slot.driver, copyId, instance.config, {
-            overwriteExisting: true,
-          }),
+    if (slot.source === "profile" && slot.profileId !== undefined) {
+      const profile = settings.harnesses?.profiles?.[slot.profileId];
+      if (profile !== undefined) {
+        const copyProfileId = ProfileId.make(candidate);
+        updateSettings({
+          harnesses: {
+            profiles: {
+              ...settings.harnesses?.profiles,
+              [copyProfileId]: {
+                ...profile,
+                profileId: copyProfileId,
+                instanceId: copyId,
+                displayName: copyName,
+                enabled: true,
+              },
+            },
+            services: settings.harnesses?.services ?? {},
+          },
+        });
+      }
+    } else {
+      updateSettings({
+        providerInstances: {
+          ...settings.providerInstances,
+          [copyId]: {
+            ...instance,
+            displayName: copyName,
+            enabled: true,
+            config: withIsolatedProviderInstanceConfig(slot.driver, copyId, instance.config, {
+              overwriteExisting: true,
+            }),
+          },
         },
-      },
-    });
+      });
+    }
     onOpenInstance(copyId);
   };
 

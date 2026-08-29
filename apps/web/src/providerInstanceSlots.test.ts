@@ -41,6 +41,40 @@ function settingsFrom(input: {
 }
 
 describe("resolveProviderInstanceSlot", () => {
+  it("resolves a profile-backed custom instance through the same slot as legacy instances", () => {
+    const instanceId = ProviderInstanceId.make("claude_work");
+    const settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      harnesses: {
+        ...DEFAULT_UNIFIED_SETTINGS.harnesses,
+        profiles: {
+          claude_work: {
+            profileId: "claude_work",
+            harnessKind: "claudeAgent",
+            displayName: "Claude Work",
+            enabled: true,
+            instanceId,
+            route: {
+              modelServiceId: "native",
+              defaultModel: "claude-sonnet-4",
+              sameModelEverywhere: true,
+              roleOverrides: {},
+            },
+            routeVersion: 1,
+          },
+        },
+      },
+    } as ServerSettings;
+
+    expect(resolveProviderInstanceSlot(settings, claude, instanceId)).toMatchObject({
+      instanceId,
+      driver: claude,
+      isDefault: false,
+      isDirty: true,
+      source: "profile",
+    });
+  });
+
   it("prefers an explicit envelope over the legacy blob at the default id", () => {
     const settings = settingsFrom({
       providers: { claudeAgent: { enabled: false } },

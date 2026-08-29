@@ -15,6 +15,8 @@
 import {
   defaultInstanceIdForDriver,
   ProviderDriverKind,
+  type HarnessProfileConfig,
+  type ProfileId,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerSettings,
@@ -29,6 +31,10 @@ export interface ResolvedInstanceSlot {
   readonly instance: ProviderInstanceConfig;
   readonly driver: ProviderDriverKind;
   readonly isDefault: boolean;
+  /** Settings container that owns the editable state for this slot. */
+  readonly source: "legacy" | "profile";
+  /** Present when the harness profile, rather than a legacy envelope, owns the slot. */
+  readonly profileId?: ProfileId;
   /**
    * True when the slot carries user-authored state: an explicit envelope, a
    * modified legacy blob, or (custom instances) its very existence.
@@ -41,7 +47,7 @@ export interface ListProviderInstanceSlotsOptions {
   readonly includeUnlistedDrivers?: boolean;
 }
 
-type SlotSettings = Pick<ServerSettings, "providerInstances" | "providers">;
+type SlotSettings = Pick<ServerSettings, "providerInstances" | "providers" | "harnesses">;
 
 type LegacyProviderBlobs = Record<
   string,
@@ -68,22 +74,60 @@ function synthesizeFromLegacy(
   } satisfies ProviderInstanceConfig;
 }
 
+function profileConfig(profile: HarnessProfileConfig): ProviderInstanceConfig {
+  const configPatch = profile.advanced?.configPatch;
+  const config =
+    configPatch !== null && typeof configPatch === "object" && !Array.isArray(configPatch)
+      ? (configPatch as Record<string, unknown>)
+      : undefined;
+  return {
+    driver: ProviderDriverKind.make(String(profile.harnessKind)),
+    displayName: profile.displayName,
+    ...(profile.accentColor ? { accentColor: profile.accentColor } : {}),
+    enabled: profile.enabled,
+    ...(profile.advanced?.environment ? { environment: profile.advanced.environment } : {}),
+    ...(config ? { config } : {}),
+  };
+}
+
+function profileForInstance(
+  settings: SlotSettings,
+  driver: ProviderDriverKind,
+  instanceId: ProviderInstanceId,
+): HarnessProfileConfig | undefined {
+  return Object.values(settings.harnesses?.profiles ?? {}).find(
+    (profile) =>
+      String(profile.harnessKind) === String(driver) &&
+      String(profile.instanceId) === String(instanceId),
+  );
+}
+
 export function resolveProviderInstanceSlot(
   settings: SlotSettings,
   driver: ProviderDriverKind,
   instanceId: ProviderInstanceId,
 ): ResolvedInstanceSlot | undefined {
   const explicitInstance = settings.providerInstances?.[instanceId];
+  const profile = profileForInstance(settings, driver, instanceId);
   if (String(instanceId) !== String(defaultInstanceIdForDriver(driver))) {
-    // Custom instances exist only through explicit envelopes.
-    if (explicitInstance === undefined) {
-      return undefined;
+    if (explicitInstance !== undefined) {
+      return {
+        instanceId,
+        instance: explicitInstance,
+        driver: explicitInstance.driver,
+        isDefault: false,
+        source: "legacy",
+        isDirty: true,
+      };
     }
+    if (profile === undefined) return undefined;
     return {
       instanceId,
-      instance: explicitInstance,
-      driver: explicitInstance.driver,
+      instance: profileConfig(profile),
+      driver,
       isDefault: false,
+      source: "profile",
+      profileId: profile.profileId,
       isDirty: true,
     };
   }
@@ -91,7 +135,8 @@ export function resolveProviderInstanceSlot(
     string,
     unknown | undefined
   >;
-  const effectiveInstance = explicitInstance ?? synthesizeFromLegacy(settings, driver);
+  const effectiveInstance =
+    explicitInstance ?? (profile ? profileConfig(profile) : undefined) ?? synthesizeFromLegacy(settings, driver);
   if (effectiveInstance === undefined) {
     return undefined;
   }
@@ -100,8 +145,11 @@ export function resolveProviderInstanceSlot(
     instance: effectiveInstance,
     driver,
     isDefault: true,
+    source: profile && explicitInstance === undefined ? "profile" : "legacy",
+    ...(profile && explicitInstance === undefined ? { profileId: profile.profileId } : {}),
     isDirty:
       explicitInstance !== undefined ||
+      profile !== undefined ||
       !Equal.equals(legacyBlob(settings, driver), defaultLegacyProviders[driver]),
   };
 }
@@ -116,6 +164,13 @@ function discoveredDrivers(settings: SlotSettings): ReadonlyArray<ProviderDriver
   seen = new Set(seen);
   for (const instance of Object.values(settings.providerInstances ?? {})) {
     const key = String(instance.driver);
+    if (!seen.has(key)) {
+      seen.add(key);
+      drivers.push(ProviderDriverKind.make(key));
+    }
+  }
+  for (const profile of Object.values(settings.harnesses?.profiles ?? {})) {
+    const key = String(profile.harnessKind);
     if (!seen.has(key)) {
       seen.add(key);
       drivers.push(ProviderDriverKind.make(key));
@@ -153,6 +208,21 @@ export function listProviderInstanceSlots(
         instance,
         driver: instance.driver,
         isDefault: false,
+        source: "legacy",
+        isDirty: true,
+      });
+    }
+    for (const profile of Object.values(settings.harnesses?.profiles ?? {})) {
+      if (String(profile.harnessKind) !== String(driver)) continue;
+      if (String(profile.instanceId) === String(defaultInstanceIdForDriver(driver))) continue;
+      if (settings.providerInstances?.[profile.instanceId] !== undefined) continue;
+      slots.push({
+        instanceId: profile.instanceId,
+        instance: profileConfig(profile),
+        driver,
+        isDefault: false,
+        source: "profile",
+        profileId: profile.profileId,
         isDirty: true,
       });
     }
@@ -172,6 +242,7 @@ export function listProviderInstanceSlots(
       instance,
       driver: instance.driver,
       isDefault: listedDefaultIds.has(String(id)),
+      source: "legacy",
       isDirty: true,
     });
   }

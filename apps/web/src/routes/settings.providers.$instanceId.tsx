@@ -1,11 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { EnvironmentId, ProviderInstanceId } from "@rune/contracts";
+import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@rune/contracts";
 
 import { ProviderInstanceEditPage } from "../components/settings/ProviderInstanceEditPage";
 import { usePrimaryEnvironmentId } from "../state/environments";
 
-type ProviderInstanceSearch = { readonly env: string | undefined };
+type ProviderInstanceSearch = {
+  readonly env: string | undefined;
+  readonly driver: string | undefined;
+};
 
 function SettingsProviderInstanceRoute() {
   const params = Route.useParams();
@@ -26,6 +29,7 @@ function SettingsProviderInstanceRoute() {
     <ProviderInstanceEditPage
       instanceId={ProviderInstanceId.make(params.instanceId)}
       environmentId={environmentId}
+      recoveryDriver={search.driver === undefined ? undefined : ProviderDriverKind.make(search.driver)}
     />
   );
 }
@@ -34,5 +38,6 @@ export const Route = createFileRoute("/settings/providers/$instanceId")({
   component: SettingsProviderInstanceRoute,
   validateSearch: (raw: Record<string, unknown>): ProviderInstanceSearch => ({
     env: typeof raw.env === "string" ? raw.env.slice(0, 200) : undefined,
+    driver: typeof raw.driver === "string" ? raw.driver.slice(0, 80) : undefined,
   }),
 });

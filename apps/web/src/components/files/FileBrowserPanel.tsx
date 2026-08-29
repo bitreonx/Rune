@@ -4,11 +4,25 @@ import type {
   FileTreeDirectoryHandle,
   FileTreeItemHandle,
 } from "@pierre/trees";
-import type { ContextMenuItem, EnvironmentId, ProjectEntry } from "@rune/contracts";
+import {
+  workspaceFileRefFrom,
+  type ContextMenuItem,
+  type EnvironmentId,
+  type ProjectEntry,
+  type WorkspaceFileRef,
+} from "@rune/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
-import { ChevronsDownUp, ChevronsUpDown, ExternalLink, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MoreHorizontal, RotateCw } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useLayoutEffect,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 
 import {
   isAtomCommandInterrupted,
@@ -16,18 +30,9 @@ import {
   executeAtomQuery,
 } from "@rune/client-runtime/state/runtime";
 import { Button } from "~/components/ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPopup,
-  DialogTitle,
-} from "~/components/ui/dialog";
-import { Input } from "~/components/ui/input";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
@@ -46,7 +51,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { fileTreeAreaState } from "./fileTreeArea";
 import { buildChatDiffTree } from "./chatDiffTree";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
-import { deletionConfirmationMessage, relativeEntryTarget } from "./fileBrowserActions";
+import { deletionConfirmationMessage } from "./fileBrowserActions";
 import {
   getProjectDirectoryQueryAtom,
   refreshProjectDirectoryQuery,
@@ -65,6 +70,14 @@ import {
   writeFileTreeExpandedDirectories,
 } from "./fileTreeExpansionState";
 import { toPosixRelativePath } from "./toPosixRelativePath.ts";
+import {
+  inlineEditNameError,
+  inlineNameSelection,
+  inlinePlaceholderPath,
+  relativeEntryName,
+  relativeEntryParentPath,
+  type FileTreeInlineEdit,
+} from "./fileTreeInlineEdit";
 import type { TurnDiffFileChange } from "~/types";
 
 interface FileBrowserPanelProps {
@@ -106,58 +119,6 @@ function directoryHandle(
   return item?.isDirectory() ? (item as FileTreeDirectoryHandle) : null;
 }
 
-function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Refresh workspace files"
-            data-rune-action="workspace.refresh"
-            onClick={props.onRefresh}
-          />
-        }
-      >
-        <RotateCw className={cn(props.isPending && "animate-spin")} />
-      </TooltipTrigger>
-      <TooltipPopup>{props.isPending ? "Refreshing…" : "Refresh files"}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
-function FileTreeActionButton(props: {
-  action: string;
-  ariaLabel: string;
-  disabled?: boolean;
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={props.ariaLabel}
-            data-rune-action={props.action}
-            disabled={props.disabled}
-            onClick={props.onClick}
-          />
-        }
-      >
-        {props.children}
-      </TooltipTrigger>
-      <TooltipPopup>{props.label}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
 function FileSearchField(props: {
   ariaLabel: string;
   name: string;
@@ -191,54 +152,6 @@ function failureDescription(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "An error occurred.";
 }
 
-interface NameRequest {
-  readonly title: string;
-  readonly initialValue: string;
-}
-
-function NameRequestDialog(props: {
-  request: NameRequest | null;
-  value: string;
-  onValueChange: (value: string) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <Dialog open={props.request !== null} onOpenChange={(open) => !open && props.onCancel()}>
-      <DialogPopup className="max-w-md">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            props.onSubmit();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{props.request?.title ?? "Name entry"}</DialogTitle>
-            <DialogDescription>Choose a name for this workspace entry.</DialogDescription>
-          </DialogHeader>
-          <div className="px-6 py-1">
-            <Input
-              value={props.value}
-              onChange={(event) => props.onValueChange(event.target.value)}
-              aria-label="Workspace entry name"
-              autoFocus
-              spellCheck={false}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={props.onCancel}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={props.value.trim().length === 0}>
-              Save
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogPopup>
-    </Dialog>
-  );
-}
-
 export default function FileBrowserPanel({
   environmentId,
   cwd,
@@ -254,9 +167,11 @@ export default function FileBrowserPanel({
   onRefreshSelectedFile,
 }: FileBrowserPanelProps) {
   const [scopedToChat, setScopedToChat] = useState(chatDiff !== null && routeThreadKey !== null);
-  const [nameRequest, setNameRequest] = useState<NameRequest | null>(null);
-  const [nameValue, setNameValue] = useState("");
-  const nameRequestResolveRef = useRef<((value: string | null) => void) | null>(null);
+  const [inlineEdit, setInlineEdit] = useState<FileTreeInlineEdit | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const inlineEditRef = useRef<FileTreeInlineEdit | null>(null);
+  const inlineErrorRef = useRef<string | null>(null);
+  const inlineCommitRef = useRef<{ sourcePath: string; destinationPath: string } | null>(null);
   useEffect(() => {
     setScopedToChat(chatDiff !== null && routeThreadKey !== null);
   }, [chatDiff, routeThreadKey]);
@@ -278,19 +193,19 @@ export default function FileBrowserPanel({
     () => fileTreeGitStatus(gitStatusQuery.data ?? null),
     [gitStatusQuery.data],
   );
-  const finishNameRequest = useCallback((value: string | null) => {
-    const resolve = nameRequestResolveRef.current;
-    nameRequestResolveRef.current = null;
-    setNameRequest(null);
-    if (resolve) resolve(value);
+  const setInlineErrorState = useCallback((message: string | null) => {
+    inlineErrorRef.current = message;
+    setInlineError(message);
   }, []);
-  const requestName = useCallback((title: string, initialValue: string) => {
-    return new Promise<string | null>((resolve) => {
-      nameRequestResolveRef.current = resolve;
-      setNameValue(initialValue);
-      setNameRequest({ title, initialValue });
-    });
-  }, []);
+  const setInlineEditState = useCallback(
+    (next: FileTreeInlineEdit | null) => {
+      inlineEditRef.current = next;
+      inlineCommitRef.current = null;
+      setInlineErrorState(null);
+      setInlineEdit(next);
+    },
+    [setInlineErrorState],
+  );
   const openInFileManager = async (path: string) => {
     const result = await openInEditor({
       environmentId,
@@ -357,6 +272,8 @@ export default function FileBrowserPanel({
   // event, so a capture-phase listener sees it with viewport coordinates.
   const contextMenuPointerRef = useRef<{ x: number; y: number; at: number } | null>(null);
   const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const refreshDirectoryRef = useRef<(directory: string) => void>(() => {});
   useEffect(() => {
     const capturePointer = (event: MouseEvent) => {
       contextMenuPointerRef.current = { x: event.clientX, y: event.clientY, at: event.timeStamp };
@@ -364,6 +281,182 @@ export default function FileBrowserPanel({
     document.addEventListener("contextmenu", capturePointer, true);
     return () => document.removeEventListener("contextmenu", capturePointer, true);
   }, []);
+
+  const beginInlineCreate = useCallback(
+    (input: { readonly kind: "file" | "directory"; readonly parentPath: string }) => {
+      if (chatScoped) return;
+      const model = treeModelRef.current;
+      if (!model) return;
+      const baseName = input.kind === "file" ? "untitled" : "new-folder";
+      const existingPaths = new Set([
+        ...visibleEntries.map(treePath),
+        ...model.getVisibleRows(0, model.getVisibleCount()).map((row) => row.path),
+      ]);
+      const placeholderPath = inlinePlaceholderPath({
+        parentPath: input.parentPath,
+        name: baseName,
+        isFolder: input.kind === "directory",
+        existingPaths,
+      });
+      model.add(placeholderPath);
+      const parentRef =
+        input.parentPath.length > 0
+          ? workspaceFileRefFrom({
+              workspaceId: String(environmentId),
+              workspaceRoot: cwd,
+              relativePath: input.parentPath,
+            })
+          : null;
+      setInlineEditState({
+        type: input.kind === "file" ? "create-file" : "create-folder",
+        parentRef,
+        placeholderPath,
+        value: baseName,
+      });
+      if (!model.startRenaming(placeholderPath, { removeIfCanceled: true })) {
+        model.remove(placeholderPath, input.kind === "directory" ? { recursive: true } : undefined);
+        setInlineEditState(null);
+      }
+    },
+    [chatScoped, cwd, environmentId, setInlineEditState, visibleEntries],
+  );
+
+  const beginInlineRename = useCallback(
+    (relativePath: string, isFolder: boolean) => {
+      if (chatScoped) return;
+      const model = treeModelRef.current;
+      if (!model) return;
+      const normalizedPath = relativePath.replace(/\/$/, "");
+      const ref = workspaceFileRefFrom({
+        workspaceId: String(environmentId),
+        workspaceRoot: cwd,
+        relativePath: normalizedPath,
+      });
+      setInlineEditState({
+        type: "rename",
+        ref,
+        sourcePath: normalizedPath,
+        originalName: relativeEntryName(normalizedPath),
+        value: relativeEntryName(normalizedPath),
+        isFolder,
+      });
+      if (!model.startRenaming(relativePath)) setInlineEditState(null);
+    },
+    [chatScoped, cwd, environmentId, setInlineEditState],
+  );
+
+  const handleTreeRenameError = useCallback(
+    (message: string) => setInlineErrorState(message),
+    [setInlineErrorState],
+  );
+
+  const handleTreeRename = useCallback(
+    (event: { sourcePath: string; destinationPath: string; isFolder: boolean }) => {
+      const sourcePath = event.sourcePath.replace(/\/$/, "");
+      const destinationPath = event.destinationPath.replace(/\/$/, "");
+      const sourceTreePath = event.isFolder ? `${sourcePath}/` : sourcePath;
+      const destinationTreePath = event.isFolder ? `${destinationPath}/` : destinationPath;
+      const edit = inlineEditRef.current;
+      inlineCommitRef.current = { sourcePath, destinationPath };
+      setInlineErrorState(null);
+      const nameError = inlineEditNameError(relativeEntryName(destinationPath));
+      if (nameError !== null) {
+        inlineCommitRef.current = null;
+        setInlineErrorState(nameError);
+        queueMicrotask(() => {
+          treeModelRef.current?.move(destinationTreePath, sourceTreePath);
+          treeModelRef.current?.startRenaming(sourcePath, {
+            removeIfCanceled: edit?.type === "create-file" || edit?.type === "create-folder",
+          });
+        });
+        return;
+      }
+
+      if (edit?.type === "create-file" || edit?.type === "create-folder") {
+        const kind = edit.type === "create-file" ? "file" : "directory";
+        const parentPath = relativeEntryParentPath(destinationPath);
+        void createEntry({
+          environmentId,
+          input: { cwd, relativePath: destinationPath, kind },
+        }).then((result) => {
+          if (result._tag === "Success") {
+            setInlineEditState(null);
+            refreshDirectoryRef.current(parentPath);
+            if (kind === "file") onOpenFile(destinationPath);
+            return;
+          }
+          if (isAtomCommandInterrupted(result)) return;
+          const model = treeModelRef.current;
+          model?.move(destinationTreePath, sourceTreePath);
+          const message = failureDescription(squashAtomCommandFailure(result));
+          setInlineErrorState(message);
+          inlineCommitRef.current = null;
+          queueMicrotask(() => {
+            treeModelRef.current?.startRenaming(sourcePath, { removeIfCanceled: true });
+          });
+        });
+        return;
+      }
+
+      const parentPath = relativeEntryParentPath(sourcePath);
+      void renameEntry({
+        environmentId,
+        input: { cwd, relativePath: sourcePath, newName: relativeEntryName(destinationPath) },
+      }).then((result) => {
+        if (result._tag === "Success") {
+          setInlineEditState(null);
+          refreshDirectoryRef.current(parentPath);
+          return;
+        }
+        if (isAtomCommandInterrupted(result)) return;
+        const model = treeModelRef.current;
+        if (model) model.move(destinationTreePath, sourceTreePath);
+        setInlineErrorState(failureDescription(squashAtomCommandFailure(result)));
+        inlineCommitRef.current = null;
+        queueMicrotask(() => {
+          treeModelRef.current?.startRenaming(sourcePath);
+        });
+      });
+    },
+    [
+      createEntry,
+      cwd,
+      environmentId,
+      onOpenFile,
+      renameEntry,
+      setInlineEditState,
+      setInlineErrorState,
+    ],
+  );
+
+  const handleTreeKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.key === "F2" && !chatScoped) {
+        const model = treeModelRef.current;
+        const focusedPath = model?.getFocusedPath();
+        if (focusedPath) beginInlineRename(focusedPath, focusedPath.endsWith("/"));
+        return;
+      }
+      if (event.key === "Escape" && inlineEditRef.current) {
+        setInlineEditState(null);
+        return;
+      }
+      if (event.key === "Enter" && inlineEditRef.current) {
+        queueMicrotask(() => {
+          if (inlineCommitRef.current === null && inlineErrorRef.current === null) {
+            setInlineEditState(null);
+          }
+        });
+      }
+    },
+    [beginInlineRename, chatScoped, setInlineEditState],
+  );
+  const chatScopedRef = useRef(chatScoped);
+  chatScopedRef.current = chatScoped;
+  const handleTreeRenameRef = useRef(handleTreeRename);
+  handleTreeRenameRef.current = handleTreeRename;
+  const handleTreeRenameErrorRef = useRef(handleTreeRenameError);
+  handleTreeRenameErrorRef.current = handleTreeRenameError;
 
   const showEntryContextMenu = async (
     item: TreeContextMenuItem,
@@ -391,82 +484,74 @@ export default function FileBrowserPanel({
           ? relativePath.slice(0, lastSeparator)
           : "";
     const absoluteEntryTarget = entryTarget ? `${cwd.replace(/[\\/]$/, "")}/${entryTarget}` : cwd;
-    const menuItems: ContextMenuItem[] = [
-      ...(item.kind === "directory"
+    const menuItems: ContextMenuItem[] =
+      item.kind === "directory"
         ? [
+            { id: "new-file", label: "New File", icon: "file-plus", disabled: chatScoped },
+            { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: chatScoped },
             {
-              id: "focus-entry",
-              label: "Open / focus",
-              icon: "folder-open",
-            },
-          ]
-        : []),
-      ...(item.kind === "file"
-        ? [
-            {
-              id: "open-file",
-              label: "Open preview / editor",
-              icon: "file-code",
+              id: "rename-entry",
+              label: "Rename",
+              icon: "pencil",
+              disabled: chatScoped,
               separatorBefore: true,
             },
+            {
+              id: "delete-entry",
+              label: "Delete",
+              icon: "trash",
+              destructive: true,
+            },
+            {
+              id: "open-in-explorer",
+              label: `Reveal in ${fileManagerName}`,
+              icon: "external-link",
+              separatorBefore: true,
+            },
+            { id: "copy-path", label: "Copy Path", icon: "copy" },
+            {
+              id: "add-to-chat",
+              label: "Add to Chat",
+              icon: "message-square-plus",
+              separatorBefore: true,
+            },
+          ]
+        : [
+            { id: "open-file", label: "Open preview / editor", icon: "file-code" },
             ...(isChanged && onOpenDiffFile
               ? [{ id: "open-diff", label: "Open diff", icon: "file-diff" }]
               : []),
-          ]
-        : []),
-      {
-        id: "new-file",
-        label: "New file…",
-        icon: "file-plus",
-        separatorBefore: true,
-      },
-      {
-        id: "new-folder",
-        label: "New folder…",
-        icon: "folder-plus",
-      },
-      {
-        id: "rename-entry",
-        label: "Rename…",
-        icon: "pencil",
-        separatorBefore: true,
-      },
-      {
-        id: "delete-entry",
-        label: `Delete ${item.kind === "directory" ? "folder" : "file"}…`,
-        icon: "trash",
-        destructive: true,
-      },
-      {
-        id: "open-in-explorer",
-        label: `Open in ${fileManagerName}`,
-        icon: "external-link",
-        separatorBefore: true,
-      },
-      {
-        id: "refresh-entry",
-        label: "Refresh files",
-        icon: "refresh-cw",
-      },
-      {
-        id: "copy-path",
-        label: "Copy relative path",
-        icon: "copy",
-      },
-      {
-        id: "copy-mention",
-        label: "Copy mention",
-        icon: "copy",
-      },
-      { id: "add-to-chat", label: "Add to chat", icon: "message-square-plus" },
-    ];
+            {
+              id: "rename-entry",
+              label: "Rename",
+              icon: "pencil",
+              disabled: chatScoped,
+              separatorBefore: true,
+            },
+            {
+              id: "delete-entry",
+              label: "Delete",
+              icon: "trash",
+              destructive: true,
+            },
+            {
+              id: "open-in-explorer",
+              label: `Reveal in ${fileManagerName}`,
+              icon: "external-link",
+              separatorBefore: true,
+            },
+            { id: "copy-path", label: "Copy Path", icon: "copy" },
+            { id: "copy-mention", label: "Copy mention", icon: "copy" },
+            {
+              id: "add-to-chat",
+              label: "Add to Chat",
+              icon: "message-square-plus",
+              separatorBefore: true,
+            },
+          ];
+    let transferredFocus = false;
     try {
       const clicked = await api.contextMenu.show(menuItems, position);
-      if (clicked === "focus-entry") {
-        if (item.kind === "file") onOpenFile(relativePath);
-        else model.scrollToPath(item.path, { focus: true, offset: "center" });
-        return;
-      }
       if (clicked === "open-file") {
         onOpenFile(relativePath);
         return;
@@ -489,47 +574,18 @@ export default function FileBrowserPanel({
         return;
       }
       if (clicked === "new-file" || clicked === "new-folder") {
-        const name = await requestName(
-          clicked === "new-file" ? "New file" : "New folder",
-          "untitled",
-        );
-        if (!name) return;
-        const parentRelative = item.kind === "directory" ? relativePath : entryTarget;
-        const targetPath = relativeEntryTarget({ kind: item.kind, path: parentRelative }, name);
-        const result = await createEntry({
-          environmentId,
-          input: {
-            cwd,
-            relativePath: targetPath,
-            kind: clicked === "new-file" ? "file" : "directory",
-          },
+        transferredFocus = true;
+        context.close({ restoreFocus: false });
+        beginInlineCreate({
+          kind: clicked === "new-file" ? "file" : "directory",
+          parentPath: relativePath,
         });
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          toastManager.add({
-            type: "error",
-            title: `Could not create ${clicked === "new-file" ? "file" : "folder"}`,
-            description: failureDescription(squashAtomCommandFailure(result)),
-          });
-          return;
-        }
-        if (clicked === "new-file") onOpenFile(targetPath);
         return;
       }
       if (clicked === "rename-entry") {
-        const oldName = relativePath.slice(relativePath.lastIndexOf("/") + 1);
-        const name = await requestName("Rename", oldName);
-        if (!name || name === oldName) return;
-        const result = await renameEntry({
-          environmentId,
-          input: { cwd, relativePath, newName: name },
-        });
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          toastManager.add({
-            type: "error",
-            title: "Could not rename",
-            description: failureDescription(squashAtomCommandFailure(result)),
-          });
-        }
+        transferredFocus = true;
+        context.close({ restoreFocus: false });
+        beginInlineRename(relativePath, item.kind === "directory");
         return;
       }
       if (clicked === "delete-entry") {
@@ -572,10 +628,6 @@ export default function FileBrowserPanel({
         await openInFileManager(absoluteEntryTarget);
         return;
       }
-      if (clicked === "refresh-entry") {
-        handleRefresh();
-        return;
-      }
       if (clicked === "add-to-chat") {
         const composer = composerRef?.current;
         if (!composer) {
@@ -596,7 +648,7 @@ export default function FileBrowserPanel({
         }
       }
     } finally {
-      context.close();
+      context.close({ restoreFocus: !transferredFocus });
     }
   };
   const showEntryContextMenuRef = useRef(showEntryContextMenu);
@@ -628,6 +680,18 @@ export default function FileBrowserPanel({
     flattenEmptyDirectories: true,
     initialExpansion: "closed",
     icons: RUNE_PIERRE_ICONS,
+    renaming: {
+      canRename: ({ path }) => {
+        const normalizedPath = path.replace(/\/$/, "");
+        const placeholderPath = inlineEditRef.current?.placeholderPath.replace(/\/$/, "");
+        return (
+          !chatScopedRef.current &&
+          (entryKindsRef.current.has(normalizedPath) || placeholderPath === normalizedPath)
+        );
+      },
+      onError: (message) => handleTreeRenameErrorRef.current(message),
+      onRename: (event) => handleTreeRenameRef.current(event),
+    },
     onSelectionChange: (selectedPaths) => {
       // The drag controller's selection cache must track every change,
       // including reveal-driven ones, or drags act on a stale selection.
@@ -729,6 +793,7 @@ export default function FileBrowserPanel({
     },
     [cwd, environmentId, loadDirectory],
   );
+  refreshDirectoryRef.current = refreshLoadedDirectory;
 
   const search = useFileTreeSearch(model);
   const handleSearchValueChange = (value: string) => {
@@ -887,10 +952,25 @@ export default function FileBrowserPanel({
   // data store is writable for every dragstart listener in the dispatch.
   // The capture phase runs before the tree's own dragstart handler selects
   // the dragged row, so the drag flag is up before that selection emits.
-  const panelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     treeModelRef.current = model;
   }, [model]);
+  useLayoutEffect(() => {
+    if (!inlineEdit) return;
+    const frame = requestAnimationFrame(() => {
+      const host = panelRef.current?.querySelector<HTMLElement>("file-tree-container");
+      const input = host?.shadowRoot?.querySelector<HTMLInputElement>("input");
+      if (!input) return;
+      const selection = inlineNameSelection({
+        name: inlineEdit.value,
+        isFolder:
+          inlineEdit.type === "create-folder" ||
+          (inlineEdit.type === "rename" && inlineEdit.isFolder),
+      });
+      input.setSelectionRange(selection.start, selection.end);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [inlineEdit]);
   useEffect(() => {
     const panel = panelRef.current;
     if (panel === null) {
@@ -945,7 +1025,7 @@ export default function FileBrowserPanel({
           </span>
         ) : (
           <span className="min-w-0 max-w-44 truncate px-1 text-xs font-medium">
-            Workspace files — {loadedEntries.length} loaded
+            Workspace Files — {loadedEntries.length} loaded
           </span>
         )}
         {routeThreadKey !== null && chatDiff !== null ? (
@@ -963,32 +1043,45 @@ export default function FileBrowserPanel({
             {chatScoped ? "Show all workspace files" : "Show changes in this chat"}
           </Button>
         ) : null}
-        <RefreshFilesButton isPending={directoryQuery.isPending} onRefresh={handleRefresh} />
-        <FileTreeActionButton
-          action="workspace.expand-all"
-          ariaLabel="Expand all folders"
-          label="Expand all folders"
-          onClick={() => setAllFoldersExpanded(true)}
-        >
-          <ChevronsDownUp />
-        </FileTreeActionButton>
-        <FileTreeActionButton
-          action="workspace.collapse-all"
-          ariaLabel="Collapse all folders"
-          label="Collapse all folders"
-          onClick={() => setAllFoldersExpanded(false)}
-        >
-          <ChevronsUpDown />
-        </FileTreeActionButton>
-        <FileTreeActionButton
-          action="workspace.open-in-file-manager"
-          ariaLabel={`Open project in ${fileManagerName}`}
-          label={`Open project in ${fileManagerName}`}
-          disabled={directoryQuery.isPending}
-          onClick={() => void openInFileManager(cwd)}
-        >
-          <ExternalLink />
-        </FileTreeActionButton>
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Workspace file actions"
+                data-rune-action="workspace.file-actions"
+              />
+            }
+          >
+            <MoreHorizontal />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem
+              disabled={chatScoped}
+              onClick={() => beginInlineCreate({ kind: "file", parentPath: "" })}
+            >
+              New File
+            </MenuItem>
+            <MenuItem
+              disabled={chatScoped}
+              onClick={() => beginInlineCreate({ kind: "directory", parentPath: "" })}
+            >
+              New Folder
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem onClick={() => setAllFoldersExpanded(false)}>Collapse All</MenuItem>
+            <MenuItem onClick={handleRefresh}>Refresh</MenuItem>
+            <MenuSeparator />
+            <MenuItem
+              disabled={directoryQuery.isPending}
+              onClick={() => void openInFileManager(cwd)}
+            >
+              Reveal workspace in {fileManagerName}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -1037,6 +1130,7 @@ export default function FileBrowserPanel({
         <FileTree
           model={model}
           aria-label={`${projectName} files`}
+          onKeyDown={handleTreeKeyDown}
           className="min-h-0 flex-1 overflow-hidden"
           style={{
             colorScheme: resolvedTheme,
@@ -1044,13 +1138,14 @@ export default function FileBrowserPanel({
           }}
         />
       )}
-      <NameRequestDialog
-        request={nameRequest}
-        value={nameValue}
-        onValueChange={setNameValue}
-        onCancel={() => finishNameRequest(null)}
-        onSubmit={() => finishNameRequest(nameValue.trim() || null)}
-      />
+      {inlineError ? (
+        <p
+          className="border-t border-destructive/20 bg-destructive/5 px-3 py-2 text-[11px] text-destructive"
+          role="alert"
+        >
+          {inlineError} Press Enter to retry or Escape to cancel.
+        </p>
+      ) : null}
     </div>
   );
 }

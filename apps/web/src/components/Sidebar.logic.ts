@@ -460,6 +460,35 @@ export function resolveThreadRowClassName(input: {
   );
 }
 
+/**
+ * Shared surface for the full sidebar thread rows. Active state is carried by
+ * elevation and a quiet inset ring; a pseudo-element stripe reads as a
+ * persistent selection bar and competes with the row's status semantics.
+ */
+export function resolveSidebarThreadSurfaceClassName(input: {
+  isActive: boolean;
+  isSelected: boolean;
+}): string {
+  const baseClassName =
+    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left outline-none select-none transition-colors duration-150";
+
+  if (input.isActive) {
+    return cn(
+      baseClassName,
+      "bg-sidebar-row-active text-sidebar-foreground ring-1 ring-inset ring-primary/15 shadow-sm shadow-black/5",
+    );
+  }
+
+  if (input.isSelected) {
+    return cn(
+      baseClassName,
+      "bg-sidebar-row-selected text-sidebar-foreground ring-1 ring-inset ring-sidebar-foreground/10",
+    );
+  }
+
+  return cn(baseClassName, "bg-transparent text-sidebar-foreground");
+}
+
 // ── Sidebar thread status model ─────────────────────────────────────
 // Five visual states, three colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the

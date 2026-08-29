@@ -22,6 +22,10 @@ export const AGENT_DOCK_STATUSES = [
 
 export type AgentDockStatus = (typeof AGENT_DOCK_STATUSES)[number];
 
+export type AgentArtifactSurface = "diff" | "files" | "terminal" | "browser";
+
+export type AgentArtifactAvailability = Readonly<Record<AgentArtifactSurface, boolean>>;
+
 export interface AgentDockStatusMeta {
   readonly status: AgentDockStatus;
   readonly label: string;

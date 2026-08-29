@@ -39,6 +39,8 @@ import {
   agentDockStatusMeta,
   deriveAgentDockRows,
   resolveAgentDockStatus,
+  type AgentArtifactAvailability,
+  type AgentArtifactSurface,
 } from "./agent-chat/agentDock.logic";
 
 /**
@@ -809,6 +811,8 @@ export function AgentsPanel({
   cwd,
   focusedAgentId = null,
   onFocusAgent,
+  artifactAvailability,
+  onOpenArtifactSurface,
 }: {
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
@@ -816,6 +820,8 @@ export function AgentsPanel({
   cwd?: string;
   focusedAgentId?: string | null;
   onFocusAgent?: (agentId: string | null) => void;
+  artifactAvailability?: AgentArtifactAvailability;
+  onOpenArtifactSurface?: (surface: AgentArtifactSurface) => void;
 }) {
   if (!model.hasAgents) {
     return (
@@ -854,6 +860,8 @@ export function AgentsPanel({
           threadId={threadId}
           agent={focusedAgent}
           {...(cwd ? { cwd } : {})}
+          {...(artifactAvailability ? { artifactAvailability } : {})}
+          {...(onOpenArtifactSurface ? { onOpenArtifactSurface } : {})}
           onBack={() => onFocusAgent?.(null)}
         />
       </div>

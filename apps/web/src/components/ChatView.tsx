@@ -181,6 +181,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import type { AgentArtifactSurface } from "./agent-chat/agentDock.logic";
 import { TasksPanel } from "./TasksPanel";
 import {
   deriveAgentPanelModel,
@@ -4140,6 +4141,25 @@ function ChatViewContent(props: ChatViewProps) {
     gitCwd,
     openTerminal,
   ]);
+  const openAgentArtifactSurface = useCallback(
+    (surface: AgentArtifactSurface) => {
+      switch (surface) {
+        case "diff":
+          addDiffSurface();
+          return;
+        case "files":
+          addFilesSurface();
+          return;
+        case "terminal":
+          addTerminalSurface();
+          return;
+        case "browser":
+          createBrowserSurface();
+          return;
+      }
+    },
+    [addDiffSurface, addFilesSurface, addTerminalSurface, createBrowserSurface],
+  );
   const splitPanelTerminal = useCallback(
     (direction: "horizontal" | "vertical" = "horizontal") => {
       if (
@@ -8196,6 +8216,13 @@ function ChatViewContent(props: ChatViewProps) {
         {...(activeProject?.workspaceRoot ? { cwd: activeProject.workspaceRoot } : {})}
         focusedAgentId={focusedAgentId}
         onFocusAgent={handleFocusAgent}
+        artifactAvailability={{
+          diff: isServerThread && isGitRepo,
+          files: activeProject !== null,
+          terminal: activeProject !== null,
+          browser: isPreviewSupportedInRuntime(),
+        }}
+        onOpenArtifactSurface={openAgentArtifactSurface}
       />
     ) : activeRightPanelSurface?.kind === "tasks" ? (
       <TasksPanel

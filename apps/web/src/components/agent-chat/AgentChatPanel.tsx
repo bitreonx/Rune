@@ -19,6 +19,12 @@ import { Textarea } from "~/components/ui/textarea";
 import { SubagentAvatar } from "./SubagentAvatar";
 import { AgentPassport } from "./AgentPassport";
 import { AgentTrail } from "./AgentTrail";
+import { AgentArtifactBar } from "./AgentArtifactBar";
+import {
+  deriveAgentTrail,
+  type AgentArtifactAvailability,
+  type AgentArtifactSurface,
+} from "./agentDock.logic";
 import {
   agentChatErrorMessage,
   canInterruptAgentChat,
@@ -93,18 +99,50 @@ function AgentWorkingMeta({ agent }: { agent: RuntimeSubagent }) {
   );
 }
 
+function AgentVerificationArtifact({ agent }: { agent: RuntimeSubagent }) {
+  const trail = deriveAgentTrail(agent);
+  const entries = [...trail.Verification, ...trail.Result];
+  return (
+    <div className="space-y-3 px-3 py-3" data-rune-agent-verification>
+      <div>
+        <h4 className="text-xs font-semibold">Verification</h4>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          Evidence retained from the child agent&apos;s runtime events.
+        </p>
+      </div>
+      {entries.length > 0 ? (
+        <ul className="space-y-1.5 rounded-md border border-border/55 bg-card/35 p-2.5">
+          {entries.map((entry, index) => (
+            <li key={`${entry.at ?? "entry"}-${index}`} className="text-xs leading-relaxed">
+              {entry.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-md border border-dashed border-border/70 px-3 py-4 text-xs text-muted-foreground">
+          No verification evidence has been recorded yet.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function AgentChatPanel({
   environmentId,
   threadId,
   agent,
   cwd,
   onBack,
+  artifactAvailability,
+  onOpenArtifactSurface,
 }: {
   environmentId: EnvironmentId;
   threadId: ThreadId;
   agent: RuntimeSubagent;
   cwd?: string;
   onBack: () => void;
+  artifactAvailability?: AgentArtifactAvailability;
+  onOpenArtifactSurface?: (surface: AgentArtifactSurface) => void;
 }) {
   const runtimeAgentId = RuntimeTaskId.make(agent.id);
   const input = useMemo(
@@ -125,6 +163,7 @@ export function AgentChatPanel({
   const [optimistic, setOptimistic] = useState<ReadonlyArray<AgentChatMessage>>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verificationOpen, setVerificationOpen] = useState(false);
 
   const displayName = formatSubagentDisplayName(agent);
 
@@ -255,134 +294,145 @@ export function AgentChatPanel({
         ) : null}
       </header>
 
+      <AgentArtifactBar
+        verificationActive={verificationOpen}
+        {...(artifactAvailability ? { availability: artifactAvailability } : {})}
+        {...(onOpenArtifactSurface ? { onOpenSurface: onOpenArtifactSurface } : {})}
+        onOpenVerification={() => setVerificationOpen((current) => !current)}
+      />
+
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-3 px-3 py-3" data-rune-agent-chat-transcript>
-          {/* Initial agent mission banner / prompt context if provided */}
-          <div className="rounded-lg border border-border/60 bg-accent/25 p-2.5 text-xs">
-            <div className="mb-1 flex items-center gap-1.5 font-medium text-muted-foreground">
-              <Wrench className="size-3 text-[var(--rune-violet-strong)]" />
-              <span>Assigned Mission:</span>
+        {verificationOpen ? (
+          <AgentVerificationArtifact agent={agent} />
+        ) : (
+          <div className="space-y-3 px-3 py-3" data-rune-agent-chat-transcript>
+            {/* Initial agent mission banner / prompt context if provided */}
+            <div className="rounded-lg border border-border/60 bg-accent/25 p-2.5 text-xs">
+              <div className="mb-1 flex items-center gap-1.5 font-medium text-muted-foreground">
+                <Wrench className="size-3 text-[var(--rune-violet-strong)]" />
+                <span>Assigned Mission:</span>
+              </div>
+              <p className="font-mono text-[11px] text-foreground/90">{agent.title}</p>
+              {agent.role ? (
+                <p className="mt-1 text-[10px] text-muted-foreground">Role: {agent.role}</p>
+              ) : null}
             </div>
-            <p className="font-mono text-[11px] text-foreground/90">{agent.title}</p>
-            {agent.role ? (
-              <p className="mt-1 text-[10px] text-muted-foreground">Role: {agent.role}</p>
+
+            <AgentPassport agent={agent} />
+            <AgentTrail agent={agent} />
+
+            {!readSupported ? (
+              <div className="border border-dashed border-border/70 px-3 py-3 text-xs text-muted-foreground">
+                This agent reports live activity below. Follow-up messaging is not supported for
+                this provider.
+              </div>
+            ) : result._tag === "Failure" ? (
+              <div className="border border-dashed border-destructive/45 px-3 py-3 text-xs text-destructive-foreground">
+                Unable to load this child chat transcript. Select it again to retry.
+              </div>
+            ) : result._tag !== "Success" ? (
+              <p className="text-xs text-muted-foreground">Loading child chat…</p>
+            ) : visibleMessages.length === 0 ? (
+              <div className="border border-dashed border-border/70 px-3 py-4 text-center text-xs text-muted-foreground">
+                This agent is ready. Send a message below to direct it.
+              </div>
+            ) : (
+              visibleMessages.map((message) => (
+                <article
+                  key={message.id}
+                  className={cn(
+                    "max-w-[92%] text-xs leading-relaxed",
+                    message.role === "user" ? "ml-auto" : "mr-auto",
+                  )}
+                >
+                  <div className="mb-1 flex items-center gap-1.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                    {message.role === "user" ? (
+                      "You"
+                    ) : (
+                      <>
+                        <SubagentAvatar
+                          iconName={agent.iconName}
+                          iconColor={agent.iconColor}
+                          className="size-3.5 rounded-xs"
+                          iconClassName="size-2"
+                        />
+                        <span>{displayName}</span>
+                      </>
+                    )}
+                  </div>
+                  {message.role === "assistant" ? (
+                    <div
+                      className={cn(
+                        "rounded-md border border-border/40 bg-card/60 px-3 py-2",
+                        message.streaming && "border-info/45 bg-info/5",
+                      )}
+                    >
+                      <ChatMarkdown text={message.text} cwd={cwd} lineBreaks />
+                      {message.streaming ? (
+                        <div className="mt-2 flex items-center gap-1.5 text-[10px] text-info-foreground">
+                          <span className="size-1.5 rounded-full bg-info" aria-hidden />
+                          Streaming
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap rounded-md bg-accent/55 px-2.5 py-2 text-foreground/90">
+                      {message.text}
+                    </p>
+                  )}
+                </article>
+              ))
+            )}
+
+            {/* Live agent activity stream / tools execution */}
+            {agent.recentActivity.length > 0 ? (
+              <div className="mt-3 space-y-1.5 border-t border-border/50 pt-2.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                  <Clock className="size-3" />
+                  <span>Live Activity & Tool Executions:</span>
+                </div>
+                <div className="space-y-1 rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px]">
+                  {agent.recentActivity.map((act, i) => (
+                    <div
+                      key={`${act.at}-${i}`}
+                      className="flex items-start gap-1.5 text-muted-foreground"
+                    >
+                      <span className="text-[9px] text-muted-foreground/60">
+                        {act.at
+                          ? new Date(act.at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })
+                          : ""}
+                      </span>
+                      <span className="text-foreground/85">{act.summary}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Agent status summary if finished or error */}
+            {agent.status === "completed" && agent.result ? (
+              <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-2.5 py-2 text-xs text-success">
+                <CheckCircle2 className="size-4 shrink-0" />
+                <span className="truncate">{agent.result}</span>
+              </div>
+            ) : agent.status === "failed" && agent.error ? (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+                <XCircle className="size-4 shrink-0" />
+                <span className="truncate">{agent.error}</span>
+              </div>
+            ) : null}
+
+            {error ? (
+              <p className="border border-destructive/45 px-2.5 py-2 text-xs text-destructive-foreground">
+                {error}
+              </p>
             ) : null}
           </div>
-
-          <AgentPassport agent={agent} />
-          <AgentTrail agent={agent} />
-
-          {!readSupported ? (
-            <div className="border border-dashed border-border/70 px-3 py-3 text-xs text-muted-foreground">
-              This agent reports live activity below. Follow-up messaging is not supported for this
-              provider.
-            </div>
-          ) : result._tag === "Failure" ? (
-            <div className="border border-dashed border-destructive/45 px-3 py-3 text-xs text-destructive-foreground">
-              Unable to load this child chat transcript. Select it again to retry.
-            </div>
-          ) : result._tag !== "Success" ? (
-            <p className="text-xs text-muted-foreground">Loading child chat…</p>
-          ) : visibleMessages.length === 0 ? (
-            <div className="border border-dashed border-border/70 px-3 py-4 text-center text-xs text-muted-foreground">
-              This agent is ready. Send a message below to direct it.
-            </div>
-          ) : (
-            visibleMessages.map((message) => (
-              <article
-                key={message.id}
-                className={cn(
-                  "max-w-[92%] text-xs leading-relaxed",
-                  message.role === "user" ? "ml-auto" : "mr-auto",
-                )}
-              >
-                <div className="mb-1 flex items-center gap-1.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
-                  {message.role === "user" ? (
-                    "You"
-                  ) : (
-                    <>
-                      <SubagentAvatar
-                        iconName={agent.iconName}
-                        iconColor={agent.iconColor}
-                        className="size-3.5 rounded-xs"
-                        iconClassName="size-2"
-                      />
-                      <span>{displayName}</span>
-                    </>
-                  )}
-                </div>
-                {message.role === "assistant" ? (
-                  <div
-                    className={cn(
-                      "rounded-md border border-border/40 bg-card/60 px-3 py-2",
-                      message.streaming && "border-info/45 bg-info/5",
-                    )}
-                  >
-                    <ChatMarkdown text={message.text} cwd={cwd} lineBreaks />
-                    {message.streaming ? (
-                      <div className="mt-2 flex items-center gap-1.5 text-[10px] text-info-foreground">
-                        <span className="size-1.5 rounded-full bg-info" aria-hidden />
-                        Streaming
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="whitespace-pre-wrap rounded-md bg-accent/55 px-2.5 py-2 text-foreground/90">
-                    {message.text}
-                  </p>
-                )}
-              </article>
-            ))
-          )}
-
-          {/* Live agent activity stream / tools execution */}
-          {agent.recentActivity.length > 0 ? (
-            <div className="mt-3 space-y-1.5 border-t border-border/50 pt-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
-                <Clock className="size-3" />
-                <span>Live Activity & Tool Executions:</span>
-              </div>
-              <div className="space-y-1 rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px]">
-                {agent.recentActivity.map((act, i) => (
-                  <div
-                    key={`${act.at}-${i}`}
-                    className="flex items-start gap-1.5 text-muted-foreground"
-                  >
-                    <span className="text-[9px] text-muted-foreground/60">
-                      {act.at
-                        ? new Date(act.at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            second: "2-digit",
-                          })
-                        : ""}
-                    </span>
-                    <span className="text-foreground/85">{act.summary}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {/* Agent status summary if finished or error */}
-          {agent.status === "completed" && agent.result ? (
-            <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-2.5 py-2 text-xs text-success">
-              <CheckCircle2 className="size-4 shrink-0" />
-              <span className="truncate">{agent.result}</span>
-            </div>
-          ) : agent.status === "failed" && agent.error ? (
-            <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-              <XCircle className="size-4 shrink-0" />
-              <span className="truncate">{agent.error}</span>
-            </div>
-          ) : null}
-
-          {error ? (
-            <p className="border border-destructive/45 px-2.5 py-2 text-xs text-destructive-foreground">
-              {error}
-            </p>
-          ) : null}
-        </div>
+        )}
       </ScrollArea>
 
       <div className="shrink-0 border-t border-border/60 p-2.5">

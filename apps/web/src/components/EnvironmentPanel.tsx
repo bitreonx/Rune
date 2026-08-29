@@ -30,7 +30,11 @@ import {
   useDiscoveredLocalServers,
   type PreviewableServer,
 } from "./preview/useDiscoveredLocalServers";
-import { formatChangeSummary, summarizeEnvironmentChanges } from "./environmentSurface.logic";
+import {
+  formatChangeSummary,
+  hasEnvironmentChanges,
+  summarizeEnvironmentChanges,
+} from "./environmentSurface.logic";
 
 type RegisteredActionRecord = {
   readonly action: {
@@ -218,7 +222,12 @@ export function EnvironmentPanel(props: EnvironmentPanelProps) {
     () => summarizeEnvironmentChanges({ chatDiff: props.chatDiff, gitStatus: props.gitStatus }),
     [props.chatDiff, props.gitStatus],
   );
-  const hasChanges = changes.files > 0 || changes.additions > 0 || changes.deletions > 0;
+  const workspaceChanges = useMemo(
+    () => summarizeEnvironmentChanges({ chatDiff: null, gitStatus: props.gitStatus }),
+    [props.gitStatus],
+  );
+  const hasChanges = hasEnvironmentChanges(changes);
+  const hasWorkspaceChanges = hasEnvironmentChanges(workspaceChanges);
   const hasRepository = props.gitStatus?.isRepo === true;
   const hasAgentState =
     props.providerLabel != null ||
@@ -268,11 +277,38 @@ export function EnvironmentPanel(props: EnvironmentPanelProps) {
         </div>
       </header>
 
-      {hasChanges || hasRepository || props.gitStatusPending || props.gitStatusError ? (
+      {hasChanges ||
+      hasWorkspaceChanges ||
+      props.chatDiff !== null ||
+      hasRepository ||
+      props.gitStatusPending ||
+      props.gitStatusError ? (
         <Section title="Changes">
-          {hasChanges ? (
+          {props.chatDiff !== null ? (
+            hasChanges ? (
+              <Row
+                label="Changes in this chat"
+                description={formatChangeSummary(changes)}
+                icon={<FileDiff />}
+                onClick={props.onOpenDiff}
+              />
+            ) : (
+              <StateRow
+                label="No changes in this chat"
+                description="This chat has no attributed file changes"
+                icon={<CircleCheck />}
+              />
+            )
+          ) : hasWorkspaceChanges ? (
             <Row
-              label={props.chatDiff ? "Changes in this chat" : "Workspace changes"}
+              label="Workspace changes"
+              description={formatChangeSummary(workspaceChanges)}
+              icon={<FileDiff />}
+              onClick={props.onOpenFiles}
+            />
+          ) : hasChanges ? (
+            <Row
+              label="Workspace changes"
               description={formatChangeSummary(changes)}
               icon={<FileDiff />}
               onClick={props.chatDiff ? props.onOpenDiff : props.onOpenFiles}
@@ -296,6 +332,14 @@ export function EnvironmentPanel(props: EnvironmentPanelProps) {
               icon={<CircleCheck />}
             />
           )}
+          {props.chatDiff !== null && hasWorkspaceChanges ? (
+            <Row
+              label="Workspace changes"
+              description={formatChangeSummary(workspaceChanges)}
+              icon={<FileDiff />}
+              onClick={props.onOpenFiles}
+            />
+          ) : null}
           {hasRepository ? (
             <div className="border-t border-border/45 px-3 py-2">
               <div className="@container/header-actions">

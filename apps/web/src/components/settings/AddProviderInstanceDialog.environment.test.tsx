@@ -1,5 +1,6 @@
-import { EnvironmentId } from "@rune/contracts";
+import { EnvironmentId, ProviderDriverKind } from "@rune/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { isValidElement } from "react";
 
 import { reactHookHarness as hooks } from "../../test/reactHookHarness";
 
@@ -13,7 +14,12 @@ vi.mock("react", async (importOriginal) => {
   const { reactHookHarness } = await import("../../test/reactHookHarness");
   return {
     ...actual,
+    useEffect: (effect: () => void) => {
+      effect();
+    },
+    useCallback: reactHookHarness.useCallback,
     useMemo: reactHookHarness.useMemo,
+    useRef: reactHookHarness.useRef,
     useState: reactHookHarness.useState,
   };
 });
@@ -29,6 +35,27 @@ vi.mock("../../hooks/useSettings", () => ({
 }));
 
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
+
+function findElement(
+  value: unknown,
+  predicate: (element: { props: Record<string, unknown> }) => boolean,
+): { props: Record<string, unknown> } | undefined {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const match = findElement(child, predicate);
+      if (match) return match;
+    }
+    return undefined;
+  }
+
+  if (!isValidElement(value)) return undefined;
+
+  const element = value as unknown as {
+    props: Record<string, unknown>;
+  };
+  if (predicate(element)) return element;
+  return findElement(element.props.children, predicate);
+}
 
 const remoteEnvironmentId = EnvironmentId.make("remote-device");
 
@@ -50,5 +77,43 @@ describe("AddProviderInstanceDialog environment routing", () => {
 
     expect(settingsHooks.read).toHaveBeenCalledWith(remoteEnvironmentId);
     expect(settingsHooks.update).toHaveBeenCalledWith(remoteEnvironmentId);
+  });
+
+  it("hides harness selection for contextual instance setup", () => {
+    hooks.beginRender();
+    const dialog = AddProviderInstanceDialog({
+      open: true,
+      environmentId: remoteEnvironmentId,
+      environmentLabel: "Remote device",
+      initialDriver: ProviderDriverKind.make("claudeAgent"),
+      onOpenChange: vi.fn(),
+    });
+
+    const wizard = findElement(
+      dialog,
+      (element) =>
+        "currentStep" in element.props && "summaries" in element.props,
+    );
+
+    expect(wizard?.props.steps).toEqual(["Identity", "Config"]);
+    expect(wizard?.props.currentStep).toBe(0);
+  });
+
+  it("uses Agent Harness terminology for global instance setup", () => {
+    hooks.beginRender();
+    const dialog = AddProviderInstanceDialog({
+      open: true,
+      environmentId: remoteEnvironmentId,
+      environmentLabel: "Remote device",
+      onOpenChange: vi.fn(),
+    });
+
+    const wizard = findElement(
+      dialog,
+      (element) =>
+        "currentStep" in element.props && "summaries" in element.props,
+    );
+
+    expect(wizard?.props.steps).toEqual(["Harness", "Identity", "Config"]);
   });
 });

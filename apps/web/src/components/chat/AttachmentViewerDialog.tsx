@@ -1,5 +1,6 @@
 import {
   AudioLinesIcon,
+  ClipboardIcon,
   ExternalLinkIcon,
   FileIcon,
   FileTextIcon,
@@ -24,6 +25,8 @@ import {
 } from "../ui/dialog";
 import { formatBytes } from "../files/viewers/formatBytes";
 
+const MAX_LOCAL_HASH_BYTES = 32 * 1024 * 1024;
+
 export type AttachmentViewerItem = {
   readonly type: "file";
   readonly kind: "file" | "folder";
@@ -34,6 +37,28 @@ export type AttachmentViewerItem = {
   readonly path?: string;
   readonly file?: File;
 };
+
+function attachmentSizeBytes(attachment: AttachmentViewerItem): number {
+  return attachment.file?.size ?? attachment.sizeBytes;
+}
+
+function localFileModifiedAt(file: File | undefined): string | undefined {
+  if (!file || !Number.isFinite(file.lastModified)) return undefined;
+  const modifiedAt = new Date(file.lastModified);
+  return Number.isNaN(modifiedAt.getTime()) ? undefined : modifiedAt.toISOString();
+}
+
+async function computeLocalFileSha256(file: File): Promise<string | undefined> {
+  if (file.size > MAX_LOCAL_HASH_BYTES || !globalThis.crypto?.subtle) return undefined;
+  try {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  } catch {
+    return undefined;
+  }
+}
 
 function normalizedMimeType(attachment: AttachmentViewerItem): string {
   return attachment.mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
@@ -63,10 +88,14 @@ function AttachmentTypeIcon({ attachment }: { readonly attachment: AttachmentVie
 function AttachmentMetadata({
   attachment,
   description,
+  sha256,
 }: {
   readonly attachment: AttachmentViewerItem;
   readonly description?: string;
+  readonly sha256?: string;
 }) {
+  const mimeType = normalizedMimeType(attachment);
+  const modifiedAt = localFileModifiedAt(attachment.file);
   return (
     <div
       className="flex min-h-48 flex-col items-center justify-center gap-4 rounded-xl border border-border/70 bg-muted/25 px-6 py-10 text-center"
@@ -76,11 +105,33 @@ function AttachmentMetadata({
         <AttachmentTypeIcon attachment={attachment} />
       </span>
       <div className="space-y-1">
-        <p className="break-all font-medium text-foreground">{attachment.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {attachmentViewerTypeLabel(attachment)} · {formatBytes(attachment.sizeBytes)} ·{" "}
-          {attachment.mimeType || "Unknown type"}
-        </p>
+        <dl
+          className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-left text-xs"
+          data-attachment-viewer-metadata-details="true"
+        >
+          <dt className="text-muted-foreground">Name</dt>
+          <dd className="min-w-0 break-all font-medium text-foreground">{attachment.name}</dd>
+          <dt className="text-muted-foreground">Type</dt>
+          <dd className="min-w-0 break-all text-foreground">
+            {attachmentViewerTypeLabel(attachment)} · {mimeType || "Unknown type"}
+          </dd>
+          <dt className="text-muted-foreground">Size</dt>
+          <dd className="text-foreground">{formatBytes(attachmentSizeBytes(attachment))}</dd>
+          {modifiedAt ? (
+            <>
+              <dt className="text-muted-foreground">Modified</dt>
+              <dd className="break-all text-foreground">
+                <time dateTime={modifiedAt}>{modifiedAt}</time>
+              </dd>
+            </>
+          ) : null}
+          {sha256 ? (
+            <>
+              <dt className="text-muted-foreground">SHA-256</dt>
+              <dd className="break-all font-mono text-foreground">{sha256}</dd>
+            </>
+          ) : null}
+        </dl>
         <p className="text-xs text-muted-foreground">
           {description ?? "RUNE keeps this reference safe and does not execute it."}
         </p>
@@ -92,9 +143,11 @@ function AttachmentMetadata({
 function AttachmentMediaPreview({
   attachment,
   sourceUrl,
+  sha256,
 }: {
   readonly attachment: AttachmentViewerItem;
   readonly sourceUrl: string;
+  readonly sha256?: string;
 }) {
   const mimeType = normalizedMimeType(attachment);
   if (mimeType.startsWith("image/")) {
@@ -137,6 +190,7 @@ function AttachmentMediaPreview({
   return (
     <AttachmentMetadata
       attachment={attachment}
+      sha256={sha256}
       description="This file type is not rendered inline. Use the safe reveal actions below."
     />
   );
@@ -144,21 +198,37 @@ function AttachmentMediaPreview({
 
 function LocalAttachmentContent({ attachment }: { readonly attachment: AttachmentViewerItem }) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [sha256, setSha256] = useState<string | undefined>();
 
   useEffect(() => {
     if (!attachment.file || typeof URL === "undefined") {
       setSourceUrl(null);
+      setSha256(undefined);
       return;
     }
+    let active = true;
     const nextUrl = URL.createObjectURL(attachment.file);
     setSourceUrl(nextUrl);
-    return () => URL.revokeObjectURL(nextUrl);
+    setSha256(undefined);
+    void computeLocalFileSha256(attachment.file).then((digest) => {
+      if (active) setSha256(digest);
+    });
+    return () => {
+      active = false;
+      URL.revokeObjectURL(nextUrl);
+    };
   }, [attachment.file]);
 
   if (sourceUrl === null) {
-    return <AttachmentMetadata attachment={attachment} description="Preparing local preview…" />;
+    return (
+      <AttachmentMetadata
+        attachment={attachment}
+        sha256={sha256}
+        description="Preparing local preview…"
+      />
+    );
   }
-  return <AttachmentMediaPreview attachment={attachment} sourceUrl={sourceUrl} />;
+  return <AttachmentMediaPreview attachment={attachment} sourceUrl={sourceUrl} sha256={sha256} />;
 }
 
 function ServerAttachmentContent({
@@ -176,7 +246,10 @@ function ServerAttachmentContent({
   if (assetUrl._tag === "Loading") {
     return (
       <div className="flex min-h-48 items-center justify-center text-muted-foreground">
-        <LoaderCircle className="size-5 animate-spin" aria-label="Loading attachment" />
+        <LoaderCircle
+          className="size-5 animate-spin motion-reduce:animate-none"
+          aria-label="Loading attachment"
+        />
       </div>
     );
   }
@@ -198,6 +271,7 @@ export function AttachmentViewerDialog(props: {
   readonly onOpenChange: (open: boolean) => void;
   readonly onRevealInFiles?: (attachment: AttachmentViewerItem) => void;
   readonly onRevealInExplorer?: (attachment: AttachmentViewerItem) => void;
+  readonly onCopyPath?: (attachment: AttachmentViewerItem) => void;
 }) {
   const { attachment } = props;
   const hasPath = attachment?.path !== undefined && attachment.path.length > 0;
@@ -217,7 +291,7 @@ export function AttachmentViewerDialog(props: {
               <span className="truncate">{attachment.name}</span>
             </DialogTitle>
             <DialogDescription>
-              {attachmentViewerTypeLabel(attachment)} · {formatBytes(attachment.sizeBytes)}
+              {attachmentViewerTypeLabel(attachment)} · {formatBytes(attachmentSizeBytes(attachment))}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
@@ -231,7 +305,7 @@ export function AttachmentViewerDialog(props: {
             ) : attachment.path ? (
               <AttachmentMetadata
                 attachment={attachment}
-                description="This reference is available on the agent environment."
+                description="Preview unavailable for this agent-environment path; the renderer cannot access provider-host files."
               />
             ) : (
               <ServerAttachmentContent environmentId={props.environmentId} attachment={attachment} />
@@ -260,7 +334,17 @@ export function AttachmentViewerDialog(props: {
                     size="sm"
                     onClick={() => props.onRevealInExplorer?.(attachment)}
                   >
-                    <ExternalLinkIcon aria-hidden="true" /> Reveal in Explorer
+                    <ExternalLinkIcon aria-hidden="true" /> Reveal in system Explorer
+                  </Button>
+                ) : null}
+                {props.onCopyPath ? (
+                  <Button
+                    type="button"
+                    variant="ghost-muted"
+                    size="sm"
+                    onClick={() => props.onCopyPath?.(attachment)}
+                  >
+                    <ClipboardIcon aria-hidden="true" /> Copy path
                   </Button>
                 ) : null}
               </div>

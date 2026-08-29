@@ -16,7 +16,12 @@ import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import type { SkillWorkspaceEntry } from "../../skills/skillsWorkspace.logic";
-import type { SkillMarketplaceView } from "../../skills/marketplaceRegistry";
+import {
+  MARKETPLACE_COMPATIBILITY_LABEL,
+  marketplaceSourceMetadata,
+  type SkillMarketplaceView,
+} from "../../skills/marketplaceRegistry";
+import { getProviderOrServiceIcon } from "../chat/providerIconUtils";
 
 export function SkillDetailPanel({
   entry,
@@ -47,6 +52,7 @@ export function SkillDetailPanel({
   }
 
   if (marketplaceEntry) {
+    const source = marketplaceSourceMetadata(marketplaceEntry.repository);
     const repositoryUrl = (() => {
       try {
         const url = new URL(marketplaceEntry.repository);
@@ -69,7 +75,7 @@ export function SkillDetailPanel({
 
     return (
       <aside
-        className="sticky top-5 rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+        className="sticky top-5 max-h-[calc(100dvh-2.5rem)] overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
         data-rune-skill-marketplace-detail
       >
         <div className="flex items-start justify-between gap-4">
@@ -102,11 +108,13 @@ export function SkillDetailPanel({
 
         <dl className="mt-5 grid gap-2 text-xs">
           <div className="rounded-xl bg-muted/35 px-3 py-2.5">
-            <dt className="text-muted-foreground">Source</dt>
+            <dt className="text-muted-foreground">Source / author</dt>
             <dd className="mt-1 break-all font-medium text-foreground">
-              {marketplaceEntry.repository}
+              {source.provider} · {source.author}
             </dd>
-            <dd className="mt-1 text-muted-foreground">{marketplaceEntry.path}</dd>
+            <dd className="mt-1 break-all text-muted-foreground">
+              {source.repositoryName} / {marketplaceEntry.path}
+            </dd>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
             <dt className="text-muted-foreground">Catalog version</dt>
@@ -117,10 +125,26 @@ export function SkillDetailPanel({
             <dd className="mt-2 flex flex-wrap gap-1.5">
               {marketplaceEntry.compatibility.map((harness) => (
                 <Badge key={harness} variant="outline" size="sm">
-                  {harness}
+                  {(() => {
+                    const iconKind =
+                      harness === "rune-native"
+                        ? "runeNative"
+                        : harness === "claude"
+                          ? "claudeAgent"
+                          : harness;
+                    const ProviderIcon = getProviderOrServiceIcon(iconKind);
+                    return ProviderIcon ? (
+                      <ProviderIcon className="me-1 inline size-3" aria-hidden />
+                    ) : null;
+                  })()}
+                  {MARKETPLACE_COMPATIBILITY_LABEL[harness]}
                 </Badge>
               ))}
             </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
+            <dt className="text-muted-foreground">Install scope</dt>
+            <dd className="font-medium text-foreground">Project · .agents/skills</dd>
           </div>
         </dl>
 
@@ -202,7 +226,7 @@ export function SkillDetailPanel({
 
   return (
     <aside
-      className="sticky top-5 rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+      className="sticky top-5 max-h-[calc(100dvh-2.5rem)] overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
       data-rune-skill-detail
     >
       <div className="flex items-start justify-between gap-4">

@@ -29,7 +29,11 @@ import {
 import { cn } from "../../lib/utils";
 import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeServices";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { normalizeProviderAccentColor } from "../../providerInstances";
+import {
+  formatProviderInstanceConnectionLabel,
+  formatProviderInstanceRouteLabel,
+  normalizeProviderAccentColor,
+} from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -252,7 +256,11 @@ export function ProviderInstanceCard({
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
-  const serviceBadge = resolveClaudeInstanceService(instance);
+  const connectionLabel = formatProviderInstanceConnectionLabel({ instance, services });
+  const routeLabel = formatProviderInstanceRouteLabel({ instance, services });
+  const serviceBadge =
+    resolveClaudeInstanceService(instance) ??
+    (connectionLabel === "OpenRouter" ? "openrouter" : undefined);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
       toastManager.add({
@@ -436,6 +444,9 @@ export function ProviderInstanceCard({
         </>
       )}
       {summary.detail ? <span>- {summary.detail}</span> : null}
+      <span className="basis-full text-xs text-muted-foreground/70" data-provider-route-label>
+        Route: {routeLabel}
+      </span>
     </p>
   );
 

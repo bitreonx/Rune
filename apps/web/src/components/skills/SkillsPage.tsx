@@ -28,6 +28,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SkillDetailPanel } from "./SkillDetailPanel";
+import { getProviderOrServiceIcon } from "../chat/providerIconUtils";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -41,6 +42,8 @@ import {
   BUNDLED_SKILL_MARKETPLACE,
   marketplaceSkillIdentity,
   projectMarketplaceView,
+  marketplaceSourceMetadata,
+  MARKETPLACE_COMPATIBILITY_LABEL,
   type SkillMarketplaceView,
 } from "../../skills/marketplaceRegistry";
 import { fetchMarketplaceSkillBody } from "../../skills/marketplaceInstaller";
@@ -154,6 +157,7 @@ function MarketplaceListRow({
   readonly selected: boolean;
   readonly onSelect: () => void;
 }) {
+  const source = marketplaceSourceMetadata(entry.repository);
   return (
     <button
       type="button"
@@ -186,11 +190,23 @@ function MarketplaceListRow({
         </span>
         <span className="mt-2 flex flex-wrap items-center gap-1.5">
           <Badge variant="outline" size="sm">
-            GitHub
+            {source.provider} · {source.author}
           </Badge>
           {entry.compatibility.slice(0, 3).map((harness) => (
             <Badge key={harness} variant="outline" size="sm">
-              {harness}
+              {(() => {
+                const iconKind =
+                  harness === "rune-native"
+                    ? "runeNative"
+                    : harness === "claude"
+                      ? "claudeAgent"
+                      : harness;
+                const ProviderIcon = getProviderOrServiceIcon(iconKind);
+                return ProviderIcon ? (
+                  <ProviderIcon className="me-1 inline size-3" aria-hidden />
+                ) : null;
+              })()}
+              {MARKETPLACE_COMPATIBILITY_LABEL[harness]}
             </Badge>
           ))}
         </span>
@@ -470,7 +486,7 @@ export function SkillsPage() {
             </p>
           </div>
         ) : view === "installed" ? (
-          <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+          <div className="mt-8 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
             <section className="min-w-0 space-y-2" aria-label="Available skills">
               {filteredEntries.map((entry) => (
                 <SkillListRow
@@ -496,7 +512,7 @@ export function SkillsPage() {
             </p>
           </div>
         ) : (
-          <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+          <div className="mt-8 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
             <section className="min-w-0 space-y-2" aria-label="Marketplace skills">
               {marketplaceVisibleEntries.map((entry) => (
                 <MarketplaceListRow

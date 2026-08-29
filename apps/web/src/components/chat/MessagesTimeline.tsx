@@ -169,6 +169,9 @@ interface TimelineRowSharedState {
   onDeleteUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenAttachment: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInFiles?: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInExplorer?: (attachment: ChatFileAttachment) => void;
+  onRemoveAttachment?: (attachment: ChatFileAttachment) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenChatDiff: () => void;
   chatDiff: ReadonlyArray<TurnDiffFileChange>;
@@ -330,6 +333,9 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenAttachment?: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInFiles?: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInExplorer?: (attachment: ChatFileAttachment) => void;
+  onRemoveAttachment?: (attachment: ChatFileAttachment) => void;
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
@@ -383,6 +389,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   onOpenAttachment = NOOP_OPEN_ATTACHMENT,
+  onRevealAttachmentInFiles,
+  onRevealAttachmentInExplorer,
+  onRemoveAttachment,
   activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
@@ -646,6 +655,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onDeleteUserMessage,
       onImageExpand,
       onOpenAttachment,
+      onRevealAttachmentInFiles,
+      onRevealAttachmentInExplorer,
+      onRemoveAttachment,
       onOpenTurnDiff,
       onOpenChatDiff,
       chatDiff,
@@ -669,6 +681,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onDeleteUserMessage,
       onImageExpand,
       onOpenAttachment,
+      onRevealAttachmentInFiles,
+      onRevealAttachmentInExplorer,
+      onRemoveAttachment,
       onOpenTurnDiff,
       onOpenChatDiff,
       chatDiff,
@@ -1196,6 +1211,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                 key={attachment.id}
                 attachment={attachment}
                 onOpenAttachment={ctx.onOpenAttachment}
+                onRevealInFiles={ctx.onRevealAttachmentInFiles}
+                onRevealInExplorer={ctx.onRevealAttachmentInExplorer}
+                onRemove={ctx.onRemoveAttachment}
               />
             ))}
           </div>

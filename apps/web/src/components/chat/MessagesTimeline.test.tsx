@@ -307,9 +307,9 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("2.0 KB");
     expect(markup).toContain("assets");
     expect(markup).toContain("archive.bin");
-    expect(markup).toContain('aria-label="Open notes.pdf · PDF"');
+    expect(markup).toContain('aria-label="Preview notes.pdf · PDF"');
     expect(markup).toContain('aria-label="Attachment actions for notes.pdf"');
-    expect(markup).toContain("Open attachment");
+    expect(markup).toContain('aria-label="Preview notes.pdf · PDF"');
     expect(markup).toContain("motion-reduce:transition-none");
     expect(markup).not.toContain(attachmentPath);
   });

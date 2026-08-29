@@ -1137,7 +1137,11 @@ export default function FileBrowserPanel({
           className="flex flex-1 items-center justify-center px-6 pb-16 text-center text-xs text-muted-foreground"
           role="status"
         >
-          {chatScoped ? "No changed files in this chat." : "No files found in this workspace."}
+          {chatScoped
+            ? chatDiff?.length === 0
+              ? "No changes in this chat. Workspace files remain available below when you switch scope."
+              : "No files found in this chat scope."
+            : "No files found in this workspace."}
         </div>
       ) : (
         <FileTree

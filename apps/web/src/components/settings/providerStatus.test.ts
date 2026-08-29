@@ -51,6 +51,41 @@ describe("resolveInstanceReadiness", () => {
     ).toEqual({ tag: "ready", connectionLabel: "OpenRouter Work" });
   });
 
+  it("uses explicit external routing metadata instead of native auth", () => {
+    expect(
+      resolveInstanceReadiness({
+        instance: instance({
+          serviceKind: "openrouter",
+          authMode: "rune-managed",
+        }),
+        provider: provider(),
+      }),
+    ).toEqual({ tag: "ready", connectionLabel: "OpenRouter" });
+  });
+
+  it("does not turn a legacy OpenRouter environment route into native sign-in", () => {
+    expect(
+      resolveInstanceReadiness({
+        instance: instance({
+          environment: [
+            {
+              name: "ANTHROPIC_BASE_URL",
+              value: "https://openrouter.ai/api",
+              sensitive: false,
+            },
+            {
+              name: "ANTHROPIC_AUTH_TOKEN",
+              value: "",
+              valueRedacted: true,
+              sensitive: true,
+            },
+          ],
+        }),
+        provider: provider(),
+      }),
+    ).toEqual({ tag: "ready", connectionLabel: "OpenRouter" });
+  });
+
   it("targets the connection when the external service needs auth", () => {
     expect(
       resolveInstanceReadiness({

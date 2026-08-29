@@ -12,6 +12,17 @@ export type SkillMarketplaceCompatibility =
   | "grok"
   | "opencode";
 
+export const MARKETPLACE_COMPATIBILITY_LABEL: Readonly<
+  Record<SkillMarketplaceCompatibility, string>
+> = {
+  "rune-native": "RUNE Native",
+  codex: "Codex",
+  claude: "Claude Code",
+  cursor: "Cursor",
+  grok: "Grok",
+  opencode: "OpenCode",
+};
+
 export interface SkillMarketplaceRecord {
   readonly slug: string;
   readonly repository: string;
@@ -19,6 +30,12 @@ export interface SkillMarketplaceRecord {
   readonly description: string;
   readonly compatibility: ReadonlyArray<SkillMarketplaceCompatibility>;
   readonly version: number;
+}
+
+export interface SkillMarketplaceSourceMetadata {
+  readonly provider: "GitHub" | "Repository";
+  readonly author: string;
+  readonly repositoryName: string;
 }
 
 /**
@@ -49,6 +66,32 @@ export function marketplaceSkillIdentity(
   record: Pick<SkillMarketplaceRecord, "slug" | "repository">,
 ): string {
   return canonicalSkillIdentity({ slug: record.slug, repositoryUrl: record.repository });
+}
+
+/**
+ * Derive display metadata from the canonical source URL without inventing
+ * popularity, ownership, or other registry data that the source did not
+ * provide. Invalid URLs deliberately fall back to an honest generic label.
+ */
+export function marketplaceSourceMetadata(repository: string): SkillMarketplaceSourceMetadata {
+  try {
+    const url = new URL(repository);
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (url.hostname.toLowerCase() === "github.com" && segments.length >= 2) {
+      return {
+        provider: "GitHub",
+        author: segments[0]!,
+        repositoryName: segments[1]!.replace(/\.git$/u, ""),
+      };
+    }
+    return {
+      provider: "Repository",
+      author: url.hostname,
+      repositoryName: segments.at(-1)?.replace(/\.git$/u, "") || url.hostname,
+    };
+  } catch {
+    return { provider: "Repository", author: "Unknown source", repositoryName: repository };
+  }
 }
 
 export function isValidMarketplaceRecord(record: SkillMarketplaceRecord): boolean {

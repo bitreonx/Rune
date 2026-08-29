@@ -167,8 +167,8 @@ export function HarnessesSection(props: {
             Agent Harnesses
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            One calm place to connect harnesses, accounts, models, tools, subagents, and execution
-            environments.
+            Coding-agent runtimes and their configured instances. Open a harness to manage its
+            accounts and models.
           </p>
         </div>
         {!props.readOnly ? (

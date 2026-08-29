@@ -8789,6 +8789,8 @@ function ChatViewContent(props: ChatViewProps) {
                   isRevertingCheckpoint={isRevertingCheckpoint}
                   onImageExpand={onExpandTimelineImage}
                   onOpenAttachment={openComposerAttachment}
+                  onRevealAttachmentInFiles={openComposerAttachment}
+                  onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}
                   markdownCwd={gitCwd ?? undefined}
                   resolvedTheme={resolvedTheme}
                   timestampFormat={timestampFormat}
@@ -9219,8 +9221,11 @@ function ChatViewContent(props: ChatViewProps) {
         onOpenChange={(open) => {
           if (!open) setAttachmentViewer(null);
         }}
-        onRevealInFiles={() => openFilesSurface()}
+        onRevealInFiles={openComposerAttachment}
         onRevealInExplorer={revealComposerAttachmentInExplorer}
+        onCopyPath={(attachment) => {
+          if (attachment.path) copyRightPanelFilePath(attachment.path);
+        }}
       />
     </div>
   );

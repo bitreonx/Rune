@@ -17,6 +17,8 @@ import {
   defaultInstanceIdForDriver,
   PROVIDER_DISPLAY_NAMES,
   resolveProviderInstanceEnabled,
+  type ModelServiceConfig,
+  type ProviderInstanceConfig,
   type ModelSelection,
   type ProviderDriverKind,
   ProviderInstanceId,
@@ -119,6 +121,77 @@ function humanizeInstanceId(instanceId: ProviderInstanceId): string {
 
 function driverKindLabel(driverKind: ProviderDriverKind): string {
   return PROVIDER_DISPLAY_NAMES[driverKind] ?? formatProviderDriverKindLabel(driverKind);
+}
+
+const MODEL_SERVICE_LABELS: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
+  deepseek: "DeepSeek",
+  gateway: "Custom gateway",
+  google: "Google Gemini",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+};
+
+function modelServiceKindLabel(kind: string): string {
+  const normalized = kind.trim().toLowerCase();
+  return (
+    MODEL_SERVICE_LABELS[normalized] ??
+    normalized
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+  );
+}
+
+type ProviderInstanceRouteConfig = Pick<
+  ProviderInstanceConfig,
+  "connectionId" | "serviceKind" | "authMode" | "driver" | "environment" | "modelBindings"
+>;
+
+export interface ProviderInstanceRouteLabelInput {
+  readonly instance: ProviderInstanceRouteConfig;
+  readonly services?: Readonly<Record<string, ModelServiceConfig | undefined>>;
+  readonly model?: string;
+}
+
+/**
+ * Resolve the connection portion of an instance label without changing the
+ * persisted envelope. Explicit service records win; migration-era service
+ * metadata and Claude's legacy environment route remain readable as fallbacks.
+ */
+export function formatProviderInstanceConnectionLabel({
+  instance,
+  services,
+}: Pick<ProviderInstanceRouteLabelInput, "instance" | "services">): string {
+  const connectionId = instance.connectionId?.trim();
+  const service = connectionId ? services?.[connectionId] : undefined;
+  if (service) return service.displayName.trim() || service.maskedLabel?.trim() || "Model service";
+
+  const explicitServiceKind = instance.serviceKind?.trim();
+  if (explicitServiceKind && explicitServiceKind.toLowerCase() !== "native") {
+    return modelServiceKindLabel(explicitServiceKind);
+  }
+
+  const claudeService = resolveClaudeInstanceService(instance);
+  if (claudeService === "openrouter") return "OpenRouter";
+  if (claudeService === "gateway") return "Custom gateway";
+  if (instance.authMode === "rune-managed" || connectionId) return "Model service";
+  return "Native";
+}
+
+/**
+ * Format the model and route together for editor headings and model-picker
+ * context. The model remains the primary label; the route explains which
+ * harness account or external service will execute it.
+ */
+export function formatProviderInstanceRouteLabel({
+  instance,
+  services,
+  model,
+}: ProviderInstanceRouteLabelInput): string {
+  const connectionLabel = formatProviderInstanceConnectionLabel({ instance, services });
+  const routeLabel = connectionLabel === "Native" ? "Native" : `via ${connectionLabel}`;
+  const configuredModel = model?.trim() || instance.modelBindings?.main?.trim();
+  return configuredModel ? `${routeLabel} · ${configuredModel}` : routeLabel;
 }
 
 /**
@@ -311,12 +384,33 @@ export function applyProviderInstanceSettings(
         ? (legacyProviders[entry.driverKind]?.enabled ?? entry.enabled)
         : false;
     // Only explicit envelopes carry the managed service environment; a plain
-    // default instance keeps `serviceBadge` absent.
-    const serviceBadge = resolveClaudeInstanceService(explicitInstance);
-    if (enabled === entry.enabled && serviceBadge === entry.serviceBadge) {
+    // default instance keeps `serviceBadge` absent. Canonical profile routes
+    // may carry only service metadata, so include OpenRouter there as well.
+    const serviceBadge =
+      resolveClaudeInstanceService(explicitInstance) ??
+      (explicitInstance?.serviceKind?.trim().toLowerCase() === "openrouter"
+        ? "openrouter"
+        : undefined);
+    const connectionLabel = explicitInstance
+      ? formatProviderInstanceConnectionLabel({ instance: explicitInstance })
+      : "Native";
+    const displayName =
+      explicitInstance && connectionLabel !== "Native"
+        ? `${entry.displayName} · via ${connectionLabel}`
+        : entry.displayName;
+    if (
+      enabled === entry.enabled &&
+      serviceBadge === entry.serviceBadge &&
+      displayName === entry.displayName
+    ) {
       return entry;
     }
-    return { ...entry, enabled, ...(serviceBadge ? { serviceBadge } : {}) };
+    return {
+      ...entry,
+      displayName,
+      enabled,
+      ...(serviceBadge ? { serviceBadge } : {}),
+    };
   });
 }
 

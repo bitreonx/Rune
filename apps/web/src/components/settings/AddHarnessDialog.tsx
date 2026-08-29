@@ -163,11 +163,11 @@ export function AddHarnessDialog(props: {
                     <ChevronLeftIcon className="size-4" />
                   </button>
                 )}
-                {step === 1 ? "Select Coding Harness" : `Configure ${selectedHarness.displayName}`}
+                {step === 1 ? "Select Agent Harness" : `Configure ${selectedHarness.displayName}`}
               </DialogTitle>
               <DialogDescription>
                 {step === 1
-                  ? "Choose the coding agent runtime or harness you want to connect and direct."
+                  ? "Choose the coding-agent runtime you want to connect and direct."
                   : "Set up instance identity, multi-account shadow directories, and model routing."}
               </DialogDescription>
             </DialogHeader>

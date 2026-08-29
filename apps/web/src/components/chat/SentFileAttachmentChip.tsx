@@ -1,11 +1,13 @@
 import {
   EllipsisIcon,
+  ExternalLinkIcon,
   EyeIcon,
   FileIcon,
   FileTextIcon,
   FolderOpenIcon,
   ImageIcon,
   Music2Icon,
+  Trash2Icon,
   VideoIcon,
 } from "lucide-react";
 import { memo } from "react";
@@ -38,15 +40,32 @@ function AttachmentIcon({ attachment }: { attachment: ChatFileAttachment }) {
   return <FileIcon aria-hidden="true" />;
 }
 
+export const SENT_FILE_ATTACHMENT_ACTIONS = [
+  "Preview",
+  "Reveal in RUNE Files",
+  "Reveal in system Explorer",
+  "Remove",
+] as const;
+
 export const SentFileAttachmentChip = memo(function SentFileAttachmentChip(props: {
   attachment: ChatFileAttachment;
   onOpenAttachment: (attachment: ChatFileAttachment) => void;
+  onRevealInFiles?: (attachment: ChatFileAttachment) => void;
+  onRevealInExplorer?: (attachment: ChatFileAttachment) => void;
+  onRemove?: (attachment: ChatFileAttachment) => void;
 }) {
   const { attachment } = props;
   const typeLabel = attachmentTypeLabel(attachment);
   const accessibleName = `${attachment.name} · ${typeLabel}`;
+  const hasPath = typeof attachment.path === "string" && attachment.path.length > 0;
+  const canRevealInFiles = hasPath && props.onRevealInFiles !== undefined;
+  const canRevealInExplorer = hasPath && props.onRevealInExplorer !== undefined;
+  const canRemove = props.onRemove !== undefined;
 
   const openAttachment = () => props.onOpenAttachment(attachment);
+  const revealInFiles = () => props.onRevealInFiles?.(attachment);
+  const revealInExplorer = () => props.onRevealInExplorer?.(attachment);
+  const removeAttachment = () => props.onRemove?.(attachment);
 
   return (
     <div
@@ -62,7 +81,7 @@ export const SentFileAttachmentChip = memo(function SentFileAttachmentChip(props
         type="button"
         className="flex min-h-10 min-w-0 max-w-[min(24rem,calc(100vw-8rem))] items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={openAttachment}
-        aria-label={`Open ${accessibleName}`}
+        aria-label={`Preview ${accessibleName}`}
         title={accessibleName}
       >
         <span
@@ -92,7 +111,34 @@ export const SentFileAttachmentChip = memo(function SentFileAttachmentChip(props
         </MenuTrigger>
         <MenuPopup align="end" side="top" className="min-w-48">
           <MenuItem onClick={openAttachment}>
-            <EyeIcon className="size-4" aria-hidden="true" /> Open attachment
+            <EyeIcon className="size-4" aria-hidden="true" /> Preview
+          </MenuItem>
+          <MenuItem
+            disabled={!canRevealInFiles}
+            onClick={canRevealInFiles ? revealInFiles : undefined}
+            title={canRevealInFiles ? undefined : "Unavailable without a local path."}
+          >
+            <FolderOpenIcon className="size-4" aria-hidden="true" />
+            {canRevealInFiles ? "Reveal in RUNE Files" : "Reveal in RUNE Files (unavailable)"}
+          </MenuItem>
+          <MenuItem
+            disabled={!canRevealInExplorer}
+            onClick={canRevealInExplorer ? revealInExplorer : undefined}
+            title={canRevealInExplorer ? undefined : "Unavailable without a local path."}
+          >
+            <ExternalLinkIcon className="size-4" aria-hidden="true" />
+            {canRevealInExplorer
+              ? "Reveal in system Explorer"
+              : "Reveal in system Explorer (unavailable)"}
+          </MenuItem>
+          <MenuItem
+            disabled={!canRemove}
+            onClick={canRemove ? removeAttachment : undefined}
+            title={canRemove ? undefined : "Unavailable for sent attachments."}
+            variant="destructive"
+          >
+            <Trash2Icon className="size-4" aria-hidden="true" />
+            {canRemove ? "Remove" : "Remove (unavailable)"}
           </MenuItem>
         </MenuPopup>
       </Menu>

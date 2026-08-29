@@ -6,6 +6,10 @@ export interface EnvironmentChangeSummary {
   readonly deletions: number;
 }
 
+export function hasEnvironmentChanges(summary: EnvironmentChangeSummary): boolean {
+  return summary.files > 0 || summary.additions > 0 || summary.deletions > 0;
+}
+
 export function summarizeEnvironmentChanges(input: {
   readonly chatDiff?: ReadonlyArray<{
     readonly path: string;

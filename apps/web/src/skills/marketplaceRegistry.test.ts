@@ -4,6 +4,7 @@ import {
   BUNDLED_SKILL_MARKETPLACE,
   isValidMarketplaceRecord,
   marketplaceSkillIdentity,
+  marketplaceSourceMetadata,
   projectMarketplaceView,
 } from "./marketplaceRegistry";
 
@@ -44,5 +45,21 @@ describe("marketplaceRegistry", () => {
       installed: [{ name: "grill-me", repositoryUrl: "https://github.com/mattpocock/skills" }],
     });
     expect(entry?.status).toBe("installed");
+  });
+
+  it("derives GitHub author and repository labels from the source URL", () => {
+    expect(marketplaceSourceMetadata("https://github.com/mattpocock/skills")).toEqual({
+      provider: "GitHub",
+      author: "mattpocock",
+      repositoryName: "skills",
+    });
+  });
+
+  it("keeps invalid sources honest instead of inventing an author", () => {
+    expect(marketplaceSourceMetadata("not-a-url")).toEqual({
+      provider: "Repository",
+      author: "Unknown source",
+      repositoryName: "not-a-url",
+    });
   });
 });

@@ -23,6 +23,8 @@ describe("ComposerAttachmentCapability", () => {
     );
 
     expect(html).toContain('data-composer-attachment-capability-trigger="true"');
+    expect(html).toContain('aria-label="Model attachment capabilities"');
+    expect(html).toContain("Model attachment capabilities");
     expect(
       resolveAttachmentCapabilityCopy({
         image: true,
@@ -31,7 +33,46 @@ describe("ComposerAttachmentCapability", () => {
         pdf: "unknown",
         folder: true,
       }).image,
-    ).toContain("Direct vision");
+    ).toContain("Direct provider-advertised model input");
+  });
+
+  it("separates provider-advertised input from RUNE-tested transport", () => {
+    const copy = resolveAttachmentCapabilityCopy({
+      image: true,
+      audio: true,
+      video: true,
+      pdf: true,
+      folder: true,
+    });
+    const html = renderToStaticMarkup(
+      <ComposerAttachmentCapabilityDetails
+        modelName="Multimodal model"
+        mediaSupport={{
+          image: true,
+          audio: true,
+          video: true,
+          pdf: true,
+          folder: true,
+        }}
+      />,
+    );
+
+    expect(copy.audio).toContain("Direct provider-advertised model input");
+    expect(copy.audio).not.toBe("Audio input is available.");
+    expect(html).toContain("RUNE-tested file/path transport");
+    expect(html).toContain("does not imply native model input");
+  });
+
+  it("shows Unknown when the model catalog is silent without a checked state", () => {
+    const html = renderToStaticMarkup(
+      <ComposerAttachmentCapabilityDetails modelName="Unlisted model" mediaSupport={{}} />,
+    );
+
+    expect(html).toContain("Unknown");
+    expect(html).toContain("catalog is silent");
+    expect(html).toContain("RUNE-tested file/path transport");
+    expect(html).not.toContain('data-composer-attachment-capability-state="true"');
+    expect(html).not.toContain("✓");
   });
 
   it("explains path handling when the model cannot receive images", () => {
@@ -82,7 +123,7 @@ describe("ComposerAttachmentCapability", () => {
       />,
     );
 
-    expect(html).toContain("What can this model use?");
+    expect(html).toContain("Model attachment capabilities");
     expect(html).toContain("Images");
     expect(html).toContain("Video");
     expect(html).toContain("Audio");

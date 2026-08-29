@@ -199,7 +199,18 @@ export function AddProviderInstanceDialog({
   const instanceIdError = validateInstanceId(instanceId, existingIds);
   const showInstanceIdError = hasAttemptedSubmit && instanceIdError !== null;
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
-  const wizardStepSummaries = [driverOption.label, previewLabel, null] as const;
+  const isContextual = initialDriver !== undefined;
+  // The state machine keeps the global step numbers so the existing save and
+  // validation rules stay intact. Contextual entry points expose only the
+  // identity/config screens and translate their visible indexes below.
+  const activeWizardStep = isContextual ? Math.max(1, wizardStep) : wizardStep;
+  const visibleWizardStep = isContextual ? activeWizardStep - 1 : activeWizardStep;
+  const wizardSteps = isContextual
+    ? (["Identity", "Config"] as const)
+    : (["Harness", "Identity", "Config"] as const);
+  const wizardStepSummaries = isContextual
+    ? ([previewLabel, null] as const)
+    : ([driverOption.label, previewLabel, null] as const);
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
@@ -222,12 +233,21 @@ export function AddProviderInstanceDialog({
   };
 
   const navigateToStep = (requestedStep: number) => {
+    const internalStep = isContextual ? requestedStep + 1 : requestedStep;
     applyWizardNavigation(
-      resolveWizardNavigation(wizardStep, requestedStep, ADD_PROVIDER_WIZARD_STEPS.length, {
+      resolveWizardNavigation(activeWizardStep, internalStep, ADD_PROVIDER_WIZARD_STEPS.length, {
         instanceIdError,
       }),
     );
   };
+
+  const resolveVisibleWizardNavigation = (requestedStep: number): WizardNavigation =>
+    resolveWizardNavigation(
+      activeWizardStep,
+      isContextual ? requestedStep + 1 : requestedStep,
+      ADD_PROVIDER_WIZARD_STEPS.length,
+      { instanceIdError },
+    );
 
   const handleSave = () => {
     setHasAttemptedSubmit(true);
@@ -294,9 +314,11 @@ export function AddProviderInstanceDialog({
                 : `Configure an additional harness instance on ${environmentLabel} — for example, a second Codex install pointed at a different workspace.`}
             </DialogDescription>
             <AddProviderInstanceWizardSteps
-              currentStep={wizardStep}
+              steps={wizardSteps}
+              currentStep={visibleWizardStep}
               summaries={wizardStepSummaries}
               instanceIdError={instanceIdError}
+              resolveNavigation={resolveVisibleWizardNavigation}
               onNavigation={applyWizardNavigation}
             />
           </DialogHeader>
@@ -306,9 +328,9 @@ export function AddProviderInstanceDialog({
             className="space-y-4 bg-zinc-25/80 px-6 py-5 ring-1 ring-black/5 dark:bg-white/2 dark:ring-white/5"
           >
             <AnimatedHeight>
-              <div className={cn("grid gap-2", wizardStep !== 0 && "hidden")}>
+              <div className={cn("grid gap-2", activeWizardStep !== 0 && "hidden")}>
                 <div id="add-instance-driver-label" className="text-sm font-medium text-foreground">
-                  Driver
+                  Harness
                 </div>
                 <RadioGroup
                   value={driver}
@@ -378,7 +400,7 @@ export function AddProviderInstanceDialog({
                   onChange={(event) => setLabel(event.target.value)}
                 />
                 <span className="text-[11px] text-muted-foreground">
-                  Shown in the provider list. Optional.
+                  Shown in the harness list. Optional.
                 </span>
               </label>
 
@@ -409,7 +431,7 @@ export function AddProviderInstanceDialog({
                     type="color"
                     value={normalizeProviderAccentColor(accentColor) ?? PROVIDER_ACCENT_SWATCHES[0]}
                     onChange={(event) => setAccentColor(event.target.value)}
-                    aria-label="Provider instance accent color"
+                    aria-label="Harness instance accent color"
                     className="h-8 w-10 cursor-pointer rounded-xl border border-input bg-background p-0.5"
                   />
                   <div className="flex flex-wrap gap-1.5">
@@ -594,17 +616,17 @@ export function AddProviderInstanceDialog({
               variant="outline"
               size="sm"
               onClick={() => {
-                if (wizardStep === 0) {
+                if (visibleWizardStep === 0) {
                   onOpenChange(false);
                   return;
                 }
-                setWizardStep((step) => Math.max(0, step - 1));
+                setWizardStep((step) => Math.max(isContextual ? 1 : 0, step - 1));
               }}
             >
-              {wizardStep === 0 ? "Cancel" : "Back"}
+              {visibleWizardStep === 0 ? "Cancel" : "Back"}
             </Button>
-            {wizardStep < ADD_PROVIDER_WIZARD_STEPS.length - 1 ? (
-              <Button size="sm" onClick={() => navigateToStep(wizardStep + 1)}>
+            {visibleWizardStep < wizardSteps.length - 1 ? (
+              <Button size="sm" onClick={() => navigateToStep(visibleWizardStep + 1)}>
                 Next
               </Button>
             ) : (

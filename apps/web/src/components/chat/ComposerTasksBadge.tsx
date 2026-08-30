@@ -431,7 +431,6 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
           size="icon-micro"
           variant="ghost-muted"
           aria-label="Open tasks in side panel"
-          aria-controls="rune-tasks-drawer-host"
           className="shrink-0"
           onClick={onOpenSidePanel}
           onPointerDown={(event) => event.preventDefault()}
@@ -470,6 +469,9 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
   readonly progress: ComposerTasksProgress;
   readonly steps: readonly ComposerTaskStep[];
 }) {
+  const drawerInstanceId = useId();
+  const drawerContentId = `rune-tasks-drawer-content-${drawerInstanceId}`;
+  const historyListId = `rune-task-history-list-${drawerInstanceId}`;
   const allDone = progress.completedSteps >= progress.totalSteps;
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const currentIndex = Math.max(
@@ -508,7 +510,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         <button
           type="button"
           aria-expanded="true"
-          aria-controls="rune-tasks-drawer-content"
+          aria-controls={drawerContentId}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left text-xs text-muted-foreground hover:text-foreground"
           onClick={onCollapse}
           onPointerDown={(event) => event.preventDefault()}
@@ -544,7 +546,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           <XIcon aria-hidden className="size-3" />
         </Button>
       </div>
-      <div id="rune-tasks-drawer-content">
+      <div id={drawerContentId}>
         <div
           aria-label="Task progress"
           aria-valuemax={progress.totalSteps}
@@ -556,7 +558,8 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         >
           <TaskStageStrip steps={steps} />
         </div>
-        <div id="rune-task-history" className="space-y-1 px-3 pb-4 pt-2 sm:px-4" role="list">
+        <div className="space-y-1 px-3 pb-4 pt-2 sm:px-4">
+          <div id={historyListId} role="list">
         {visibleSteps.map(({ index, step }) => {
           const key = `${step.step}:${index}`;
           return (
@@ -599,6 +602,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
             </div>
           );
         })}
+          </div>
         {activities.length > 0 ? (
           <TaskEvidence activities={activities} onOpenChange={onOpenChange} />
         ) : null}
@@ -606,7 +610,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           <button
             type="button"
             aria-expanded={historyExpanded}
-            aria-controls="rune-task-history"
+            aria-controls={historyListId}
             className="rune-task-history-toggle"
             onClick={() => setHistoryExpanded(true)}
           >
@@ -620,7 +624,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           <button
             type="button"
             aria-expanded={historyExpanded}
-            aria-controls="rune-task-history"
+            aria-controls={historyListId}
             className="rune-task-history-toggle"
             onClick={() => setHistoryExpanded((value) => !value)}
           >

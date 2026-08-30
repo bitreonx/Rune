@@ -93,7 +93,7 @@ export function resolveSkillSelectionKey(
 }
 
 export function marketplaceCatalogSourceLabel(state: MarketplaceCatalogState): string {
-  if (state === "loading") return "Loading GitHub marketplace…";
+  if (state === "loading") return "Loading GitHub marketplace · bundled preview";
   if (state === "github") return "GitHub catalog · live source";
   return "GitHub unavailable · bundled fallback";
 }
@@ -574,8 +574,8 @@ export function SkillsPage() {
       if (refreshResult._tag === "Success") {
         toastManager.add({
           type: "success",
-          title: "Skill installed in project",
-          description: `${files.length} file${files.length === 1 ? "" : "s"} written and provider catalogs refreshed.`,
+          title: "Skill files written",
+          description: `${files.length} file${files.length === 1 ? "" : "s"} written. Provider refresh requested; confirm the skill appears in Installed after the catalog updates.`,
         });
       } else {
         toastManager.add(

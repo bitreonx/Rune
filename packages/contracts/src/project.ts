@@ -10,6 +10,10 @@ const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+export const PROJECT_WRITE_BATCH_MAX_FILES = 64;
+export const PROJECT_WRITE_FILE_MAX_BYTES = 256 * 1024;
+export const PROJECT_WRITE_BATCH_MAX_BYTES = 2 * 1024 * 1024;
+const PROJECT_WRITE_FILE_MAX_BASE64_LENGTH = Math.ceil((PROJECT_WRITE_FILE_MAX_BYTES * 4) / 3) + 4;
 
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
@@ -348,10 +352,10 @@ export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
  * the simple string shape for the existing single-file and provider callers.
  */
 export const ProjectWriteFileContents = Schema.Union([
-  Schema.String,
+  Schema.String.check(Schema.isMaxLength(PROJECT_WRITE_FILE_MAX_BYTES)),
   Schema.Struct({
     encoding: Schema.Literal("base64"),
-    data: Schema.String,
+    data: Schema.String.check(Schema.isMaxLength(PROJECT_WRITE_FILE_MAX_BASE64_LENGTH)),
   }),
 ]);
 export type ProjectWriteFileContents = typeof ProjectWriteFileContents.Type;
@@ -364,7 +368,9 @@ export type ProjectWriteFilesFile = typeof ProjectWriteFilesFile.Type;
 
 export const ProjectWriteFilesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  files: Schema.Array(ProjectWriteFilesFile),
+  files: Schema.Array(ProjectWriteFilesFile).check(
+    Schema.isMaxLength(PROJECT_WRITE_BATCH_MAX_FILES),
+  ),
 });
 export type ProjectWriteFilesInput = typeof ProjectWriteFilesInput.Type;
 

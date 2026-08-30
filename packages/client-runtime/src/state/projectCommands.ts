@@ -129,8 +129,7 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: fileScheduler,
       concurrency: {
         mode: "serial",
-        key: ({ environmentId, input }) =>
-          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
       },
     }),
     writeFiles: createEnvironmentRpcCommand(runtime, {

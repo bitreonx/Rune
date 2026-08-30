@@ -56,7 +56,9 @@ const marketplaceEntry: SkillMarketplaceView = {
 
 describe("SkillsPage marketplace surfaces", () => {
   it("labels the live catalog state without hiding the bundled fallback", () => {
-    expect(marketplaceCatalogSourceLabel("loading")).toBe("Loading GitHub marketplace…");
+    expect(marketplaceCatalogSourceLabel("loading")).toBe(
+      "Loading GitHub marketplace · bundled preview",
+    );
     expect(marketplaceCatalogSourceLabel("github")).toBe("GitHub catalog · live source");
     expect(marketplaceCatalogSourceLabel("bundled")).toBe("GitHub unavailable · bundled fallback");
   });

@@ -19,6 +19,7 @@ export interface MarketplaceSkillBinaryContents {
 interface GitHubTreeFile {
   readonly path: string;
   readonly type: string;
+  readonly mode?: string;
 }
 
 function normalizedGitHubRepositoryPath(repository: string): string | null {
@@ -97,12 +98,32 @@ function parseGitHubTree(value: unknown): GitHubTreeFile[] {
   const response = value as { readonly truncated?: unknown; readonly tree?: unknown };
   if (response.truncated === true) throw new Error("GitHub returned a truncated skill tree.");
   if (!Array.isArray(response.tree)) throw new Error("GitHub returned no skill tree.");
-  return response.tree.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+  return response.tree.map((candidate, index) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error(`GitHub returned a malformed skill tree entry at index ${index}.`);
+    }
     const entry = candidate as Record<string, unknown>;
-    return typeof entry.path === "string" && typeof entry.type === "string"
-      ? [{ path: entry.path.replaceAll("\\", "/"), type: entry.type }]
-      : [];
+    if (typeof entry.path !== "string" || typeof entry.type !== "string") {
+      throw new Error(`GitHub returned a malformed skill tree entry at index ${index}.`);
+    }
+    const path = entry.path.replaceAll("\\", "/");
+    if (!isSafeRelativePath(path)) {
+      throw new Error(`GitHub returned an unsafe skill tree path: ${path}.`);
+    }
+    if (!["blob", "tree", "commit"].includes(entry.type)) {
+      throw new Error(`GitHub returned an unsupported skill tree entry type: ${entry.type}.`);
+    }
+    if (entry.mode !== undefined && typeof entry.mode !== "string") {
+      throw new Error(`GitHub returned a malformed mode for skill tree entry: ${path}.`);
+    }
+    if (entry.mode === "120000") {
+      throw new Error(`GitHub returned a symlink in the skill tree: ${path}.`);
+    }
+    return {
+      path,
+      type: entry.type,
+      ...(typeof entry.mode === "string" ? { mode: entry.mode } : {}),
+    };
   });
 }
 
@@ -188,6 +209,60 @@ function bytesToBase64(bytes: Uint8Array): string {
   return globalThis.btoa(binary);
 }
 
+function decodeUtf8(bytes: Uint8Array): string | null {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+async function readResponseBytes(
+  response: Response,
+  maxBytes: number,
+  label: string,
+): Promise<Uint8Array> {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error(`${label} is larger than RUNE's safe install limit.`);
+  }
+
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      throw new Error(`${label} is larger than RUNE's safe install limit.`);
+    }
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      const chunk = result.value;
+      totalBytes += chunk.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new Error(`${label} is larger than RUNE's safe install limit.`);
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export async function fetchMarketplaceSkillBody(
   record: SkillMarketplaceRecord,
   fetcher: typeof fetch = fetch,
@@ -196,11 +271,9 @@ export async function fetchMarketplaceSkillBody(
   if (!url) throw new Error("This marketplace record is not a valid GitHub skill source.");
   const response = await fetcher(url, { headers: { Accept: "text/markdown" } });
   if (!response.ok) throw new Error(`GitHub returned HTTP ${response.status} for this skill.`);
-  const declaredLength = Number(response.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_SKILL_BODY_BYTES) {
-    throw new Error("The skill body is larger than RUNE's safe install limit.");
-  }
-  const body = await response.text();
+  const bodyBytes = await readResponseBytes(response, MAX_SKILL_BODY_BYTES, "The skill body");
+  const body = decodeUtf8(bodyBytes);
+  if (body === null) throw new Error("GitHub returned a skill body that is not valid UTF-8.");
   if (!body.trim()) throw new Error("GitHub returned an empty skill body.");
   if (new TextEncoder().encode(body).byteLength > MAX_SKILL_BODY_BYTES) {
     throw new Error("The skill body is larger than RUNE's safe install limit.");
@@ -232,22 +305,14 @@ export async function fetchMarketplaceSkillFiles(
     if (!response.ok) {
       throw new Error("GitHub returned HTTP " + response.status + " for " + path + ".");
     }
-    const declaredLength = Number(response.headers.get("content-length") ?? "0");
-    if (declaredLength > MAX_SKILL_BODY_BYTES) {
-      throw new Error("A skill file is larger than RUNE's safe install limit.");
-    }
     const contentType = response.headers.get("content-type");
-    const contents = isTextSkillFile(path, contentType)
-      ? await response.text()
-      : {
-          encoding: "base64" as const,
-          data: bytesToBase64(new Uint8Array(await response.arrayBuffer())),
-        };
-    const bytes =
-      typeof contents === "string"
-        ? new TextEncoder().encode(contents).byteLength
-        : Math.floor((contents.data.length * 3) / 4) -
-          (contents.data.endsWith("==") ? 2 : contents.data.endsWith("=") ? 1 : 0);
+    const rawBytes = await readResponseBytes(response, MAX_SKILL_BODY_BYTES, "A skill file");
+    const textContents = isTextSkillFile(path, contentType) ? decodeUtf8(rawBytes) : null;
+    const contents = textContents ?? {
+      encoding: "base64" as const,
+      data: bytesToBase64(rawBytes),
+    };
+    const bytes = rawBytes.byteLength;
     if (
       path.toLowerCase() === record.path.trim().replaceAll("\\", "/").toLowerCase() &&
       (typeof contents !== "string" || !contents.trim())

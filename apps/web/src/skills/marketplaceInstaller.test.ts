@@ -77,6 +77,49 @@ describe("marketplaceInstaller", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects malformed or unsafe GitHub tree entries", async () => {
+    const unsafeFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          truncated: false,
+          tree: [{ path: "../secrets/SKILL.md", type: "blob" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(
+      fetchMarketplaceSkillFiles(BUNDLED_SKILL_MARKETPLACE[0]!, unsafeFetcher),
+    ).rejects.toThrow("unsafe skill tree path");
+
+    const malformedFetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ truncated: false, tree: [null] }), { status: 200 }),
+      );
+    await expect(
+      fetchMarketplaceSkillFiles(BUNDLED_SKILL_MARKETPLACE[0]!, malformedFetcher),
+    ).rejects.toThrow("malformed skill tree entry");
+  });
+
+  it("enforces the response limit while streaming when Content-Length is absent", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            truncated: false,
+            tree: [{ path: "grill-me/SKILL.md", type: "blob" }],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array(256 * 1024 + 1), { status: 200 }));
+
+    await expect(
+      fetchMarketplaceSkillFiles(BUNDLED_SKILL_MARKETPLACE[0]!, fetcher),
+    ).rejects.toThrow("safe install limit");
+  });
+
   it("preserves binary skill files as explicit base64 transport", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -93,7 +136,7 @@ describe("marketplaceInstaller", () => {
         ),
       )
       .mockResolvedValueOnce(
-        new Response("binary", {
+        new Response(new Uint8Array([0, 255, 1]), {
           status: 200,
           headers: { "content-type": "application/octet-stream" },
         }),
@@ -103,7 +146,7 @@ describe("marketplaceInstaller", () => {
     await expect(
       fetchMarketplaceSkillFiles(BUNDLED_SKILL_MARKETPLACE[0]!, fetcher),
     ).resolves.toEqual([
-      { relativePath: "logo.exe", contents: { encoding: "base64", data: "YmluYXJ5" } },
+      { relativePath: "logo.exe", contents: { encoding: "base64", data: "AP8B" } },
       { relativePath: "SKILL.md", contents: "instructions" },
     ]);
   });

@@ -47,6 +47,7 @@ describe("WorkspaceFileSystem mutations", () => {
               files: [
                 { relativePath: "existing.txt", contents: "after" },
                 { relativePath: "created.txt", contents: "new" },
+                { relativePath: "created/nested.txt", contents: "nested" },
                 { relativePath: "blocked/child.txt", contents: "failure" },
               ],
             })
@@ -55,6 +56,7 @@ describe("WorkspaceFileSystem mutations", () => {
           expect(result._tag).toBe("Failure");
           expect(NodeFS.readFileSync(NodePath.join(root, "existing.txt"), "utf8")).toBe("before");
           expect(NodeFS.existsSync(NodePath.join(root, "created.txt"))).toBe(false);
+          expect(NodeFS.existsSync(NodePath.join(root, "created"))).toBe(false);
         } finally {
           NodeFS.rmSync(root, { recursive: true, force: true });
         }
@@ -80,6 +82,38 @@ describe("WorkspaceFileSystem mutations", () => {
           expect([...NodeFS.readFileSync(NodePath.join(root, "assets/icon.bin"))]).toEqual([
             0, 1, 2, 255,
           ]);
+        } finally {
+          NodeFS.rmSync(root, { recursive: true, force: true });
+        }
+      }).pipe(Effect.provide(TestLayers)),
+    );
+  });
+
+  it("rejects invalid binary transport and aggregate-over-limit batches before mutation", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const root = makeTemporaryWorkspace();
+        try {
+          const invalidBase64 = yield* workspaceFileSystem
+            .writeFiles({
+              cwd: root,
+              files: [
+                { relativePath: "invalid.bin", contents: { encoding: "base64", data: "bad" } },
+              ],
+            })
+            .pipe(Effect.exit);
+          expect(invalidBase64._tag).toBe("Failure");
+          expect(NodeFS.existsSync(NodePath.join(root, "invalid.bin"))).toBe(false);
+
+          const oversized = yield* workspaceFileSystem
+            .writeFiles({
+              cwd: root,
+              files: [{ relativePath: "oversized.txt", contents: "x".repeat(2 * 1024 * 1024 + 1) }],
+            })
+            .pipe(Effect.exit);
+          expect(oversized._tag).toBe("Failure");
+          expect(NodeFS.existsSync(NodePath.join(root, "oversized.txt"))).toBe(false);
         } finally {
           NodeFS.rmSync(root, { recursive: true, force: true });
         }

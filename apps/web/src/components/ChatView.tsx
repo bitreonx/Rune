@@ -1956,7 +1956,7 @@ function ChatViewContent(props: ChatViewProps) {
     open: rightPanelOpen,
     reducedMotion: rightPanelMotionReduced,
     motionProfile: settings.motionProfile,
-    motionMs: RUNE_MOTION_MS.slow,
+    motionMs: RUNE_MOTION_MS.standard,
   });
   // The open bit is the source of truth for mounting a newly opened panel;
   // the hook then advances it to `opening` in the effect phase. Closing keeps
@@ -1992,7 +1992,7 @@ function ChatViewContent(props: ChatViewProps) {
       if (targetWidth <= 0) return;
       const animation = host.animate([{ width: "0px" }, { width: `${targetWidth}px` }], {
         duration: resolveRuneMotionDurationForProfile(
-          RUNE_MOTION_MS.slow,
+          RUNE_MOTION_MS.standard,
           settings.motionProfile,
           rightPanelMotionReduced,
         ),

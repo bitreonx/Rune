@@ -1216,6 +1216,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   unsafeToAutoExecute,
   className,
 }: MarkdownFileLinkProps) {
+  const canOpenInRuneViewer = threadRef != null && workspaceRelativePath !== null;
   const handleOpenInEditor = useCallback(() => {
     void (async () => {
       try {
@@ -1252,7 +1253,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   }, [onOpen, targetPath]);
 
   const handleOpenInFilePreview = useCallback(() => {
-    if (unsafeToAutoExecute && (!threadRef || !workspaceRelativePath)) {
+    if (unsafeToAutoExecute && !canOpenInRuneViewer) {
       return;
     }
     if (!threadRef || !workspaceRelativePath) {
@@ -1260,7 +1261,15 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       return;
     }
     onOpenInPanel(workspaceRelativePath, line);
-  }, [handleOpenInEditor, line, onOpenInPanel, threadRef, unsafeToAutoExecute, workspaceRelativePath]);
+  }, [
+    canOpenInRuneViewer,
+    handleOpenInEditor,
+    line,
+    onOpenInPanel,
+    threadRef,
+    unsafeToAutoExecute,
+    workspaceRelativePath,
+  ]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!onOpenInBrowser) {
@@ -1350,7 +1359,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       try {
         const clicked = await api.contextMenu.show(
           [
-            { id: "open-in-rune", label: "Open in RUNE Files" },
+            ...(canOpenInRuneViewer
+              ? ([{ id: "open-in-rune", label: "Open in RUNE Files" }] as const)
+              : []),
             ...(!unsafeToAutoExecute
               ? ([
                   { id: "open", label: "Open in editor" },
@@ -1403,6 +1414,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       handleOpenInBrowser,
       handleOpenInEditor,
       handleOpenInFilePreview,
+      canOpenInRuneViewer,
       onOpenInBrowser,
       targetPath,
       unsafeToAutoExecute,
@@ -1417,12 +1429,15 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           <a
             href={href}
             aria-label={`Workspace file ${label}`}
+            aria-disabled={unsafeToAutoExecute && !canOpenInRuneViewer ? true : undefined}
             className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, MARKDOWN_FILE_LINK_CLASS_NAME, className)}
+            data-smart-reference-unsafe={unsafeToAutoExecute ? "true" : undefined}
             data-markdown-copy={copyMarkdown}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
               if (unsafeToAutoExecute) {
+                if (!canOpenInRuneViewer) return;
                 handleOpenInFilePreview();
                 return;
               }
@@ -1783,7 +1798,9 @@ function ChatMarkdown({
                 // conversation instead of in a browser: it is the thing being talked about, and
                 // the panel it opens offers the browser as one of its actions. Anything else is
                 // an ordinary link and keeps the `_blank` the shell already handles.
-                if (href) openChangeRequestLink(event, href);
+                if (smartReference?.kind === "change-request" && href) {
+                  openChangeRequestLink(event, href);
+                }
               }}
               onContextMenu={(event) => {
                 if (!href || !faviconHost) return;

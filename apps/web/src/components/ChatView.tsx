@@ -143,10 +143,7 @@ import {
   type Thread,
   type TurnDiffSummary,
 } from "../types";
-import type {
-  ComposerFileAttachment,
-  ComposerImageAttachment,
-} from "../composerDraftStore";
+import type { ComposerFileAttachment } from "../composerDraftStore";
 import { resolveWorkspaceRelativePath } from "../filePathDisplay";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -1329,6 +1326,12 @@ function releaseChatTimelineAnchor<T extends { readonly messageId: MessageId | n
   current: T,
 ): T {
   return current.messageId === null ? current : { ...current, messageId: null };
+}
+
+function isSafeWorkspaceRelativeAttachmentPath(relativePath: string | null): relativePath is string {
+  if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) return false;
+  const segments = relativePath.replaceAll("\\", "/").split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
 function ChatViewContent(props: ChatViewProps) {
@@ -4117,7 +4120,7 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
       const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot);
-      if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) {
+      if (!isSafeWorkspaceRelativeAttachmentPath(relativePath)) {
         setAttachmentViewer(attachment);
         return;
       }
@@ -4127,9 +4130,9 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const revealComposerAttachmentInFiles = useCallback(
     (attachment: AttachmentViewerItem) => {
-      if (!activeThreadRef || !activeProject || !attachment.path) return;
-      const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot ?? "");
-      if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) {
+      if (!activeThreadRef || !activeProject || !activeWorkspaceRoot || !attachment.path) return;
+      const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot);
+      if (!isSafeWorkspaceRelativeAttachmentPath(relativePath)) {
         toastManager.add({
           type: "info",
           title: "Attachment is outside this workspace",
@@ -4137,9 +4140,9 @@ function ChatViewContent(props: ChatViewProps) {
         });
         return;
       }
-      useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
+      openFileSurface(relativePath);
     },
-    [activeProject, activeThreadRef, activeWorkspaceRoot],
+    [activeProject, activeThreadRef, activeWorkspaceRoot, openFileSurface],
   );
   const revealComposerAttachmentInExplorer = useCallback(
     (attachment: AttachmentViewerItem) => {
@@ -6902,7 +6905,7 @@ function ChatViewContent(props: ChatViewProps) {
           }
           return uploaded;
         }
-        const { file: _file, ...wireAttachment } = attachment;
+        const { file: _file, serverOwned: _serverOwned, ...wireAttachment } = attachment;
         return wireAttachment;
       }),
       ...threadAttachments,
@@ -6917,7 +6920,7 @@ function ChatViewContent(props: ChatViewProps) {
         previewUrl: image.previewUrl,
       })),
       ...composerFileAttachmentsSnapshot.map((attachment): ChatFileAttachment => {
-        const { file: _file, ...wireAttachment } = attachment;
+        const { file: _file, serverOwned: _serverOwned, ...wireAttachment } = attachment;
         return wireAttachment;
       }),
     ];
@@ -8497,6 +8500,7 @@ function ChatViewContent(props: ChatViewProps) {
             mimeType: candidateAttachment.mimeType,
             sizeBytes: candidateAttachment.sizeBytes,
             ...(candidateAttachment.path ? { path: candidateAttachment.path } : {}),
+            ...(candidateAttachment.path ? {} : { serverOwned: true as const }),
           } satisfies ComposerFileAttachment,
         ];
       });
@@ -9329,7 +9333,7 @@ function ChatViewContent(props: ChatViewProps) {
         onOpenChange={(open) => {
           if (!open) setAttachmentViewer(null);
         }}
-      onRevealInFiles={revealComposerAttachmentInFiles}
+        onRevealInFiles={revealComposerAttachmentInFiles}
         onRevealInExplorer={revealComposerAttachmentInExplorer}
         onCopyPath={(attachment) => {
           if (attachment.path) copyRightPanelFilePath(attachment.path);

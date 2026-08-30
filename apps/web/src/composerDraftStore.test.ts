@@ -310,6 +310,32 @@ describe("composerDraftStore file attachments", () => {
     expect(persistedAttachment).toEqual(attachment);
     expect(persistedAttachment).not.toHaveProperty("dataUrl");
   });
+
+  it("accepts and persists a server-owned upload reference without inventing a path", () => {
+    const { path: _path, ...metadata } = makeFileAttachment({ id: "server-file-1" });
+    const attachment: ComposerFileAttachment = {
+      ...metadata,
+      serverOwned: true,
+    };
+    useComposerDraftStore.getState().addFileAttachment(threadRef, attachment);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.fileAttachments).toEqual([attachment]);
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+      };
+    };
+    const persisted = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadKey?: Record<string, { fileAttachments?: Array<Record<string, unknown>> }>;
+    };
+    expect(
+      persisted.draftsByThreadKey?.[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]
+        ?.fileAttachments?.[0],
+    ).toEqual({
+      ...metadata,
+      serverOwned: true,
+    });
+  });
 });
 
 describe("composerDraftStore clearComposerContent", () => {

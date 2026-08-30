@@ -106,6 +106,8 @@ export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "prev
 export interface ComposerFileAttachment extends Omit<ChatFileAttachment, "path"> {
   readonly path?: string;
   readonly file?: File;
+  /** A previously uploaded server attachment that can be reused on resend. */
+  readonly serverOwned?: true;
 }
 
 const PersistedComposerFileAttachment = Schema.Struct({
@@ -115,7 +117,8 @@ const PersistedComposerFileAttachment = Schema.Struct({
   name: Schema.String,
   mimeType: Schema.String,
   sizeBytes: Schema.Number,
-  path: Schema.String,
+  path: Schema.optionalKey(Schema.String),
+  serverOwned: Schema.optionalKey(Schema.Literal(true)),
 });
 type PersistedComposerFileAttachment = typeof PersistedComposerFileAttachment.Type;
 
@@ -1195,6 +1198,7 @@ function normalizePersistedFileAttachment(value: unknown): PersistedComposerFile
   const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
   const mimeType = typeof candidate.mimeType === "string" ? candidate.mimeType.trim() : "";
   const path = typeof candidate.path === "string" ? candidate.path.trim() : "";
+  const serverOwned = candidate.serverOwned === true;
   const sizeBytes = candidate.sizeBytes;
   if (
     candidate.type !== "file" ||
@@ -1202,7 +1206,7 @@ function normalizePersistedFileAttachment(value: unknown): PersistedComposerFile
     id.length === 0 ||
     name.length === 0 ||
     mimeType.length === 0 ||
-    path.length === 0 ||
+    (path.length === 0 && !serverOwned) ||
     typeof sizeBytes !== "number" ||
     !Number.isFinite(sizeBytes) ||
     sizeBytes < 0
@@ -1216,7 +1220,8 @@ function normalizePersistedFileAttachment(value: unknown): PersistedComposerFile
     name,
     mimeType,
     sizeBytes: Math.floor(sizeBytes),
-    path,
+    ...(path.length > 0 ? { path } : {}),
+    ...(serverOwned ? { serverOwned: true as const } : {}),
   };
 }
 
@@ -2029,7 +2034,8 @@ function partializeComposerDraftStoreState(
       // A renderer-local File cannot survive reload. Keep only host path
       // references in the durable draft; an in-flight remote upload is
       // intentionally retried by the user instead of becoming a broken blob.
-      if (typeof attachment.path !== "string" || attachment.path.trim().length === 0) {
+      const hasPath = typeof attachment.path === "string" && attachment.path.trim().length > 0;
+      if (!hasPath && attachment.serverOwned !== true) {
         return [];
       }
       return [
@@ -2040,7 +2046,8 @@ function partializeComposerDraftStoreState(
           name: attachment.name,
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
-          path: attachment.path,
+          ...(hasPath ? { path: attachment.path } : {}),
+          ...(attachment.serverOwned === true ? { serverOwned: true as const } : {}),
         },
       ];
     });
@@ -3238,7 +3245,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 attachment.type !== "file" ||
                 attachment.id.length === 0 ||
                 attachment.name.length === 0 ||
-                (attachment.path === undefined && attachment.file === undefined) ||
+                (attachment.path === undefined &&
+                  attachment.file === undefined &&
+                  attachment.serverOwned !== true) ||
                 (attachment.path !== undefined && attachment.path.length === 0) ||
                 existingIds.has(attachment.id) ||
                 existingPaths.has(composerFileAttachmentDedupKey(attachment))

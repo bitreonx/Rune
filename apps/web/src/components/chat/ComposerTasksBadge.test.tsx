@@ -4,9 +4,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   ComposerTasksBadge,
   ComposerTasksDrawer,
+  TaskEvidence,
   taskRowMotionStyle,
   tasksProgressPercent,
 } from "./ComposerTasksBadge";
+import type { OrchestrationThreadActivity } from "@rune/contracts";
 
 const progress = {
   step: "Attach task progress",
@@ -271,6 +273,36 @@ describe("ComposerTasksDrawer", () => {
 
     expect(markup).toContain('data-variant="success"');
     expect(markup).toContain('data-rune-tasks-progress="done"');
+  });
+});
+
+describe("TaskEvidence", () => {
+  it("shows real change receipts with file and line statistics", () => {
+    const activity = {
+      id: "activity-change-receipt",
+      tone: "info",
+      kind: "turn.diff.updated",
+      summary: "Updated provider routing",
+      payload: {
+        itemFileChanges: [
+          { path: "apps/web/src/Providers.tsx", additions: 42, deletions: 8 },
+          { path: "apps/server/src/route.ts", additions: 18, deletions: 4 },
+          { path: "packages/contracts/src/route.ts", additions: 4, deletions: 2 },
+        ],
+      },
+      turnId: null,
+      sequence: 1,
+      createdAt: "2026-08-30T00:00:00.000Z",
+    } satisfies OrchestrationThreadActivity;
+
+    const markup = renderToStaticMarkup(
+      <TaskEvidence activities={[activity]} onOpenChange={() => undefined} />,
+    );
+
+    expect(markup).toContain("3 files · +64 −14");
+    expect(markup).toContain("Updating apps/web/src/Providers.tsx");
+    expect(markup).toContain("Open change receipt for apps/web/src/Providers.tsx");
+    expect(markup).toContain('data-rune-task-evidence="true"');
   });
 });
 

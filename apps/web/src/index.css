@@ -2527,6 +2527,17 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   color: color-mix(in srgb, var(--foreground) 72%, transparent);
 }
 
+.rune-task-evidence-stats {
+  color: color-mix(in srgb, var(--foreground) 58%, var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.rune-task-evidence-verification {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .rune-task-evidence-file {
   overflow: hidden;
   text-overflow: ellipsis;

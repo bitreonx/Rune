@@ -1,4 +1,5 @@
 import type { OrchestrationThreadActivity } from "@rune/contracts";
+import type { AgentActivityChangeRecord } from "@rune/shared/agentActivity";
 import { Activity, CheckCircle2, CircleDashed, Gauge, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 
@@ -14,10 +15,12 @@ import { deriveWorkrailModel } from "./chat/taskWorkrail.logic";
 /** The side-panel projection of the same turn plan shown above the composer. */
 export function TasksPanel({
   activities,
+  onOpenChange,
   progress,
   steps,
 }: {
   activities: readonly OrchestrationThreadActivity[];
+  readonly onOpenChange?: (change: AgentActivityChangeRecord) => void;
   progress: ComposerTasksProgress | null;
   steps: readonly ComposerTaskStep[] | null;
 }) {
@@ -86,7 +89,9 @@ export function TasksPanel({
             </div>
             <span className="rune-tasks-live-dot" aria-hidden="true" />
           </div>
-          {activities.length > 0 ? <TaskEvidence activities={activities} /> : null}
+          {activities.length > 0 ? (
+            <TaskEvidence activities={activities} onOpenChange={onOpenChange} />
+          ) : null}
         </section>
       ) : null}
 
@@ -108,7 +113,9 @@ export function TasksPanel({
               <TaskStatusIcon status={step.status} />
               <span className="min-w-0 flex-1">{step.step}</span>
               {step.status === "blocked" || step.status === "failed" ? (
-                <span className="text-[10px] text-amber-600 dark:text-amber-300">Needs you</span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-300">
+                  Waiting for you
+                </span>
               ) : null}
               <span className="sr-only">{step.status}</span>
             </div>

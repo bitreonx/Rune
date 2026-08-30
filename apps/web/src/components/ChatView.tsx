@@ -8710,6 +8710,10 @@ function ChatViewContent(props: ChatViewProps) {
     ) : activeRightPanelSurface?.kind === "tasks" ? (
       <TasksPanel
         activities={threadActivities}
+        onOpenChange={(change) => {
+          if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
+          else onOpenChatDiff();
+        }}
         progress={activeComposerTasksProgress}
         steps={activeComposerTaskSteps}
       />

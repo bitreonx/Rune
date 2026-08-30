@@ -5,7 +5,10 @@ import { formatDuration } from "../../session-logic";
 import type { RunePanelMotionState } from "../../runePanelMotion";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
-import { deriveAgentActivityJob } from "@rune/shared/agentActivity";
+import {
+  deriveAgentActivityJob,
+  type AgentActivityChangeRecord,
+} from "@rune/shared/agentActivity";
 import type { OrchestrationThreadActivity } from "@rune/contracts";
 import type { WorkrailStep } from "./taskWorkrail.logic";
 
@@ -127,8 +130,10 @@ export function TaskStageStrip({ steps }: { readonly steps: readonly ComposerTas
 
 export function TaskEvidence({
   activities,
+  onOpenChange,
 }: {
   activities: readonly OrchestrationThreadActivity[];
+  readonly onOpenChange?: (change: AgentActivityChangeRecord) => void;
 }) {
   const activity = useMemo(() => {
     const job = deriveAgentActivityJob(activities);
@@ -137,19 +142,49 @@ export function TaskEvidence({
     );
   }, [activities]);
   if (!activity) return null;
+  const changes = activity.changes.slice(-3);
   const files = [
     ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
   ].slice(-3);
+  const additions = activity.changes.reduce((total, change) => total + change.additions, 0);
+  const deletions = activity.changes.reduce((total, change) => total + change.deletions, 0);
+  const verificationCount = activity.receipts.filter(
+    (receipt) => receipt.kind === "verification" && receipt.status === "done",
+  ).length;
   return (
     <div className="rune-task-evidence" data-rune-task-evidence="true">
-      <span className="rune-task-evidence-label">
-        {activity.reasoningSummary ?? activity.label}
-      </span>
-      {files.map((file) => (
-        <span key={file} className="rune-task-evidence-file">
-          {file}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="rune-task-evidence-label">
+          {activity.reasoningSummary ?? activity.label}
         </span>
-      ))}
+        {activity.changes.length > 0 ? (
+          <span className="rune-task-evidence-stats">
+            {activity.changes.length} {activity.changes.length === 1 ? "file" : "files"} · +
+            {additions} −{deletions}
+          </span>
+        ) : null}
+        {verificationCount > 0 ? (
+          <span className="rune-task-evidence-verification">✓ {verificationCount} verified</span>
+        ) : null}
+      </div>
+      {(changes.length > 0 ? changes : files).map((item) => {
+        const file = typeof item === "string" ? item : item.path;
+        return onOpenChange && typeof item !== "string" ? (
+          <button
+            key={file}
+            type="button"
+            className="rune-task-evidence-file cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            title={`Open change receipt for ${file}`}
+            onClick={() => onOpenChange(item)}
+          >
+            {file}
+          </button>
+        ) : (
+          <span key={file} className="rune-task-evidence-file">
+            {file}
+          </span>
+        );
+      })}
     </div>
   );
 }

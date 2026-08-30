@@ -89,9 +89,21 @@ export function TasksPanel({
             </div>
             <span className="rune-tasks-live-dot" aria-hidden="true" />
           </div>
-          {activities.length > 0 ? (
-            <TaskEvidence activities={activities} onOpenChange={onOpenChange} />
-          ) : null}
+        </section>
+      ) : null}
+
+      {activities.length > 0 ? (
+        <section
+          className="rune-tasks-focus rune-tasks-evidence-section"
+          aria-labelledby="rune-tasks-evidence-title"
+        >
+          <div className="rune-tasks-section-label">
+            <Activity aria-hidden="true" /> RECEIPTS
+          </div>
+          <h3 id="rune-tasks-evidence-title" className="sr-only">
+            Task evidence
+          </h3>
+          <TaskEvidence activities={activities} onOpenChange={onOpenChange} />
         </section>
       ) : null}
 

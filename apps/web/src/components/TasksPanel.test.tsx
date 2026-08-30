@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { TasksPanel } from "./TasksPanel";
 
@@ -20,5 +20,33 @@ describe("TasksPanel", () => {
     expect(markup).toContain("Work in motion");
     expect(markup).toContain("Waiting for you");
     expect(markup).not.toContain(">Needs you<");
+  });
+
+  it("keeps task receipts visible after the active step has completed", () => {
+    const markup = renderToStaticMarkup(
+      <TasksPanel
+        activities={[
+          {
+            id: "completed-receipt",
+            tone: "info",
+            kind: "turn.diff.updated",
+            summary: "Updated settings",
+            payload: {
+              itemFileChanges: [{ path: "apps/web/src/settings.ts", additions: 4, deletions: 1 }],
+            },
+            turnId: null,
+            sequence: 1,
+            createdAt: "2026-08-30T00:00:00.000Z",
+          },
+        ]}
+        onOpenChange={vi.fn()}
+        progress={{ step: "Done", completedSteps: 2, totalSteps: 2 }}
+        steps={[{ step: "Done", status: "completed" }]}
+      />,
+    );
+
+    expect(markup).toContain("Task evidence");
+    expect(markup).toContain("1 file · +4 −1");
+    expect(markup).toContain("apps/web/src/settings.ts");
   });
 });

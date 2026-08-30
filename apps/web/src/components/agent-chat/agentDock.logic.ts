@@ -312,3 +312,30 @@ export function deriveAgentTrail(agent: RuntimeSubagent): AgentTrail {
   }
   return sections;
 }
+
+/**
+ * Build the compact primary story without grouping away the runtime order.
+ * The full trail remains available to the verification surface; the dock
+ * should narrate the latest events as they happened.
+ */
+export function deriveAgentActivityStory(
+  agent: RuntimeSubagent,
+  limit = 6,
+): ReadonlyArray<AgentTrailEntry> {
+  if (limit <= 0) return [];
+  const entryTimestamp = (value: string | null): number => {
+    if (value === null) return Number.POSITIVE_INFINITY;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  };
+  return Object.values(deriveAgentTrail(agent))
+    .flat()
+    .map((entry, index) => ({ entry, index }))
+    .sort(
+      (left, right) =>
+        entryTimestamp(left.entry.at) - entryTimestamp(right.entry.at) ||
+        left.index - right.index,
+    )
+    .slice(-limit)
+    .map(({ entry }) => entry);
+}

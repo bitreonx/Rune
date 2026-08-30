@@ -27,6 +27,7 @@ import { PocketWorkspace } from "../pockets/PocketWorkspace";
 import {
   type PocketThreadStatus,
   type PocketWorkspaceThreadData,
+  pocketPeekChildLimit,
   selectPocketPeekThreads,
 } from "../pockets/pocketWorkspace.logic";
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
@@ -365,6 +366,10 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
 
   const renderPocket = (pocket: (typeof activePockets)[number], depth: number) => {
     const children = pocketsByParent.get(pocket.id) ?? [];
+    const pocketThreads = pocketThreadsById.get(pocket.id) ?? [];
+    const peekThreads = selectPocketPeekThreads(pocketThreads);
+    const visibleChildCount = pocketPeekChildLimit(peekThreads.length, children.length);
+    const hasPeekableContent = children.length > 0 || pocketThreads.length > 0;
     const expanded = expandedIds.has(pocket.id);
     const selected = props.selectedPocketId === pocket.id;
     const editing = editingPocketId === pocket.id;
@@ -430,13 +435,20 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
               }
               data-rune-pocket-title={pocket.title}
               draggable
-              onFocus={() => setFocusedPocketId(pocket.id)}
               onClick={() => props.onSelectPocket(selected ? null : pocket.id)}
               onKeyDown={(event) => handlePocketKeyDown(event, pocket, children, expanded)}
               onMouseEnter={() => {
-                if (!expanded && children.length > 0) startPeek(pocket.id);
+                if (!expanded && hasPeekableContent) startPeek(pocket.id);
               }}
               onMouseLeave={() => {
+                clearPeekTimer();
+                setPeekedPocketId(null);
+              }}
+              onFocus={() => {
+                setFocusedPocketId(pocket.id);
+                if (!expanded && hasPeekableContent) startPeek(pocket.id);
+              }}
+              onBlur={() => {
                 clearPeekTimer();
                 setPeekedPocketId(null);
               }}
@@ -570,14 +582,14 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
         </SidebarEntityRow>
         {peekedPocketId === pocket.id &&
         !expanded &&
-        (children.length > 0 || (pocketThreadsById.get(pocket.id)?.length ?? 0) > 0) ? (
+        hasPeekableContent ? (
           <div
             aria-label={`${pocket.title} prioritized threads`}
-            role="status"
+            role="group"
             data-rune-pocket-peek
             className="rune-pocket-peek pointer-events-none absolute inset-x-2 top-full z-10 translate-y-1.5 rounded-md border border-sidebar-border/70 bg-sidebar px-2 py-1 text-[11px] text-sidebar-muted-foreground opacity-100 shadow-md transition-[opacity,transform] duration-[var(--rune-motion-fast)] motion-reduce:translate-y-0 motion-reduce:transition-none"
           >
-            {selectPocketPeekThreads(pocketThreadsById.get(pocket.id) ?? []).map((thread) => (
+            {peekThreads.map((thread) => (
               <div
                 key={thread.id}
                 className="flex min-w-0 items-center gap-1.5 py-0.5"
@@ -594,15 +606,12 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
                 <span className="min-w-0 truncate">{thread.title}</span>
               </div>
             ))}
-            {children.slice(0, 4).map((child) => (
+            {children.slice(0, visibleChildCount).map((child) => (
               <div key={child.id} className="truncate py-0.5 text-sidebar-muted-foreground/75">
                 <span className="me-1 text-sidebar-muted-foreground/60">├</span>
                 {child.title}
               </div>
             ))}
-            {children.length > 4 ? (
-              <div className="py-0.5 text-sidebar-muted-foreground/65">+{children.length - 4}</div>
-            ) : null}
           </div>
         ) : null}
         {expanded && children.length > 0 ? (

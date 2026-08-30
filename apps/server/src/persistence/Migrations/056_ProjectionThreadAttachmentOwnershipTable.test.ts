@@ -55,6 +55,38 @@ layer("056_ProjectionThreadAttachmentOwnershipTable", (it) => {
         )
       `;
 
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id,
+          thread_id,
+          turn_id,
+          role,
+          text,
+          attachments_json,
+          is_streaming,
+          created_at,
+          updated_at
+        ) VALUES (
+          'message-ownership-duplicate',
+          'other-thread',
+          NULL,
+          'user',
+          'duplicate historical attachment',
+          ${JSON.stringify([
+            {
+              type: "image",
+              id: "thread-ownership-backfill-00000000-0000-4000-8000-000000000001",
+              name: "same-id.png",
+              mimeType: "image/png",
+              sizeBytes: 4,
+            },
+          ])},
+          0,
+          '2026-08-30T00:00:01.000Z',
+          '2026-08-30T00:00:01.000Z'
+        )
+      `;
+
       yield* runMigrations();
       yield* runMigrations();
 
@@ -97,8 +129,22 @@ layer("056_ProjectionThreadAttachmentOwnershipTable", (it) => {
         ORDER BY attachment_id ASC
       `;
       assert.lengthOf(ownership, 2);
-      assert.isTrue(ownership.every((entry) => entry.threadId === "thread-ownership-backfill"));
-      assert.isTrue(ownership.every((entry) => entry.ambiguous === 0));
+      const duplicate = ownership.find(
+        (entry) =>
+          entry.attachmentId ===
+          "thread-ownership-backfill-00000000-0000-4000-8000-000000000001",
+      );
+      const unique = ownership.find(
+        (entry) =>
+          entry.attachmentId ===
+          "thread-ownership-backfill-00000000-0000-4000-8000-000000000002",
+      );
+      assert.isDefined(duplicate);
+      assert.isDefined(unique);
+      assert.isTrue(duplicate.threadId === "thread-ownership-backfill");
+      assert.isTrue(duplicate.ambiguous === 1);
+      assert.isTrue(unique.threadId === "thread-ownership-backfill");
+      assert.isTrue(unique.ambiguous === 0);
     }),
   );
 });

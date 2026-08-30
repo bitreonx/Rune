@@ -318,6 +318,37 @@ describe("normalizeDispatchCommand attachments", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("rejects legacy ownership when the attachment id is shared across threads", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
+      const attachmentId = "shared-thread-a-00000000-0000-4000-8000-000000000003";
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
+        Buffer.from("pixels"),
+      );
+      yield* sql`
+        INSERT INTO attachment_ownership (attachment_id, thread_id, ambiguous)
+        VALUES (${attachmentId}, 'thread-a', 1)
+      `;
+      const command = turnStartCommand({
+        threadId: "thread-a",
+        attachments: [{ id: attachmentId, sizeBytes: 6 }],
+      });
+      const original = command.message.attachments[0]!;
+      const migratedCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...original, ownerThreadId: "thread-a" }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const failure = yield* normalizeDispatchCommand(migratedCommand).pipe(Effect.flip);
+      expect(failure.message).toContain("attachment must be a pending upload");
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("rejects a finalized attachment whose stored extension disagrees with its type", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

@@ -101,6 +101,15 @@ export function selectPocketPeekThreads(
   return selectPocketShelfThreads(threads, Math.max(0, limit)).slice(0, 4);
 }
 
+/** Keep thread and child-pocket rows inside one bounded hover surface. */
+export function pocketPeekChildLimit(
+  visibleThreadCount: number,
+  childPocketCount: number,
+  maxItems = 4,
+): number {
+  return Math.max(0, Math.min(childPocketCount, maxItems - Math.max(0, visibleThreadCount)));
+}
+
 export function groupPocketThreads(
   threads: ReadonlyArray<PocketWorkspaceThreadData>,
 ): ReadonlyArray<{

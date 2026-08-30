@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   filterPocketThreads,
   groupPocketThreads,
+  pocketPeekChildLimit,
   selectPocketPeekThreads,
   selectPocketShelfThreads,
   sortPocketThreads,
@@ -58,6 +59,12 @@ describe("Pocket workspace projection", () => {
       "working",
       "recent",
     ]);
+  });
+
+  it("caps child-pocket rows after prioritized thread rows", () => {
+    expect(pocketPeekChildLimit(0, 9)).toBe(4);
+    expect(pocketPeekChildLimit(3, 9)).toBe(1);
+    expect(pocketPeekChildLimit(4, 9)).toBe(0);
   });
 
   it("filters immediately across title, provider, and subtitle", () => {

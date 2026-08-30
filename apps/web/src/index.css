@@ -2523,6 +2523,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   line-height: 1.35;
 }
 
+.rune-task-evidence-item + .rune-task-evidence-item {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
 .rune-task-evidence-label {
   color: color-mix(in srgb, var(--foreground) 72%, transparent);
 }

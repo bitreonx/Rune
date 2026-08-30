@@ -10,7 +10,7 @@ import {
   SearchIcon,
   SparklesIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId } from "@rune/contracts";
 import {
@@ -28,7 +28,6 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SkillDetailPanel } from "./SkillDetailPanel";
-import { getProviderOrServiceIcon } from "../chat/providerIconUtils";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -43,10 +42,24 @@ import {
   marketplaceSkillIdentity,
   projectMarketplaceView,
   marketplaceSourceMetadata,
-  MARKETPLACE_COMPATIBILITY_LABEL,
   type SkillMarketplaceView,
 } from "../../skills/marketplaceRegistry";
 import { fetchMarketplaceSkillBody } from "../../skills/marketplaceInstaller";
+import {
+  MARKETPLACE_INSTALL_DIRECTORY,
+  MARKETPLACE_INSTALL_SCOPE,
+  MarketplaceCompatibilityMarks,
+  marketplaceStatusLabel,
+  marketplaceStatusVariant,
+} from "./MarketplaceSkillMetadata";
+
+type SkillView = "installed" | "discover" | "updates";
+
+const SKILL_VIEWS: ReadonlyArray<{ value: SkillView; label: string }> = [
+  { value: "installed", label: "Installed" },
+  { value: "discover", label: "Discover" },
+  { value: "updates", label: "Updates" },
+];
 
 const SOURCE_FILTERS: ReadonlyArray<{ value: SkillWorkspaceSourceFilter; label: string }> = [
   { value: "all", label: "All skills" },
@@ -57,6 +70,10 @@ const SOURCE_FILTERS: ReadonlyArray<{ value: SkillWorkspaceSourceFilter; label: 
   { value: "system", label: "System" },
   { value: "other", label: "Other" },
 ];
+
+export function marketplaceInstallationKey(environmentId: EnvironmentId, identity: string): string {
+  return `${environmentId}:${identity}`;
+}
 
 function EnvironmentPicker({
   environments,
@@ -148,7 +165,7 @@ function SkillListRow({
   );
 }
 
-function MarketplaceListRow({
+export function MarketplaceListRow({
   entry,
   selected,
   onSelect,
@@ -169,7 +186,9 @@ function MarketplaceListRow({
       )}
       onClick={onSelect}
       aria-pressed={selected}
+      aria-label={`${entry.slug}, ${marketplaceStatusLabel(entry.status)}`}
       data-rune-marketplace-row={entry.identity}
+      data-rune-marketplace-selected={selected ? "true" : "false"}
     >
       <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl border border-border/70 bg-background/65 text-[var(--rune-violet-strong)]">
         <PackageOpenIcon className="size-3.5" aria-hidden />
@@ -177,39 +196,37 @@ function MarketplaceListRow({
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{entry.slug}</span>
-          <Badge variant={entry.status === "available" ? "outline" : "success"} size="sm">
-            {entry.status === "available"
-              ? "Available"
-              : entry.status === "update"
-                ? "Update"
-                : "Installed"}
+          <Badge
+            variant={marketplaceStatusVariant(entry.status)}
+            size="sm"
+            data-rune-marketplace-status={entry.status}
+          >
+            {marketplaceStatusLabel(entry.status)}
           </Badge>
         </span>
         <span className="mt-1 block truncate text-xs text-muted-foreground">
           {entry.description}
         </span>
-        <span className="mt-2 flex flex-wrap items-center gap-1.5">
-          <Badge variant="outline" size="sm">
-            {source.provider} · {source.author}
-          </Badge>
-          {entry.compatibility.slice(0, 3).map((harness) => (
-            <Badge key={harness} variant="outline" size="sm">
-              {(() => {
-                const iconKind =
-                  harness === "rune-native"
-                    ? "runeNative"
-                    : harness === "claude"
-                      ? "claudeAgent"
-                      : harness;
-                const ProviderIcon = getProviderOrServiceIcon(iconKind);
-                return ProviderIcon ? (
-                  <ProviderIcon className="me-1 inline size-3" aria-hidden />
-                ) : null;
-              })()}
-              {MARKETPLACE_COMPATIBILITY_LABEL[harness]}
-            </Badge>
-          ))}
+        <span className="mt-2 grid min-w-0 gap-1 text-[11px] text-muted-foreground sm:grid-cols-2 sm:gap-x-3">
+          <span className="min-w-0 truncate" title={entry.repository}>
+            <span className="font-medium text-foreground">{source.provider} source:</span>{" "}
+            {entry.repository}
+          </span>
+          <span className="truncate">
+            <span className="font-medium text-foreground">Author:</span> {source.author}
+          </span>
+          <span className="truncate">
+            <span className="font-medium text-foreground">Install:</span> {MARKETPLACE_INSTALL_SCOPE}{" "}
+            <span className="text-muted-foreground/75">({MARKETPLACE_INSTALL_DIRECTORY})</span>
+          </span>
+          <span className="truncate">
+            <span className="font-medium text-foreground">Version:</span> v{entry.version}
+          </span>
         </span>
+        <span className="mt-2 block truncate text-[11px] text-muted-foreground" title={entry.path}>
+          <span className="font-medium text-foreground">Skill file:</span> {entry.path}
+        </span>
+        <MarketplaceCompatibilityMarks className="mt-2" compatibility={entry.compatibility} />
       </span>
     </button>
   );
@@ -224,11 +241,34 @@ export function SkillsPage() {
   const [sourceFilter, setSourceFilter] = useState<SkillWorkspaceSourceFilter>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedMarketplaceKey, setSelectedMarketplaceKey] = useState<string | null>(null);
-  const [view, setView] = useState<"installed" | "discover" | "updates">("installed");
+  const [view, setView] = useState<SkillView>("installed");
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [recentlyInstalledKeys, setRecentlyInstalledKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const viewTabRefs = useRef<Partial<Record<SkillView, HTMLButtonElement>>>({});
+
+  const selectView = (nextView: SkillView, focus = false) => {
+    setView(nextView);
+    setSelectedKey(null);
+    setSelectedMarketplaceKey(null);
+    if (focus) viewTabRefs.current[nextView]?.focus();
+  };
+
+  const handleViewKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentView: SkillView) => {
+    const currentIndex = SKILL_VIEWS.findIndex((candidate) => candidate.value === currentView);
+    if (currentIndex < 0) return;
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % SKILL_VIEWS.length;
+    if (event.key === "ArrowLeft")
+      nextIndex = (currentIndex - 1 + SKILL_VIEWS.length) % SKILL_VIEWS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = SKILL_VIEWS.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    selectView(SKILL_VIEWS[nextIndex]!.value, true);
+  };
+
   const environmentId =
     environmentOverride ?? primaryEnvironmentId ?? environments[0]?.environmentId ?? null;
   const providerValue = useAtomValue(
@@ -262,7 +302,8 @@ export function SkillsPage() {
             ...(entry.repositoryUrl ? { repositoryUrl: entry.repositoryUrl } : {}),
           })),
           ...BUNDLED_SKILL_MARKETPLACE.filter((entry) =>
-            recentlyInstalledKeys.has(marketplaceSkillIdentity(entry)),
+            environmentId !== null &&
+            recentlyInstalledKeys.has(marketplaceInstallationKey(environmentId, marketplaceSkillIdentity(entry))),
           ).map((entry) => ({
             name: entry.slug,
             repositoryUrl: entry.repository,
@@ -309,7 +350,9 @@ export function SkillsPage() {
         }
         return;
       }
-      setRecentlyInstalledKeys((current) => new Set([...current, entry.identity]));
+      setRecentlyInstalledKeys((current) =>
+        new Set([...current, marketplaceInstallationKey(environmentId, entry.identity)]),
+      );
       toastManager.add({
         type: "success",
         title: "Skill installed in project",
@@ -362,39 +405,51 @@ export function SkillsPage() {
             onChange={(value) => {
               setEnvironmentOverride(value);
               setSelectedKey(null);
+              setSelectedMarketplaceKey(null);
             }}
           />
         </header>
 
-        <nav className="mt-5 flex gap-1 border-b border-border/60" aria-label="Skill views">
-          {(
-            [
-              ["installed", "Installed", entries.length],
-              ["discover", "Discover", marketplaceEntries.length],
-              ["updates", "Updates", marketplaceUpdates.length],
-            ] as const
-          ).map(([value, label, count]) => (
+        <nav
+          className="mt-5 flex gap-1 border-b border-border/60"
+          role="tablist"
+          aria-label="Skill views"
+        >
+          {SKILL_VIEWS.map(({ value, label }) => {
+            const count =
+              value === "installed"
+                ? entries.length
+                : value === "discover"
+                  ? marketplaceEntries.length
+                  : marketplaceUpdates.length;
+            const tabId = `skills-view-${value}-tab`;
+            const panelId = `skills-view-${value}-panel`;
+            return (
             <button
               key={value}
               type="button"
               role="tab"
+              id={tabId}
               aria-selected={view === value}
+              aria-controls={panelId}
+              tabIndex={view === value ? 0 : -1}
+              ref={(element) => {
+                viewTabRefs.current[value] = element ?? undefined;
+              }}
               className={cn(
                 "border-b-2 px-3 py-2 text-xs font-medium transition-colors",
                 view === value
                   ? "border-[var(--rune-violet-strong)] text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => {
-                setView(value);
-                setSelectedKey(null);
-                setSelectedMarketplaceKey(null);
-              }}
+              onClick={() => selectView(value)}
+              onKeyDown={(event) => handleViewKeyDown(event, value)}
             >
               {label}
               <span className="ms-1.5 tabular-nums text-muted-foreground">{count}</span>
             </button>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="mt-6 grid gap-2 sm:grid-cols-3">
@@ -460,78 +515,95 @@ export function SkillsPage() {
           </div>
         ) : null}
 
-        {!isReady || (environmentId && providerValue === null) ? (
-          <div
-            className="mt-8 flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-sm text-muted-foreground"
-            role="status"
-          >
-            <CircleDashedIcon
-              className="size-4 animate-spin text-[var(--rune-violet-strong)]"
-              aria-hidden
-            />
-            Loading skill catalogs…
-          </div>
-        ) : view === "installed" && filteredEntries.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-dashed border-border/70 bg-card/20 p-8 text-center">
-            <Layers3Icon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
-            <p className="mt-3 text-sm font-medium text-foreground">
-              {entries.length === 0
-                ? "No provider skills reported yet"
-                : "No skills match this view"}
-            </p>
-            <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-              {entries.length === 0
-                ? "Connect or refresh a provider to make its real skill catalog available here."
-                : "Try another source filter or clear the search to see the rest of the catalog."}
-            </p>
-          </div>
-        ) : view === "installed" ? (
-          <div className="mt-8 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-            <section className="min-w-0 space-y-2" aria-label="Available skills">
-              {filteredEntries.map((entry) => (
-                <SkillListRow
-                  key={entry.key}
-                  entry={entry}
-                  selected={selectedEntry?.key === entry.key}
-                  onSelect={() => setSelectedKey(entry.key)}
+        <div
+          id={`skills-view-${view}-panel`}
+          role="tabpanel"
+          aria-labelledby={`skills-view-${view}-tab`}
+          tabIndex={-1}
+        >
+          {!isReady || (environmentId && providerValue === null) ? (
+            <div
+              className="mt-8 flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-sm text-muted-foreground"
+              role="status"
+            >
+              <CircleDashedIcon
+                className="size-4 animate-spin text-[var(--rune-violet-strong)]"
+                aria-hidden
+              />
+              Loading skill catalogs…
+            </div>
+          ) : view === "installed" && filteredEntries.length === 0 ? (
+            <div className="mt-8 rounded-2xl border border-dashed border-border/70 bg-card/20 p-8 text-center">
+              <Layers3Icon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
+              <p className="mt-3 text-sm font-medium text-foreground">
+                {entries.length === 0
+                  ? "No provider skills reported yet"
+                  : "No skills match this view"}
+              </p>
+              <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+                {entries.length === 0
+                  ? "Connect or refresh a provider to make its real skill catalog available here."
+                  : "Try another source filter or clear the search to see the rest of the catalog."}
+              </p>
+            </div>
+          ) : view === "installed" ? (
+            <div className="mt-8 grid min-h-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+              <section
+                className="min-h-0 min-w-0 space-y-2 lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
+                aria-label="Available skills"
+              >
+                {filteredEntries.map((entry) => (
+                  <SkillListRow
+                    key={entry.key}
+                    entry={entry}
+                    selected={selectedEntry?.key === entry.key}
+                    onSelect={() => setSelectedKey(entry.key)}
+                  />
+                ))}
+              </section>
+              <div className="min-w-0 self-start">
+                <SkillDetailPanel entry={selectedEntry} onUseSkill={useSkill} />
+              </div>
+            </div>
+          ) : marketplaceVisibleEntries.length === 0 ? (
+            <div className="mt-8 rounded-2xl border border-dashed border-border/70 bg-card/20 p-8 text-center">
+              <PackageOpenIcon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
+              <p className="mt-3 text-sm font-medium text-foreground">
+                {view === "updates" ? "No known skill updates" : "Marketplace is empty"}
+              </p>
+              <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+                {view === "updates"
+                  ? "Updates appear only when the catalog and an installed skill both report versions."
+                  : "The bundled catalog has no entries available in this build."}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-8 grid min-h-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+              <section
+                className="min-h-0 min-w-0 space-y-2 lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
+                aria-label="Marketplace skills"
+              >
+                {marketplaceVisibleEntries.map((entry) => (
+                  <MarketplaceListRow
+                    key={entry.identity}
+                    entry={entry}
+                    selected={selectedMarketplaceEntry?.identity === entry.identity}
+                    onSelect={() => setSelectedMarketplaceKey(entry.identity)}
+                  />
+                ))}
+              </section>
+              <div className="min-w-0 self-start">
+                <SkillDetailPanel
+                  entry={null}
+                  marketplaceEntry={selectedMarketplaceEntry}
+                  isInstalling={installingKey === selectedMarketplaceEntry?.identity}
+                  {...(serverConfig?.cwd ? { onInstallMarketplace: installMarketplaceSkill } : {})}
+                  onUseSkill={useSkill}
                 />
-              ))}
-            </section>
-            <SkillDetailPanel entry={selectedEntry} onUseSkill={useSkill} />
-          </div>
-        ) : marketplaceVisibleEntries.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-dashed border-border/70 bg-card/20 p-8 text-center">
-            <PackageOpenIcon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
-            <p className="mt-3 text-sm font-medium text-foreground">
-              {view === "updates" ? "No known skill updates" : "Marketplace is empty"}
-            </p>
-            <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-              {view === "updates"
-                ? "Updates appear only when the catalog and an installed skill both report versions."
-                : "The bundled catalog has no entries available in this build."}
-            </p>
-          </div>
-        ) : (
-          <div className="mt-8 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-            <section className="min-w-0 space-y-2" aria-label="Marketplace skills">
-              {marketplaceVisibleEntries.map((entry) => (
-                <MarketplaceListRow
-                  key={entry.identity}
-                  entry={entry}
-                  selected={selectedMarketplaceEntry?.identity === entry.identity}
-                  onSelect={() => setSelectedMarketplaceKey(entry.identity)}
-                />
-              ))}
-            </section>
-            <SkillDetailPanel
-              entry={null}
-              marketplaceEntry={selectedMarketplaceEntry}
-              isInstalling={installingKey === selectedMarketplaceEntry?.identity}
-              {...(serverConfig?.cwd ? { onInstallMarketplace: installMarketplaceSkill } : {})}
-              onUseSkill={useSkill}
-            />
-          </div>
-        )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </main>
   );

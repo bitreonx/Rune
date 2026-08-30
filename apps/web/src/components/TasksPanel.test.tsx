@@ -49,4 +49,32 @@ describe("TasksPanel", () => {
     expect(markup).toContain("1 file · +4 −1");
     expect(markup).toContain("apps/web/src/settings.ts");
   });
+
+  it("keeps receipts visible after the structured plan is torn down", () => {
+    const markup = renderToStaticMarkup(
+      <TasksPanel
+        activities={[
+          {
+            id: "post-plan-receipt",
+            tone: "info",
+            kind: "turn.diff.updated",
+            summary: "Updated settings",
+            payload: {
+              itemFileChanges: [{ path: "apps/web/src/settings.ts", additions: 4, deletions: 1 }],
+            },
+            turnId: null,
+            sequence: 1,
+            createdAt: "2026-08-30T00:00:00.000Z",
+          },
+        ]}
+        progress={null}
+        steps={null}
+      />,
+    );
+
+    expect(markup).toContain('data-rune-tasks-panel="true"');
+    expect(markup).toContain("Task evidence");
+    expect(markup).toContain("apps/web/src/settings.ts");
+    expect(markup).not.toContain("No active task plan");
+  });
 });

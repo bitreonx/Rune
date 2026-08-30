@@ -328,14 +328,39 @@ export function deriveAgentActivityStory(
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
   };
-  return Object.values(deriveAgentTrail(agent))
-    .flat()
-    .map((entry, index) => ({ entry, index }))
-    .sort(
-      (left, right) =>
-        entryTimestamp(left.entry.at) - entryTimestamp(right.entry.at) ||
-        left.index - right.index,
-    )
+  const entries: Array<{ readonly entry: AgentTrailEntry; readonly sourceIndex: number }> =
+    agent.recentActivity.map((activity, sourceIndex) => ({
+      entry: { at: activity.at, text: activity.summary },
+      sourceIndex,
+    }));
+  const terminalText = agent.result ?? agent.error ?? (agent.status === "completed" ? "Completed" : null);
+  if (agent.outputFile) {
+    entries.push({
+      entry: { at: agent.updatedAt, text: `Artifact recorded: ${agent.outputFile}` },
+      sourceIndex: entries.length,
+    });
+  }
+  if (terminalText || agent.status === "failed" || agent.status === "interrupted") {
+    entries.push({
+      entry: {
+        at: agent.completedAt ?? agent.updatedAt,
+        text: terminalText ?? "The provider did not record a result.",
+      },
+      sourceIndex: entries.length,
+    });
+  }
+  return entries
+    .sort((left, right) => {
+      const leftTime = entryTimestamp(left.entry.at);
+      const rightTime = entryTimestamp(right.entry.at);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
+        return leftTime - rightTime || left.sourceIndex - right.sourceIndex;
+      }
+      // Unknown timestamps cannot be ordered by time. Preserve the durable
+      // runtime sequence instead of letting semantic section grouping invent
+      // an order for ties or missing provider timestamps.
+      return left.sourceIndex - right.sourceIndex;
+    })
     .slice(-limit)
     .map(({ entry }) => entry);
 }

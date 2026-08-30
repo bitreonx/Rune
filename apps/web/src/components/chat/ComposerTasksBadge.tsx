@@ -135,54 +135,60 @@ export function TaskEvidence({
   activities: readonly OrchestrationThreadActivity[];
   readonly onOpenChange?: (change: AgentActivityChangeRecord) => void;
 }) {
-  const activity = useMemo(() => {
+  const evidenceActivities = useMemo(() => {
     const job = deriveAgentActivityJob(activities);
-    return (
-      job.activities.toReversed().find((item) => item.status === "working") ?? job.activities.at(-1)
-    );
+    return job.activities.slice(-8);
   }, [activities]);
-  if (!activity) return null;
-  const changes = activity.changes.slice(-3);
-  const files = [
-    ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
-  ].slice(-3);
-  const additions = activity.changes.reduce((total, change) => total + change.additions, 0);
-  const deletions = activity.changes.reduce((total, change) => total + change.deletions, 0);
-  const verificationCount = activity.receipts.filter(
-    (receipt) => receipt.kind === "verification" && receipt.status === "done",
-  ).length;
+  if (evidenceActivities.length === 0) return null;
   return (
     <div className="rune-task-evidence" data-rune-task-evidence="true">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="rune-task-evidence-label">
-          {activity.reasoningSummary ?? activity.label}
-        </span>
-        {activity.changes.length > 0 ? (
-          <span className="rune-task-evidence-stats">
-            {activity.changes.length} {activity.changes.length === 1 ? "file" : "files"} · +
-            {additions} −{deletions}
-          </span>
-        ) : null}
-        {verificationCount > 0 ? (
-          <span className="rune-task-evidence-verification">✓ {verificationCount} verified</span>
-        ) : null}
-      </div>
-      {(changes.length > 0 ? changes : files).map((item) => {
-        const file = typeof item === "string" ? item : item.path;
-        return onOpenChange && typeof item !== "string" ? (
-          <button
-            key={file}
-            type="button"
-            className="rune-task-evidence-file cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            title={`Open change receipt for ${file}`}
-            onClick={() => onOpenChange(item)}
-          >
-            {file}
-          </button>
-        ) : (
-          <span key={file} className="rune-task-evidence-file">
-            {file}
-          </span>
+      {evidenceActivities.map((activity) => {
+        const changes = activity.changes.slice(-3);
+        const files = [
+          ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
+        ].slice(-3);
+        const additions = activity.changes.reduce((total, change) => total + change.additions, 0);
+        const deletions = activity.changes.reduce((total, change) => total + change.deletions, 0);
+        const verificationCount = activity.receipts.filter(
+          (receipt) => receipt.kind === "verification" && receipt.status === "done",
+        ).length;
+        return (
+          <div key={activity.id} className="rune-task-evidence-item">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="rune-task-evidence-label">
+                {activity.reasoningSummary ?? activity.label}
+              </span>
+              {activity.changes.length > 0 ? (
+                <span className="rune-task-evidence-stats">
+                  {activity.changes.length} {activity.changes.length === 1 ? "file" : "files"} · +
+                  {additions} −{deletions}
+                </span>
+              ) : null}
+              {verificationCount > 0 ? (
+                <span className="rune-task-evidence-verification">
+                  ✓ {verificationCount} verified
+                </span>
+              ) : null}
+            </div>
+            {(changes.length > 0 ? changes : files).map((item) => {
+              const file = typeof item === "string" ? item : item.path;
+              return onOpenChange && typeof item !== "string" ? (
+                <button
+                  key={file}
+                  type="button"
+                  className="rune-task-evidence-file cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  title={`Open change receipt for ${file}`}
+                  onClick={() => onOpenChange(item)}
+                >
+                  {file}
+                </button>
+              ) : (
+                <span key={file} className="rune-task-evidence-file">
+                  {file}
+                </span>
+              );
+            })}
+          </div>
         );
       })}
     </div>

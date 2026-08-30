@@ -130,4 +130,23 @@ describe("agentDock.logic", () => {
       "Finished",
     ]);
   });
+
+  it("preserves durable source order for equal and missing timestamps", () => {
+    const current = agent({
+      recentActivity: [
+        { at: "2026-08-29T10:00:00Z", summary: "Changed the first file" },
+        { at: "2026-08-29T10:00:00Z", summary: "Searched the second file" },
+        { at: null, summary: "Decided the verification path" },
+      ],
+      status: "running",
+      result: null,
+      completedAt: null,
+    });
+
+    expect(deriveAgentActivityStory(current).map((entry) => entry.text)).toEqual([
+      "Changed the first file",
+      "Searched the second file",
+      "Decided the verification path",
+    ]);
+  });
 });

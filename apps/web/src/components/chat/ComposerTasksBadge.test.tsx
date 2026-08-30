@@ -304,6 +304,36 @@ describe("TaskEvidence", () => {
     expect(markup).toContain("Open change receipt for apps/web/src/Providers.tsx");
     expect(markup).toContain('data-rune-task-evidence="true"');
   });
+
+  it("retains later verification receipts when an earlier activity is still working", () => {
+    const activities = [
+      {
+        id: "activity-working",
+        tone: "info",
+        kind: "agent.execution.progress",
+        summary: "Updating provider routing",
+        payload: { phase: "implement", status: "running" },
+        turnId: null,
+        sequence: 1,
+        createdAt: "2026-08-30T00:00:00.000Z",
+      },
+      {
+        id: "activity-verified",
+        tone: "info",
+        kind: "verification.completed",
+        summary: "Verified 18 tests",
+        payload: { phase: "test", status: "completed" },
+        turnId: null,
+        sequence: 2,
+        createdAt: "2026-08-30T00:00:01.000Z",
+      },
+    ] satisfies ReadonlyArray<OrchestrationThreadActivity>;
+
+    const markup = renderToStaticMarkup(<TaskEvidence activities={activities} />);
+
+    expect(markup).toContain("Updating provider routing");
+    expect(markup).toContain("Verified 18 tests");
+  });
 });
 
 describe("tasks motion helpers", () => {

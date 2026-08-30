@@ -28,11 +28,31 @@ export function TasksPanel({
 
   if (workrail === null) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-        <p className="text-sm font-medium">No active task plan</p>
-        <p className="max-w-56 text-xs text-muted-foreground">
-          Tasks will appear here when the agent starts a structured plan.
-        </p>
+      <div
+        className="rune-tasks-panel flex h-full min-h-0 flex-col overflow-auto"
+        data-rune-tasks-panel="true"
+      >
+        {activities.length > 0 ? (
+          <section
+            className="rune-tasks-focus rune-tasks-evidence-section"
+            aria-labelledby="rune-tasks-evidence-title"
+          >
+            <div className="rune-tasks-section-label">
+              <Activity aria-hidden="true" /> RECEIPTS
+            </div>
+            <h2 id="rune-tasks-evidence-title" className="sr-only">
+              Task evidence
+            </h2>
+            <TaskEvidence activities={activities} onOpenChange={onOpenChange} />
+          </section>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+            <p className="text-sm font-medium">No active task plan</p>
+            <p className="max-w-56 text-xs text-muted-foreground">
+              Tasks will appear here when the agent starts a structured plan.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

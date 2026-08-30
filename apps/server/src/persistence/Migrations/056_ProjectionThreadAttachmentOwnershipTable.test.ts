@@ -5,15 +5,14 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
-import migration from "./055_ProjectionThreadAttachmentOwnership.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("055_ProjectionThreadAttachmentOwnership", (it) => {
-  it.effect("backfills ownership for historical image and file references", () =>
+layer("056_ProjectionThreadAttachmentOwnershipTable", (it) => {
+  it.effect("upgrades an installation that already recorded migration 055", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 54 });
+      yield* runMigrations({ toMigrationInclusive: 55 });
 
       yield* sql`
         INSERT INTO projection_thread_messages (
@@ -56,8 +55,8 @@ layer("055_ProjectionThreadAttachmentOwnership", (it) => {
         )
       `;
 
-      yield* migration;
-      yield* migration;
+      yield* runMigrations();
+      yield* runMigrations();
 
       const rows = yield* sql<{ readonly attachmentsJson: string }>`
         SELECT attachments_json AS "attachmentsJson"

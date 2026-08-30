@@ -68,6 +68,7 @@ import Migration0052 from "./Migrations/052_PlanSessions.ts";
 import Migration0053 from "./Migrations/053_ChatMutationLedger.ts";
 import Migration0054 from "./Migrations/054_ActionRunReceipts.ts";
 import Migration0055 from "./Migrations/055_ProjectionThreadAttachmentOwnership.ts";
+import Migration0056 from "./Migrations/056_ProjectionThreadAttachmentOwnershipTable.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -135,6 +136,7 @@ export const migrationEntries = [
   [53, "ChatMutationLedger", Migration0053],
   [54, "ActionRunReceipts", Migration0054],
   [55, "ProjectionThreadAttachmentOwnership", Migration0055],
+  [56, "ProjectionThreadAttachmentOwnershipTable", Migration0056],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

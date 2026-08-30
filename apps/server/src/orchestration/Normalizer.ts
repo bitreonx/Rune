@@ -15,7 +15,9 @@ import {
   planAttachmentClaim,
   PENDING_ATTACHMENT_THREAD_SEGMENT,
   parseThreadSegmentFromAttachmentId,
+  resolveAttachmentPathById,
   resolveAttachmentPath,
+  toSafeThreadAttachmentSegment,
 } from "../attachmentStore.ts";
 import { ServerConfig } from "../config.ts";
 import { parseBase64DataUrl } from "../imageMime.ts";
@@ -152,6 +154,42 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 });
               }
 
+              const currentThreadSegment = toSafeThreadAttachmentSegment(canonicalCommand.threadId);
+              const existingPath = resolveAttachmentPathById({
+                attachmentsDir: serverConfig.attachmentsDir,
+                attachmentId: attachment.id,
+              });
+              if (
+                currentThreadSegment &&
+                existingPath &&
+                parseThreadSegmentFromAttachmentId(attachment.id) === currentThreadSegment
+              ) {
+                const info = yield* fileSystem.stat(existingPath).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationDispatchCommandError({
+                        message:
+                          "Attachment '" +
+                          attachment.name +
+                          "' cannot be sent: attachment not found.",
+                        cause,
+                      }),
+                  ),
+                );
+                if (info.type !== "File" || info.size !== BigInt(attachment.sizeBytes)) {
+                  return yield* new OrchestrationDispatchCommandError({
+                    message:
+                      "Attachment '" +
+                      attachment.name +
+                      "' cannot be sent: stored size does not match.",
+                  });
+                }
+                return {
+                  ...attachment,
+                  mimeType: attachment.mimeType.toLowerCase(),
+                };
+              }
+
               const claim = planAttachmentClaim({
                 attachmentsDir: serverConfig.attachmentsDir,
                 threadId: canonicalCommand.threadId,
@@ -247,6 +285,42 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           }
 
           if (!("dataUrl" in attachment)) {
+            const currentThreadSegment = toSafeThreadAttachmentSegment(canonicalCommand.threadId);
+            const existingPath = resolveAttachmentPathById({
+              attachmentsDir: serverConfig.attachmentsDir,
+              attachmentId: attachment.id,
+            });
+            if (
+              currentThreadSegment &&
+              existingPath &&
+              parseThreadSegmentFromAttachmentId(attachment.id) === currentThreadSegment
+            ) {
+              const info = yield* fileSystem.stat(existingPath).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message:
+                        "Attachment '" +
+                        attachment.name +
+                        "' cannot be sent: attachment not found.",
+                      cause,
+                    }),
+                ),
+              );
+              if (info.type !== "File" || info.size !== BigInt(attachment.sizeBytes)) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message:
+                    "Attachment '" +
+                    attachment.name +
+                    "' cannot be sent: stored size does not match.",
+                });
+              }
+              return {
+                ...attachment,
+                mimeType: attachment.mimeType.toLowerCase(),
+              };
+            }
+
             const claim = planAttachmentClaim({
               attachmentsDir: serverConfig.attachmentsDir,
               threadId: canonicalCommand.threadId,

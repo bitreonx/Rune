@@ -171,6 +171,76 @@ describe("normalizeDispatchCommand attachments", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("reuses a finalized image attachment from the same thread", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = "thread-1-" + attachmentUuid;
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, attachmentId + ".png"),
+        Buffer.from("pixels"),
+      );
+
+      const normalized = yield* normalizeDispatchCommand(
+        turnStartCommand({
+          attachments: [{ id: attachmentId, sizeBytes: 6 }],
+        }),
+      );
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+
+      expect(normalized.message.attachments).toEqual([
+        {
+          type: "image",
+          id: attachmentId,
+          name: "screenshot.png",
+          mimeType: "image/png",
+          sizeBytes: 6,
+        },
+      ]);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("reuses a finalized file attachment from the same thread", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = "thread-file-attachment-" + attachmentUuid;
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, attachmentId + ".mp4"),
+        Buffer.alloc(1234),
+      );
+      const command = fileAttachmentCommand("unused");
+      const [fileAttachment] = command.message.attachments;
+      if (!fileAttachment || fileAttachment.type !== "file") {
+        throw new Error("Expected a file attachment.");
+      }
+      const { path: _path, ...reusableAttachment } = fileAttachment;
+      const reusableCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...reusableAttachment, id: attachmentId }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const normalized = yield* normalizeDispatchCommand(reusableCommand);
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+
+      expect(normalized.message.attachments).toEqual([
+        {
+          type: "file",
+          kind: "file",
+          id: attachmentId,
+          name: "clip.mp4",
+          mimeType: "video/mp4",
+          sizeBytes: 1234,
+        },
+      ]);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("normalizes inline and uploaded attachments in the same turn", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

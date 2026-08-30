@@ -137,6 +137,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
+  type ChatAttachment,
   type ChatMessage,
   type ChatFileAttachment,
   type SessionPhase,
@@ -1334,6 +1335,17 @@ function isSafeWorkspaceRelativeAttachmentPath(relativePath: string | null): rel
   return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
+function isAttachmentPathWithinWorkspace(attachmentPath: string, workspaceRoot: string): boolean {
+  const normalizedPath = attachmentPath.replaceAll("\\", "/");
+  const normalizedRoot = workspaceRoot.replaceAll("\\", "/").replace(/\/+$/u, "") || "/";
+  const comparisonPath = normalizedPath.toLowerCase();
+  const comparisonRoot = normalizedRoot.toLowerCase();
+  return (
+    comparisonPath === comparisonRoot ||
+    comparisonPath.startsWith(comparisonRoot === "/" ? "/" : comparisonRoot + "/")
+  );
+}
+
 function ChatViewContent(props: ChatViewProps) {
   const {
     environmentId,
@@ -1504,7 +1516,6 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
-  const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
@@ -1545,7 +1556,7 @@ function ChatViewContent(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerFileAttachmentsRef = useRef<ComposerFileAttachment[]>([]);
-  const sentImageAttachmentsRef = useRef(new Map<string, ComposerImageAttachment[]>());
+  const pendingHistoricalAttachmentRefsRef = useRef<ChatAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
@@ -4108,6 +4119,10 @@ function ChatViewContent(props: ChatViewProps) {
         setAttachmentViewer(attachment);
         return;
       }
+      if (!isAttachmentPathWithinWorkspace(attachment.path, activeWorkspaceRoot)) {
+        setAttachmentViewer(attachment);
+        return;
+      }
       const normalizedRoot = activeWorkspaceRoot.replaceAll("\\", "/").replace(/\/+$/, "");
       const normalizedPath = attachment.path.replaceAll("\\", "/");
       const pathForComparison = normalizedPath.toLowerCase();
@@ -4131,6 +4146,14 @@ function ChatViewContent(props: ChatViewProps) {
   const revealComposerAttachmentInFiles = useCallback(
     (attachment: AttachmentViewerItem) => {
       if (!activeThreadRef || !activeProject || !activeWorkspaceRoot || !attachment.path) return;
+      if (!isAttachmentPathWithinWorkspace(attachment.path, activeWorkspaceRoot)) {
+        toastManager.add({
+          type: "info",
+          title: "Attachment is outside this workspace",
+          description: "Use Reveal in system Explorer for provider-host files outside the workspace.",
+        });
+        return;
+      }
       const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot);
       if (!isSafeWorkspaceRelativeAttachmentPath(relativePath)) {
         toastManager.add({
@@ -6619,6 +6642,9 @@ function ChatViewContent(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerFileAttachmentsSnapshot = [...composerFileAttachments];
+    const pendingHistoricalAttachmentRefsSnapshot = [
+      ...pendingHistoricalAttachmentRefsRef.current,
+    ];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
@@ -6870,13 +6896,6 @@ function ChatViewContent(props: ChatViewProps) {
     });
 
     const messageIdForSend = newMessageId();
-    if (composerImagesSnapshot.length > 0) {
-      sentImageAttachmentsRef.current.set(messageIdForSend, composerImagesSnapshot);
-      if (sentImageAttachmentsRef.current.size > 100) {
-        const oldestMessageId = sentImageAttachmentsRef.current.keys().next().value;
-        if (oldestMessageId) sentImageAttachmentsRef.current.delete(oldestMessageId);
-      }
-    }
     const messageCreatedAt = new Date().toISOString();
     const turnAttachmentsPromise = Promise.all(
       composerImagesSnapshot.map(async (image) => {
@@ -6896,6 +6915,7 @@ function ChatViewContent(props: ChatViewProps) {
         };
       }),
     ).then((images) => [
+      ...pendingHistoricalAttachmentRefsSnapshot,
       ...images,
       ...composerFileAttachmentsSnapshot.map((attachment) => {
         if (attachment.file !== undefined && attachment.path === undefined) {
@@ -6911,6 +6931,10 @@ function ChatViewContent(props: ChatViewProps) {
       ...threadAttachments,
     ]);
     const optimisticAttachments = [
+      ...pendingHistoricalAttachmentRefsSnapshot.filter(
+        (attachment): attachment is Extract<ChatAttachment, { readonly type: "image" }> =>
+          attachment.type === "image",
+      ),
       ...composerImagesSnapshot.map((image) => ({
         type: "image" as const,
         id: image.id,
@@ -7111,6 +7135,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        pendingHistoricalAttachmentRefsRef.current = [];
         // The chat exists and is flagged; the next send starts a normal chat,
         // so disarm the stale draft (removing it when nothing else remains).
         if (sendTemporary) {
@@ -8470,23 +8495,26 @@ function ChatViewContent(props: ChatViewProps) {
               candidateAttachment.type === "file" && candidateAttachment.id === attachment.id,
           ),
       );
-      if (!message || message.role !== "user" || resolveRewindTurnCount(message.id) === null) {
-        return;
-      }
-
-      const originalImages = sentImageAttachmentsRef.current.get(message.id);
-      const hasOtherImages = (message.attachments ?? []).some(
-        (candidateAttachment) => candidateAttachment.type === "image",
-      );
-      if (hasOtherImages && !originalImages) {
+      if (!message || message.role !== "user") {
         toastManager.add({
           type: "warning",
-          title: "Image attachment needs a fresh edit",
-          description:
-            "RUNE cannot safely reconstruct this older image in the composer. Use Edit message and reattach the image before resending.",
+          title: "Attachment cannot be edited here",
+          description: "This attachment is not attached to an editable user message.",
         });
         return;
       }
+      if (resolveRewindTurnCount(message.id) === null) {
+        toastManager.add({
+          type: "warning",
+          title: "Attachment cannot be edited here",
+          description: "This message has no safe rewind point in the current thread.",
+        });
+        return;
+      }
+
+      pendingHistoricalAttachmentRefsRef.current = (message.attachments ?? []).filter(
+        (candidateAttachment) => candidateAttachment.type === "image",
+      );
       const remainingFiles = (message.attachments ?? []).flatMap((candidateAttachment) => {
         if (candidateAttachment.type !== "file" || candidateAttachment.id === attachment.id) {
           return [];
@@ -8504,15 +8532,7 @@ function ChatViewContent(props: ChatViewProps) {
           } satisfies ComposerFileAttachment,
         ];
       });
-      for (const currentAttachment of composerFileAttachmentsRef.current) {
-        removeComposerDraftFileAttachment(composerDraftTarget, currentAttachment.id);
-      }
-      for (const currentImage of composerImagesRef.current) {
-        removeComposerDraftImage(composerDraftTarget, currentImage.id);
-      }
-      if (originalImages && originalImages.length > 0) {
-        addComposerDraftImages(composerDraftTarget, originalImages);
-      }
+      removeComposerDraftFileAttachment(composerDraftTarget, attachment.id);
       if (remainingFiles.length > 0) {
         addComposerDraftFileAttachments(composerDraftTarget, remainingFiles);
       }
@@ -8526,10 +8546,8 @@ function ChatViewContent(props: ChatViewProps) {
     [
       activeThread,
       addComposerDraftFileAttachments,
-      addComposerDraftImages,
       composerDraftTarget,
       onEditUserMessage,
-      removeComposerDraftImage,
       removeComposerDraftFileAttachment,
       resolveRewindTurnCount,
     ],

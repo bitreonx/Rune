@@ -3663,6 +3663,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               "rune-tasks-drawer-host",
               runePanelTransitionClass(tasksDrawerMotionState),
             )}
+            id="rune-tasks-drawer-host"
             data-rune-tasks-drawer-host="true"
             data-rune-tasks-drawer-state={tasksDrawerMotionState}
           >

@@ -96,6 +96,7 @@ import { isElectron } from "../env";
 import { APP_BASE_NAME } from "../branding";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import type { AgentActivityChangeRecord } from "@rune/shared/agentActivity";
 import { playSoundEffect } from "../sound/playback";
 import {
   collapseExpandedComposerCursor,
@@ -8429,14 +8430,21 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
-  const onOpenChatDiff = useCallback(() => {
+  const onOpenChatDiff = useCallback((filePath?: string) => {
     if (!isServerThread || !activeThreadRef || !activeThread) return;
     useDiffPanelStore
       .getState()
-      .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount);
+      .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount, filePath);
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen]);
+  const onOpenTaskChange = useCallback(
+    (change: AgentActivityChangeRecord) => {
+      if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
+      else onOpenChatDiff(change.path);
+    },
+    [onOpenChatDiff, onOpenTurnDiff],
+  );
   // The rewind handler is read from a ref at call-time so the callback
   // reference stays fully stable and never busts timeline context identity.
   const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
@@ -8710,10 +8718,7 @@ function ChatViewContent(props: ChatViewProps) {
     ) : activeRightPanelSurface?.kind === "tasks" ? (
       <TasksPanel
         activities={threadActivities}
-        onOpenChange={(change) => {
-          if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
-          else onOpenChatDiff();
-        }}
+        onOpenChange={onOpenTaskChange}
         progress={activeComposerTasksProgress}
         steps={activeComposerTaskSteps}
       />
@@ -9086,10 +9091,7 @@ function ChatViewContent(props: ChatViewProps) {
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
                             onOpenTasks={addTasksSurface}
-                            onOpenTaskChange={(change) => {
-                              if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
-                              else onOpenChatDiff();
-                            }}
+                            onOpenTaskChange={onOpenTaskChange}
                             onOpenFiles={openFilesSurface}
                             onOpenAttachment={openComposerAttachment}
                             onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}

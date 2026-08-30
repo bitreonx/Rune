@@ -351,6 +351,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
           variant="ghost-muted"
           aria-expanded={expanded}
           aria-label={label}
+          aria-controls="rune-tasks-drawer-host"
           className="shrink-0 gap-1 px-1.5"
           onClick={onToggle}
           onPointerDown={(event) => event.preventDefault()}
@@ -398,6 +399,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
         type="button"
         aria-expanded={expanded}
         aria-label={label}
+        aria-controls="rune-tasks-drawer-host"
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-muted-foreground hover:text-foreground"
         onClick={onToggle}
         onPointerDown={(event) => event.preventDefault()}
@@ -429,6 +431,7 @@ export const ComposerTasksBadge = memo(function ComposerTasksBadge({
           size="icon-micro"
           variant="ghost-muted"
           aria-label="Open tasks in side panel"
+          aria-controls="rune-tasks-drawer-host"
           className="shrink-0"
           onClick={onOpenSidePanel}
           onPointerDown={(event) => event.preventDefault()}
@@ -505,6 +508,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         <button
           type="button"
           aria-expanded="true"
+          aria-controls="rune-tasks-drawer-content"
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left text-xs text-muted-foreground hover:text-foreground"
           onClick={onCollapse}
           onPointerDown={(event) => event.preventDefault()}
@@ -540,18 +544,19 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
           <XIcon aria-hidden className="size-3" />
         </Button>
       </div>
-      <div
-        aria-label="Task progress"
-        aria-valuemax={progress.totalSteps}
-        aria-valuemin={0}
-        aria-valuenow={progress.completedSteps}
-        className="rune-tasks-progress mx-3 sm:mx-4"
-        data-rune-tasks-progress={allDone ? "done" : "running"}
-        role="progressbar"
-      >
-        <TaskStageStrip steps={steps} />
-      </div>
-      <div className="space-y-1 px-3 pb-4 pt-2 sm:px-4" role="list">
+      <div id="rune-tasks-drawer-content">
+        <div
+          aria-label="Task progress"
+          aria-valuemax={progress.totalSteps}
+          aria-valuemin={0}
+          aria-valuenow={progress.completedSteps}
+          className="rune-tasks-progress mx-3 sm:mx-4"
+          data-rune-tasks-progress={allDone ? "done" : "running"}
+          role="progressbar"
+        >
+          <TaskStageStrip steps={steps} />
+        </div>
+        <div id="rune-task-history" className="space-y-1 px-3 pb-4 pt-2 sm:px-4" role="list">
         {visibleSteps.map(({ index, step }) => {
           const key = `${step.step}:${index}`;
           return (
@@ -600,6 +605,8 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         {olderCompletedCount > 0 && !allDone && !historyExpanded ? (
           <button
             type="button"
+            aria-expanded={historyExpanded}
+            aria-controls="rune-task-history"
             className="rune-task-history-toggle"
             onClick={() => setHistoryExpanded(true)}
           >
@@ -612,6 +619,8 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
         {allDone ? (
           <button
             type="button"
+            aria-expanded={historyExpanded}
+            aria-controls="rune-task-history"
             className="rune-task-history-toggle"
             onClick={() => setHistoryExpanded((value) => !value)}
           >
@@ -626,6 +635,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
             </span>
           </button>
         ) : null}
+        </div>
       </div>
     </div>
   );

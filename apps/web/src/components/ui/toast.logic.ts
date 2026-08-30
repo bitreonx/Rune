@@ -1,5 +1,21 @@
 import type { ScopedThreadRef, ThreadId } from "@rune/contracts";
 
+export type ToastNotificationKind = "quiet" | "action-required" | "child-agent" | "error";
+
+type ToastNotificationInput = {
+  type?: string | undefined;
+  timeout?: number | undefined;
+  priority?: "low" | "high" | undefined;
+  actionProps?: unknown;
+  data?: { notificationKind?: ToastNotificationKind | undefined } | undefined;
+};
+
+export type ToastNotificationPolicy = {
+  kind: ToastNotificationKind;
+  timeout: number;
+  priority: "low" | "high";
+};
+
 /**
  * Base UI toast updates omit `undefined` fields, so callers that need to remove
  * an action must pass a defined `actionProps` whose `children` are empty.
@@ -14,6 +30,43 @@ export function hasVisibleToastAction(actionProps: unknown): boolean {
   }
   const children = actionProps.children;
   return children != null && children !== false && children !== "";
+}
+
+/** Maps the existing toast fields onto the small set of user-facing semantics. */
+export function resolveToastNotificationKind(input: ToastNotificationInput): ToastNotificationKind {
+  if (input.type === "error" || input.data?.notificationKind === "error") {
+    return "error";
+  }
+  if (input.data?.notificationKind !== undefined) {
+    return input.data.notificationKind;
+  }
+  if (input.type === "warning" || input.priority === "high") {
+    return "action-required";
+  }
+  if (hasVisibleToastAction(input.actionProps)) {
+    return "action-required";
+  }
+  return "quiet";
+}
+
+/** Supplies safe defaults while preserving explicit lifetimes and priorities. */
+export function resolveToastNotificationPolicy(
+  input: ToastNotificationInput,
+): ToastNotificationPolicy {
+  const kind = resolveToastNotificationKind(input);
+  const timeout =
+    input.timeout ??
+    (kind === "error" || kind === "action-required"
+      ? 0
+      : input.type === "loading"
+        ? 0
+        : kind === "child-agent"
+          ? 12_000
+          : 3_200);
+  const priority =
+    input.priority ?? (kind === "error" || kind === "action-required" ? "high" : "low");
+
+  return { kind, timeout, priority };
 }
 
 export function shouldHideCollapsedToastContent(

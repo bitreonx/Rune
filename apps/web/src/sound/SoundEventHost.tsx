@@ -43,6 +43,12 @@ function showInAppNotification(
       priority: event.kind === "needs-input" ? "high" : "low",
       ...(event.kind === "needs-input" ? {} : { timeout: 12_000 }),
       actionProps: { children: "Open thread", onClick: () => onOpenThread(threadRef) },
+      notificationKind:
+        event.kind === "needs-input"
+          ? "action-required"
+          : event.kind === "error"
+            ? "error"
+            : "child-agent",
       data: { threadRef, leadingIcon: <span aria-hidden>◈</span> },
     }),
   );

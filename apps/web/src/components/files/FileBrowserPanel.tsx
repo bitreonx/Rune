@@ -6,7 +6,6 @@ import type {
 } from "@pierre/trees";
 import {
   workspaceFileRefFrom,
-  type ContextMenuItem,
   type EnvironmentId,
   type ProjectEntry,
   type WorkspaceFileRef,
@@ -22,6 +21,7 @@ import {
   useState,
   useLayoutEffect,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import {
@@ -51,7 +51,11 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { fileTreeAreaState } from "./fileTreeArea";
 import { buildChatDiffTree } from "./chatDiffTree";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
-import { deletionConfirmationMessage } from "./fileBrowserActions";
+import {
+  deletionConfirmationMessage,
+  fileBrowserBackgroundContextMenuItems,
+  fileBrowserEntryContextMenuItems,
+} from "./fileBrowserActions";
 import {
   getProjectDirectoryQueryAtom,
   refreshProjectDirectoryQuery,
@@ -301,10 +305,7 @@ export default function FileBrowserPanel({
       const model = treeModelRef.current;
       if (!model) return;
       const baseName = input.kind === "file" ? "untitled" : "new-folder";
-      const existingPaths = new Set([
-        ...visibleEntries.map(treePath),
-        ...model.getVisibleRows(0, model.getVisibleCount()).map((row) => row.path),
-      ]);
+      const existingPaths = new Set(visibleEntries.map(treePath));
       const placeholderPath = inlinePlaceholderPath({
         parentPath: input.parentPath,
         name: baseName,
@@ -497,71 +498,16 @@ export default function FileBrowserPanel({
           ? relativePath.slice(0, lastSeparator)
           : "";
     const absoluteEntryTarget = entryTarget ? `${cwd.replace(/[\\/]$/, "")}/${entryTarget}` : cwd;
-    const menuItems: ContextMenuItem[] =
-      item.kind === "directory"
-        ? [
-            { id: "new-file", label: "New File", icon: "file-plus", disabled: chatScoped },
-            { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: chatScoped },
-            {
-              id: "rename-entry",
-              label: "Rename",
-              icon: "pencil",
-              disabled: chatScoped,
-              separatorBefore: true,
-            },
-            {
-              id: "delete-entry",
-              label: "Delete",
-              icon: "trash",
-              destructive: true,
-            },
-            {
-              id: "open-in-explorer",
-              label: `Reveal in ${fileManagerName}`,
-              icon: "external-link",
-              separatorBefore: true,
-            },
-            { id: "copy-path", label: "Copy Path", icon: "copy" },
-            {
-              id: "add-to-chat",
-              label: "Add to Chat",
-              icon: "message-square-plus",
-              separatorBefore: true,
-            },
-          ]
-        : [
-            { id: "open-file", label: "Open preview / editor", icon: "file-code" },
-            ...(isChanged && onOpenDiffFile
-              ? [{ id: "open-diff", label: "Open diff", icon: "file-diff" }]
-              : []),
-            {
-              id: "rename-entry",
-              label: "Rename",
-              icon: "pencil",
-              disabled: chatScoped,
-              separatorBefore: true,
-            },
-            {
-              id: "delete-entry",
-              label: "Delete",
-              icon: "trash",
-              destructive: true,
-            },
-            {
-              id: "open-in-explorer",
-              label: `Reveal in ${fileManagerName}`,
-              icon: "external-link",
-              separatorBefore: true,
-            },
-            { id: "copy-path", label: "Copy Path", icon: "copy" },
-            { id: "copy-mention", label: "Copy mention", icon: "copy" },
-            {
-              id: "add-to-chat",
-              label: "Add to Chat",
-              icon: "message-square-plus",
-              separatorBefore: true,
-            },
-          ];
+    const directory =
+      item.kind === "directory" ? directoryHandle(treeModelRef.current?.getItem(item.path)) : null;
+    const menuItems = fileBrowserEntryContextMenuItems({
+      kind: item.kind,
+      ...(directory ? { isExpanded: directory.isExpanded() } : {}),
+      chatScoped,
+      isChanged,
+      canOpenDiff: onOpenDiffFile !== undefined,
+      fileManagerName,
+    });
     let transferredFocus = false;
     try {
       const clicked = await api.contextMenu.show(menuItems, position);
@@ -621,6 +567,31 @@ export default function FileBrowserPanel({
             title: "Could not delete",
             description: failureDescription(squashAtomCommandFailure(result)),
           });
+        }
+        return;
+      }
+      if (
+        clicked === "expand-folder" ||
+        clicked === "collapse-folder" ||
+        clicked === "expand-descendants" ||
+        clicked === "collapse-descendants" ||
+        clicked === "expand-all-folders" ||
+        clicked === "collapse-all-folders"
+      ) {
+        if (item.kind !== "directory") return;
+        const selectedDirectory = directoryHandle(treeModelRef.current?.getItem(item.path));
+        if (clicked === "expand-folder") {
+          selectedDirectory?.expand();
+          if (!directorySnapshotsRef.current.has(relativePath)) void loadDirectory(relativePath);
+        } else if (clicked === "collapse-folder") {
+          selectedDirectory?.collapse();
+        } else if (clicked === "expand-descendants") {
+          void expandFolderTree(relativePath);
+        } else if (clicked === "collapse-descendants") {
+          setFolderDescendantsExpanded(relativePath, false);
+        } else {
+          if (clicked === "expand-all-folders") void expandAllFolders();
+          else setAllFoldersExpanded(false);
         }
         return;
       }
@@ -696,7 +667,11 @@ export default function FileBrowserPanel({
     renaming: {
       canRename: ({ path }) => {
         const normalizedPath = path.replace(/\/$/, "");
-        const placeholderPath = inlineEditRef.current?.placeholderPath.replace(/\/$/, "");
+        const inlineEdit = inlineEditRef.current;
+        const placeholderPath =
+          inlineEdit?.type === "create-file" || inlineEdit?.type === "create-folder"
+            ? inlineEdit.placeholderPath.replace(/\/$/, "")
+            : undefined;
         return (
           !chatScopedRef.current &&
           (entryKindsRef.current.has(normalizedPath) || placeholderPath === normalizedPath)
@@ -808,6 +783,90 @@ export default function FileBrowserPanel({
   );
   refreshDirectoryRef.current = refreshLoadedDirectory;
 
+  const knownDirectoryTreePaths = () => {
+    const paths = new Set(directoryPathsRef.current);
+    for (const entries of directorySnapshotsRef.current.values()) {
+      for (const entry of entries) {
+        if (entry.kind !== "directory") continue;
+        const normalizedPath = normalizeDirectoryPath(entry.path);
+        if (normalizedPath.length > 0) paths.add(`${normalizedPath}/`);
+      }
+    }
+    return [...paths].toSorted();
+  };
+
+  const setAllFoldersExpanded = (expanded: boolean) => {
+    for (const path of knownDirectoryTreePaths()) {
+      const directory = directoryHandle(treeModelRef.current?.getItem(path));
+      if (!directory) continue;
+      if (expanded) directory.expand();
+      else directory.collapse();
+    }
+  };
+
+  const setFolderDescendantsExpanded = (folderPath: string, expanded: boolean) => {
+    const prefix = `${normalizeDirectoryPath(folderPath)}/`;
+    for (const path of knownDirectoryTreePaths()) {
+      const normalizedPath = normalizeDirectoryPath(path);
+      if (!normalizedPath.startsWith(prefix)) continue;
+      const directory = directoryHandle(treeModelRef.current?.getItem(path));
+      if (!directory) continue;
+      if (expanded) directory.expand();
+      else directory.collapse();
+    }
+  };
+
+  const expandFolderTree = async (folderPath: string): Promise<void> => {
+    if (chatScoped) {
+      directoryHandle(
+        treeModelRef.current?.getItem(`${normalizeDirectoryPath(folderPath)}/`),
+      )?.expand();
+      setFolderDescendantsExpanded(folderPath, true);
+      return;
+    }
+    const queue = [normalizeDirectoryPath(folderPath)];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const directoryPath = queue.shift();
+      if (directoryPath === undefined || visited.has(directoryPath)) continue;
+      visited.add(directoryPath);
+
+      directoryHandle(treeModelRef.current?.getItem(`${directoryPath}/`))?.expand();
+      if (!directorySnapshotsRef.current.has(directoryPath)) {
+        await loadDirectory(directoryPath);
+      }
+      for (const entry of directorySnapshotsRef.current.get(directoryPath) ?? []) {
+        if (entry.kind === "directory") queue.push(normalizeDirectoryPath(entry.path));
+      }
+    }
+  };
+
+  const expandAllFolders = async (): Promise<void> => {
+    if (chatScoped) {
+      setAllFoldersExpanded(true);
+      return;
+    }
+    await loadDirectory("");
+    const queue = [...(directorySnapshotsRef.current.get("") ?? [])]
+      .filter((entry) => entry.kind === "directory")
+      .map((entry) => normalizeDirectoryPath(entry.path));
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const directoryPath = queue.shift();
+      if (directoryPath === undefined || visited.has(directoryPath)) continue;
+      visited.add(directoryPath);
+
+      directoryHandle(treeModelRef.current?.getItem(`${directoryPath}/`))?.expand();
+      if (!directorySnapshotsRef.current.has(directoryPath)) {
+        await loadDirectory(directoryPath);
+      }
+      for (const entry of directorySnapshotsRef.current.get(directoryPath) ?? []) {
+        if (entry.kind === "directory") queue.push(normalizeDirectoryPath(entry.path));
+      }
+    }
+    setAllFoldersExpanded(true);
+  };
+
   const search = useFileTreeSearch(model);
   const handleSearchValueChange = (value: string) => {
     if (value.trim().length === 0) {
@@ -824,13 +883,47 @@ export default function FileBrowserPanel({
     }
     onRefreshSelectedFile?.();
   };
-  const setAllFoldersExpanded = (expanded: boolean) => {
-    for (const path of directoryPathsRef.current) {
-      const directory = directoryHandle(treeModelRef.current?.getItem(path));
-      if (!directory) continue;
-      if (expanded) directory.expand();
-      else directory.collapse();
+  const showBackgroundContextMenu = async (position: { x: number; y: number }) => {
+    const api = readLocalApi();
+    if (!api) return;
+    const clicked = await api.contextMenu.show(
+      fileBrowserBackgroundContextMenuItems({ chatScoped }),
+      position,
+    );
+    if (clicked === "new-file" || clicked === "new-folder") {
+      beginInlineCreate({ kind: clicked === "new-file" ? "file" : "directory", parentPath: "" });
+      return;
     }
+    if (clicked === "refresh") {
+      handleRefresh();
+      return;
+    }
+    if (clicked === "expand-all") {
+      void expandAllFolders();
+      return;
+    }
+    if (clicked === "collapse-all") {
+      setAllFoldersExpanded(false);
+      return;
+    }
+    if (clicked === "reveal-workspace") {
+      await openInFileManager(cwd);
+    }
+  };
+  const handlePanelContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const nativeEvent = event.nativeEvent;
+    if (nativeEvent.defaultPrevented) return;
+    const eventPath = nativeEvent.composedPath();
+    const isToolbarContext = eventPath.some(
+      (node) => node instanceof HTMLElement && node.closest("[data-file-tree-toolbar]") !== null,
+    );
+    if (isToolbarContext) return;
+    const isTreeContext = eventPath.some(
+      (node) => node instanceof HTMLElement && node.matches("file-tree-container"),
+    );
+    if (!isTreeContext && visibleEntries.length > 0) return;
+    event.preventDefault();
+    void showBackgroundContextMenu({ x: event.clientX, y: event.clientY });
   };
 
   const handleWorkspaceFileEvent = useCallback(
@@ -1020,6 +1113,7 @@ export default function FileBrowserPanel({
   return (
     <div
       ref={panelRef}
+      onContextMenu={handlePanelContextMenu}
       className="surface-glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background/55 shadow-lg shadow-black/10"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
@@ -1132,7 +1226,7 @@ export default function FileBrowserPanel({
           />
           Loading {projectName} files…
         </div>
-      ) : visibleEntries.length === 0 ? (
+      ) : visibleEntries.length === 0 && inlineEdit === null ? (
         <div
           className="flex flex-1 items-center justify-center px-6 pb-16 text-center text-xs text-muted-foreground"
           role="status"

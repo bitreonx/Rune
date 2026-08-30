@@ -3,6 +3,8 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   buildVisibleToastLayout,
   hasVisibleToastAction,
+  resolveToastNotificationKind,
+  resolveToastNotificationPolicy,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
 } from "./toast.logic";
@@ -16,6 +18,72 @@ describe("hasVisibleToastAction", () => {
     assert.equal(hasVisibleToastAction({ children: null }), false);
     assert.equal(hasVisibleToastAction({ children: "" }), false);
     assert.equal(hasVisibleToastAction(undefined), false);
+  });
+});
+
+describe("toast notification taxonomy", () => {
+  it("keeps ordinary success and info notices quiet", () => {
+    assert.equal(resolveToastNotificationKind({ type: "success" }), "quiet");
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "success" }), {
+      kind: "quiet",
+      timeout: 3_200,
+      priority: "low",
+    });
+  });
+
+  it("keeps loading progress alive until the producer closes or updates it", () => {
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "loading" }), {
+      kind: "quiet",
+      timeout: 0,
+      priority: "low",
+    });
+  });
+
+  it("keeps errors and permission-style warnings visible and urgent", () => {
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "error" }), {
+      kind: "error",
+      timeout: 0,
+      priority: "high",
+    });
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "warning" }), {
+      kind: "action-required",
+      timeout: 0,
+      priority: "high",
+    });
+  });
+
+  it("preserves explicit child-agent semantics and caller-controlled lifetime", () => {
+    assert.deepEqual(
+      resolveToastNotificationPolicy({
+        type: "success",
+        data: { notificationKind: "child-agent" },
+      }),
+      { kind: "child-agent", timeout: 12_000, priority: "low" },
+    );
+    assert.deepEqual(
+      resolveToastNotificationPolicy({
+        type: "success",
+        data: { notificationKind: "child-agent" },
+        timeout: 0,
+        priority: "high",
+      }),
+      { kind: "child-agent", timeout: 0, priority: "high" },
+    );
+  });
+
+  it("treats a visible action as action-required without changing explicit undo timing", () => {
+    assert.equal(
+      resolveToastNotificationKind({ actionProps: { children: "Undo" } }),
+      "action-required",
+    );
+    assert.deepEqual(
+      resolveToastNotificationPolicy({
+        type: "success",
+        actionProps: { children: "Undo" },
+        timeout: 5_000,
+      }),
+      { kind: "action-required", timeout: 5_000, priority: "high" },
+    );
   });
 });
 

@@ -18,4 +18,15 @@ describe("hiddenToastActionProps", () => {
       hiddenToastActionProps,
     );
   });
+
+  it("carries child-agent semantics through the shared stacked helper", () => {
+    assert.equal(
+      stackedThreadToast({
+        type: "success",
+        title: "Sub-agent finished",
+        notificationKind: "child-agent",
+      }).data?.notificationKind,
+      "child-agent",
+    );
+  });
 });

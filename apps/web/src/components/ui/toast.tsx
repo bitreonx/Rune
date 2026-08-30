@@ -1,6 +1,11 @@
 "use client";
 
-import { Toast } from "@base-ui/react/toast";
+import {
+  Toast,
+  type ToastManager,
+  type ToastManagerAddOptions,
+  type ToastManagerUpdateOptions,
+} from "@base-ui/react/toast";
 import {
   useEffect,
   useMemo,
@@ -33,8 +38,10 @@ import { resolveThreadRouteTarget } from "~/threadRoutes";
 import {
   buildVisibleToastLayout,
   hasVisibleToastAction,
+  resolveToastNotificationPolicy,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
+  type ToastNotificationKind,
 } from "./toast.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./tooltip";
 
@@ -65,6 +72,8 @@ export type ThreadToastData = {
   /** When set with `expandableContent`, the summary + label act as one text disclosure (no separate chevron row). */
   expandableDescriptionTrigger?: boolean;
   actionLayout?: "inline" | "stacked-end";
+  /** User-facing notification semantics; defaults are derived from type/action. */
+  notificationKind?: ToastNotificationKind;
   actionVariant?:
     | "default"
     | "destructive"
@@ -75,10 +84,53 @@ export type ThreadToastData = {
     | "secondary";
 };
 
-const toastManager = Toast.createToastManager<ThreadToastData>();
+const baseToastManager = Toast.createToastManager<ThreadToastData>();
 const anchoredToastManager = Toast.createToastManager<ThreadToastData>();
-type ToastId = ReturnType<typeof toastManager.add>;
+type ManagedToast = ToastManager<ThreadToastData>;
+type ToastId = ReturnType<ManagedToast["add"]>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
+
+function normalizeToastAddOptions<T extends ThreadToastData>(
+  options: ToastManagerAddOptions<T>,
+): ToastManagerAddOptions<T> {
+  const policy = resolveToastNotificationPolicy(options);
+  return {
+    ...options,
+    timeout: options.timeout ?? policy.timeout,
+    priority: options.priority ?? policy.priority,
+  };
+}
+
+function normalizeToastUpdateOptions<T extends ThreadToastData>(
+  options: ToastManagerUpdateOptions<T>,
+): ToastManagerUpdateOptions<T> {
+  if (
+    !("type" in options) &&
+    !("timeout" in options) &&
+    !("priority" in options) &&
+    !("data" in options) &&
+    !("actionProps" in options)
+  ) {
+    return options;
+  }
+  const policy = resolveToastNotificationPolicy(options);
+  return {
+    ...options,
+    timeout: options.timeout ?? policy.timeout,
+    priority: options.priority ?? policy.priority,
+  };
+}
+
+// Keep one public manager while applying taxonomy defaults before Base UI
+// receives a toast. The provider subscribes to the unwrapped manager below.
+const toastManager: Omit<ManagedToast, "add" | "update"> & Pick<ManagedToast, "add" | "update"> = {
+  " subscribe": baseToastManager[" subscribe"],
+  add: (options) => baseToastManager.add(normalizeToastAddOptions(options)),
+  close: baseToastManager.close,
+  promise: baseToastManager.promise,
+  update: (toastId, options) =>
+    baseToastManager.update(toastId, normalizeToastUpdateOptions(options)),
+};
 
 const TOAST_ICONS = {
   error: CircleAlertIcon,
@@ -279,6 +331,7 @@ interface ToastBodyDescriptor {
   readonly copyErrorText: string | null;
   readonly hasTrailingControls: boolean;
   readonly inlineContentEndPad: string;
+  readonly notificationKind: ToastNotificationKind;
 }
 
 function deriveToastBodyDescriptor(toast: {
@@ -288,8 +341,13 @@ function deriveToastBodyDescriptor(toast: {
   readonly data?: ThreadToastData | undefined;
 }): ToastBodyDescriptor {
   const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
+  const notificationKind = resolveToastNotificationPolicy(toast).kind;
   const stackedActionLayout =
-    hasVisibleToastAction(toast.actionProps) && toast.data?.actionLayout === "stacked-end";
+    toast.data?.actionLayout === "stacked-end" &&
+    (hasVisibleToastAction(toast.actionProps) ||
+      toast.type === "error" ||
+      (toast.data?.additionalActions?.length ?? 0) > 0 ||
+      toast.data?.secondaryActionProps !== undefined);
   const actionVariant: NonNullable<ThreadToastData["actionVariant"]> =
     toast.data?.actionVariant ?? "default";
   const secondaryActionVariant: NonNullable<ThreadToastData["secondaryActionVariant"]> =
@@ -314,6 +372,7 @@ function deriveToastBodyDescriptor(toast: {
     copyErrorText,
     hasTrailingControls,
     inlineContentEndPad,
+    notificationKind,
   };
 }
 
@@ -357,7 +416,7 @@ function ToastBodyContent({
             className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
             data-slot="toast-icon"
           >
-            <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
+            <Icon className="in-data-[type=loading]:animate-spin motion-reduce:animate-none in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
           </div>
         ) : null}
         <div
@@ -422,6 +481,23 @@ type ToastPosition =
   | "bottom-left"
   | "bottom-center"
   | "bottom-right";
+
+export const toastRootMotionClassName =
+  "motion-safe:[transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s] motion-reduce:transition-none";
+
+export function getToastViewportPresentation(position: ToastPosition) {
+  return {
+    className: cn(
+      "fixed z-100 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-90 [--toast-header-offset:52px] [--toast-inset:--spacing(4)] sm:[--toast-inset:--spacing(8)]",
+      "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
+      "data-[position*=bottom]:bottom-(--toast-inset)",
+      "data-[position*=left]:left-(--toast-inset)",
+      "data-[position*=right]:right-(--toast-inset)",
+      "data-[position*=center]:-translate-x-1/2 data-[position*=center]:left-1/2",
+    ),
+    position,
+  };
+}
 
 interface ToastProviderProps extends Toast.Provider.Props {
   position?: ToastPosition;
@@ -528,9 +604,9 @@ function ThreadToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
+function ToastProvider({ children, position = "top-center", ...props }: ToastProviderProps) {
   return (
-    <Toast.Provider toastManager={toastManager} {...props}>
+    <Toast.Provider toastManager={baseToastManager} {...props}>
       {children}
       <Toasts position={position} />
     </Toast.Provider>
@@ -545,6 +621,7 @@ function Toasts({ position }: { position: ToastPosition }) {
     shouldRenderThreadScopedToast(toast.data, activeThreadRef),
   );
   const visibleToastLayout = buildVisibleToastLayout(visibleToasts);
+  const viewportPresentation = getToastViewportPresentation(position);
 
   useEffect(() => {
     const activeToastIds = new Set(toasts.map((toast) => toast.id));
@@ -558,17 +635,8 @@ function Toasts({ position }: { position: ToastPosition }) {
   return (
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
-        className={cn(
-          "fixed z-100 mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-90 [--toast-header-offset:52px] [--toast-inset:--spacing(4)] sm:[--toast-inset:--spacing(8)]",
-          // Vertical positioning
-          "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
-          "data-[position*=bottom]:bottom-(--toast-inset)",
-          // Horizontal positioning
-          "data-[position*=left]:left-(--toast-inset)",
-          "data-[position*=right]:right-(--toast-inset)",
-          "data-[position*=center]:-translate-x-1/2 data-[position*=center]:left-1/2",
-        )}
-        data-position={position}
+        className={viewportPresentation.className}
+        data-position={viewportPresentation.position}
         data-slot="toast-viewport"
         style={
           {
@@ -582,12 +650,14 @@ function Toasts({ position }: { position: ToastPosition }) {
             visibleToastLayout.items.length,
           );
           const bodyDescriptor = deriveToastBodyDescriptor(toast);
-          const { stackedActionLayout, inlineContentEndPad } = bodyDescriptor;
+          const { notificationKind, stackedActionLayout, inlineContentEndPad } = bodyDescriptor;
 
           return (
             <Toast.Root
               className={cn(
-                "dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none rounded-lg text-popover-foreground shadow-xl shadow-black/25 [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                "dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none rounded-lg text-popover-foreground shadow-xl shadow-black/25",
+                toastRootMotionClassName,
+                notificationKind === "quiet" ? "max-w-80" : "max-w-90",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
                 "data-[position*=left]:right-auto data-[position*=left]:left-0",
@@ -640,6 +710,7 @@ function Toasts({ position }: { position: ToastPosition }) {
                 "data-expanded:data-ending-style:data-[swipe-direction=down]:transform-[translateY(calc(var(--toast-swipe-movement-y)+100%+var(--toast-inset)))]",
               )}
               data-position={position}
+              data-notification-kind={notificationKind}
               key={toast.id}
               style={
                 {
@@ -677,7 +748,7 @@ function Toasts({ position }: { position: ToastPosition }) {
                 className={cn(
                   // `overflow-x: clip` avoids the CSS quirk where pairing `hidden` + `y: visible`
                   // forces `y` to `auto`. Expandable detail panels can extend below without being cut off.
-                  "pointer-events-auto min-h-0 overflow-y-visible pl-3.5 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
+                  "pointer-events-auto min-h-0 overflow-y-visible pl-3.5 text-sm motion-safe:transition-opacity motion-safe:duration-250 motion-reduce:transition-none [overflow-x:clip] data-expanded:opacity-100",
                   stackedActionLayout
                     ? "flex flex-col gap-2 py-2.5 pr-3.5"
                     : cn("py-3", "flex items-center justify-between gap-1.5", inlineContentEndPad),
@@ -739,7 +810,7 @@ function AnchoredToasts() {
               >
                 <Toast.Root
                   className={cn(
-                    "dropdown-glass relative overflow-visible text-balance text-popover-foreground text-xs shadow-xl shadow-black/25 transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+                    "dropdown-glass relative overflow-visible text-balance text-popover-foreground text-xs shadow-xl shadow-black/25 motion-safe:transition-[scale,opacity] motion-reduce:transition-none data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
                     tooltipStyle ? "rounded-md" : "rounded-lg",
                   )}
                   data-slot="toast-popup"

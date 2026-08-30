@@ -603,7 +603,13 @@ export const make = Effect.gen(function* () {
         const preparedContents = input.files.map((file, index) => {
           failedFile = file;
           failedTarget = targets[index];
-          return decodeBatchFileContents(file.contents);
+          const contents = decodeBatchFileContents(file.contents);
+          if (contents.byteLength > PROJECT_WRITE_FILE_MAX_BYTES) {
+            throw new Error(
+              `Workspace batch file '${file.relativePath}' exceeds RUNE's per-file size limit.`,
+            );
+          }
+          return contents;
         });
         const totalBytes = preparedContents.reduce(
           (total, contents) => total + contents.byteLength,
@@ -656,11 +662,9 @@ export const make = Effect.gen(function* () {
             const missingDirectories = await missingParentDirectories(parentPath, input.cwd);
             await NodeFSP.mkdir(parentPath, { recursive: true });
             createdDirectories.push(...missingDirectories);
+            await assertBatchTargetDoesNotTraverseSymlink(input.cwd, target.absolutePath);
             committed.push(target.absolutePath);
-            await NodeFSP.copyFile(
-              NodePath.join(stagingRoot, "file-" + index),
-              target.absolutePath,
-            );
+            await NodeFSP.rename(NodePath.join(stagingRoot, "file-" + index), target.absolutePath);
           }
           return targets.map((target) => ({ relativePath: target.relativePath }));
         } catch (cause) {
@@ -668,7 +672,7 @@ export const make = Effect.gen(function* () {
           for (const absolutePath of committed.toReversed()) {
             const backupPath = backups.get(absolutePath);
             if (backupPath) {
-              await NodeFSP.copyFile(backupPath, absolutePath).catch((rollbackCause) => {
+              await NodeFSP.rename(backupPath, absolutePath).catch((rollbackCause) => {
                 rollbackErrors.push(rollbackCause);
               });
             } else {

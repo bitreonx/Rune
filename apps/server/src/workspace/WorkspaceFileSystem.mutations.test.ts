@@ -106,6 +106,15 @@ describe("WorkspaceFileSystem mutations", () => {
           expect(invalidBase64._tag).toBe("Failure");
           expect(NodeFS.existsSync(NodePath.join(root, "invalid.bin"))).toBe(false);
 
+          const perFileOversized = yield* workspaceFileSystem
+            .writeFiles({
+              cwd: root,
+              files: [{ relativePath: "per-file.txt", contents: "x".repeat(256 * 1024 + 1) }],
+            })
+            .pipe(Effect.exit);
+          expect(perFileOversized._tag).toBe("Failure");
+          expect(NodeFS.existsSync(NodePath.join(root, "per-file.txt"))).toBe(false);
+
           const oversized = yield* workspaceFileSystem
             .writeFiles({
               cwd: root,

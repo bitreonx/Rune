@@ -84,6 +84,22 @@ layer("055_ProjectionThreadAttachmentOwnership", (it) => {
         },
         { type: "thread-mention", threadId: "other-thread", title: "Other" },
       ]);
+
+      const ownership = yield* sql<{
+        readonly attachmentId: string;
+        readonly threadId: string;
+        readonly ambiguous: number;
+      }>`
+        SELECT
+          attachment_id AS "attachmentId",
+          thread_id AS "threadId",
+          ambiguous
+        FROM attachment_ownership
+        ORDER BY attachment_id ASC
+      `;
+      assert.lengthOf(ownership, 2);
+      assert.isTrue(ownership.every((entry) => entry.threadId === "thread-ownership-backfill"));
+      assert.isTrue(ownership.every((entry) => entry.ambiguous === 0));
     }),
   );
 });

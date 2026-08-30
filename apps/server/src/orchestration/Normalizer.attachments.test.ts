@@ -13,15 +13,18 @@ import {
 } from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import { createAttachmentId } from "../attachmentStore.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 
 const testLayer = Layer.mergeAll(
   WorkspacePaths.layer,
   ServerConfig.layerTest(process.cwd(), { prefix: "rune-normalizer-attachments-" }),
+  SqlitePersistenceMemory,
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 const attachmentUuid = "00000000-0000-4000-8000-0000000000aa";
@@ -249,6 +252,7 @@ describe("normalizeDispatchCommand attachments", () => {
   it.effect("reuses a legacy finalized attachment when migration ownership matches", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
       const attachmentId = "legacy-thread-a-00000000-0000-4000-8000-000000000001";
       NodeFS.writeFileSync(
         NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
@@ -267,6 +271,11 @@ describe("normalizeDispatchCommand attachments", () => {
         },
       } satisfies ClientOrchestrationCommand;
 
+      yield* sql`
+        INSERT INTO attachment_ownership (attachment_id, thread_id, ambiguous)
+        VALUES (${attachmentId}, 'thread-a', 0)
+      `;
+
       const normalized = yield* normalizeDispatchCommand(migratedCommand);
       if (normalized.type !== "thread.turn.start") {
         throw new Error("Expected a thread.turn.start command.");
@@ -275,6 +284,37 @@ describe("normalizeDispatchCommand attachments", () => {
         id: attachmentId,
         ownerThreadId: "thread-a",
       });
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects forged legacy ownership metadata", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
+      const attachmentId = "legacy-thread-a-00000000-0000-4000-8000-000000000002";
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
+        Buffer.from("pixels"),
+      );
+      yield* sql`
+        INSERT INTO attachment_ownership (attachment_id, thread_id, ambiguous)
+        VALUES (${attachmentId}, 'thread-a', 0)
+      `;
+      const command = turnStartCommand({
+        threadId: "thread-b",
+        attachments: [{ id: attachmentId, sizeBytes: 6 }],
+      });
+      const original = command.message.attachments[0]!;
+      const forgedCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...original, ownerThreadId: "thread-b" }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const failure = yield* normalizeDispatchCommand(forgedCommand).pipe(Effect.flip);
+      expect(failure.message).toContain("attachment must be a pending upload");
     }).pipe(Effect.provide(testLayer)),
   );
 

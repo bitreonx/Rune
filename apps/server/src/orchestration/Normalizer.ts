@@ -4,6 +4,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Option from "effect/Option";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   type ClientOrchestrationCommand,
   type IsoDateTime,
@@ -85,6 +87,49 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig;
     const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+    const sqlClient = yield* Effect.serviceOption(SqlClient.SqlClient);
+
+    const finalizedAttachmentBelongsToCurrentThread = Effect.fn(
+      "Normalizer.finalizedAttachmentBelongsToCurrentThread",
+    )(
+      function* (input: {
+        readonly attachmentId: string;
+        readonly ownerThreadId?: string;
+      }) {
+        if (
+          attachmentBelongsToThread({
+            attachmentId: input.attachmentId,
+            threadId:
+              canonicalCommand.type === "thread.turn.start"
+                ? canonicalCommand.threadId
+                : "",
+          })
+        ) {
+          return true;
+        }
+        if (
+          canonicalCommand.type !== "thread.turn.start" ||
+          input.ownerThreadId !== canonicalCommand.threadId ||
+          Option.isNone(sqlClient)
+        ) {
+          return false;
+        }
+        const rows = yield* sqlClient.value<{
+          readonly threadId: string;
+          readonly ambiguous: number;
+        }>`
+          SELECT thread_id AS "threadId", ambiguous
+          FROM attachment_ownership
+          WHERE attachment_id = ${input.attachmentId}
+          LIMIT 1
+        `;
+        return (
+          rows.length === 1 &&
+          rows[0]?.threadId === canonicalCommand.threadId &&
+          rows[0]?.ambiguous === 0
+        );
+      },
+    );
 
     const normalizeProjectWorkspaceRoot = (workspaceRoot: string) =>
       workspacePaths.normalizeWorkspaceRoot(workspaceRoot).pipe(
@@ -161,14 +206,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 attachmentsDir: serverConfig.attachmentsDir,
                 attachmentId: attachment.id,
               });
-              if (
-                existingPath &&
-                attachmentBelongsToThread({
-                  attachmentId: attachment.id,
-                  threadId: canonicalCommand.threadId,
-                  ownerThreadId: attachment.ownerThreadId,
-                })
-              ) {
+              const canReuseExisting = yield* finalizedAttachmentBelongsToCurrentThread({
+                attachmentId: attachment.id,
+                ownerThreadId: attachment.ownerThreadId,
+              });
+              if (existingPath && canReuseExisting) {
                 const info = yield* fileSystem.stat(existingPath).pipe(
                   Effect.mapError(
                     (cause) =>
@@ -304,14 +346,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
               attachmentsDir: serverConfig.attachmentsDir,
               attachmentId: attachment.id,
             });
-            if (
-              existingPath &&
-              attachmentBelongsToThread({
-                attachmentId: attachment.id,
-                threadId: canonicalCommand.threadId,
-                ownerThreadId: attachment.ownerThreadId,
-              })
-            ) {
+            const canReuseExisting = yield* finalizedAttachmentBelongsToCurrentThread({
+              attachmentId: attachment.id,
+              ownerThreadId: attachment.ownerThreadId,
+            });
+            if (existingPath && canReuseExisting) {
               const info = yield* fileSystem.stat(existingPath).pipe(
                 Effect.mapError(
                   (cause) =>

@@ -64,8 +64,9 @@ export function EnvironmentQuickPanel(props: EnvironmentQuickPanelProps) {
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-xs"
-                  aria-label="Open environment overview"
+                  size="sm"
+                  aria-label="Open workspace summary"
+                  data-workspace-summary-control
                   className="text-muted-foreground hover:text-foreground"
                 />
               }
@@ -73,14 +74,20 @@ export function EnvironmentQuickPanel(props: EnvironmentQuickPanelProps) {
           }
         >
           <Box className="size-3.5" />
+          <span>Summary</span>
         </TooltipTrigger>
-        <TooltipPopup side="bottom">Environment overview</TooltipPopup>
+        <TooltipPopup side="bottom">Workspace summary</TooltipPopup>
       </Tooltip>
       <PopoverPopup align="end" sideOffset={8} className="w-[min(22rem,calc(100vw-1rem))] p-0">
         <div className="border-b border-border/55 px-3 py-3">
           <div className="flex items-center gap-2">
             <Box className="size-4 text-muted-foreground" aria-hidden />
-            <p className="truncate text-sm font-semibold">{props.environmentLabel}</p>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Workspace / Environment
+              </p>
+              <p className="truncate text-sm font-semibold">{props.environmentLabel}</p>
+            </div>
           </div>
           <p className="mt-1 truncate pl-6 text-[11px] text-muted-foreground">
             {props.cwd ?? "No workspace"}

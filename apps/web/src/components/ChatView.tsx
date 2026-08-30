@@ -1535,9 +1535,6 @@ function ChatViewContent(props: ChatViewProps) {
   const addComposerDraftFileAttachments = useComposerDraftStore(
     (store) => store.addFileAttachments,
   );
-  const removeComposerDraftFileAttachment = useComposerDraftStore(
-    (store) => store.removeFileAttachment,
-  );
   const setComposerTemporaryChat = useCallback(
     (temporary: boolean) => {
       setComposerDraftTemporary(composerDraftTarget, temporary);
@@ -1560,6 +1557,7 @@ function ChatViewContent(props: ChatViewProps) {
     readonly threadId: string;
     readonly attachments: ReadonlyArray<ChatAttachment>;
   } | null>(null);
+  const historicalEditExclusionsRef = useRef(new Map<string, ReadonlySet<string>>());
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
@@ -6936,10 +6934,7 @@ function ChatViewContent(props: ChatViewProps) {
       ...threadAttachments,
     ]);
     const optimisticAttachments = [
-      ...pendingHistoricalAttachmentRefsSnapshot.filter(
-        (attachment): attachment is Extract<ChatAttachment, { readonly type: "image" }> =>
-          attachment.type === "image",
-      ),
+      ...pendingHistoricalAttachmentRefsSnapshot,
       ...composerImagesSnapshot.map((image) => ({
         type: "image" as const,
         id: image.id,
@@ -8469,40 +8464,24 @@ function ChatViewContent(props: ChatViewProps) {
         (message) => message.id === messageId && message.role === "user",
       );
       const excludedAttachmentId = options?.excludedAttachmentId;
+      const excludedAttachmentIds = new Set(
+        historicalEditExclusionsRef.current.get(messageId) ?? [],
+      );
+      if (excludedAttachmentId) {
+        excludedAttachmentIds.add(excludedAttachmentId);
+        historicalEditExclusionsRef.current.set(messageId, excludedAttachmentIds);
+      }
       const historicalAttachments = (historicalMessage?.attachments ?? []).filter(
         (attachment) =>
-          attachment.type === "thread-mention" || attachment.id !== excludedAttachmentId,
+          attachment.type === "thread-mention" || !excludedAttachmentIds.has(attachment.id),
       );
       pendingHistoricalAttachmentRefsRef.current =
         activeThread && historicalMessage
           ? {
               threadId: activeThread.id,
-              attachments: historicalAttachments.filter(
-                (attachment): attachment is Extract<ChatAttachment, { readonly type: "image" }> =>
-                  attachment.type === "image",
-              ),
+              attachments: historicalAttachments,
             }
           : null;
-      if (excludedAttachmentId) {
-        removeComposerDraftFileAttachment(composerDraftTarget, excludedAttachmentId);
-      }
-      const historicalFiles = historicalAttachments.flatMap((attachment) => {
-        if (attachment.type !== "file") return [];
-        return [
-          {
-            type: "file" as const,
-            kind: attachment.kind,
-            id: attachment.id,
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            ...(attachment.path ? { path: attachment.path } : { serverOwned: true as const }),
-          } satisfies ComposerFileAttachment,
-        ];
-      });
-      if (historicalFiles.length > 0) {
-        addComposerDraftFileAttachments(composerDraftTarget, historicalFiles);
-      }
       const hasFileChangesAfter = historicalMessageHasFileChangesRef.current.get(messageId) ?? true;
       pendingUserMessageEditRef.current = {
         messageId,
@@ -8520,9 +8499,6 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [
       activeThread,
-      addComposerDraftFileAttachments,
-      composerDraftTarget,
-      removeComposerDraftFileAttachment,
       resolveRewindTurnCount,
       scheduleComposerFocus,
       setComposerDraftPrompt,
@@ -8568,6 +8544,9 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
 
+      const exclusions = new Set(historicalEditExclusionsRef.current.get(message.id) ?? []);
+      exclusions.add(attachment.id);
+      historicalEditExclusionsRef.current.set(message.id, exclusions);
       onEditUserMessage(message.id, message.text, { excludedAttachmentId: attachment.id });
       toastManager.add({
         type: "info",

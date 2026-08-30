@@ -41,6 +41,20 @@ export function toSafeThreadAttachmentSegment(threadId: string): string | null {
   return segment === PENDING_ATTACHMENT_THREAD_SEGMENT ? "_pending" : segment;
 }
 
+function threadAttachmentFingerprint(threadId: string): string {
+  return NodeCrypto.createHash("sha256").update(threadId).digest("hex").slice(0, 16);
+}
+
+function formatAttachmentUuid(compactUuid: string): string {
+  return [
+    compactUuid.slice(0, 8),
+    compactUuid.slice(8, 12),
+    compactUuid.slice(12, 16),
+    compactUuid.slice(16, 20),
+    compactUuid.slice(20, 32),
+  ].join("-");
+}
+
 export function createPendingAttachmentId(): string {
   return `${PENDING_ATTACHMENT_THREAD_SEGMENT}-${NodeCrypto.randomUUID()}`;
 }
@@ -58,7 +72,21 @@ export function createAttachmentId(threadId: string): string | null {
   if (!threadSegment) {
     return null;
   }
-  return `${threadSegment}-${NodeCrypto.randomUUID()}`;
+  const randomUuid = NodeCrypto.randomUUID().replaceAll("-", "");
+  const compactUuid = threadAttachmentFingerprint(threadId) + randomUuid.slice(16);
+  return `${threadSegment}-${formatAttachmentUuid(compactUuid)}`;
+}
+
+/** Validate the exact thread identity embedded in newly-created attachment IDs. */
+export function attachmentBelongsToThread(input: {
+  readonly attachmentId: string;
+  readonly threadId: string;
+}): boolean {
+  const uuid = parseAttachmentUuid(input.attachmentId);
+  return (
+    uuid !== null &&
+    uuid.replaceAll("-", "").startsWith(threadAttachmentFingerprint(input.threadId))
+  );
 }
 
 export function parseThreadSegmentFromAttachmentId(attachmentId: string): string | null {

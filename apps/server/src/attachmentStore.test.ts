@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  attachmentBelongsToThread,
   createAttachmentId,
   createPendingAttachmentId,
   parseAttachmentUuid,
@@ -46,6 +47,15 @@ describe("attachmentStore", () => {
       return;
     }
     expect(parseThreadSegmentFromAttachmentId(attachmentId)).toBe("thread-foo");
+  });
+
+  it("binds created attachment ids to the exact thread identity", () => {
+    const attachmentId = createAttachmentId("a/b");
+    expect(attachmentId).toBeTruthy();
+    if (!attachmentId) return;
+
+    expect(attachmentBelongsToThread({ attachmentId, threadId: "a/b" })).toBe(true);
+    expect(attachmentBelongsToThread({ attachmentId, threadId: "a b" })).toBe(false);
   });
 
   it("reserves the pending attachment segment", () => {

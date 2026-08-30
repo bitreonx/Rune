@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
+import { createAttachmentId } from "../attachmentStore.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 
@@ -174,7 +175,8 @@ describe("normalizeDispatchCommand attachments", () => {
   it.effect("reuses a finalized image attachment from the same thread", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
-      const attachmentId = "thread-1-" + attachmentUuid;
+      const attachmentId = createAttachmentId("thread-1");
+      if (!attachmentId) throw new Error("Expected a thread attachment id.");
       NodeFS.writeFileSync(
         NodePath.join(config.attachmentsDir, attachmentId + ".png"),
         Buffer.from("pixels"),
@@ -204,7 +206,8 @@ describe("normalizeDispatchCommand attachments", () => {
   it.effect("reuses a finalized file attachment from the same thread", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
-      const attachmentId = "thread-file-attachment-" + attachmentUuid;
+      const attachmentId = createAttachmentId("thread-file-attachment");
+      if (!attachmentId) throw new Error("Expected a thread attachment id.");
       NodeFS.writeFileSync(
         NodePath.join(config.attachmentsDir, attachmentId + ".mp4"),
         Buffer.alloc(1234),
@@ -244,7 +247,8 @@ describe("normalizeDispatchCommand attachments", () => {
   it.effect("rejects a finalized attachment whose stored extension disagrees with its type", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
-      const attachmentId = "thread-1-" + attachmentUuid;
+      const attachmentId = createAttachmentId("thread-1");
+      if (!attachmentId) throw new Error("Expected a thread attachment id.");
       NodeFS.writeFileSync(
         NodePath.join(config.attachmentsDir, attachmentId + ".bin"),
         Buffer.from("pixels"),

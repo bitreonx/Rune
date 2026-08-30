@@ -334,6 +334,24 @@ describe("TaskEvidence", () => {
     expect(markup).toContain("Updating provider routing");
     expect(markup).toContain("Verified 18 tests");
   });
+
+  it("does not silently discard older Workrail receipt groups", () => {
+    const activities = Array.from({ length: 10 }, (_, index) => ({
+      id: `activity-${index}`,
+      tone: "info",
+      kind: index % 2 === 0 ? "agent.execution.progress" : "verification.completed",
+      summary: `Receipt group ${index}`,
+      payload: { phase: index % 2 === 0 ? "implement" : "test", status: "completed" },
+      turnId: null,
+      sequence: index + 1,
+      createdAt: `2026-08-30T00:00:${String(index).padStart(2, "0")}.000Z`,
+    })) satisfies ReadonlyArray<OrchestrationThreadActivity>;
+
+    const markup = renderToStaticMarkup(<TaskEvidence activities={activities} />);
+
+    expect(markup).toContain("Receipt group 0");
+    expect(markup).toContain("Receipt group 9");
+  });
 });
 
 describe("tasks motion helpers", () => {

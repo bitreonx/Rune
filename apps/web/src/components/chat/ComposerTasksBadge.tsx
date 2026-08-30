@@ -137,21 +137,24 @@ export function TaskEvidence({
 }) {
   const evidenceActivities = useMemo(() => {
     const job = deriveAgentActivityJob(activities);
-    return job.activities.slice(-8);
+    // Receipts are the durable Workrail record. Do not silently discard older
+    // activity groups: a completed or post-plan task must still explain the
+    // work that led to its current state.
+    return job.activities;
   }, [activities]);
   if (evidenceActivities.length === 0) return null;
   return (
     <div className="rune-task-evidence" data-rune-task-evidence="true">
       {evidenceActivities.map((activity) => {
-        const changes = activity.changes.slice(-3);
+        const changes = activity.changes;
         const files = [
           ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
-        ].slice(-3);
+        ];
         const additions = activity.changes.reduce((total, change) => total + change.additions, 0);
         const deletions = activity.changes.reduce((total, change) => total + change.deletions, 0);
-        const verificationCount = activity.receipts.filter(
+        const verificationReceipts = activity.receipts.filter(
           (receipt) => receipt.kind === "verification" && receipt.status === "done",
-        ).length;
+        );
         return (
           <div key={activity.id} className="rune-task-evidence-item">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -164,11 +167,11 @@ export function TaskEvidence({
                   {additions} −{deletions}
                 </span>
               ) : null}
-              {verificationCount > 0 ? (
-                <span className="rune-task-evidence-verification">
-                  ✓ {verificationCount} verified
+              {verificationReceipts.map((receipt) => (
+                <span key={receipt.id} className="rune-task-evidence-verification">
+                  ✓ {receipt.label}
                 </span>
-              ) : null}
+              ))}
             </div>
             {(changes.length > 0 ? changes : files).map((item) => {
               const file = typeof item === "string" ? item : item.path;

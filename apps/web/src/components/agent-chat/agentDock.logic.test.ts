@@ -149,4 +149,23 @@ describe("agentDock.logic", () => {
       "Decided the verification path",
     ]);
   });
+
+  it("keeps the complete durable sequence when missing timestamps are interleaved", () => {
+    const current = agent({
+      recentActivity: [
+        { at: "2026-08-29T10:03:00Z", summary: "Third runtime event" },
+        { at: null, summary: "Unknown-time runtime event" },
+        { at: "2026-08-29T10:01:00Z", summary: "First runtime event" },
+      ],
+      status: "running",
+      result: null,
+      completedAt: null,
+    });
+
+    expect(deriveAgentActivityStory(current).map((entry) => entry.text)).toEqual([
+      "Third runtime event",
+      "Unknown-time runtime event",
+      "First runtime event",
+    ]);
+  });
 });

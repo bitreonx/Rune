@@ -349,18 +349,17 @@ export function deriveAgentActivityStory(
       sourceIndex: entries.length,
     });
   }
-  return entries
-    .sort((left, right) => {
-      const leftTime = entryTimestamp(left.entry.at);
-      const rightTime = entryTimestamp(right.entry.at);
-      if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
-        return leftTime - rightTime || left.sourceIndex - right.sourceIndex;
-      }
-      // Unknown timestamps cannot be ordered by time. Preserve the durable
-      // runtime sequence instead of letting semantic section grouping invent
-      // an order for ties or missing provider timestamps.
-      return left.sourceIndex - right.sourceIndex;
-    })
-    .slice(-limit)
-    .map(({ entry }) => entry);
+  const timestamps = entries.map(({ entry }) => entryTimestamp(entry.at));
+  const hasUnknownTimestamp = timestamps.some((timestamp) => !Number.isFinite(timestamp));
+  const ordered = hasUnknownTimestamp
+    ? // A missing provider timestamp gives us no safe insertion point. Keep
+      // the durable source sequence intact rather than applying a partial
+      // comparator that can contradict itself for mixed entries.
+      entries
+    : entries.toSorted(
+        (left, right) =>
+          entryTimestamp(left.entry.at) - entryTimestamp(right.entry.at) ||
+          left.sourceIndex - right.sourceIndex,
+      );
+  return ordered.slice(-limit).map(({ entry }) => entry);
 }

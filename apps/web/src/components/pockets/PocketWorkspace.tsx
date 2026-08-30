@@ -166,9 +166,10 @@ export function PocketWorkspace(props: {
 
   return (
     <section
-      className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-[var(--rune-surface-raised)] shadow-[0_14px_40px_-30px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+      className="rune-pocket-workspace flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-[var(--rune-surface-raised)] shadow-[0_14px_40px_-30px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
       aria-label={`${props.title} Pocket workspace`}
       data-rune-pocket-workspace
+      data-rune-pocket-state="open"
     >
       <header className="flex min-w-0 flex-col gap-2 border-b border-border/60 p-2.5">
         <div className="flex min-w-0 items-start gap-2">

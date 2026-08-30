@@ -89,6 +89,18 @@ export function selectPocketShelfThreads(
   return selected.slice(0, limit);
 }
 
+/**
+ * A closed Pocket only exposes a small preview. Keep the same priority order
+ * as the shelf, but cap it more aggressively so the sidebar remains a rail,
+ * not a second thread list.
+ */
+export function selectPocketPeekThreads(
+  threads: ReadonlyArray<PocketWorkspaceThreadData>,
+  limit = 4,
+): PocketWorkspaceThreadData[] {
+  return selectPocketShelfThreads(threads, Math.max(0, limit)).slice(0, 4);
+}
+
 export function groupPocketThreads(
   threads: ReadonlyArray<PocketWorkspaceThreadData>,
 ): ReadonlyArray<{

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   filterPocketThreads,
   groupPocketThreads,
+  selectPocketPeekThreads,
   selectPocketShelfThreads,
   sortPocketThreads,
   type PocketWorkspaceThreadData,
@@ -39,6 +40,24 @@ describe("Pocket workspace projection", () => {
     expect(shelf).toHaveLength(6);
     expect(shelf.map((item) => item.id)).toContain("pinned");
     expect(shelf.map((item) => item.id)).toContain("needs-you");
+  });
+
+  it("keeps a closed Pocket preview to four prioritized threads", () => {
+    const threads = [
+      thread("recent", { updatedAt: "2026-08-29T00:04:00.000Z" }),
+      thread("pinned", { pinned: true, updatedAt: "2026-08-01T00:00:00.000Z" }),
+      thread("working", { status: "working", updatedAt: "2026-08-02T00:00:00.000Z" }),
+      thread("needs-you", { status: "needs-you", updatedAt: "2026-08-03T00:00:00.000Z" }),
+      thread("waiting", { status: "waiting", updatedAt: "2026-08-05T00:00:00.000Z" }),
+    ];
+
+    expect(selectPocketPeekThreads(threads)).toHaveLength(4);
+    expect(selectPocketPeekThreads(threads).map((item) => item.id)).toEqual([
+      "pinned",
+      "needs-you",
+      "working",
+      "recent",
+    ]);
   });
 
   it("filters immediately across title, provider, and subtitle", () => {

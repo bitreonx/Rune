@@ -10,7 +10,15 @@ import {
   SearchIcon,
   SparklesIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId } from "@rune/contracts";
 import {
@@ -39,12 +47,14 @@ import {
 } from "../../skills/skillsWorkspace.logic";
 import {
   BUNDLED_SKILL_MARKETPLACE,
-  marketplaceSkillIdentity,
+  DEFAULT_GITHUB_SKILL_CATALOG_SOURCE,
+  fetchGitHubSkillCatalog,
+  marketplaceVersionLabel,
   projectMarketplaceViewModel,
   marketplaceSourceMetadata,
   type SkillMarketplaceView,
 } from "../../skills/marketplaceRegistry";
-import { fetchMarketplaceSkillBody } from "../../skills/marketplaceInstaller";
+import { fetchMarketplaceSkillFiles } from "../../skills/marketplaceInstaller";
 import {
   MARKETPLACE_INSTALL_SCOPE_LABEL,
   MarketplaceCompatibilityMarks,
@@ -59,6 +69,60 @@ export const SKILL_VIEWS: ReadonlyArray<{ value: SkillView; label: string }> = [
   { value: "discover", label: "Discover" },
   { value: "updates", label: "Updates" },
 ];
+
+export function nextSkillViewForKey(currentView: SkillView, key: string): SkillView | null {
+  const currentIndex = SKILL_VIEWS.findIndex((candidate) => candidate.value === currentView);
+  if (currentIndex < 0) return null;
+
+  let nextIndex: number | null = null;
+  if (key === "ArrowRight") nextIndex = (currentIndex + 1) % SKILL_VIEWS.length;
+  if (key === "ArrowLeft") nextIndex = (currentIndex - 1 + SKILL_VIEWS.length) % SKILL_VIEWS.length;
+  if (key === "Home") nextIndex = 0;
+  if (key === "End") nextIndex = SKILL_VIEWS.length - 1;
+  return nextIndex === null ? null : SKILL_VIEWS[nextIndex]!.value;
+}
+
+export function resolveSkillSelectionKey(
+  availableKeys: ReadonlyArray<string>,
+  selectedKey: string | null,
+): string | null {
+  return selectedKey !== null && availableKeys.includes(selectedKey)
+    ? selectedKey
+    : (availableKeys[0] ?? null);
+}
+
+export function focusSkillElement(
+  element: { focus: (options?: FocusOptions) => void } | null | undefined,
+): void {
+  element?.focus({ preventScroll: true });
+}
+
+export function restoreSkillListScroll(
+  element: { scrollTop: number } | null | undefined,
+  scrollTop: number | undefined,
+): void {
+  if (!element || scrollTop === undefined) return;
+  const nextScrollTop = Math.max(0, scrollTop);
+  if (element.scrollTop !== nextScrollTop) element.scrollTop = nextScrollTop;
+}
+
+export function SkillCatalogLoadingState() {
+  return (
+    <div
+      className="mt-8 flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-sm text-muted-foreground"
+      data-rune-skill-loading="true"
+      data-rune-skill-loading-motion="reduced-motion-aware"
+      role="status"
+      aria-live="polite"
+    >
+      <CircleDashedIcon
+        className="size-4 text-[var(--rune-violet-strong)] motion-safe:animate-spin motion-reduce:animate-none"
+        aria-hidden
+      />
+      Loading skill catalogs…
+    </div>
+  );
+}
 
 const SOURCE_FILTERS: ReadonlyArray<{ value: SkillWorkspaceSourceFilter; label: string }> = [
   { value: "all", label: "All skills" },
@@ -166,10 +230,14 @@ function SkillListRow({
   entry,
   selected,
   onSelect,
+  onFocus,
+  setRef,
 }: {
   readonly entry: SkillWorkspaceEntry;
   readonly selected: boolean;
   readonly onSelect: () => void;
+  readonly onFocus?: () => void;
+  readonly setRef?: (element: HTMLButtonElement | null) => void;
 }) {
   return (
     <button
@@ -181,6 +249,8 @@ function SkillListRow({
           : "border-border/60 bg-card/35",
       )}
       onClick={onSelect}
+      onFocus={onFocus}
+      ref={setRef}
       aria-pressed={selected}
       data-rune-skill-selected={selected ? "true" : "false"}
       data-rune-skill-row={entry.key}
@@ -220,10 +290,14 @@ export function MarketplaceListRow({
   entry,
   selected,
   onSelect,
+  onFocus,
+  setRef,
 }: {
   readonly entry: SkillMarketplaceView;
   readonly selected: boolean;
   readonly onSelect: () => void;
+  readonly onFocus?: () => void;
+  readonly setRef?: (element: HTMLButtonElement | null) => void;
 }) {
   const source = marketplaceSourceMetadata(entry.repository);
   return (
@@ -236,6 +310,8 @@ export function MarketplaceListRow({
           : "border-border/60 bg-card/35",
       )}
       onClick={onSelect}
+      onFocus={onFocus}
+      ref={setRef}
       aria-pressed={selected}
       aria-label={`${entry.slug}, ${marketplaceStatusLabel(entry.status)}`}
       data-rune-marketplace-row={entry.identity}
@@ -271,7 +347,8 @@ export function MarketplaceListRow({
             {MARKETPLACE_INSTALL_SCOPE_LABEL}
           </span>
           <span className="truncate">
-            <span className="font-medium text-foreground">Version:</span> v{entry.version}
+            <span className="font-medium text-foreground">Version:</span>{" "}
+            {marketplaceVersionLabel(entry.version)}
           </span>
         </span>
         <span className="mt-2 block truncate text-[11px] text-muted-foreground" title={entry.path}>
@@ -294,33 +371,67 @@ export function SkillsPage() {
   const [selectedMarketplaceKey, setSelectedMarketplaceKey] = useState<string | null>(null);
   const [view, setView] = useState<SkillView>("installed");
   const [installingKey, setInstallingKey] = useState<string | null>(null);
-  const [recentlyInstalledKeys, setRecentlyInstalledKeys] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [marketplaceRegistry, setMarketplaceRegistry] = useState(BUNDLED_SKILL_MARKETPLACE);
   const viewTabRefs = useRef<Partial<Record<SkillView, HTMLButtonElement>>>({});
+  const skillRowRefs = useRef<Partial<Record<SkillView, Map<string, HTMLButtonElement>>>>({});
   const listScrollTops = useRef<Partial<Record<SkillView, number>>>({});
+  const focusedSkillRef = useRef<{ view: SkillView; key: string } | null>(null);
+  const pendingViewFocusRef = useRef<SkillView | null>(null);
+
+  const setSkillListRef = useCallback((listView: SkillView, element: HTMLElement | null) => {
+    if (element) restoreSkillListScroll(element, listScrollTops.current[listView]);
+  }, []);
+
+  const setSkillRowRef = useCallback(
+    (listView: SkillView, key: string, element: HTMLButtonElement | null) => {
+      const rowRefs = (skillRowRefs.current[listView] ??= new Map());
+      if (element) {
+        rowRefs.set(key, element);
+      } else {
+        rowRefs.delete(key);
+      }
+    },
+    [],
+  );
+
+  const rememberFocusedSkill = useCallback((listView: SkillView, key: string) => {
+    focusedSkillRef.current = { view: listView, key };
+  }, []);
 
   const selectView = (nextView: SkillView, focus = false) => {
     setView(nextView);
-    if (focus) viewTabRefs.current[nextView]?.focus();
+    if (!focus) return;
+    pendingViewFocusRef.current = nextView;
+    if (nextView === view) {
+      pendingViewFocusRef.current = null;
+      focusSkillElement(viewTabRefs.current[nextView]);
+    }
   };
 
   const handleViewKeyDown = (event: KeyboardEvent<HTMLButtonElement>, currentView: SkillView) => {
-    const currentIndex = SKILL_VIEWS.findIndex((candidate) => candidate.value === currentView);
-    if (currentIndex < 0) return;
-    let nextIndex: number | null = null;
-    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % SKILL_VIEWS.length;
-    if (event.key === "ArrowLeft")
-      nextIndex = (currentIndex - 1 + SKILL_VIEWS.length) % SKILL_VIEWS.length;
-    if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = SKILL_VIEWS.length - 1;
-    if (nextIndex === null) return;
+    const nextView = nextSkillViewForKey(currentView, event.key);
+    if (nextView === null) return;
     event.preventDefault();
-    selectView(SKILL_VIEWS[nextIndex]!.value, true);
+    selectView(nextView, true);
   };
 
   const environmentId =
     environmentOverride ?? primaryEnvironmentId ?? environments[0]?.environmentId ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchGitHubSkillCatalog(fetch, DEFAULT_GITHUB_SKILL_CATALOG_SOURCE)
+      .then((catalog) => {
+        if (!cancelled && catalog.length > 0) setMarketplaceRegistry(catalog);
+      })
+      .catch(() => {
+        // The bundled catalog keeps the page useful when GitHub is offline or rate-limited.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const providerValue = useAtomValue(
     serverEnvironment.providersValueAtom(environmentId ?? ("" as EnvironmentId)),
   );
@@ -340,79 +451,114 @@ export function SkillsPage() {
     () => filterSkillWorkspaceEntries(entries, query, sourceFilter),
     [entries, query, sourceFilter],
   );
-  const selectedEntry =
-    filteredEntries.find((entry) => entry.key === selectedKey) ?? filteredEntries[0] ?? null;
+  const selectedEntryKey = resolveSkillSelectionKey(
+    filteredEntries.map((entry) => entry.key),
+    selectedKey,
+  );
+  const selectedEntry = filteredEntries.find((entry) => entry.key === selectedEntryKey) ?? null;
   const enabledCount = entries.filter((entry) => entry.skill.enabled).length;
   const marketplaceViewModel = useMemo(
     () =>
       projectMarketplaceViewModel({
-        installed: [
-          ...entries.map((entry) => ({
-            name: entry.name,
-            ...(entry.repositoryUrl ? { repositoryUrl: entry.repositoryUrl } : {}),
-          })),
-          ...BUNDLED_SKILL_MARKETPLACE.filter(
-            (entry) =>
-              environmentId !== null &&
-              recentlyInstalledKeys.has(
-                marketplaceInstallationKey(environmentId, marketplaceSkillIdentity(entry)),
-              ),
-          ).map((entry) => ({
-            name: entry.slug,
-            repositoryUrl: entry.repository,
-            version: entry.version,
-          })),
-        ],
+        registry: marketplaceRegistry,
+        installed: entries.map((entry) => ({
+          name: entry.name,
+          ...(entry.repositoryUrl ? { repositoryUrl: entry.repositoryUrl } : {}),
+        })),
       }),
-    [environmentId, entries, recentlyInstalledKeys],
+    [entries, marketplaceRegistry],
   );
   const marketplaceEntries = marketplaceViewModel.marketplace;
   const marketplaceUpdates = marketplaceViewModel.updates;
   const marketplaceVisibleEntries =
     view === "updates" ? marketplaceViewModel.updates : marketplaceViewModel.discover;
+  const selectedMarketplaceEntryKey = resolveSkillSelectionKey(
+    marketplaceVisibleEntries.map((entry) => entry.identity),
+    selectedMarketplaceKey,
+  );
   const selectedMarketplaceEntry =
-    marketplaceVisibleEntries.find((entry) => entry.identity === selectedMarketplaceKey) ??
-    marketplaceVisibleEntries[0] ??
+    marketplaceVisibleEntries.find((entry) => entry.identity === selectedMarketplaceEntryKey) ??
     null;
+
+  useLayoutEffect(() => {
+    const pendingView = pendingViewFocusRef.current;
+    if (pendingView === null || pendingView !== view) return;
+    pendingViewFocusRef.current = null;
+    focusSkillElement(viewTabRefs.current[pendingView]);
+  }, [view]);
+
+  useLayoutEffect(() => {
+    const focusedSkill = focusedSkillRef.current;
+    if (focusedSkill?.view !== view || typeof document === "undefined") return;
+
+    const activeElement = document.activeElement;
+    const focusWasLost =
+      activeElement === null ||
+      activeElement === document.body ||
+      activeElement === document.documentElement ||
+      !activeElement.isConnected;
+    if (!focusWasLost) return;
+
+    const visibleKeys =
+      view === "installed"
+        ? filteredEntries.map((entry) => entry.key)
+        : marketplaceVisibleEntries.map((entry) => entry.identity);
+    if (visibleKeys.includes(focusedSkill.key)) return;
+
+    const nextKey = resolveSkillSelectionKey(visibleKeys, focusedSkill.key);
+    const nextRow = nextKey ? skillRowRefs.current[view]?.get(nextKey) : undefined;
+    if (nextRow) {
+      focusSkillElement(nextRow);
+    } else {
+      focusSkillElement(viewTabRefs.current[view]);
+    }
+  }, [filteredEntries, marketplaceVisibleEntries, view]);
+
+  const skillListRefCallbacks = useMemo(
+    () => ({
+      installed: (element: HTMLElement | null) => setSkillListRef("installed", element),
+      discover: (element: HTMLElement | null) => setSkillListRef("discover", element),
+      updates: (element: HTMLElement | null) => setSkillListRef("updates", element),
+    }),
+    [setSkillListRef],
+  );
 
   const installMarketplaceSkill = async (entry: SkillMarketplaceView) => {
     const cwd = serverConfig?.cwd;
     if (!environmentId || !cwd || installingKey !== null) return;
     setInstallingKey(entry.identity);
     try {
-      const body = await fetchMarketplaceSkillBody(entry);
-      const result = await writeProjectFile({
-        environmentId,
-        input: {
-          cwd,
-          relativePath: `.agents/skills/${entry.slug}/SKILL.md`,
-          contents: body,
-        },
-      });
-      if (result._tag !== "Success") {
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not install skill",
-              description:
-                error instanceof Error
-                  ? error.message
-                  : "The project did not accept the skill file.",
-            }),
-          );
+      const files = await fetchMarketplaceSkillFiles(entry);
+      for (const file of files) {
+        const result = await writeProjectFile({
+          environmentId,
+          input: {
+            cwd,
+            relativePath: `.agents/skills/${entry.slug}/${file.relativePath}`,
+            contents: file.contents,
+          },
+        });
+        if (result._tag !== "Success") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not install skill",
+                description:
+                  error instanceof Error
+                    ? error.message
+                    : "The project did not accept a skill file.",
+              }),
+            );
+          }
+          return;
         }
-        return;
       }
-      setRecentlyInstalledKeys(
-        (current) =>
-          new Set([...current, marketplaceInstallationKey(environmentId, entry.identity)]),
-      );
       toastManager.add({
         type: "success",
-        title: "Skill installed in project",
-        description: result.value.relativePath,
+        title: "Skill files written to project",
+        description: `${files.length} file${files.length === 1 ? "" : "s"} written. Installed status appears after provider refresh.`,
       });
       void refreshProviders({ environmentId, input: {} });
     } catch (error) {
@@ -474,7 +620,11 @@ export function SkillsPage() {
           onSelect={selectView}
           onKeyDown={handleViewKeyDown}
           setTabRef={(tabView, element) => {
-            viewTabRefs.current[tabView] = element ?? undefined;
+            if (element) {
+              viewTabRefs.current[tabView] = element;
+            } else {
+              delete viewTabRefs.current[tabView];
+            }
           }}
         />
 
@@ -549,16 +699,7 @@ export function SkillsPage() {
           data-rune-skill-view={view}
         >
           {!isReady || (environmentId && providerValue === null) ? (
-            <div
-              className="mt-8 flex items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-card/20 p-6 text-sm text-muted-foreground"
-              role="status"
-            >
-              <CircleDashedIcon
-                className="size-4 animate-spin text-[var(--rune-violet-strong)]"
-                aria-hidden
-              />
-              Loading skill catalogs…
-            </div>
+            <SkillCatalogLoadingState />
           ) : view === "installed" && filteredEntries.length === 0 ? (
             <div className="mt-8 rounded-2xl border border-dashed border-border/70 bg-card/20 p-8 text-center">
               <Layers3Icon className="mx-auto size-5 text-muted-foreground/70" aria-hidden />
@@ -576,13 +717,11 @@ export function SkillsPage() {
           ) : view === "installed" ? (
             <div className="mt-8 grid min-h-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
               <section
-                className="min-h-0 min-w-0 space-y-2 lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
+                className="min-h-0 min-w-0 space-y-2 overscroll-y-contain [overflow-anchor:none] lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
                 aria-label="Available skills"
                 data-rune-skill-list="installed"
                 data-rune-skill-list-scroll="true"
-                ref={(element) => {
-                  if (element) element.scrollTop = listScrollTops.current.installed ?? 0;
-                }}
+                ref={skillListRefCallbacks.installed}
                 onScroll={(event) => {
                   listScrollTops.current.installed = event.currentTarget.scrollTop;
                 }}
@@ -591,8 +730,10 @@ export function SkillsPage() {
                   <SkillListRow
                     key={entry.key}
                     entry={entry}
-                    selected={selectedEntry?.key === entry.key}
+                    selected={selectedEntryKey === entry.key}
                     onSelect={() => setSelectedKey(entry.key)}
+                    onFocus={() => rememberFocusedSkill("installed", entry.key)}
+                    setRef={(element) => setSkillRowRef("installed", entry.key, element)}
                   />
                 ))}
               </section>
@@ -609,19 +750,17 @@ export function SkillsPage() {
               <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
                 {view === "updates"
                   ? "Updates appear only when the catalog and an installed skill both report versions."
-                  : "The bundled catalog has no entries available in this build."}
+                  : "GitHub did not return any validated skill directories."}
               </p>
             </div>
           ) : (
             <div className="mt-8 grid min-h-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
               <section
-                className="min-h-0 min-w-0 space-y-2 lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
+                className="min-h-0 min-w-0 space-y-2 overscroll-y-contain [overflow-anchor:none] lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
                 aria-label="Marketplace skills"
                 data-rune-skill-list={view}
                 data-rune-skill-list-scroll="true"
-                ref={(element) => {
-                  if (element) element.scrollTop = listScrollTops.current[view] ?? 0;
-                }}
+                ref={skillListRefCallbacks[view]}
                 onScroll={(event) => {
                   listScrollTops.current[view] = event.currentTarget.scrollTop;
                 }}
@@ -630,8 +769,10 @@ export function SkillsPage() {
                   <MarketplaceListRow
                     key={entry.identity}
                     entry={entry}
-                    selected={selectedMarketplaceEntry?.identity === entry.identity}
+                    selected={selectedMarketplaceEntryKey === entry.identity}
                     onSelect={() => setSelectedMarketplaceKey(entry.identity)}
+                    onFocus={() => rememberFocusedSkill(view, entry.identity)}
+                    setRef={(element) => setSkillRowRef(view, entry.identity, element)}
                   />
                 ))}
               </section>

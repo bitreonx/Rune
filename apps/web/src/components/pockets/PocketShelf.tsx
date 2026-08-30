@@ -5,6 +5,7 @@ import { cn } from "~/lib/utils";
 import {
   POCKET_MOTION_SEQUENCE,
   projectPocketShelf,
+  type PocketMotionPhase,
   type PocketWorkspaceThreadData,
 } from "./pocketWorkspace.logic";
 
@@ -13,6 +14,8 @@ export function PocketShelf(props: {
   readonly onOpenThread: (thread: PocketWorkspaceThreadData) => void;
   readonly renderProviderMark?: (thread: PocketWorkspaceThreadData) => ReactNode;
   readonly maxVisible?: number;
+  readonly motionPhase?: PocketMotionPhase;
+  readonly motionProfile?: "balanced" | "expressive" | "reduced";
 }) {
   const { threads: shelf, overflow } = projectPocketShelf(props.threads, props.maxVisible);
   if (shelf.length === 0) return null;
@@ -22,7 +25,8 @@ export function PocketShelf(props: {
       className="flex min-w-0 items-center gap-1.5 overflow-hidden"
       data-rune-pocket-shelf
       data-rune-pocket-surface-state="open"
-      data-rune-pocket-motion-phase="settle"
+      data-rune-pocket-motion-phase={props.motionPhase ?? "settle"}
+      data-rune-pocket-motion-profile={props.motionProfile ?? "balanced"}
       data-rune-pocket-motion-finite="true"
       data-rune-pocket-motion-sequence={POCKET_MOTION_SEQUENCE}
       data-rune-pocket-shelf-count={shelf.length}

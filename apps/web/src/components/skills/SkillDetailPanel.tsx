@@ -18,6 +18,7 @@ import { Button } from "../ui/button";
 import type { SkillWorkspaceEntry } from "../../skills/skillsWorkspace.logic";
 import {
   marketplaceSourceMetadata,
+  marketplaceVersionLabel,
   type SkillMarketplaceView,
 } from "../../skills/marketplaceRegistry";
 import {
@@ -119,7 +120,7 @@ export function SkillDetailPanel({
           <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
             <dt className="text-muted-foreground">Catalog version</dt>
             <dd className="font-medium text-foreground" data-rune-marketplace-catalog-version>
-              v{marketplaceEntry.version}
+              {marketplaceVersionLabel(marketplaceEntry.version)}
             </dd>
           </div>
           {marketplaceEntry.installedVersion !== undefined ? (

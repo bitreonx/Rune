@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useClientSettings } from "../../hooks/useSettings";
 import {
   readPocketViewState,
   writePocketViewState,
@@ -27,6 +29,7 @@ import {
   type PocketThreadStatus,
   type PocketWorkspaceThreadData,
 } from "./pocketWorkspace.logic";
+import { usePocketMotionPhase } from "./pocketMotion";
 
 interface PocketChild {
   readonly id: string;
@@ -61,6 +64,12 @@ export function PocketWorkspace(props: {
   const [savedState, setSavedState] = useState<PocketViewState>(() =>
     readPocketViewState(props.pocketId),
   );
+  const motionProfile = useClientSettings((settings) => settings.motionProfile);
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const motionPhase = usePocketMotionPhase({
+    motionProfile,
+    reducedMotion: prefersReducedMotion,
+  });
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const savedStateRef = useRef(savedState);
 
@@ -173,7 +182,8 @@ export function PocketWorkspace(props: {
       data-rune-pocket-workspace
       data-rune-pocket-state="open"
       data-rune-pocket-surface-state="open"
-      data-rune-pocket-motion-phase="settle"
+      data-rune-pocket-motion-phase={motionPhase}
+      data-rune-pocket-motion-profile={motionProfile}
       data-rune-pocket-motion-finite="true"
       data-rune-pocket-motion-sequence={POCKET_MOTION_SEQUENCE}
     >
@@ -199,6 +209,8 @@ export function PocketWorkspace(props: {
           threads={props.threads}
           onOpenThread={props.onOpenThread}
           renderProviderMark={props.renderProviderMark}
+          motionPhase={motionPhase}
+          motionProfile={motionProfile}
         />
         <div className="flex items-center gap-1.5">
           <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">

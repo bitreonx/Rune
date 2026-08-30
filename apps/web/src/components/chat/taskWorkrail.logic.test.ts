@@ -44,6 +44,14 @@ describe("deriveWorkrailModel", () => {
     expect(model).not.toHaveProperty("percent");
   });
 
+  it("keeps a structural plan visible when the transport counter is still zero", () => {
+    const model = deriveWorkrailModel({ completedSteps: 0, totalSteps: 0 }, [
+      { step: "Inspect", status: "inProgress" },
+    ]);
+
+    expect(model).toMatchObject({ total: 1, complete: 0, activeTaskId: "0" });
+  });
+
   it("folds failed work into the blocked group for Waiting for you semantics", () => {
     const model = deriveWorkrailModel({ completedSteps: 0, totalSteps: 2 }, [
       { step: "Connect account", status: "failed" },

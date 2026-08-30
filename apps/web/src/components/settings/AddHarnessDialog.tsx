@@ -29,7 +29,7 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { getProviderBrandPresentation } from "../chat/providerIconUtils";
 
 export function AddHarnessDialog(props: {
   open: boolean;
@@ -54,9 +54,7 @@ export function AddHarnessDialog(props: {
   const [roleOverrides, setRoleOverrides] = useState<Record<string, string>>({});
   const [showRoleDetails, setShowRoleDetails] = useState(false);
 
-  const connectedServices = Object.values(
-    props.settings.harnesses?.services ?? {},
-  );
+  const connectedServices = Object.values(props.settings.harnesses?.services ?? {});
 
   useEffect(() => {
     if (props.open && props.initialHarnessKind) {
@@ -105,10 +103,7 @@ export function AddHarnessDialog(props: {
     const instanceId = ProviderInstanceId.make(`inst_${slug || profileId}`);
 
     const route: ModelRoute = {
-      modelServiceId:
-        selectedServiceId === "native"
-          ? "native"
-          : ServiceId.make(selectedServiceId),
+      modelServiceId: selectedServiceId === "native" ? "native" : ServiceId.make(selectedServiceId),
       defaultModel: defaultModel.trim() || "default",
       sameModelEverywhere: sameEverywhere,
       roleOverrides: sameEverywhere ? {} : roleOverrides,
@@ -175,7 +170,7 @@ export function AddHarnessDialog(props: {
             {step === 1 ? (
               <div className="grid gap-2.5 py-4 max-h-[400px] overflow-y-auto pr-1">
                 {BUILT_IN_HARNESS_DEFINITIONS.map((harness) => {
-                  const IconComp = PROVIDER_ICON_BY_PROVIDER[harness.kind as any];
+                  const IconComp = getProviderBrandPresentation(String(harness.kind))?.icon;
                   return (
                     <button
                       key={harness.kind}
@@ -192,9 +187,7 @@ export function AddHarnessDialog(props: {
                           )}
                         </div>
                         <div>
-                          <div className="font-semibold text-sm">
-                            {harness.displayName}
-                          </div>
+                          <div className="font-semibold text-sm">{harness.displayName}</div>
                           <div className="text-xs text-muted-foreground line-clamp-1">
                             {harness.tagline}
                           </div>
@@ -254,7 +247,8 @@ export function AddHarnessDialog(props: {
                       className="font-mono text-xs"
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      Isolates auth cookies and session storage so you can run multiple Codex accounts concurrently.
+                      Isolates auth cookies and session storage so you can run multiple Codex
+                      accounts concurrently.
                     </p>
                   </div>
                 ) : null}
@@ -295,9 +289,7 @@ export function AddHarnessDialog(props: {
                         }`}
                       >
                         <div className="space-y-0.5 min-w-0 pr-1">
-                          <div className="font-medium text-xs truncate">
-                            {svc.displayName}
-                          </div>
+                          <div className="font-medium text-xs truncate">{svc.displayName}</div>
                           <div className="text-[11px] text-muted-foreground truncate">
                             {svc.kind}
                           </div>
@@ -333,7 +325,9 @@ export function AddHarnessDialog(props: {
                           onClick={() => setSameEverywhere(!sameEverywhere)}
                           className="text-xs text-primary hover:underline font-medium"
                         >
-                          {sameEverywhere ? "+ Configure Subagent / Reasoning Models" : "Use Default Everywhere"}
+                          {sameEverywhere
+                            ? "+ Configure Subagent / Reasoning Models"
+                            : "Use Default Everywhere"}
                         </button>
                       </div>
 
@@ -368,16 +362,10 @@ export function AddHarnessDialog(props: {
             )}
 
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => props.onOpenChange(false)}
-              >
+              <Button type="button" variant="outline" onClick={() => props.onOpenChange(false)}>
                 Cancel
               </Button>
-              {step === 2 ? (
-                <Button type="submit">Save Instance</Button>
-              ) : null}
+              {step === 2 ? <Button type="submit">Save Instance</Button> : null}
             </DialogFooter>
           </form>
         </DialogPanel>

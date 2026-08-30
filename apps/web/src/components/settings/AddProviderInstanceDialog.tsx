@@ -47,6 +47,7 @@ import {
   resolveInitialWizardStep,
   resolveVisibleWizardStep,
   resolveWizardNavigation,
+  resolveWizardReadiness,
   resolveWizardStep,
   type WizardNavigation,
 } from "./AddProviderInstanceDialog.logic";
@@ -215,6 +216,11 @@ export function AddProviderInstanceDialog({
     : ([driverOption.label, previewLabel, null, null, null] as const);
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const wizardReadiness = resolveWizardReadiness({
+    instanceIdError,
+    requiredFieldCount: 0,
+    configuredFieldCount: Object.keys(configDraft).length,
+  });
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
     setConfigByDriver((existing) => {
       const next = { ...existing };
@@ -682,13 +688,30 @@ export function AddProviderInstanceDialog({
                       </dd>
                     </div>
                   </dl>
-                  {instanceIdError !== null ? (
-                    <p className="text-[11px] text-destructive">{instanceIdError}</p>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground">
-                      Ready to save. This does not claim the host runtime is verified yet.
+                  <div className="grid gap-1.5" data-rune-wizard-readiness={wizardReadiness.status}>
+                    <Badge
+                      variant={
+                        wizardReadiness.status === "needs-configuration"
+                          ? "error"
+                          : wizardReadiness.status === "ready-to-save"
+                            ? "success"
+                            : "warning"
+                      }
+                      size="sm"
+                    >
+                      {wizardReadiness.label}
+                    </Badge>
+                    <p
+                      className={cn(
+                        "text-[11px]",
+                        wizardReadiness.status === "needs-configuration"
+                          ? "text-destructive"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {wizardReadiness.detail}
                     </p>
-                  )}
+                  </div>
                 </section>
               ) : null}
             </AnimatedHeight>
@@ -715,7 +738,11 @@ export function AddProviderInstanceDialog({
                 Next
               </Button>
             ) : (
-              <Button size="sm" onClick={handleSave}>
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={wizardReadiness.status === "needs-configuration"}
+              >
                 Add instance
               </Button>
             )}

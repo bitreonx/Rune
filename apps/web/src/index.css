@@ -2142,6 +2142,42 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   transform: translateY(-2px) rotate(-1deg);
 }
 
+/* The open surface advances through a finite, stateful morph. The React hook
+   changes the phase at measured boundaries; CSS only handles each short
+   interpolation so the compositor never runs an infinite shimmer. */
+[data-rune-pocket-motion-phase] {
+  transition:
+    transform var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity var(--rune-motion-fast) ease;
+}
+
+[data-rune-pocket-motion-phase="acknowledge"] {
+  opacity: 0.96;
+  transform: translateY(2px) scale(0.995);
+  clip-path: inset(0 0 2% 0 round 8px);
+}
+
+[data-rune-pocket-motion-phase="lip-lift"] {
+  transform: translateY(-1px) scale(0.998);
+}
+
+[data-rune-pocket-motion-phase="geometry-morph"] {
+  transform: translateY(-2px) scale(1.002);
+}
+
+[data-rune-pocket-motion-phase="clip-reveal"] {
+  clip-path: inset(0 0 0 0 round 8px);
+  opacity: 1;
+}
+
+[data-rune-pocket-motion-phase="settle"] {
+  transform: none;
+  clip-path: none;
+  opacity: 1;
+  will-change: auto;
+}
+
 [data-rune-pocket-peek] {
   transform-origin: top center;
   animation: rune-pocket-peek-in var(--rune-motion-fast) cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -2161,10 +2197,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 @media (prefers-reduced-motion: reduce) {
   [data-rune-pocket-state="closed"] [data-rune-action="pocket.enter"],
   [data-rune-pocket-workspace]::before,
-  [data-rune-pocket-peek] {
+  [data-rune-pocket-peek],
+  [data-rune-pocket-motion-phase] {
     animation: none;
     transition: none;
     transform: none;
+    clip-path: none;
+    opacity: 1;
   }
 }
 

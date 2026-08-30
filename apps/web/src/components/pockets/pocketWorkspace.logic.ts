@@ -33,6 +33,22 @@ export const POCKET_MOTION_PHASES = [
 export type PocketMotionPhase = (typeof POCKET_MOTION_PHASES)[number];
 export const POCKET_MOTION_SEQUENCE = POCKET_MOTION_PHASES.join(" -> ");
 
+export const POCKET_MOTION_BOUNDARIES_MS = [80, 180, 320, 520] as const;
+
+/**
+ * Project elapsed time onto the finite Pocket open sequence. Keeping this
+ * pure makes the visual state testable without sleeping in tests; the React
+ * surface advances it with one-shot timers.
+ */
+export function resolvePocketMotionPhase(
+  elapsedMs: number,
+  reducedMotion: boolean,
+): PocketMotionPhase {
+  if (reducedMotion || !Number.isFinite(elapsedMs) || elapsedMs < 0) return "settle";
+  const boundary = POCKET_MOTION_BOUNDARIES_MS.findIndex((value) => elapsedMs < value);
+  return POCKET_MOTION_PHASES[boundary < 0 ? POCKET_MOTION_PHASES.length - 1 : boundary]!;
+}
+
 export function clampPocketShelfLimit(limit: number): number {
   if (limit <= 0) return 0;
   return Math.min(Math.max(Math.floor(limit), POCKET_SHELF_MIN_ITEMS), POCKET_SHELF_MAX_ITEMS);

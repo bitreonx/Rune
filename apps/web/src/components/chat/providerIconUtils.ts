@@ -16,17 +16,6 @@ import {
 } from "../Icons";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
-/**
- * Provider / harness → icon registry.
- *
- * The map is keyed by `ProviderDriverKind` for the provider-driver surfaces
- * (Codex, Claude, etc.) and additionally by `HarnessKind` strings for the
- * harness picker surfaces (`runeNative` is a `HarnessKind` but no
- * `ProviderDriverKind`, so it has to be looked up via a type-loose key). The
- * `string` key signature here is what lets `AddHarnessDialog` do
- * `PROVIDER_ICON_BY_PROVIDER[harness.kind as any]` without TypeScript
- * complaining; the harness string keys never collide with driver kinds.
- */
 const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"], Icon> =
   {
     rune: RuneMarkIcon,
@@ -41,17 +30,6 @@ const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]
     deepseek: DeepSeekIcon,
     xai: xAIIcon,
   };
-
-export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind | string, Icon>> =
-  Object.fromEntries(
-    Object.values(PROVIDER_BRANDS).map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
-  );
-
-export const SERVICE_ICON_BY_KIND: Record<string, Icon> = Object.fromEntries(
-  Object.values(PROVIDER_BRANDS)
-    .filter((brand) => brand.source === "service")
-    .map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
-);
 
 export interface ProviderBrandPresentation {
   readonly id: string;

@@ -29,7 +29,7 @@ export function deriveWorkrailModel(
   progress: { readonly completedSteps: number; readonly totalSteps: number } | null,
   steps: readonly WorkrailStep[] | null,
 ): WorkrailModel | null {
-  if (progress === null || steps === null || progress.totalSteps <= 0 || steps.length === 0) {
+  if (progress === null || steps === null || steps.length === 0) {
     return null;
   }
 

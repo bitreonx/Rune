@@ -11,6 +11,7 @@ import {
   POCKET_SURFACE_STATES,
   pocketPeekChildLimit,
   projectPocketShelf,
+  resolvePocketMotionPhase,
   selectPocketPeekThreads,
   selectPocketShelfThreads,
   sortPocketThreads,
@@ -75,6 +76,19 @@ describe("Pocket workspace projection", () => {
     expect(POCKET_MOTION_SEQUENCE).toBe(
       "acknowledge -> lip-lift -> geometry-morph -> clip-reveal -> settle",
     );
+  });
+
+  it("projects a finite expressive open sequence instead of jumping to settle", () => {
+    expect(resolvePocketMotionPhase(0, false)).toBe("acknowledge");
+    expect(resolvePocketMotionPhase(100, false)).toBe("lip-lift");
+    expect(resolvePocketMotionPhase(220, false)).toBe("geometry-morph");
+    expect(resolvePocketMotionPhase(400, false)).toBe("clip-reveal");
+    expect(resolvePocketMotionPhase(700, false)).toBe("settle");
+  });
+
+  it("settles immediately for reduced motion", () => {
+    expect(resolvePocketMotionPhase(0, true)).toBe("settle");
+    expect(resolvePocketMotionPhase(999, true)).toBe("settle");
   });
 
   it("keeps a closed Pocket preview to four prioritized threads", () => {

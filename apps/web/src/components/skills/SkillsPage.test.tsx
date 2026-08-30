@@ -35,7 +35,15 @@ import {
   marketplaceStatusLabel,
   marketplaceStatusVariant,
 } from "./MarketplaceSkillMetadata";
-import { MarketplaceListRow, SkillViewTabs, SKILL_VIEWS } from "./SkillsPage";
+import {
+  focusSkillElement,
+  MarketplaceListRow,
+  nextSkillViewForKey,
+  resolveSkillSelectionKey,
+  SkillCatalogLoadingState,
+  SkillViewTabs,
+  SKILL_VIEWS,
+} from "./SkillsPage";
 import { SkillDetailPanel } from "./SkillDetailPanel";
 
 const marketplaceEntry: SkillMarketplaceView = {
@@ -46,6 +54,22 @@ const marketplaceEntry: SkillMarketplaceView = {
 };
 
 describe("SkillsPage marketplace surfaces", () => {
+  it("keeps tab navigation and selection fallback deterministic", () => {
+    expect(nextSkillViewForKey("installed", "ArrowRight")).toBe("discover");
+    expect(nextSkillViewForKey("installed", "ArrowLeft")).toBe("updates");
+    expect(nextSkillViewForKey("discover", "Home")).toBe("installed");
+    expect(nextSkillViewForKey("discover", "End")).toBe("updates");
+    expect(nextSkillViewForKey("discover", "Enter")).toBeNull();
+
+    expect(resolveSkillSelectionKey(["first", "second"], "second")).toBe("second");
+    expect(resolveSkillSelectionKey(["first", "second"], "missing")).toBe("first");
+    expect(resolveSkillSelectionKey([], "missing")).toBeNull();
+
+    const focus = vi.fn();
+    focusSkillElement({ focus });
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
   it("defines the Installed, Discover, and Updates tab contract", () => {
     expect(SKILL_VIEWS).toEqual([
       { value: "installed", label: "Installed" },
@@ -72,6 +96,16 @@ describe("SkillsPage marketplace surfaces", () => {
     expect(html).toContain('tabindex="-1"');
   });
 
+  it("marks the loading indicator as reduced-motion aware", () => {
+    const html = renderToStaticMarkup(<SkillCatalogLoadingState />);
+
+    expect(html).toContain('data-rune-skill-loading="true"');
+    expect(html).toContain('data-rune-skill-loading-motion="reduced-motion-aware"');
+    expect(html).toContain("motion-safe:animate-spin");
+    expect(html).toContain("motion-reduce:animate-none");
+    expect(html).not.toContain("animate-pulse");
+  });
+
   it("keeps marketplace status truthful and exposes every compatibility mark", () => {
     expect(marketplaceStatusLabel("available")).toBe("Not installed");
     expect(marketplaceStatusLabel("update")).toBe("Update available");
@@ -94,7 +128,9 @@ describe("SkillsPage marketplace surfaces", () => {
       <MarketplaceListRow entry={marketplaceEntry} selected onSelect={vi.fn()} />,
     );
 
-    expect(html).toContain('data-rune-marketplace-row="repository:https://github.com/mattpocock/skills#grill-me"');
+    expect(html).toContain(
+      'data-rune-marketplace-row="repository:https://github.com/mattpocock/skills#grill-me"',
+    );
     expect(html).toContain('data-rune-marketplace-selected="true"');
     expect(html).toContain('data-rune-marketplace-status="update"');
     expect(html).toContain("GitHub source:");
@@ -135,5 +171,4 @@ describe("SkillsPage marketplace surfaces", () => {
     expect(html).toContain("Update available");
     expect(html).toContain("Install update");
   });
-
 });

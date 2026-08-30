@@ -2,11 +2,14 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   BUNDLED_SKILL_MARKETPLACE,
+  buildGitHubSkillTreeUrl,
+  fetchGitHubSkillCatalog,
   isValidMarketplaceRecord,
   marketplaceSkillIdentity,
   marketplaceSourceMetadata,
   projectMarketplaceView,
   projectMarketplaceViewModel,
+  projectGitHubSkillCatalog,
 } from "./marketplaceRegistry";
 
 describe("marketplaceRegistry", () => {
@@ -43,10 +46,7 @@ describe("marketplaceRegistry", () => {
 
   it("projects marketplace, installed, discover, and update collections without fake counts", () => {
     const model = projectMarketplaceViewModel({
-      registry: [
-        { ...BUNDLED_SKILL_MARKETPLACE[0]!, version: 2 },
-        BUNDLED_SKILL_MARKETPLACE[1]!,
-      ],
+      registry: [{ ...BUNDLED_SKILL_MARKETPLACE[0]!, version: 2 }, BUNDLED_SKILL_MARKETPLACE[1]!],
       installed: [
         {
           name: "grill-me",
@@ -89,6 +89,77 @@ describe("marketplaceRegistry", () => {
       installed: [{ name: "grill-me", repositoryUrl: "https://github.com/mattpocock/skills" }],
     });
     expect(entry?.status).toBe("installed");
+  });
+
+  it("projects validated GitHub Skill.md directories without inventing support or versions", () => {
+    const records = projectGitHubSkillCatalog(
+      {
+        sha: "abc123",
+        truncated: false,
+        tree: [
+          { path: "alpha/SKILL.md", type: "blob" },
+          { path: "alpha/reference.md", type: "blob" },
+          { path: "nested/beta/SKILL.md", type: "blob" },
+          { path: "../unsafe/SKILL.md", type: "blob" },
+          { path: "ignored/SKILL.txt", type: "blob" },
+        ],
+      },
+      { repository: "https://github.com/example/catalog", ref: "main" },
+    );
+    expect(records).toEqual([
+      {
+        slug: "alpha",
+        repository: "https://github.com/example/catalog",
+        path: "alpha/SKILL.md",
+        description: "GitHub skill source · alpha/SKILL.md",
+        compatibility: ["unknown"],
+        version: null,
+        ref: "main",
+        revision: "abc123",
+      },
+      {
+        slug: "beta",
+        repository: "https://github.com/example/catalog",
+        path: "nested/beta/SKILL.md",
+        description: "GitHub skill source · nested/beta/SKILL.md",
+        compatibility: ["unknown"],
+        version: null,
+        ref: "main",
+        revision: "abc123",
+      },
+    ]);
+  });
+
+  it("fetches a GitHub catalog through the tree API", async () => {
+    const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        "https://api.github.com/repos/example/catalog/git/trees/main?recursive=1",
+      );
+      expect(init?.headers).toEqual({ Accept: "application/vnd.github+json" });
+      return new Response(
+        JSON.stringify({
+          sha: "revision-1",
+          truncated: false,
+          tree: [{ path: "alpha/SKILL.md", type: "blob" }],
+        }),
+        { status: 200 },
+      );
+    };
+    await expect(
+      fetchGitHubSkillCatalog(fetcher, {
+        repository: "https://github.com/example/catalog",
+        ref: "main",
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("rejects invalid GitHub catalog refs before fetching", () => {
+    expect(
+      buildGitHubSkillTreeUrl({
+        repository: "https://github.com/example/catalog",
+        ref: "../secrets",
+      }),
+    ).toBeNull();
   });
 
   it("derives GitHub author and repository labels from the source URL", () => {

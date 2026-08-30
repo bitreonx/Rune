@@ -4,15 +4,9 @@ import { SparklesIcon, PlusIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { AddServiceDialog, DEFAULT_BASE_URLS, SERVICE_KIND_LABELS } from "./AddServiceDialog";
 import { cn } from "../../lib/utils";
-import { getProviderOrServiceIcon, SERVICE_ICON_BY_KIND } from "../chat/providerIconUtils";
+import { getProviderBrandPresentation } from "../chat/providerIconUtils";
 
-const BUILT_IN_SERVICE_KINDS = [
-  "openrouter",
-  "openai",
-  "anthropic",
-  "google",
-  "deepseek",
-] as const;
+const BUILT_IN_SERVICE_KINDS = ["openrouter", "openai", "anthropic", "google", "deepseek"] as const;
 
 export function ModelServicesSection(props: {
   settings: ServerSettings;
@@ -135,9 +129,7 @@ export function ModelServicesSection(props: {
             const usingProfiles = getProfilesUsingService(service.serviceId);
             const isConnected = service.hasCredential === true;
             const ServiceIcon =
-              SERVICE_ICON_BY_KIND[service.kind] ??
-              getProviderOrServiceIcon(String(service.kind)) ??
-              SparklesIcon;
+              getProviderBrandPresentation(String(service.kind))?.icon ?? SparklesIcon;
 
             return (
               <button
@@ -166,7 +158,7 @@ export function ModelServicesSection(props: {
                       {usingProfiles.length > 0
                         ? `Used by ${usingProfiles.length} harness instance${usingProfiles.length === 1 ? "" : "s"}`
                         : isConnected
-                          ? service.maskedLabel ?? "Stored API key"
+                          ? (service.maskedLabel ?? "Stored API key")
                           : "Not configured"}
                     </p>
                   </div>
@@ -202,7 +194,8 @@ export function ModelServicesSection(props: {
         editingService={editingService}
         onSave={handleSaveService}
         usageCount={editingService ? getProfilesUsingService(editingService.serviceId).length : 0}
-        {...(editingService && props.settings.harnesses?.services?.[editingService.serviceId] !== undefined
+        {...(editingService &&
+        props.settings.harnesses?.services?.[editingService.serviceId] !== undefined
           ? { onDelete: () => handleDeleteService(editingService.serviceId) }
           : {})}
       />

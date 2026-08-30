@@ -8,6 +8,7 @@ import {
   resolveInitialWizardStep,
   resolveVisibleWizardStep,
   resolveWizardNavigation,
+  resolveWizardReadiness,
   resolveWizardStep,
 } from "./AddProviderInstanceDialog.logic";
 
@@ -116,6 +117,50 @@ describe("resolveWizardNavigation", () => {
     expect(resolveWizardNavigation(0, -1, ADD_PROVIDER_WIZARD_STEPS.length, invalidId)).toEqual({
       kind: "navigate",
       step: 0,
+    });
+  });
+});
+
+describe("resolveWizardReadiness", () => {
+  it("does not claim a host runtime is verified from local form state", () => {
+    expect(
+      resolveWizardReadiness({
+        instanceIdError: null,
+        requiredFieldCount: 0,
+        configuredFieldCount: 0,
+      }),
+    ).toEqual({
+      status: "pending-host-verification",
+      label: "Pending host verification",
+      detail:
+        "The instance is ready to save. RUNE will verify the CLI, account, and models after it is added.",
+    });
+  });
+
+  it("blocks save readiness when the instance identity is invalid", () => {
+    expect(
+      resolveWizardReadiness({
+        instanceIdError: "Instance ID is required.",
+        requiredFieldCount: 0,
+        configuredFieldCount: 0,
+      }),
+    ).toEqual({
+      status: "needs-configuration",
+      label: "Needs configuration",
+      detail: "Instance ID is required.",
+    });
+  });
+
+  it("reports missing required fields without inventing provider verification", () => {
+    expect(
+      resolveWizardReadiness({
+        instanceIdError: null,
+        requiredFieldCount: 2,
+        configuredFieldCount: 1,
+      }),
+    ).toMatchObject({
+      status: "needs-configuration",
+      label: "Needs configuration",
     });
   });
 });

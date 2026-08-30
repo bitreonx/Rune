@@ -2,6 +2,44 @@ export type WizardNavigation =
   | { readonly kind: "navigate"; readonly step: number }
   | { readonly kind: "blocked"; readonly step: number; readonly error: string };
 
+export type WizardReadinessStatus =
+  | "ready-to-save"
+  | "needs-configuration"
+  | "pending-host-verification";
+
+export interface WizardReadiness {
+  readonly status: WizardReadinessStatus;
+  readonly label: string;
+  readonly detail: string;
+}
+
+export function resolveWizardReadiness(input: {
+  readonly instanceIdError: string | null;
+  readonly requiredFieldCount: number;
+  readonly configuredFieldCount: number;
+}): WizardReadiness {
+  if (input.instanceIdError !== null) {
+    return {
+      status: "needs-configuration",
+      label: "Needs configuration",
+      detail: input.instanceIdError,
+    };
+  }
+  if (input.configuredFieldCount < input.requiredFieldCount) {
+    return {
+      status: "needs-configuration",
+      label: "Needs configuration",
+      detail: "Complete the required connection fields before saving this instance.",
+    };
+  }
+  return {
+    status: "pending-host-verification",
+    label: "Pending host verification",
+    detail:
+      "The instance is ready to save. RUNE will verify the CLI, account, and models after it is added.",
+  };
+}
+
 const IDENTITY_STEP = 1;
 
 /** Stages shown when the add flow starts from Settings → Add harness. */

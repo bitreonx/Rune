@@ -672,7 +672,6 @@ export const make = Effect.gen(function* () {
             await NodeFSP.mkdir(parentPath, { recursive: true });
             createdDirectories.push(...missingDirectories);
             await assertBatchTargetDoesNotTraverseSymlink(input.cwd, target.absolutePath);
-            committed.push(target.absolutePath);
             const stagedPath = NodePath.join(stagingRoot, "file-" + index);
             if (process.platform === "win32" && backups.has(target.absolutePath)) {
               // Windows rename cannot overwrite a live file reliably. Move the
@@ -682,9 +681,11 @@ export const make = Effect.gen(function* () {
               const liveBackupPath = NodePath.join(stagingRoot, "live-backup-" + index);
               await NodeFSP.rename(target.absolutePath, liveBackupPath);
               liveBackups.set(target.absolutePath, liveBackupPath);
+              committed.push(target.absolutePath);
               await NodeFSP.rename(stagedPath, target.absolutePath);
             } else {
               await NodeFSP.rename(stagedPath, target.absolutePath);
+              committed.push(target.absolutePath);
             }
           }
           return targets.map((target) => ({ relativePath: target.relativePath }));

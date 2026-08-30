@@ -216,10 +216,17 @@ export function AddProviderInstanceDialog({
     : ([driverOption.label, previewLabel, null, null, null] as const);
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const requiredSettingsFields = driverSettingsFields.filter((field) => field.required === true);
+  const configuredRequiredFieldCount = requiredSettingsFields.filter((field) => {
+    const value = configDraft[field.key];
+    if (typeof value === "boolean") return true;
+    if (typeof value === "string") return value.trim().length > 0;
+    return value !== undefined && value !== null;
+  }).length;
   const wizardReadiness = resolveWizardReadiness({
     instanceIdError,
-    requiredFieldCount: 0,
-    configuredFieldCount: Object.keys(configDraft).length,
+    requiredFieldCount: requiredSettingsFields.length,
+    configuredFieldCount: configuredRequiredFieldCount,
   });
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
     setConfigByDriver((existing) => {

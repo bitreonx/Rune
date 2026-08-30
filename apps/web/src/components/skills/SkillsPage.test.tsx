@@ -38,6 +38,7 @@ import {
 import {
   focusSkillElement,
   MarketplaceListRow,
+  marketplaceCatalogSourceLabel,
   nextSkillViewForKey,
   resolveSkillSelectionKey,
   SkillCatalogLoadingState,
@@ -54,6 +55,12 @@ const marketplaceEntry: SkillMarketplaceView = {
 };
 
 describe("SkillsPage marketplace surfaces", () => {
+  it("labels the live catalog state without hiding the bundled fallback", () => {
+    expect(marketplaceCatalogSourceLabel("loading")).toBe("Loading GitHub marketplace…");
+    expect(marketplaceCatalogSourceLabel("github")).toBe("GitHub catalog · live source");
+    expect(marketplaceCatalogSourceLabel("bundled")).toBe("GitHub unavailable · bundled fallback");
+  });
+
   it("keeps tab navigation and selection fallback deterministic", () => {
     expect(nextSkillViewForKey("installed", "ArrowRight")).toBe("discover");
     expect(nextSkillViewForKey("installed", "ArrowLeft")).toBe("updates");

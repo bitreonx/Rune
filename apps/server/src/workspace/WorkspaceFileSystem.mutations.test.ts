@@ -32,6 +32,61 @@ function makeTemporaryWorkspace(): string {
 }
 
 describe("WorkspaceFileSystem mutations", () => {
+  it("writes a batch and rolls back earlier files when a later target fails", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const root = makeTemporaryWorkspace();
+        try {
+          NodeFS.writeFileSync(NodePath.join(root, "existing.txt"), "before");
+          NodeFS.writeFileSync(NodePath.join(root, "blocked"), "not-a-directory");
+
+          const result = yield* workspaceFileSystem
+            .writeFiles({
+              cwd: root,
+              files: [
+                { relativePath: "existing.txt", contents: "after" },
+                { relativePath: "created.txt", contents: "new" },
+                { relativePath: "blocked/child.txt", contents: "failure" },
+              ],
+            })
+            .pipe(Effect.exit);
+
+          expect(result._tag).toBe("Failure");
+          expect(NodeFS.readFileSync(NodePath.join(root, "existing.txt"), "utf8")).toBe("before");
+          expect(NodeFS.existsSync(NodePath.join(root, "created.txt"))).toBe(false);
+        } finally {
+          NodeFS.rmSync(root, { recursive: true, force: true });
+        }
+      }).pipe(Effect.provide(TestLayers)),
+    );
+  });
+
+  it("writes explicitly encoded binary batch contents without UTF-8 corruption", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const root = makeTemporaryWorkspace();
+        try {
+          yield* workspaceFileSystem.writeFiles({
+            cwd: root,
+            files: [
+              {
+                relativePath: "assets/icon.bin",
+                contents: { encoding: "base64", data: "AAEC/w==" },
+              },
+            ],
+          });
+          expect([...NodeFS.readFileSync(NodePath.join(root, "assets/icon.bin"))]).toEqual([
+            0, 1, 2, 255,
+          ]);
+        } finally {
+          NodeFS.rmSync(root, { recursive: true, force: true });
+        }
+      }).pipe(Effect.provide(TestLayers)),
+    );
+  });
+
   it("createEntry makes a file, parents included, and rejects duplicates", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -63,8 +118,16 @@ describe("WorkspaceFileSystem mutations", () => {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
         const root = makeTemporaryWorkspace();
         try {
-          yield* workspaceFileSystem.createEntry({ cwd: root, relativePath: "docs", kind: "directory" });
-          yield* workspaceFileSystem.createEntry({ cwd: root, relativePath: "docs", kind: "directory" });
+          yield* workspaceFileSystem.createEntry({
+            cwd: root,
+            relativePath: "docs",
+            kind: "directory",
+          });
+          yield* workspaceFileSystem.createEntry({
+            cwd: root,
+            relativePath: "docs",
+            kind: "directory",
+          });
           expect(NodeFS.statSync(NodePath.join(root, "docs")).isDirectory()).toBe(true);
         } finally {
           NodeFS.rmSync(root, { recursive: true, force: true });
@@ -116,7 +179,11 @@ describe("WorkspaceFileSystem mutations", () => {
             .pipe(Effect.exit);
           expect(nonRecursive._tag).toBe("Failure");
 
-          yield* workspaceFileSystem.deleteEntry({ cwd: root, relativePath: "pkg", recursive: true });
+          yield* workspaceFileSystem.deleteEntry({
+            cwd: root,
+            relativePath: "pkg",
+            recursive: true,
+          });
           expect(NodeFS.existsSync(NodePath.join(root, "pkg"))).toBe(false);
 
           const rootDelete = yield* workspaceFileSystem

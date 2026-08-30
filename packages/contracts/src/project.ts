@@ -342,10 +342,39 @@ export const ProjectWriteFileInput = Schema.Struct({
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
+/**
+ * Batch writes may carry text or an explicitly encoded binary payload. Keeping
+ * binary transport opt-in prevents accidental UTF-8 corruption while retaining
+ * the simple string shape for the existing single-file and provider callers.
+ */
+export const ProjectWriteFileContents = Schema.Union([
+  Schema.String,
+  Schema.Struct({
+    encoding: Schema.Literal("base64"),
+    data: Schema.String,
+  }),
+]);
+export type ProjectWriteFileContents = typeof ProjectWriteFileContents.Type;
+
+export const ProjectWriteFilesFile = Schema.Struct({
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  contents: ProjectWriteFileContents,
+});
+export type ProjectWriteFilesFile = typeof ProjectWriteFilesFile.Type;
+
+export const ProjectWriteFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  files: Schema.Array(ProjectWriteFilesFile),
+});
+export type ProjectWriteFilesInput = typeof ProjectWriteFilesInput.Type;
+
 export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
+
+export const ProjectWriteFilesResult = Schema.Array(ProjectWriteFileResult);
+export type ProjectWriteFilesResult = typeof ProjectWriteFilesResult.Type;
 
 export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteFileError>()(
   "ProjectWriteFileError",

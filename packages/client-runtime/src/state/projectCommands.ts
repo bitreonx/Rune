@@ -133,6 +133,15 @@ export function createProjectEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.cwd, input.relativePath]),
       },
     }),
+    writeFiles: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:write-files",
+      tag: WS_METHODS.projectsWriteFiles,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+    }),
     createEntry: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:create-entry",
       tag: WS_METHODS.projectsCreateEntry,

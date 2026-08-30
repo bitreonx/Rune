@@ -8,7 +8,12 @@ const MAX_SKILL_TOTAL_BYTES = 2 * 1024 * 1024;
 
 export interface MarketplaceSkillFile {
   readonly relativePath: string;
-  readonly contents: string;
+  readonly contents: string | MarketplaceSkillBinaryContents;
+}
+
+export interface MarketplaceSkillBinaryContents {
+  readonly encoding: "base64";
+  readonly data: string;
 }
 
 interface GitHubTreeFile {
@@ -123,8 +128,34 @@ function buildMarketplaceRawFileUrl(record: SkillMarketplaceRecord, path: string
   return buildMarketplaceRawSkillUrl({ ...record, path });
 }
 
-function isTextSkillFile(contentType: string | null): boolean {
-  if (!contentType) return true;
+const TEXT_SKILL_FILE_EXTENSIONS = new Set([
+  ".cjs",
+  ".css",
+  ".env",
+  ".gitignore",
+  ".html",
+  ".ini",
+  ".js",
+  ".json",
+  ".md",
+  ".mjs",
+  ".ps1",
+  ".py",
+  ".rb",
+  ".rs",
+  ".sh",
+  ".svg",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
+
+function isTextSkillFile(path: string, contentType: string | null): boolean {
+  if (!contentType) return isTextSkillPath(path);
   const mediaType = contentType.split(";")[0]!.trim().toLowerCase();
   if (mediaType.startsWith("text/")) return true;
   if (
@@ -137,7 +168,24 @@ function isTextSkillFile(contentType: string | null): boolean {
   ) {
     return true;
   }
-  return false;
+  return isTextSkillPath(path) && mediaType === "application/octet-stream";
+}
+
+function isTextSkillPath(path: string): boolean {
+  const normalized = path.toLowerCase().replaceAll("\\", "/");
+  const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
+  if (basename === ".env" || basename === ".gitignore") return true;
+  const extension = basename.includes(".") ? basename.slice(basename.lastIndexOf(".")) : "";
+  return TEXT_SKILL_FILE_EXTENSIONS.has(extension);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return globalThis.btoa(binary);
 }
 
 export async function fetchMarketplaceSkillBody(
@@ -184,21 +232,28 @@ export async function fetchMarketplaceSkillFiles(
     if (!response.ok) {
       throw new Error("GitHub returned HTTP " + response.status + " for " + path + ".");
     }
-    if (!isTextSkillFile(response.headers.get("content-type"))) {
-      throw new Error("The skill contains unsupported binary content: " + path + ".");
-    }
     const declaredLength = Number(response.headers.get("content-length") ?? "0");
     if (declaredLength > MAX_SKILL_BODY_BYTES) {
       throw new Error("A skill file is larger than RUNE's safe install limit.");
     }
-    const contents = await response.text();
+    const contentType = response.headers.get("content-type");
+    const contents = isTextSkillFile(path, contentType)
+      ? await response.text()
+      : {
+          encoding: "base64" as const,
+          data: bytesToBase64(new Uint8Array(await response.arrayBuffer())),
+        };
+    const bytes =
+      typeof contents === "string"
+        ? new TextEncoder().encode(contents).byteLength
+        : Math.floor((contents.data.length * 3) / 4) -
+          (contents.data.endsWith("==") ? 2 : contents.data.endsWith("=") ? 1 : 0);
     if (
       path.toLowerCase() === record.path.trim().replaceAll("\\", "/").toLowerCase() &&
-      !contents.trim()
+      (typeof contents !== "string" || !contents.trim())
     ) {
       throw new Error("GitHub returned an empty skill body.");
     }
-    const bytes = new TextEncoder().encode(contents).byteLength;
     if (bytes > MAX_SKILL_BODY_BYTES) {
       throw new Error("A skill file is larger than RUNE's safe install limit.");
     }

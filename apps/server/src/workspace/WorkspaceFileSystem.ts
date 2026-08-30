@@ -8,6 +8,7 @@
  * @module WorkspaceFileSystem
  */
 import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
 import { createHash } from "node:crypto";
 
 import type {
@@ -21,6 +22,8 @@ import type {
   ProjectRenameEntryInput,
   ProjectRenameEntryResult,
   ProjectWriteFileInput,
+  ProjectWriteFileContents,
+  ProjectWriteFilesFile,
   ProjectWriteFileResult,
 } from "@rune/contracts";
 import * as Context from "effect/Context";
@@ -38,6 +41,16 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
 const PROJECT_METADATA_HASH_MAX_BYTES = 16 * 1024 * 1024;
+
+function decodeBatchFileContents(contents: ProjectWriteFileContents): Buffer | string {
+  if (typeof contents === "string") return Buffer.from(contents, "utf8");
+
+  const decoded = Buffer.from(contents.data, "base64");
+  if (contents.data.length % 4 !== 0 || decoded.toString("base64") !== contents.data) {
+    throw new Error("Batch file contents must be valid padded base64.");
+  }
+  return decoded;
+}
 
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
@@ -157,7 +170,7 @@ export class WorkspaceFileSystem extends Context.Service<
     /** Validate every target before writing a batch of related files. */
     readonly writeFiles: (input: {
       readonly cwd: string;
-      readonly files: ReadonlyArray<{ readonly relativePath: string; readonly contents: string }>;
+      readonly files: ReadonlyArray<ProjectWriteFilesFile>;
     }) => Effect.Effect<
       ReadonlyArray<ProjectWriteFileResult>,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
@@ -524,38 +537,70 @@ export const make = Effect.gen(function* () {
       }
       seen.add(target.relativePath);
     }
-    const results: ProjectWriteFileResult[] = [];
-    for (const [index, target] of targets.entries()) {
-      const file = input.files[index];
-      if (!file) continue;
-      yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new WorkspaceFileSystemOperationError({
-              workspaceRoot: input.cwd,
-              relativePath: file.relativePath,
-              resolvedPath: target.absolutePath,
-              operationPath: path.dirname(target.absolutePath),
-              operation: "make-directory",
-              cause,
-            }),
-        ),
-      );
-      yield* fileSystem.writeFileString(target.absolutePath, file.contents).pipe(
-        Effect.mapError(
-          (cause) =>
-            new WorkspaceFileSystemOperationError({
-              workspaceRoot: input.cwd,
-              relativePath: file.relativePath,
-              resolvedPath: target.absolutePath,
-              operationPath: target.absolutePath,
-              operation: "write-file",
-              cause,
-            }),
-        ),
-      );
-      results.push({ relativePath: target.relativePath });
-    }
+    const results = yield* Effect.tryPromise({
+      try: async () => {
+        const stagingRoot = await NodeFSP.mkdtemp(NodePath.join(input.cwd, ".rune-write-files-"));
+        const backups = new Map<string, string>();
+        const committed: string[] = [];
+        try {
+          for (const target of targets) {
+            try {
+              const stat = await NodeFSP.stat(target.absolutePath);
+              if (stat.isDirectory()) {
+                throw new Error("Target is a directory.");
+              }
+              const backupPath = NodePath.join(stagingRoot, "backup-" + backups.size);
+              await NodeFSP.copyFile(target.absolutePath, backupPath);
+              backups.set(target.absolutePath, backupPath);
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+            }
+          }
+
+          for (const [index, target] of targets.entries()) {
+            const file = input.files[index];
+            if (!file) continue;
+            const stagedPath = NodePath.join(stagingRoot, "file-" + index);
+            await NodeFSP.writeFile(stagedPath, decodeBatchFileContents(file.contents));
+          }
+
+          for (const [index, target] of targets.entries()) {
+            const file = input.files[index];
+            if (!file) continue;
+            await NodeFSP.mkdir(NodePath.dirname(target.absolutePath), { recursive: true });
+            committed.push(target.absolutePath);
+            await NodeFSP.copyFile(
+              NodePath.join(stagingRoot, "file-" + index),
+              target.absolutePath,
+            );
+          }
+          return targets.map((target) => ({ relativePath: target.relativePath }));
+        } catch (cause) {
+          for (const absolutePath of committed.toReversed()) {
+            const backupPath = backups.get(absolutePath);
+            if (backupPath) {
+              await NodeFSP.copyFile(backupPath, absolutePath).catch(() => undefined);
+            } else {
+              await NodeFSP.rm(absolutePath, { force: true }).catch(() => undefined);
+            }
+          }
+          throw cause;
+        } finally {
+          await NodeFSP.rm(stagingRoot, { recursive: true, force: true });
+        }
+      },
+      catch: (cause) => {
+        const firstFile = input.files[0];
+        return new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: firstFile?.relativePath ?? ".",
+          resolvedPath: targets[0]?.absolutePath ?? input.cwd,
+          operationPath: targets[0]?.absolutePath ?? input.cwd,
+          operation: "write-file",
+          cause,
+        });
+      },
+    });
     yield* workspaceEntries.refresh(input.cwd);
     return results;
   });
@@ -594,21 +639,19 @@ export const make = Effect.gen(function* () {
     }
 
     if (input.kind === "directory") {
-      yield* fileSystem
-        .makeDirectory(target.absolutePath, { recursive: true })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new WorkspaceFileSystemOperationError({
-                workspaceRoot: input.cwd,
-                relativePath: input.relativePath,
-                resolvedPath: target.absolutePath,
-                operationPath: target.absolutePath,
-                operation: "create-directory",
-                cause,
-              }),
-          ),
-        );
+      yield* fileSystem.makeDirectory(target.absolutePath, { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: target.absolutePath,
+              operation: "create-directory",
+              cause,
+            }),
+        ),
+      );
     } else {
       // Same parent-creation the editor's save path uses, so a "new file" in a
       // not-yet-existing folder behaves like typing the file into an editor.
@@ -647,7 +690,11 @@ export const make = Effect.gen(function* () {
   const renameEntry: WorkspaceFileSystem["Service"]["renameEntry"] = Effect.fn(
     "WorkspaceFileSystem.renameEntry",
   )(function* (input) {
-    if (input.newName.includes("/") || input.newName.includes("\\") || input.newName.includes("\0")) {
+    if (
+      input.newName.includes("/") ||
+      input.newName.includes("\\") ||
+      input.newName.includes("\0")
+    ) {
       return yield* new WorkspaceFileSystemOperationError({
         workspaceRoot: input.cwd,
         relativePath: input.relativePath,
@@ -811,6 +858,5 @@ export const make = Effect.gen(function* () {
     deleteEntry,
   });
 });
-
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

@@ -2606,6 +2606,22 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsWriteFiles]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsWriteFiles,
+            workspaceFileSystem.writeFiles(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectWriteFileError({
+                    cwd: input.cwd,
+                    relativePath: input.files[0]?.relativePath ?? ".",
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.projectsCreateEntry]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsCreateEntry,

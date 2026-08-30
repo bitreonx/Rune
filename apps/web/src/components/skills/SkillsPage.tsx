@@ -63,6 +63,7 @@ import {
 } from "./MarketplaceSkillMetadata";
 
 export type SkillView = "installed" | "discover" | "updates";
+export type MarketplaceCatalogState = "loading" | "github" | "bundled";
 
 export const SKILL_VIEWS: ReadonlyArray<{ value: SkillView; label: string }> = [
   { value: "installed", label: "Installed" },
@@ -89,6 +90,12 @@ export function resolveSkillSelectionKey(
   return selectedKey !== null && availableKeys.includes(selectedKey)
     ? selectedKey
     : (availableKeys[0] ?? null);
+}
+
+export function marketplaceCatalogSourceLabel(state: MarketplaceCatalogState): string {
+  if (state === "loading") return "Loading GitHub marketplace…";
+  if (state === "github") return "GitHub catalog · live source";
+  return "GitHub unavailable · bundled fallback";
 }
 
 export function focusSkillElement(
@@ -372,6 +379,8 @@ export function SkillsPage() {
   const [view, setView] = useState<SkillView>("installed");
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [marketplaceRegistry, setMarketplaceRegistry] = useState(BUNDLED_SKILL_MARKETPLACE);
+  const [marketplaceCatalogState, setMarketplaceCatalogState] =
+    useState<MarketplaceCatalogState>("loading");
   const viewTabRefs = useRef<Partial<Record<SkillView, HTMLButtonElement>>>({});
   const skillRowRefs = useRef<Partial<Record<SkillView, Map<string, HTMLButtonElement>>>>({});
   const listScrollTops = useRef<Partial<Record<SkillView, number>>>({});
@@ -422,10 +431,16 @@ export function SkillsPage() {
     let cancelled = false;
     void fetchGitHubSkillCatalog(fetch, DEFAULT_GITHUB_SKILL_CATALOG_SOURCE)
       .then((catalog) => {
-        if (!cancelled && catalog.length > 0) setMarketplaceRegistry(catalog);
+        if (cancelled) return;
+        if (catalog.length > 0) {
+          setMarketplaceRegistry(catalog);
+          setMarketplaceCatalogState("github");
+        } else {
+          setMarketplaceCatalogState("bundled");
+        }
       })
       .catch(() => {
-        // The bundled catalog keeps the page useful when GitHub is offline or rate-limited.
+        if (!cancelled) setMarketplaceCatalogState("bundled");
       });
     return () => {
       cancelled = true;
@@ -439,7 +454,7 @@ export function SkillsPage() {
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(environmentId ?? ("" as EnvironmentId)),
   );
-  const writeProjectFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
+  const writeProjectFiles = useAtomCommand(projectEnvironment.writeFiles, { reportFailure: false });
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -529,44 +544,57 @@ export function SkillsPage() {
     setInstallingKey(entry.identity);
     try {
       const files = await fetchMarketplaceSkillFiles(entry);
-      for (const file of files) {
-        const result = await writeProjectFile({
-          environmentId,
-          input: {
-            cwd,
+      const result = await writeProjectFiles({
+        environmentId,
+        input: {
+          cwd,
+          files: files.map((file) => ({
             relativePath: `.agents/skills/${entry.slug}/${file.relativePath}`,
             contents: file.contents,
-          },
-        });
-        if (result._tag !== "Success") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Could not install skill",
-                description:
-                  error instanceof Error
-                    ? error.message
-                    : "The project did not accept a skill file.",
-              }),
-            );
-          }
-          return;
-        }
-      }
-      toastManager.add({
-        type: "success",
-        title: "Skill files written to project",
-        description: `${files.length} file${files.length === 1 ? "" : "s"} written. Installed status appears after provider refresh.`,
+          })),
+        },
       });
-      void refreshProviders({ environmentId, input: {} });
+      if (result._tag !== "Success") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not install skill",
+              description:
+                error instanceof Error
+                  ? error.message
+                  : "The project did not accept the skill files.",
+            }),
+          );
+        }
+        return;
+      }
+      const refreshResult = await refreshProviders({ environmentId, input: {} });
+      if (refreshResult._tag === "Success") {
+        toastManager.add({
+          type: "success",
+          title: "Skill installed in project",
+          description: `${files.length} file${files.length === 1 ? "" : "s"} written and provider catalogs refreshed.`,
+        });
+      } else {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            notificationKind: "action-required",
+            title: "Skill files written; refresh required",
+            description:
+              "The files are in the project, but provider refresh did not complete. Refresh the provider catalog before treating the skill as installed.",
+          }),
+        );
+      }
     } catch (error) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not download skill",
-          description: error instanceof Error ? error.message : "GitHub did not return the skill.",
+          title: "Could not install skill",
+          description:
+            error instanceof Error ? error.message : "GitHub did not return the skill files.",
         }),
       );
     } finally {
@@ -627,6 +655,18 @@ export function SkillsPage() {
             }
           }}
         />
+
+        {view !== "installed" ? (
+          <div
+            className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground"
+            data-rune-marketplace-source-state={marketplaceCatalogState}
+            role="status"
+            aria-live="polite"
+          >
+            <GitBranchIcon className="size-3.5" aria-hidden />
+            {marketplaceCatalogSourceLabel(marketplaceCatalogState)}
+          </div>
+        ) : null}
 
         <div className="mt-6 grid gap-2 sm:grid-cols-3">
           <div className="rounded-2xl border border-border/60 bg-card/35 p-4">

@@ -77,7 +77,7 @@ describe("marketplaceInstaller", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects binary files instead of decoding and writing them as text", async () => {
+  it("preserves binary skill files as explicit base64 transport", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -92,17 +92,20 @@ describe("marketplaceInstaller", () => {
           { status: 200 },
         ),
       )
-      .mockResolvedValueOnce(new Response("instructions", { status: 200 }))
       .mockResolvedValueOnce(
         new Response("binary", {
           status: 200,
           headers: { "content-type": "application/octet-stream" },
         }),
-      );
+      )
+      .mockResolvedValueOnce(new Response("instructions", { status: 200 }));
 
     await expect(
       fetchMarketplaceSkillFiles(BUNDLED_SKILL_MARKETPLACE[0]!, fetcher),
-    ).rejects.toThrow("unsupported binary");
+    ).resolves.toEqual([
+      { relativePath: "logo.exe", contents: { encoding: "base64", data: "YmluYXJ5" } },
+      { relativePath: "SKILL.md", contents: "instructions" },
+    ]);
   });
 
   it("rejects untrusted paths before making a network request", async () => {

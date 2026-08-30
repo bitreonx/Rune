@@ -335,7 +335,7 @@ describe("TaskEvidence", () => {
     expect(markup).toContain("Verified 18 tests");
   });
 
-  it("does not silently discard older Workrail receipt groups", () => {
+  it("uses explicit disclosure for older Workrail receipt groups", () => {
     const activities = Array.from({ length: 10 }, (_, index) => ({
       id: `activity-${index}`,
       tone: "info",
@@ -349,8 +349,47 @@ describe("TaskEvidence", () => {
 
     const markup = renderToStaticMarkup(<TaskEvidence activities={activities} />);
 
-    expect(markup).toContain("Receipt group 0");
+    expect(markup).not.toContain("Receipt group 0");
     expect(markup).toContain("Receipt group 9");
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain("Show 2 earlier receipts");
+  });
+
+  it("exposes every verification label and an explicit change disclosure", () => {
+    const activity = {
+      id: "activity-many-changes",
+      tone: "info",
+      kind: "verification.completed",
+      summary: "Verified provider route",
+      payload: {
+        phase: "test",
+        status: "completed",
+        itemFileChanges: Array.from({ length: 4 }, (_, index) => ({
+          path: `apps/file-${index}.ts`,
+          additions: index + 1,
+          deletions: 0,
+        })),
+      },
+      turnId: null,
+      sequence: 1,
+      createdAt: "2026-08-30T00:00:00.000Z",
+    } satisfies OrchestrationThreadActivity;
+    const verification = {
+      id: "activity-verification",
+      tone: "info",
+      kind: "verification.completed",
+      summary: "Verification complete",
+      payload: { phase: "test", status: "completed" },
+      turnId: null,
+      sequence: 2,
+      createdAt: "2026-08-30T00:00:01.000Z",
+    } satisfies OrchestrationThreadActivity;
+
+    const markup = renderToStaticMarkup(<TaskEvidence activities={[activity, verification]} />);
+
+    expect(markup).toContain("Show 1 more change");
+    expect(markup).toContain("✓ Verification complete");
+    expect(markup).toContain("apps/file-3.ts");
   });
 });
 

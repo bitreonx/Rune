@@ -22,6 +22,8 @@ export type ComposerTaskStep = WorkrailStep;
 
 /** Long lists stagger only their first rows; the tail enters with the pack. */
 const TASKS_STAGGER_MAX_ROWS = 8;
+const TASK_EVIDENCE_PREVIEW_LIMIT = 8;
+const TASK_EVIDENCE_FILES_PREVIEW_LIMIT = 3;
 const EMPTY_TASK_ACTIVITIES: readonly OrchestrationThreadActivity[] = [];
 
 const TASK_STATUS_LABEL = {
@@ -135,18 +137,39 @@ export function TaskEvidence({
   activities: readonly OrchestrationThreadActivity[];
   readonly onOpenChange?: (change: AgentActivityChangeRecord) => void;
 }) {
+  const [showEarlierReceipts, setShowEarlierReceipts] = useState(false);
+  const [expandedChangeGroups, setExpandedChangeGroups] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const evidenceActivities = useMemo(() => {
     const job = deriveAgentActivityJob(activities);
-    // Receipts are the durable Workrail record. Do not silently discard older
-    // activity groups: a completed or post-plan task must still explain the
-    // work that led to its current state.
     return job.activities;
   }, [activities]);
   if (evidenceActivities.length === 0) return null;
+  const hiddenReceiptCount = Math.max(0, evidenceActivities.length - TASK_EVIDENCE_PREVIEW_LIMIT);
+  const visibleEvidenceActivities = showEarlierReceipts
+    ? evidenceActivities
+    : evidenceActivities.slice(-TASK_EVIDENCE_PREVIEW_LIMIT);
   return (
     <div className="rune-task-evidence" data-rune-task-evidence="true">
-      {evidenceActivities.map((activity) => {
-        const changes = activity.changes;
+      {hiddenReceiptCount > 0 ? (
+        <button
+          type="button"
+          className="rune-task-evidence-more cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          aria-expanded={showEarlierReceipts}
+          onClick={() => setShowEarlierReceipts((expanded) => !expanded)}
+        >
+          {showEarlierReceipts
+            ? "Show recent receipts"
+            : `Show ${hiddenReceiptCount} earlier ${hiddenReceiptCount === 1 ? "receipt" : "receipts"}`}
+        </button>
+      ) : null}
+      {visibleEvidenceActivities.map((activity) => {
+        const changesExpanded = expandedChangeGroups.has(activity.id);
+        const allChanges = activity.changes;
+        const changes = changesExpanded
+          ? allChanges
+          : allChanges.slice(-TASK_EVIDENCE_FILES_PREVIEW_LIMIT);
         const files = [
           ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
         ];
@@ -155,6 +178,14 @@ export function TaskEvidence({
         const verificationReceipts = activity.receipts.filter(
           (receipt) => receipt.kind === "verification" && receipt.status === "done",
         );
+        const allFiles = allChanges.length > 0 ? allChanges : files;
+        const visibleFiles =
+          allChanges.length > 0
+            ? changes
+            : changesExpanded
+              ? files
+              : files.slice(-TASK_EVIDENCE_FILES_PREVIEW_LIMIT);
+        const hiddenFileCount = Math.max(0, allFiles.length - visibleFiles.length);
         return (
           <div key={activity.id} className="rune-task-evidence-item">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -173,7 +204,35 @@ export function TaskEvidence({
                 </span>
               ))}
             </div>
-            {(changes.length > 0 ? changes : files).map((item) => {
+            {hiddenFileCount > 0 ||
+            (changesExpanded && allChanges.length > TASK_EVIDENCE_FILES_PREVIEW_LIMIT) ? (
+              <button
+                type="button"
+                className="rune-task-evidence-file rune-task-evidence-more cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-expanded={changesExpanded}
+                onClick={() =>
+                  setExpandedChangeGroups((current) => {
+                    const next = new Set(current);
+                    if (next.has(activity.id)) next.delete(activity.id);
+                    else next.add(activity.id);
+                    return next;
+                  })
+                }
+              >
+                {changesExpanded
+                  ? `Show fewer ${allChanges.length > 0 ? "changes" : "files"}`
+                  : `Show ${hiddenFileCount} more ${
+                      hiddenFileCount === 1
+                        ? allChanges.length > 0
+                          ? "change"
+                          : "file"
+                        : allChanges.length > 0
+                          ? "changes"
+                          : "files"
+                    }`}
+              </button>
+            ) : null}
+            {visibleFiles.map((item) => {
               const file = typeof item === "string" ? item : item.path;
               return onOpenChange && typeof item !== "string" ? (
                 <button

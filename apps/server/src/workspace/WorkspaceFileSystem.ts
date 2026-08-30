@@ -106,6 +106,34 @@ async function missingParentDirectories(
   return missing.reverse();
 }
 
+async function replaceBatchTarget(stagedPath: string, targetPath: string): Promise<void> {
+  let targetExists = false;
+  try {
+    targetExists = (await NodeFSP.lstat(targetPath)).isFile();
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  }
+
+  // Windows does not consistently replace an existing file with rename().
+  // Copying over a verified regular file is the portable replacement path;
+  // rename remains atomic for a new target and never follows a destination
+  // symlink.
+  if (process.platform === "win32" && targetExists) {
+    await NodeFSP.copyFile(stagedPath, targetPath);
+    await NodeFSP.rm(stagedPath, { force: true });
+    return;
+  }
+  await NodeFSP.rename(stagedPath, targetPath);
+}
+
+async function restoreBatchTarget(backupPath: string, targetPath: string): Promise<void> {
+  if (process.platform === "win32") {
+    await NodeFSP.copyFile(backupPath, targetPath);
+  } else {
+    await NodeFSP.rename(backupPath, targetPath);
+  }
+}
+
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
   {
@@ -664,7 +692,10 @@ export const make = Effect.gen(function* () {
             createdDirectories.push(...missingDirectories);
             await assertBatchTargetDoesNotTraverseSymlink(input.cwd, target.absolutePath);
             committed.push(target.absolutePath);
-            await NodeFSP.rename(NodePath.join(stagingRoot, "file-" + index), target.absolutePath);
+            await replaceBatchTarget(
+              NodePath.join(stagingRoot, "file-" + index),
+              target.absolutePath,
+            );
           }
           return targets.map((target) => ({ relativePath: target.relativePath }));
         } catch (cause) {
@@ -672,7 +703,7 @@ export const make = Effect.gen(function* () {
           for (const absolutePath of committed.toReversed()) {
             const backupPath = backups.get(absolutePath);
             if (backupPath) {
-              await NodeFSP.rename(backupPath, absolutePath).catch((rollbackCause) => {
+              await restoreBatchTarget(backupPath, absolutePath).catch((rollbackCause) => {
                 rollbackErrors.push(rollbackCause);
               });
             } else {

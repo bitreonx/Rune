@@ -614,8 +614,10 @@ export default function FileBrowserPanel({
         else if (folderAction === "collapse-all-folders") setAllFoldersExpanded(false);
         else if (folderAction === "expand-folder") setFolderExpansion(relativePath, true, false);
         else if (folderAction === "collapse-folder") setFolderExpansion(relativePath, false, false);
-        else if (folderAction === "expand-descendants") setFolderExpansion(relativePath, true, true);
-        else if (folderAction === "collapse-descendants") setFolderExpansion(relativePath, false, true);
+        else if (folderAction === "expand-descendants")
+          setFolderExpansion(relativePath, true, true);
+        else if (folderAction === "collapse-descendants")
+          setFolderExpansion(relativePath, false, true);
         return;
       }
       if (clicked === "add-to-chat") {
@@ -809,12 +811,18 @@ export default function FileBrowserPanel({
       else directory.collapse();
     }
   };
-  const setFolderExpansion = (relativePath: string, expanded: boolean, includeDescendants: boolean) => {
+  const setFolderExpansion = (
+    relativePath: string,
+    expanded: boolean,
+    includeDescendants: boolean,
+  ) => {
     const normalizedPath = relativePath.replace(/[\\/]$/, "");
     const selfPath = `${normalizedPath}/`;
     const descendantPrefix = selfPath;
     const paths = directoryPathsRef.current.filter((path) =>
-      includeDescendants ? path === selfPath || path.startsWith(descendantPrefix) : path === selfPath,
+      includeDescendants
+        ? path === selfPath || path.startsWith(descendantPrefix)
+        : path === selfPath,
     );
     for (const path of paths) {
       const directory = directoryHandle(treeModelRef.current?.getItem(path));
@@ -1112,6 +1120,7 @@ export default function FileBrowserPanel({
               New Folder
             </MenuItem>
             <MenuSeparator />
+            <MenuItem onClick={() => setAllFoldersExpanded(true)}>Expand all folders</MenuItem>
             <MenuItem onClick={() => setAllFoldersExpanded(false)}>Collapse All</MenuItem>
             <MenuItem onClick={handleRefresh}>Refresh</MenuItem>
             <MenuSeparator />

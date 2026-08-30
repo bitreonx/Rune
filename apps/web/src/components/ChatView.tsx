@@ -310,10 +310,7 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
-import {
-  AttachmentViewerDialog,
-  type AttachmentViewerItem,
-} from "./chat/AttachmentViewerDialog";
+import { AttachmentViewerDialog, type AttachmentViewerItem } from "./chat/AttachmentViewerDialog";
 import { RunePageTransition } from "./RunePageTransition";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -1330,7 +1327,9 @@ function releaseChatTimelineAnchor<T extends { readonly messageId: MessageId | n
   return current.messageId === null ? current : { ...current, messageId: null };
 }
 
-function isSafeWorkspaceRelativeAttachmentPath(relativePath: string | null): relativePath is string {
+function isSafeWorkspaceRelativeAttachmentPath(
+  relativePath: string | null,
+): relativePath is string {
   if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) return false;
   const segments = relativePath.replaceAll("\\", "/").split("/");
   return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
@@ -1950,8 +1949,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
-  const rightPanelMotionReduced =
-    prefersReducedMotion || settings.motionProfile === "reduced";
+  const rightPanelMotionReduced = prefersReducedMotion || settings.motionProfile === "reduced";
   const rawRightPanelMotionState = useRunePanelMotionState({
     open: rightPanelOpen,
     reducedMotion: rightPanelMotionReduced,
@@ -4171,7 +4169,8 @@ function ChatViewContent(props: ChatViewProps) {
         toastManager.add({
           type: "info",
           title: "Attachment is outside this workspace",
-          description: "Use Reveal in system Explorer for provider-host files outside the workspace.",
+          description:
+            "Use Reveal in system Explorer for provider-host files outside the workspace.",
         });
         return;
       }
@@ -4180,7 +4179,8 @@ function ChatViewContent(props: ChatViewProps) {
         toastManager.add({
           type: "info",
           title: "Attachment is outside this workspace",
-          description: "Use Reveal in system Explorer for provider-host files outside the workspace.",
+          description:
+            "Use Reveal in system Explorer for provider-host files outside the workspace.",
         });
         return;
       }
@@ -4200,7 +4200,8 @@ function ChatViewContent(props: ChatViewProps) {
             stackedThreadToast({
               type: "error",
               title: "Unable to reveal attachment",
-              description: "The selected attachment could not be opened in the system file manager.",
+              description:
+                "The selected attachment could not be opened in the system file manager.",
             }),
           );
         }
@@ -8449,14 +8450,17 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
-  const onOpenChatDiff = useCallback((filePath?: string) => {
-    if (!isServerThread || !activeThreadRef || !activeThread) return;
-    useDiffPanelStore
-      .getState()
-      .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount, filePath);
-    useRightPanelStore.getState().open(activeThreadRef, "diff");
-    onDiffPanelOpen?.();
-  }, [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen]);
+  const onOpenChatDiff = useCallback(
+    (filePath?: string) => {
+      if (!isServerThread || !activeThreadRef || !activeThread) return;
+      useDiffPanelStore
+        .getState()
+        .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount, filePath);
+      useRightPanelStore.getState().open(activeThreadRef, "diff");
+      onDiffPanelOpen?.();
+    },
+    [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen],
+  );
   const onOpenTaskChange = useCallback(
     (change: AgentActivityChangeRecord) => {
       if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
@@ -8524,12 +8528,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
       scheduleComposerFocus();
     },
-    [
-      activeThread,
-      resolveRewindTurnCount,
-      scheduleComposerFocus,
-      setComposerDraftPrompt,
-    ],
+    [activeThread, resolveRewindTurnCount, scheduleComposerFocus, setComposerDraftPrompt],
   );
   const onDeleteUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -8581,11 +8580,7 @@ function ChatViewContent(props: ChatViewProps) {
         description: "Send the edited message to apply this change to the thread.",
       });
     },
-    [
-      activeThread,
-      onEditUserMessage,
-      resolveRewindTurnCount,
-    ],
+    [activeThread, onEditUserMessage, resolveRewindTurnCount],
   );
   // A turn-card revert rewinds to before that turn; the ref read keeps the
   // callback identity stable for the timeline's shared context.
@@ -8863,6 +8858,24 @@ function ChatViewContent(props: ChatViewProps) {
             gitStatus={gitStatusQuery.data ?? null}
             chatDiff={activeThread.chatDiff.files}
             configuredPreviewUrls={configuredPreviewUrls}
+            providerLabel={
+              activeProviderStatus?.displayName?.trim() ??
+              activeThread.session?.providerName ??
+              formatProviderDriverKindLabel(selectedProvider)
+            }
+            modelLabel={activeThread.modelSelection.model}
+            sessionStatus={activeThread.session?.status ?? null}
+            agentCount={
+              agentPanelModel.runningCount +
+              agentPanelModel.waitingCount +
+              agentPanelModel.idleCount +
+              agentPanelModel.settledCount
+            }
+            verificationSummary={
+              activePlan && activePlan.steps.length > 0
+                ? `${activePlan.steps.filter((step) => step.status === "completed").length}/${activePlan.steps.length}`
+                : null
+            }
             onOpenEnvironment={addEnvironmentSurface}
             onOpenFiles={openFilesSurface}
             onOpenDiff={onOpenChatDiff}

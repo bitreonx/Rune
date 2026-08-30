@@ -1,5 +1,6 @@
 import {
   type EnvironmentId,
+  type OrchestrationSessionStatus,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -63,6 +64,11 @@ interface ChatHeaderProps {
   gitStatus: VcsStatusResult | null;
   chatDiff: ReadonlyArray<TurnDiffFileChange> | null;
   configuredPreviewUrls: ReadonlyArray<string>;
+  providerLabel?: string | null;
+  modelLabel?: string | null;
+  sessionStatus?: OrchestrationSessionStatus | null;
+  agentCount?: number;
+  verificationSummary?: string | null;
   readonly onOpenEnvironment: () => void;
   readonly onOpenFiles: () => void;
   readonly onOpenDiff: () => void;
@@ -150,6 +156,11 @@ export const ChatHeader = memo(function ChatHeader({
   gitStatus,
   chatDiff,
   configuredPreviewUrls,
+  providerLabel,
+  modelLabel,
+  sessionStatus,
+  agentCount,
+  verificationSummary,
   onOpenEnvironment,
   onOpenFiles,
   onOpenDiff,
@@ -413,6 +424,11 @@ export const ChatHeader = memo(function ChatHeader({
             chatDiff={chatDiff}
             gitStatus={gitStatus}
             configuredPreviewUrls={configuredPreviewUrls}
+            providerLabel={providerLabel}
+            modelLabel={modelLabel}
+            sessionStatus={sessionStatus}
+            agentCount={agentCount}
+            verificationSummary={verificationSummary}
             onOpenEnvironment={onOpenEnvironment}
             onOpenFiles={onOpenFiles}
             onOpenDiff={onOpenDiff}

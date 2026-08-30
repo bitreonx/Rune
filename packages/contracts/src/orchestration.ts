@@ -195,6 +195,8 @@ export const ChatImageAttachment = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
   sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES)),
+  /** Server-owned historical references are bound to their exact source thread. */
+  ownerThreadId: Schema.optional(ThreadId),
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
 
@@ -229,6 +231,8 @@ export const ChatFileAttachment = Schema.Struct({
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
   sizeBytes: NonNegativeInt,
   path: Schema.optional(ChatAttachmentPath),
+  /** Server-owned historical references are bound to their exact source thread. */
+  ownerThreadId: Schema.optional(ThreadId),
 });
 export type ChatFileAttachment = typeof ChatFileAttachment.Type;
 

@@ -198,6 +198,7 @@ describe("normalizeDispatchCommand attachments", () => {
           name: "screenshot.png",
           mimeType: "image/png",
           sizeBytes: 6,
+          ownerThreadId: "thread-1",
         },
       ]);
     }).pipe(Effect.provide(testLayer)),
@@ -239,8 +240,41 @@ describe("normalizeDispatchCommand attachments", () => {
           name: "clip.mp4",
           mimeType: "video/mp4",
           sizeBytes: 1234,
+          ownerThreadId: "thread-file-attachment",
         },
       ]);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("reuses a legacy finalized attachment when migration ownership matches", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = "legacy-thread-a-00000000-0000-4000-8000-000000000001";
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
+        Buffer.from("pixels"),
+      );
+      const command = turnStartCommand({
+        threadId: "thread-a",
+        attachments: [{ id: attachmentId, sizeBytes: 6 }],
+      });
+      const original = command.message.attachments[0]!;
+      const migratedCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...original, ownerThreadId: "thread-a" }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const normalized = yield* normalizeDispatchCommand(migratedCommand);
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+      expect(normalized.message.attachments[0]).toMatchObject({
+        id: attachmentId,
+        ownerThreadId: "thread-a",
+      });
     }).pipe(Effect.provide(testLayer)),
   );
 

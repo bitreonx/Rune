@@ -81,7 +81,11 @@ export function createAttachmentId(threadId: string): string | null {
 export function attachmentBelongsToThread(input: {
   readonly attachmentId: string;
   readonly threadId: string;
+  readonly ownerThreadId?: string;
 }): boolean {
+  if (input.ownerThreadId !== undefined) {
+    return input.ownerThreadId === input.threadId;
+  }
   const uuid = parseAttachmentUuid(input.attachmentId);
   return (
     uuid !== null &&

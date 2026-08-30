@@ -166,6 +166,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 attachmentBelongsToThread({
                   attachmentId: attachment.id,
                   threadId: canonicalCommand.threadId,
+                  ownerThreadId: attachment.ownerThreadId,
                 })
               ) {
                 const info = yield* fileSystem.stat(existingPath).pipe(
@@ -199,6 +200,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 return {
                   ...attachment,
                   mimeType: attachment.mimeType.toLowerCase(),
+                  ownerThreadId: canonicalCommand.threadId,
                 };
               }
 
@@ -242,6 +244,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                 name: attachment.name,
                 mimeType: attachment.mimeType.toLowerCase(),
                 sizeBytes: attachment.sizeBytes,
+                ownerThreadId: canonicalCommand.threadId,
               };
               yield* fileSystem.copyFile(claim.currentPath, claim.finalPath).pipe(
                 Effect.mapError(
@@ -306,6 +309,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
               attachmentBelongsToThread({
                 attachmentId: attachment.id,
                 threadId: canonicalCommand.threadId,
+                ownerThreadId: attachment.ownerThreadId,
               })
             ) {
               const info = yield* fileSystem.stat(existingPath).pipe(
@@ -339,6 +343,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
               return {
                 ...attachment,
                 mimeType: attachment.mimeType.toLowerCase(),
+                ownerThreadId: canonicalCommand.threadId,
               };
             }
 
@@ -372,6 +377,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
               ...attachment,
               id: claim.finalId,
               mimeType: attachment.mimeType.toLowerCase(),
+              ownerThreadId: canonicalCommand.threadId,
             };
             const expectedPath = resolveAttachmentPath({
               attachmentsDir: serverConfig.attachmentsDir,
@@ -426,6 +432,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             name: attachment.name,
             mimeType: parsed.mimeType.toLowerCase(),
             sizeBytes: bytes.byteLength,
+            ownerThreadId: canonicalCommand.threadId,
           };
 
           const attachmentPath = resolveAttachmentPath({

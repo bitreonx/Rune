@@ -83,6 +83,10 @@ function getDesktopLocalEnvironmentBootstrap(): DesktopEnvironmentBootstrap | nu
   return bootstraps.find((entry) => entry.id === PRIMARY_LOCAL_ENVIRONMENT_ID) ?? null;
 }
 
+function hasDesktopEnvironmentBridge(): boolean {
+  return typeof window.desktopBridge?.getLocalEnvironmentBootstraps === "function";
+}
+
 function parseTargetUrl(input: {
   readonly rawValue: string;
   readonly baseUrl?: string;
@@ -290,9 +294,23 @@ export function resolvePrimaryEnvironmentHttpUrl(
 }
 
 export function readPrimaryEnvironmentTarget(): PrimaryEnvironmentTarget {
-  return (
-    resolveDesktopPrimaryTarget() ??
-    resolveConfiguredPrimaryTarget() ??
-    resolveWindowOriginPrimaryTarget()
-  );
+  const desktopTarget = resolveDesktopPrimaryTarget();
+  if (desktopTarget) return desktopTarget;
+
+  const configuredTarget = resolveConfiguredPrimaryTarget();
+  if (configuredTarget) return configuredTarget;
+
+  // Electron deliberately serves the renderer from a custom `rune:` scheme.
+  // It is not a network transport, so treating it like an HTTP origin causes
+  // the client to fail before the preload bridge can recover the backend
+  // target. Keep the failure actionable and structured instead of reporting a
+  // misleading unsupported-origin error.
+  if (hasDesktopEnvironmentBridge() && window.location.protocol.startsWith("rune")) {
+    throw new DesktopEnvironmentBootstrapIncompleteError({
+      hasHttpBaseUrl: false,
+      hasWsBaseUrl: false,
+    });
+  }
+
+  return resolveWindowOriginPrimaryTarget();
 }

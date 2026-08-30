@@ -22,6 +22,7 @@ import {
   useState,
   useLayoutEffect,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import {
@@ -51,7 +52,14 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { fileTreeAreaState } from "./fileTreeArea";
 import { buildChatDiffTree } from "./chatDiffTree";
 import { createFileTreeDragMentionController } from "./fileTreeDragMention";
-import { deletionConfirmationMessage } from "./fileBrowserActions";
+import {
+  deletionConfirmationMessage,
+  fileContextMenuItems,
+  folderContextMenuItems,
+  workspaceContextMenuItems,
+  type FileBrowserFolderAction,
+  type FileBrowserWorkspaceAction,
+} from "./fileBrowserActions";
 import {
   getProjectDirectoryQueryAtom,
   refreshProjectDirectoryQuery,
@@ -497,71 +505,20 @@ export default function FileBrowserPanel({
           ? relativePath.slice(0, lastSeparator)
           : "";
     const absoluteEntryTarget = entryTarget ? `${cwd.replace(/[\\/]$/, "")}/${entryTarget}` : cwd;
-    const menuItems: ContextMenuItem[] =
+    const menuItems: readonly ContextMenuItem[] =
       item.kind === "directory"
-        ? [
-            { id: "new-file", label: "New File", icon: "file-plus", disabled: chatScoped },
-            { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: chatScoped },
-            {
-              id: "rename-entry",
-              label: "Rename",
-              icon: "pencil",
-              disabled: chatScoped,
-              separatorBefore: true,
-            },
-            {
-              id: "delete-entry",
-              label: "Delete",
-              icon: "trash",
-              destructive: true,
-            },
-            {
-              id: "open-in-explorer",
-              label: `Reveal in ${fileManagerName}`,
-              icon: "external-link",
-              separatorBefore: true,
-            },
-            { id: "copy-path", label: "Copy Path", icon: "copy" },
-            {
-              id: "add-to-chat",
-              label: "Add to Chat",
-              icon: "message-square-plus",
-              separatorBefore: true,
-            },
-          ]
-        : [
-            { id: "open-file", label: "Open preview / editor", icon: "file-code" },
-            ...(isChanged && onOpenDiffFile
-              ? [{ id: "open-diff", label: "Open diff", icon: "file-diff" }]
-              : []),
-            {
-              id: "rename-entry",
-              label: "Rename",
-              icon: "pencil",
-              disabled: chatScoped,
-              separatorBefore: true,
-            },
-            {
-              id: "delete-entry",
-              label: "Delete",
-              icon: "trash",
-              destructive: true,
-            },
-            {
-              id: "open-in-explorer",
-              label: `Reveal in ${fileManagerName}`,
-              icon: "external-link",
-              separatorBefore: true,
-            },
-            { id: "copy-path", label: "Copy Path", icon: "copy" },
-            { id: "copy-mention", label: "Copy mention", icon: "copy" },
-            {
-              id: "add-to-chat",
-              label: "Add to Chat",
-              icon: "message-square-plus",
-              separatorBefore: true,
-            },
-          ];
+        ? folderContextMenuItems({
+            expanded:
+              directoryHandle(treeModelRef.current?.getItem(`${relativePath}/`))?.isExpanded() ??
+              false,
+            chatScoped,
+            fileManagerName,
+          })
+        : fileContextMenuItems({
+            chatScoped,
+            fileManagerName,
+            isChanged: isChanged && onOpenDiffFile !== undefined,
+          });
     let transferredFocus = false;
     try {
       const clicked = await api.contextMenu.show(menuItems, position);
@@ -639,6 +596,26 @@ export default function FileBrowserPanel({
       }
       if (clicked === "open-in-explorer") {
         await openInFileManager(absoluteEntryTarget);
+        return;
+      }
+      if (
+        item.kind === "directory" &&
+        [
+          "expand-folder",
+          "expand-descendants",
+          "expand-all-folders",
+          "collapse-folder",
+          "collapse-descendants",
+          "collapse-all-folders",
+        ].includes(clicked)
+      ) {
+        const folderAction = clicked as FileBrowserFolderAction;
+        if (folderAction === "expand-all-folders") setAllFoldersExpanded(true);
+        else if (folderAction === "collapse-all-folders") setAllFoldersExpanded(false);
+        else if (folderAction === "expand-folder") setFolderExpansion(relativePath, true, false);
+        else if (folderAction === "collapse-folder") setFolderExpansion(relativePath, false, false);
+        else if (folderAction === "expand-descendants") setFolderExpansion(relativePath, true, true);
+        else if (folderAction === "collapse-descendants") setFolderExpansion(relativePath, false, true);
         return;
       }
       if (clicked === "add-to-chat") {
@@ -832,6 +809,56 @@ export default function FileBrowserPanel({
       else directory.collapse();
     }
   };
+  const setFolderExpansion = (relativePath: string, expanded: boolean, includeDescendants: boolean) => {
+    const normalizedPath = relativePath.replace(/[\\/]$/, "");
+    const selfPath = `${normalizedPath}/`;
+    const descendantPrefix = selfPath;
+    const paths = directoryPathsRef.current.filter((path) =>
+      includeDescendants ? path === selfPath || path.startsWith(descendantPrefix) : path === selfPath,
+    );
+    for (const path of paths) {
+      const directory = directoryHandle(treeModelRef.current?.getItem(path));
+      if (!directory) continue;
+      if (expanded) {
+        directory.expand();
+        void loadDirectory(path.replace(/\/$/, ""));
+      } else {
+        directory.collapse();
+      }
+    }
+  };
+  const showWorkspaceContextMenu = async (position: { readonly x: number; readonly y: number }) => {
+    const api = readLocalApi();
+    if (!api) return;
+    const clicked = await api.contextMenu.show(
+      workspaceContextMenuItems({ chatScoped, fileManagerName }),
+      position,
+    );
+    const action = clicked as FileBrowserWorkspaceAction | null;
+    if (action === "new-file" || action === "new-folder") {
+      beginInlineCreate({ kind: action === "new-file" ? "file" : "directory", parentPath: "" });
+    } else if (action === "refresh") {
+      handleRefresh();
+    } else if (action === "expand-all-folders") {
+      setAllFoldersExpanded(true);
+    } else if (action === "collapse-all-folders") {
+      setAllFoldersExpanded(false);
+    } else if (action === "reveal-workspace") {
+      await openInFileManager(cwd);
+    }
+  };
+  const handlePanelContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return;
+    const path = event.nativeEvent.composedPath();
+    const isTreeRow = path.some(
+      (node) =>
+        node instanceof HTMLElement &&
+        (node.hasAttribute("data-item-path") || node.hasAttribute("data-file-tree-toolbar")),
+    );
+    if (isTreeRow) return;
+    event.preventDefault();
+    void showWorkspaceContextMenu({ x: event.clientX, y: event.clientY });
+  };
 
   const handleWorkspaceFileEvent = useCallback(
     (event: { readonly paths: ReadonlyArray<string> }) => {
@@ -1022,6 +1049,7 @@ export default function FileBrowserPanel({
       ref={panelRef}
       className="surface-glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background/55 shadow-lg shadow-black/10"
       data-file-browser-panel={`${environmentId}:${cwd}`}
+      onContextMenu={handlePanelContextMenu}
     >
       <div
         className="surface-glass flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 px-2 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent"

@@ -1,7 +1,33 @@
 import { EnvironmentId } from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveRenameCommit, shouldShowOpenInPicker } from "./ChatHeader";
+import {
+  resolveRenameCommit,
+  resolveThreadTitleMenuPosition,
+  shouldShowOpenInPicker,
+} from "./ChatHeader";
+
+describe("resolveThreadTitleMenuPosition", () => {
+  it("uses the pointer for context-menu placement", () => {
+    expect(
+      resolveThreadTitleMenuPosition({
+        anchorRect: { left: 100, bottom: 140 },
+        pointer: { x: 240, y: 320 },
+      }),
+    ).toEqual({ x: 240, y: 320 });
+  });
+
+  it("anchors click and keyboard menus below the title trigger", () => {
+    expect(resolveThreadTitleMenuPosition({ anchorRect: { left: 100, bottom: 140 } })).toEqual({
+      x: 100,
+      y: 144,
+    });
+  });
+
+  it("does not open when the title trigger is unavailable", () => {
+    expect(resolveThreadTitleMenuPosition({ anchorRect: null })).toBeNull();
+  });
+});
 
 describe("shouldShowOpenInPicker", () => {
   const primaryEnvironmentId = EnvironmentId.make("environment-primary");

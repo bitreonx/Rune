@@ -1,5 +1,22 @@
 import type { ScopedThreadRef, ThreadId } from "@rune/contracts";
 
+export type ToastNotificationKind = "quiet" | "action-required" | "agent-child" | "error";
+
+type ToastNotificationInput = {
+  type?: string | undefined;
+  timeout?: number | undefined;
+  priority?: "low" | "high" | undefined;
+  actionProps?: unknown;
+  notificationKind?: ToastNotificationKind | undefined;
+  data?: { notificationKind?: ToastNotificationKind | undefined } | undefined;
+};
+
+export type ToastNotificationPolicy = {
+  kind: ToastNotificationKind;
+  timeout: number;
+  priority: "low" | "high";
+};
+
 /**
  * Base UI toast updates omit `undefined` fields, so callers that need to remove
  * an action must pass a defined `actionProps` whose `children` are empty.
@@ -14,6 +31,45 @@ export function hasVisibleToastAction(actionProps: unknown): boolean {
   }
   const children = actionProps.children;
   return children != null && children !== false && children !== "";
+}
+
+/**
+ * Keep notification semantics independent from the transport's visual type.
+ * Success/info is normally quiet; a CTA makes it action-required and errors
+ * retain their urgent treatment. Durable child-agent updates can opt in.
+ */
+export function resolveToastNotificationKind(input: ToastNotificationInput): ToastNotificationKind {
+  if (
+    input.type === "error" ||
+    input.notificationKind === "error" ||
+    input.data?.notificationKind === "error"
+  ) {
+    return "error";
+  }
+  if (input.notificationKind !== undefined) return input.notificationKind;
+  if (input.data?.notificationKind !== undefined) return input.data.notificationKind;
+  if (input.type === "warning" || input.priority === "high") return "action-required";
+  if (hasVisibleToastAction(input.actionProps)) return "action-required";
+  return "quiet";
+}
+
+/** Supplies safe defaults while preserving explicit lifetime and priority. */
+export function resolveToastNotificationPolicy(
+  input: ToastNotificationInput,
+): ToastNotificationPolicy {
+  const kind = resolveToastNotificationKind(input);
+  const timeout =
+    input.timeout ??
+    (kind === "error" || kind === "action-required"
+      ? 0
+      : input.type === "loading"
+        ? 0
+        : kind === "agent-child"
+          ? 12_000
+          : 3_200);
+  const priority =
+    input.priority ?? (kind === "error" || kind === "action-required" ? "high" : "low");
+  return { kind, timeout, priority };
 }
 
 export function shouldHideCollapsedToastContent(

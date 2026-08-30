@@ -91,6 +91,21 @@ export function resolveRenameCommit(input: {
   return { action: "commit", title: trimmed };
 }
 
+/**
+ * Keep title-menu placement tied to the title trigger. Pointer context menus
+ * use the pointer location, while keyboard activation and the title button's
+ * click use the trigger's bottom edge so the menu cannot drift away when the
+ * title is resized or ellipsized.
+ */
+export function resolveThreadTitleMenuPosition(input: {
+  readonly anchorRect?: { readonly left: number; readonly bottom: number } | null;
+  readonly pointer?: { readonly x: number; readonly y: number } | null;
+}): { x: number; y: number } | null {
+  if (input.pointer) return { x: input.pointer.x, y: input.pointer.y };
+  if (!input.anchorRect) return null;
+  return { x: input.anchorRect.left, y: input.anchorRect.bottom + 4 };
+}
+
 // How long a click on the thread title waits before opening the action menu,
 // so a double-click-to-rename can cancel it first. Only the native desktop
 // menu needs this: it swallows input while open, so the wait must cover the
@@ -218,8 +233,9 @@ export const ChatHeader = memo(function ChatHeader({
   const openTitleMenuNow = useCallback(() => {
     cancelPendingTitleMenu();
     const rect = titleButtonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    openMenu({ x: rect.left, y: rect.bottom + 4 });
+    const position = resolveThreadTitleMenuPosition({ anchorRect: rect });
+    if (!position) return;
+    openMenu(position);
   }, [cancelPendingTitleMenu, openMenu]);
   const openMenuFromTitle = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -316,7 +332,7 @@ export const ChatHeader = memo(function ChatHeader({
             <WorkspaceBreadcrumbSeparator />
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="flex-1">
+        <WorkspaceBreadcrumbItem current className="min-w-0 flex-1">
           {renamingTitle !== null ? (
             <input
               autoFocus
@@ -339,18 +355,19 @@ export const ChatHeader = memo(function ChatHeader({
                     type="button"
                     aria-label={`Thread actions for ${activeThreadTitle}`}
                     aria-haspopup="menu"
+                    data-thread-title-trigger="true"
                     onClick={openMenuFromTitle}
                     onDoubleClick={handleTitleDoubleClick}
                     onBlur={cancelPendingTitleMenu}
-                    className="group/thread-title inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group/thread-title inline-flex w-full min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 }
               >
-                <h2 className="min-w-0 truncate">{activeThreadTitle}</h2>
+                <h2 className="min-w-0 flex-1 truncate">{activeThreadTitle}</h2>
                 <ChevronDownIcon
                   aria-hidden
                   data-thread-title-chevron
-                  className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread-title:opacity-100 group-focus-visible/thread-title:opacity-100"
+                  className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover/thread-title:text-foreground group-focus-visible/thread-title:text-foreground motion-reduce:transition-none"
                 />
               </TooltipTrigger>
               <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>

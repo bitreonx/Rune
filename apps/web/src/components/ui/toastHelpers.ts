@@ -4,6 +4,7 @@ import type { ToastManagerAddOptions } from "@base-ui/react/toast";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import type { ThreadToastData } from "./toast";
+import type { ToastNotificationKind } from "./toast.logic";
 
 export type StackedThreadToastOptions = {
   type: "error" | "warning" | "success" | "info" | "loading";
@@ -11,6 +12,9 @@ export type StackedThreadToastOptions = {
   description?: ReactNode;
   timeout?: number;
   priority?: "low" | "high";
+  notificationKind?: ToastNotificationKind;
+  threadRef?: ThreadToastData["threadRef"];
+  threadId?: ThreadToastData["threadId"];
   actionProps?: ComponentPropsWithoutRef<"button">;
   /** Merged into `data`; `actionLayout` is always forced to `"stacked-end"` by the helper. */
   actionVariant?: ThreadToastData["actionVariant"];
@@ -31,7 +35,19 @@ export const hiddenToastActionProps = {
 export function stackedThreadToast(
   options: StackedThreadToastOptions,
 ): ToastManagerAddOptions<ThreadToastData> {
-  const { type, title, description, timeout, priority, actionProps, actionVariant, data } = options;
+  const {
+    type,
+    title,
+    description,
+    timeout,
+    priority,
+    notificationKind,
+    threadRef,
+    threadId,
+    actionProps,
+    actionVariant,
+    data,
+  } = options;
 
   // Helper-owned `actionLayout` must win over any caller-provided `data`, so spread
   // the caller's data first and apply `actionLayout: "stacked-end"` last.
@@ -42,6 +58,9 @@ export function stackedThreadToast(
   if (actionVariant !== undefined) {
     mergedData.actionVariant = actionVariant;
   }
+  if (notificationKind !== undefined) mergedData.notificationKind = notificationKind;
+  if (threadRef !== undefined) mergedData.threadRef = threadRef;
+  if (threadId !== undefined) mergedData.threadId = threadId;
 
   const payload: ToastManagerAddOptions<ThreadToastData> = {
     type,

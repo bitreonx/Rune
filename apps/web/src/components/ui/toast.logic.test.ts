@@ -3,9 +3,75 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   buildVisibleToastLayout,
   hasVisibleToastAction,
+  resolveToastNotificationKind,
+  resolveToastNotificationPolicy,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
 } from "./toast.logic";
+
+describe("resolveToastNotificationKind", () => {
+  it("keeps routine confirmations in the quiet lane", () => {
+    assert.equal(resolveToastNotificationKind({ type: "success" }), "quiet");
+    assert.equal(resolveToastNotificationKind({ type: "info" }), "quiet");
+  });
+
+  it("derives urgent lanes from errors and visible actions", () => {
+    assert.equal(resolveToastNotificationKind({ type: "error" }), "error");
+    assert.equal(
+      resolveToastNotificationKind({ type: "success", actionProps: { children: "Retry" } }),
+      "action-required",
+    );
+  });
+
+  it("allows durable child-agent updates to opt into their own lane", () => {
+    assert.equal(
+      resolveToastNotificationKind({ type: "info", notificationKind: "agent-child" }),
+      "agent-child",
+    );
+  });
+});
+
+describe("resolveToastNotificationPolicy", () => {
+  it("makes routine confirmations quiet and short-lived", () => {
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "success" }), {
+      kind: "quiet",
+      timeout: 3_200,
+      priority: "low",
+    });
+  });
+
+  it("keeps errors and warnings visible until the user resolves them", () => {
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "error" }), {
+      kind: "error",
+      timeout: 0,
+      priority: "high",
+    });
+    assert.deepEqual(resolveToastNotificationPolicy({ type: "warning" }), {
+      kind: "action-required",
+      timeout: 0,
+      priority: "high",
+    });
+  });
+
+  it("preserves explicit child-agent lifetime and caller overrides", () => {
+    assert.deepEqual(
+      resolveToastNotificationPolicy({
+        type: "info",
+        data: { notificationKind: "agent-child" },
+      }),
+      { kind: "agent-child", timeout: 12_000, priority: "low" },
+    );
+    assert.deepEqual(
+      resolveToastNotificationPolicy({
+        type: "info",
+        data: { notificationKind: "agent-child" },
+        timeout: 0,
+        priority: "high",
+      }),
+      { kind: "agent-child", timeout: 0, priority: "high" },
+    );
+  });
+});
 
 describe("hasVisibleToastAction", () => {
   it("treats a labeled action as visible", () => {

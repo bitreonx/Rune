@@ -42,6 +42,12 @@ function showInAppNotification(
       description: `${shell?.title ?? "This thread"}: ${NOTIFICATION_DESCRIPTIONS[event.kind]}`,
       priority: event.kind === "needs-input" ? "high" : "low",
       ...(event.kind === "needs-input" ? {} : { timeout: 12_000 }),
+      notificationKind:
+        event.kind === "error"
+          ? "error"
+          : event.kind === "needs-input"
+            ? "action-required"
+            : "agent-child",
       actionProps: { children: "Open thread", onClick: () => onOpenThread(threadRef) },
       data: { threadRef, leadingIcon: <span aria-hidden>◈</span> },
     }),

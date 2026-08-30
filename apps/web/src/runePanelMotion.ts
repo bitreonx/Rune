@@ -1,6 +1,7 @@
+import type { MotionProfile } from "@rune/contracts";
 import { useEffect, useRef, useState } from "react";
 
-import { RUNE_MOTION_MS } from "./runeMotion";
+import { RUNE_MOTION_MS, resolveRuneMotionDurationForProfile } from "./runeMotion";
 
 export type RunePanelMotionState = "closed" | "opening" | "open" | "closing";
 export const RUNE_RIGHT_PANEL_CONTENT_KEY = "rune-right-panel-content";
@@ -67,13 +68,21 @@ export function useRunePanelMotionState(options: {
   open: boolean;
   reducedMotion: boolean;
   motionMs?: number;
+  motionProfile?: MotionProfile;
 }): RunePanelMotionState {
+  const profile = options.motionProfile ?? "balanced";
+  const reducedMotion = options.reducedMotion || profile === "reduced";
+  const motionMs = resolveRuneMotionDurationForProfile(
+    options.motionMs ?? RUNE_MOTION_MS.standard,
+    profile,
+    reducedMotion,
+  );
   const previousOpenRef = useRef(options.open);
   const [state, setState] = useState<RunePanelMotionState>(() =>
     resolveRunePanelMotionState({
       open: options.open,
       previousOpen: options.open,
-      reducedMotion: options.reducedMotion,
+      reducedMotion,
     }),
   );
 
@@ -83,11 +92,11 @@ export function useRunePanelMotionState(options: {
     const nextState = resolveRunePanelMotionState({
       open: options.open,
       previousOpen,
-      reducedMotion: options.reducedMotion,
+      reducedMotion,
     });
     setState(nextState);
 
-    if (options.reducedMotion || (nextState !== "opening" && nextState !== "closing")) {
+    if (reducedMotion || (nextState !== "opening" && nextState !== "closing")) {
       return;
     }
 
@@ -97,12 +106,12 @@ export function useRunePanelMotionState(options: {
     // straight to its final style before the browser can paint the animation.
     const timer =
       typeof window !== "undefined"
-        ? window.setTimeout(finish, resolveRunePanelSettleDelayMs(options.motionMs))
+        ? window.setTimeout(finish, resolveRunePanelSettleDelayMs(motionMs))
         : undefined;
     return () => {
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [options.open, options.reducedMotion]);
+  }, [motionMs, options.open, profile, reducedMotion]);
 
   return state;
 }

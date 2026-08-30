@@ -1220,6 +1220,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const tasksDrawerMotionState = useRunePanelMotionState({
     open: isTasksDrawerOpen,
     reducedMotion: prefersReducedMotion,
+    motionProfile: settings.motionProfile,
     motionMs: TASKS_DRAWER_MOTION_MS,
   });
   const tasksDrawerMounted = tasksDrawerMotionState !== "closed";

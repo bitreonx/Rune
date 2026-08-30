@@ -1953,6 +1953,8 @@ function ChatViewContent(props: ChatViewProps) {
   const rawRightPanelMotionState = useRunePanelMotionState({
     open: rightPanelOpen,
     reducedMotion: prefersReducedMotion,
+    motionProfile: settings.motionProfile,
+    motionMs: RUNE_MOTION_MS.standard,
   });
   // The open bit is the source of truth for mounting a newly opened panel;
   // the hook then advances it to `opening` in the effect phase. Closing keeps
@@ -1962,6 +1964,8 @@ function ChatViewContent(props: ChatViewProps) {
   const terminalMotionState = useRunePanelMotionState({
     open: activeThreadRef !== null && terminalUiState.terminalOpen,
     reducedMotion: prefersReducedMotion,
+    motionProfile: settings.motionProfile,
+    motionMs: RUNE_MOTION_MS.standard,
   });
   const rightPanelMounted =
     activeThreadRef !== null && (rightPanelOpen || rightPanelMotionState !== "closed");

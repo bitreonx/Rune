@@ -19,3 +19,21 @@ describe("hiddenToastActionProps", () => {
     );
   });
 });
+
+describe("stackedThreadToast semantics", () => {
+  it("forwards the notification lane and thread scope into toast data", () => {
+    const threadRef = { environmentId: "env", threadId: "thread" } as never;
+    const toast = stackedThreadToast({
+      type: "info",
+      title: "Child finished",
+      notificationKind: "agent-child",
+      threadRef,
+    });
+
+    assert.deepEqual(toast.data, {
+      actionLayout: "stacked-end",
+      notificationKind: "agent-child",
+      threadRef,
+    });
+  });
+});

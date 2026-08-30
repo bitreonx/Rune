@@ -162,7 +162,7 @@ function MarketplaceListRow({
     <button
       type="button"
       className={cn(
-        "group flex w-full items-start gap-3 rounded-2xl border px-3.5 py-3 text-left transition-[background-color,border-color,transform] duration-200 ease-out hover:-translate-y-px hover:bg-card/80",
+        "group flex w-full items-start gap-3 rounded-2xl border px-3.5 py-3 text-left transition-[background-color,border-color,transform] duration-200 ease-out hover:-translate-y-px hover:bg-card/80 motion-reduce:transition-none motion-reduce:hover:translate-y-0",
         selected
           ? "border-[color-mix(in_srgb,var(--rune-violet-soft)_50%,var(--border))] bg-[var(--rune-violet-soft)]/10"
           : "border-border/60 bg-card/35",

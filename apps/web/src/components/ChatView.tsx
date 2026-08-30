@@ -143,7 +143,10 @@ import {
   type Thread,
   type TurnDiffSummary,
 } from "../types";
-import type { ComposerFileAttachment } from "../composerDraftStore";
+import type {
+  ComposerFileAttachment,
+  ComposerImageAttachment,
+} from "../composerDraftStore";
 import { resolveWorkspaceRelativePath } from "../filePathDisplay";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -1498,6 +1501,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
+  const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
@@ -1538,6 +1542,7 @@ function ChatViewContent(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerFileAttachmentsRef = useRef<ComposerFileAttachment[]>([]);
+  const sentImageAttachmentsRef = useRef(new Map<string, ComposerImageAttachment[]>());
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
@@ -4119,6 +4124,22 @@ function ChatViewContent(props: ChatViewProps) {
       openFileSurface(relativePath);
     },
     [activeWorkspaceRoot, openFileSurface],
+  );
+  const revealComposerAttachmentInFiles = useCallback(
+    (attachment: AttachmentViewerItem) => {
+      if (!activeThreadRef || !activeProject || !attachment.path) return;
+      const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot ?? "");
+      if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) {
+        toastManager.add({
+          type: "info",
+          title: "Attachment is outside this workspace",
+          description: "Use Reveal in system Explorer for provider-host files outside the workspace.",
+        });
+        return;
+      }
+      useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
+    },
+    [activeProject, activeThreadRef, activeWorkspaceRoot],
   );
   const revealComposerAttachmentInExplorer = useCallback(
     (attachment: AttachmentViewerItem) => {
@@ -6846,6 +6867,13 @@ function ChatViewContent(props: ChatViewProps) {
     });
 
     const messageIdForSend = newMessageId();
+    if (composerImagesSnapshot.length > 0) {
+      sentImageAttachmentsRef.current.set(messageIdForSend, composerImagesSnapshot);
+      if (sentImageAttachmentsRef.current.size > 100) {
+        const oldestMessageId = sentImageAttachmentsRef.current.keys().next().value;
+        if (oldestMessageId) sentImageAttachmentsRef.current.delete(oldestMessageId);
+      }
+    }
     const messageCreatedAt = new Date().toISOString();
     const turnAttachmentsPromise = Promise.all(
       composerImagesSnapshot.map(async (image) => {
@@ -8443,6 +8471,19 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
 
+      const originalImages = sentImageAttachmentsRef.current.get(message.id);
+      const hasOtherImages = (message.attachments ?? []).some(
+        (candidateAttachment) => candidateAttachment.type === "image",
+      );
+      if (hasOtherImages && !originalImages) {
+        toastManager.add({
+          type: "warning",
+          title: "Image attachment needs a fresh edit",
+          description:
+            "RUNE cannot safely reconstruct this older image in the composer. Use Edit message and reattach the image before resending.",
+        });
+        return;
+      }
       const remainingFiles = (message.attachments ?? []).flatMap((candidateAttachment) => {
         if (candidateAttachment.type !== "file" || candidateAttachment.id === attachment.id) {
           return [];
@@ -8462,6 +8503,12 @@ function ChatViewContent(props: ChatViewProps) {
       for (const currentAttachment of composerFileAttachmentsRef.current) {
         removeComposerDraftFileAttachment(composerDraftTarget, currentAttachment.id);
       }
+      for (const currentImage of composerImagesRef.current) {
+        removeComposerDraftImage(composerDraftTarget, currentImage.id);
+      }
+      if (originalImages && originalImages.length > 0) {
+        addComposerDraftImages(composerDraftTarget, originalImages);
+      }
       if (remainingFiles.length > 0) {
         addComposerDraftFileAttachments(composerDraftTarget, remainingFiles);
       }
@@ -8475,8 +8522,10 @@ function ChatViewContent(props: ChatViewProps) {
     [
       activeThread,
       addComposerDraftFileAttachments,
+      addComposerDraftImages,
       composerDraftTarget,
       onEditUserMessage,
+      removeComposerDraftImage,
       removeComposerDraftFileAttachment,
       resolveRewindTurnCount,
     ],
@@ -8847,7 +8896,7 @@ function ChatViewContent(props: ChatViewProps) {
                   isRevertingCheckpoint={isRevertingCheckpoint}
                   onImageExpand={onExpandTimelineImage}
                   onOpenAttachment={openComposerAttachment}
-                  onRevealAttachmentInFiles={openComposerAttachment}
+                  onRevealAttachmentInFiles={revealComposerAttachmentInFiles}
                   onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}
                   onRemoveAttachment={onRemoveSentAttachment}
                   markdownCwd={gitCwd ?? undefined}
@@ -9280,7 +9329,7 @@ function ChatViewContent(props: ChatViewProps) {
         onOpenChange={(open) => {
           if (!open) setAttachmentViewer(null);
         }}
-        onRevealInFiles={openComposerAttachment}
+      onRevealInFiles={revealComposerAttachmentInFiles}
         onRevealInExplorer={revealComposerAttachmentInExplorer}
         onCopyPath={(attachment) => {
           if (attachment.path) copyRightPanelFilePath(attachment.path);

@@ -1,5 +1,5 @@
 import type { WorkspaceFileKind } from "@rune/shared/fileKind";
-import { Clipboard, ExternalLink, MessageSquarePlus, X } from "lucide-react";
+import { Clipboard, ExternalLink, FolderOpen, MessageSquarePlus, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -19,6 +19,8 @@ export interface ViewerShellProps {
   readonly openExternallyHref?: string;
   readonly onOpenExternally?: () => void;
   readonly onCopyPath?: () => void;
+  readonly onRevealInFiles?: () => void;
+  readonly onRevealInExplorer?: () => void;
   readonly onAddToChat?: () => void;
   readonly onClose?: () => void;
   readonly children: ReactNode;
@@ -93,6 +95,16 @@ export function ViewerShell(props: ViewerShellProps) {
           {props.onCopyPath ? (
             <ActionButton label="Copy path" onClick={props.onCopyPath}>
               <Clipboard className="size-3.5" />
+            </ActionButton>
+          ) : null}
+          {props.onRevealInFiles ? (
+            <ActionButton label="Reveal in RUNE Files" onClick={props.onRevealInFiles}>
+              <FolderOpen className="size-3.5" />
+            </ActionButton>
+          ) : null}
+          {props.onRevealInExplorer ? (
+            <ActionButton label="Reveal in system Explorer" onClick={props.onRevealInExplorer}>
+              <ExternalLink className="size-3.5" />
             </ActionButton>
           ) : null}
           {props.onAddToChat ? (

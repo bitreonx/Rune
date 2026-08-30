@@ -195,6 +195,8 @@ export function SkillDetailPanel({
     );
   }
 
+  if (!entry) return null;
+
   const copyCommand = async () => {
     try {
       await navigator.clipboard.writeText(`$${entry.name} `);

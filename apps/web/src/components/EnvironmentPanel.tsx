@@ -514,7 +514,7 @@ export function EnvironmentPanel(props: EnvironmentPanelProps) {
           {props.sessionStatus != null || props.sessionError != null ? (
             <StateRow
               label={props.providerLabel ? `${props.providerLabel} session` : "Provider session"}
-              description={sessionDescription}
+              {...(sessionDescription ? { description: sessionDescription } : {})}
               icon={props.sessionError ? <Circle /> : <CircleDot />}
             />
           ) : null}

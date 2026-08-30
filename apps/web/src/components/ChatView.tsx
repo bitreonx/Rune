@@ -1514,6 +1514,12 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const setComposerDraftTemporary = useComposerDraftStore((store) => store.setTemporary);
+  const addComposerDraftFileAttachments = useComposerDraftStore(
+    (store) => store.addFileAttachments,
+  );
+  const removeComposerDraftFileAttachment = useComposerDraftStore(
+    (store) => store.removeFileAttachment,
+  );
   const setComposerTemporaryChat = useCallback(
     (temporary: boolean) => {
       setComposerDraftTemporary(composerDraftTarget, temporary);
@@ -8423,6 +8429,58 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [resolveRewindTurnCount],
   );
+  const onRemoveSentAttachment = useCallback(
+    (attachment: ChatFileAttachment) => {
+      const message = activeThread?.messages.find(
+        (candidate) =>
+          candidate.role === "user" &&
+          candidate.attachments?.some(
+            (candidateAttachment) =>
+              candidateAttachment.type === "file" && candidateAttachment.id === attachment.id,
+          ),
+      );
+      if (!message || message.role !== "user" || resolveRewindTurnCount(message.id) === null) {
+        return;
+      }
+
+      const remainingFiles = (message.attachments ?? []).flatMap((candidateAttachment) => {
+        if (candidateAttachment.type !== "file" || candidateAttachment.id === attachment.id) {
+          return [];
+        }
+        return [
+          {
+            type: "file" as const,
+            kind: candidateAttachment.kind,
+            id: candidateAttachment.id,
+            name: candidateAttachment.name,
+            mimeType: candidateAttachment.mimeType,
+            sizeBytes: candidateAttachment.sizeBytes,
+            ...(candidateAttachment.path ? { path: candidateAttachment.path } : {}),
+          } satisfies ComposerFileAttachment,
+        ];
+      });
+      for (const currentAttachment of composerFileAttachmentsRef.current) {
+        removeComposerDraftFileAttachment(composerDraftTarget, currentAttachment.id);
+      }
+      if (remainingFiles.length > 0) {
+        addComposerDraftFileAttachments(composerDraftTarget, remainingFiles);
+      }
+      onEditUserMessage(message.id, message.text);
+      toastManager.add({
+        type: "info",
+        title: "Attachment removed from edit",
+        description: "Send the edited message to apply this change to the thread.",
+      });
+    },
+    [
+      activeThread,
+      addComposerDraftFileAttachments,
+      composerDraftTarget,
+      onEditUserMessage,
+      removeComposerDraftFileAttachment,
+      resolveRewindTurnCount,
+    ],
+  );
   // A turn-card revert rewinds to before that turn; the ref read keeps the
   // callback identity stable for the timeline's shared context.
   const onRevertTurn = useCallback((turnCount: number) => {
@@ -8791,6 +8849,7 @@ function ChatViewContent(props: ChatViewProps) {
                   onOpenAttachment={openComposerAttachment}
                   onRevealAttachmentInFiles={openComposerAttachment}
                   onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}
+                  onRemoveAttachment={onRemoveSentAttachment}
                   markdownCwd={gitCwd ?? undefined}
                   resolvedTheme={resolvedTheme}
                   timestampFormat={timestampFormat}

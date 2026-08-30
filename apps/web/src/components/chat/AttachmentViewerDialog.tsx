@@ -1,7 +1,5 @@
 import {
   AudioLinesIcon,
-  ClipboardIcon,
-  ExternalLinkIcon,
   FileIcon,
   FileTextIcon,
   FolderOpenIcon,
@@ -13,17 +11,16 @@ import { useEffect, useState } from "react";
 import type { EnvironmentId } from "@rune/contracts";
 
 import { useAssetUrlState } from "../../assets/assetUrls";
-import { Button } from "../ui/button";
 import {
   Dialog,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
 import { formatBytes } from "../files/viewers/formatBytes";
+import { ViewerShell, type ViewerShellKind } from "../files/viewers/ViewerShell";
 
 const MAX_LOCAL_HASH_BYTES = 32 * 1024 * 1024;
 
@@ -83,6 +80,16 @@ function AttachmentTypeIcon({ attachment }: { readonly attachment: AttachmentVie
   if (mimeType.startsWith("audio/")) return <AudioLinesIcon aria-hidden="true" />;
   if (mimeType === "application/pdf") return <FileTextIcon aria-hidden="true" />;
   return <FileIcon aria-hidden="true" />;
+}
+
+function attachmentViewerShellKind(attachment: AttachmentViewerItem): ViewerShellKind {
+  if (attachment.kind === "folder") return "unknown";
+  const mimeType = normalizedMimeType(attachment);
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType === "application/pdf") return "pdf";
+  return "binary";
 }
 
 function AttachmentMetadata({
@@ -190,7 +197,7 @@ function AttachmentMediaPreview({
   return (
     <AttachmentMetadata
       attachment={attachment}
-      sha256={sha256}
+      {...(sha256 ? { sha256 } : {})}
       description="This file type is not rendered inline. Use the safe reveal actions below."
     />
   );
@@ -223,12 +230,18 @@ function LocalAttachmentContent({ attachment }: { readonly attachment: Attachmen
     return (
       <AttachmentMetadata
         attachment={attachment}
-        sha256={sha256}
+        {...(sha256 ? { sha256 } : {})}
         description="Preparing local preview…"
       />
     );
   }
-  return <AttachmentMediaPreview attachment={attachment} sourceUrl={sourceUrl} sha256={sha256} />;
+  return (
+    <AttachmentMediaPreview
+      attachment={attachment}
+      sourceUrl={sourceUrl}
+      {...(sha256 ? { sha256 } : {})}
+    />
+  );
 }
 
 function ServerAttachmentContent({
@@ -283,73 +296,47 @@ export function AttachmentViewerDialog(props: {
           bottomStickOnMobile={false}
           data-attachment-viewer-dialog="true"
         >
-          <DialogHeader className="border-b border-border/60 pr-14">
-            <DialogTitle className="flex min-w-0 items-center gap-2 text-base">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground [&>svg]:size-4">
-                <AttachmentTypeIcon attachment={attachment} />
-              </span>
-              <span className="truncate">{attachment.name}</span>
-            </DialogTitle>
+          <DialogHeader className="sr-only">
+            <DialogTitle>{attachment.name}</DialogTitle>
             <DialogDescription>
               {attachmentViewerTypeLabel(attachment)} · {formatBytes(attachmentSizeBytes(attachment))}
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-4">
-            {attachment.kind === "folder" ? (
-              <AttachmentMetadata
-                attachment={attachment}
-                description="Folders are referenced by path for the selected agent environment."
-              />
-            ) : attachment.file ? (
-              <LocalAttachmentContent attachment={attachment} />
-            ) : attachment.path ? (
-              <AttachmentMetadata
-                attachment={attachment}
-                description="Preview unavailable for this agent-environment path; the renderer cannot access provider-host files."
-              />
-            ) : (
-              <ServerAttachmentContent environmentId={props.environmentId} attachment={attachment} />
-            )}
+          <DialogPanel className="min-h-0 p-0">
+            <ViewerShell
+              name={attachment.name}
+              relativePath={attachment.name}
+              kind={attachmentViewerShellKind(attachment)}
+              mime={attachment.mimeType}
+              byteLength={attachmentSizeBytes(attachment)}
+              onClose={() => props.onOpenChange(false)}
+              {...(hasPath && props.onRevealInFiles
+                ? { onRevealInFiles: () => props.onRevealInFiles?.(attachment) }
+                : {})}
+              {...(hasPath && props.onRevealInExplorer
+                ? { onRevealInExplorer: () => props.onRevealInExplorer?.(attachment) }
+                : {})}
+              {...(hasPath && props.onCopyPath
+                ? { onCopyPath: () => props.onCopyPath?.(attachment) }
+                : {})}
+            >
+              {attachment.kind === "folder" ? (
+                <AttachmentMetadata
+                  attachment={attachment}
+                  description="Folders are referenced by path for the selected agent environment."
+                />
+              ) : attachment.file ? (
+                <LocalAttachmentContent attachment={attachment} />
+              ) : attachment.path ? (
+                <AttachmentMetadata
+                  attachment={attachment}
+                  description="Preview unavailable for this agent-environment path; the renderer cannot access provider-host files."
+                />
+              ) : (
+                <ServerAttachmentContent environmentId={props.environmentId} attachment={attachment} />
+              )}
+            </ViewerShell>
           </DialogPanel>
-          {hasPath ? (
-            <DialogFooter variant="bare" className="border-t border-border/60 sm:justify-between">
-              <p className="min-w-0 truncate text-xs text-muted-foreground">
-                Safe actions keep the file outside the prompt text.
-              </p>
-              <div className="flex flex-wrap justify-end gap-2">
-                {props.onRevealInFiles ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => props.onRevealInFiles?.(attachment)}
-                  >
-                    <FolderOpenIcon aria-hidden="true" /> Reveal in RUNE Files
-                  </Button>
-                ) : null}
-                {props.onRevealInExplorer ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => props.onRevealInExplorer?.(attachment)}
-                  >
-                    <ExternalLinkIcon aria-hidden="true" /> Reveal in system Explorer
-                  </Button>
-                ) : null}
-                {props.onCopyPath ? (
-                  <Button
-                    type="button"
-                    variant="ghost-muted"
-                    size="sm"
-                    onClick={() => props.onCopyPath?.(attachment)}
-                  >
-                    <ClipboardIcon aria-hidden="true" /> Copy path
-                  </Button>
-                ) : null}
-              </div>
-            </DialogFooter>
-          ) : null}
         </DialogPopup>
       ) : null}
     </Dialog>

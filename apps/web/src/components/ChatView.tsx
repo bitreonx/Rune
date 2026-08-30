@@ -9086,6 +9086,10 @@ function ChatViewContent(props: ChatViewProps) {
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
                             onOpenTasks={addTasksSurface}
+                            onOpenTaskChange={(change) => {
+                              if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
+                              else onOpenChatDiff();
+                            }}
                             onOpenFiles={openFilesSurface}
                             onOpenAttachment={openComposerAttachment}
                             onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}

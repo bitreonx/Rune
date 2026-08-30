@@ -6,6 +6,7 @@ import {
   ComposerTasksDrawer,
   TaskEvidence,
   taskRowMotionStyle,
+  taskEvidenceWindow,
   tasksProgressPercent,
 } from "./ComposerTasksBadge";
 import type { OrchestrationThreadActivity } from "@rune/contracts";
@@ -351,8 +352,8 @@ describe("TaskEvidence", () => {
 
     expect(markup).not.toContain("Receipt group 0");
     expect(markup).toContain("Receipt group 9");
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain("Show 2 earlier receipts");
+    expect(markup).toContain('aria-controls="rune-task-evidence-receipts-');
+    expect(markup).toContain("Earlier receipts");
   });
 
   it("exposes every verification label and an explicit change disclosure", () => {
@@ -387,13 +388,34 @@ describe("TaskEvidence", () => {
 
     const markup = renderToStaticMarkup(<TaskEvidence activities={[activity, verification]} />);
 
-    expect(markup).toContain("Show 1 more change");
+    expect(markup).toContain("Earlier changes");
     expect(markup).toContain("✓ Verification complete");
     expect(markup).toContain("apps/file-3.ts");
   });
 });
 
 describe("tasks motion helpers", () => {
+  it("keeps receipt and change windows bounded while allowing paging", () => {
+    expect(taskEvidenceWindow(100, 0, 8)).toEqual({
+      start: 92,
+      end: 100,
+      hasEarlier: true,
+      hasLater: false,
+    });
+    expect(taskEvidenceWindow(100, 1, 8)).toEqual({
+      start: 84,
+      end: 92,
+      hasEarlier: true,
+      hasLater: true,
+    });
+    expect(taskEvidenceWindow(4, 99, 8)).toEqual({
+      start: 0,
+      end: 4,
+      hasEarlier: false,
+      hasLater: false,
+    });
+  });
+
   it("maps progress to a clamped percentage", () => {
     expect(tasksProgressPercent(0, 3)).toBe(0);
     expect(tasksProgressPercent(1, 3)).toBe(33);

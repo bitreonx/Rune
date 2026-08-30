@@ -21,6 +21,7 @@ import {
 } from "@rune/contracts";
 import type { EnvironmentConnectionPresentation } from "@rune/client-runtime/connection";
 import { serializeComposerFileLink } from "@rune/shared/composerTrigger";
+import type { AgentActivityChangeRecord } from "@rune/shared/agentActivity";
 import { availableRuneCommands } from "@rune/shared/commandRegistry";
 import { createModelSelection, normalizeModelSlug } from "@rune/shared/model";
 import {
@@ -678,6 +679,8 @@ export interface ChatComposerProps {
   activeTasksProgress: ComposerTasksProgress | null;
   activeTaskSteps: readonly ComposerTaskStep[] | null;
   onOpenTasks: () => void;
+  /** Open a Workrail change receipt in the appropriate diff surface. */
+  onOpenTaskChange?: (change: AgentActivityChangeRecord) => void;
   /** Open the in-app workspace explorer so a user can choose a file to add to chat. */
   onOpenFiles: () => void;
   /** Open a selected file attachment in the appropriate RUNE surface. */
@@ -799,6 +802,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeTasksProgress,
     activeTaskSteps,
     onOpenTasks,
+    onOpenTaskChange,
     onOpenFiles,
     onOpenAttachment,
     onRevealAttachmentInExplorer,
@@ -3666,6 +3670,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               activities={activeThreadActivities ?? []}
               onDismiss={dismissTasks}
               onCollapse={toggleTasksDrawer}
+              onOpenChange={onOpenTaskChange}
               onOpenSidePanel={onOpenTasks}
               progress={visibleTasksProgress}
               steps={visibleTaskSteps}

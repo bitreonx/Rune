@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, PanelRight, XIcon } from "lucide-react";
-import { memo, useMemo, useState, type CSSProperties } from "react";
+import { memo, useId, useMemo, useState, type CSSProperties } from "react";
 
 import { formatDuration } from "../../session-logic";
 import type { RunePanelMotionState } from "../../runePanelMotion";
@@ -25,6 +25,33 @@ const TASKS_STAGGER_MAX_ROWS = 8;
 const TASK_EVIDENCE_PREVIEW_LIMIT = 8;
 const TASK_EVIDENCE_FILES_PREVIEW_LIMIT = 3;
 const EMPTY_TASK_ACTIVITIES: readonly OrchestrationThreadActivity[] = [];
+
+export interface TaskEvidenceWindow {
+  readonly start: number;
+  readonly end: number;
+  readonly hasEarlier: boolean;
+  readonly hasLater: boolean;
+}
+
+/** Return a bounded newest-first window without ever discarding its neighbors. */
+export function taskEvidenceWindow(
+  total: number,
+  page: number,
+  pageSize: number,
+): TaskEvidenceWindow {
+  const safeTotal = Math.max(0, total);
+  const safePageSize = Math.max(1, pageSize);
+  const maxPage = Math.max(0, Math.ceil(safeTotal / safePageSize) - 1);
+  const safePage = Math.min(Math.max(0, page), maxPage);
+  const end = Math.max(0, safeTotal - safePage * safePageSize);
+  const start = Math.max(0, end - safePageSize);
+  return {
+    start,
+    end,
+    hasEarlier: start > 0,
+    hasLater: safePage > 0,
+  };
+}
 
 const TASK_STATUS_LABEL = {
   completed: "Completed",
@@ -137,39 +164,57 @@ export function TaskEvidence({
   activities: readonly OrchestrationThreadActivity[];
   readonly onOpenChange?: (change: AgentActivityChangeRecord) => void;
 }) {
-  const [showEarlierReceipts, setShowEarlierReceipts] = useState(false);
-  const [expandedChangeGroups, setExpandedChangeGroups] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
+  const evidenceId = useId();
+  const [receiptPage, setReceiptPage] = useState(0);
+  const [changePages, setChangePages] = useState<ReadonlyMap<string, number>>(new Map());
   const evidenceActivities = useMemo(() => {
     const job = deriveAgentActivityJob(activities);
     return job.activities;
   }, [activities]);
   if (evidenceActivities.length === 0) return null;
-  const hiddenReceiptCount = Math.max(0, evidenceActivities.length - TASK_EVIDENCE_PREVIEW_LIMIT);
-  const visibleEvidenceActivities = showEarlierReceipts
-    ? evidenceActivities
-    : evidenceActivities.slice(-TASK_EVIDENCE_PREVIEW_LIMIT);
+  const receiptWindow = taskEvidenceWindow(
+    evidenceActivities.length,
+    receiptPage,
+    TASK_EVIDENCE_PREVIEW_LIMIT,
+  );
+  const visibleEvidenceActivities = evidenceActivities.slice(
+    receiptWindow.start,
+    receiptWindow.end,
+  );
+  const evidenceReceiptsId = `rune-task-evidence-receipts-${evidenceId}`;
   return (
     <div className="rune-task-evidence" data-rune-task-evidence="true">
-      {hiddenReceiptCount > 0 ? (
-        <button
-          type="button"
-          className="rune-task-evidence-more cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          aria-expanded={showEarlierReceipts}
-          onClick={() => setShowEarlierReceipts((expanded) => !expanded)}
-        >
-          {showEarlierReceipts
-            ? "Show recent receipts"
-            : `Show ${hiddenReceiptCount} earlier ${hiddenReceiptCount === 1 ? "receipt" : "receipts"}`}
-        </button>
+      {evidenceActivities.length > TASK_EVIDENCE_PREVIEW_LIMIT ? (
+        <div className="rune-task-evidence-navigation" aria-label="Workrail receipt navigation">
+          <span className="rune-task-evidence-count">
+            Showing receipts {receiptWindow.start + 1}–{receiptWindow.end} of{" "}
+            {evidenceActivities.length}
+          </span>
+          {receiptWindow.hasEarlier ? (
+            <button
+              type="button"
+              className="rune-task-evidence-more cursor-pointer underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              aria-controls={evidenceReceiptsId}
+              onClick={() => setReceiptPage((page) => page + 1)}
+            >
+              Earlier receipts
+            </button>
+          ) : null}
+          {receiptWindow.hasLater ? (
+            <button
+              type="button"
+              className="rune-task-evidence-more cursor-pointer underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              aria-controls={evidenceReceiptsId}
+              onClick={() => setReceiptPage((page) => Math.max(0, page - 1))}
+            >
+              Newer receipts
+            </button>
+          ) : null}
+        </div>
       ) : null}
-      {visibleEvidenceActivities.map((activity) => {
-        const changesExpanded = expandedChangeGroups.has(activity.id);
+      <div id={evidenceReceiptsId}>
+        {visibleEvidenceActivities.map((activity) => {
         const allChanges = activity.changes;
-        const changes = changesExpanded
-          ? allChanges
-          : allChanges.slice(-TASK_EVIDENCE_FILES_PREVIEW_LIMIT);
         const files = [
           ...new Set(activity.operations.map((operation) => operation.filePath).filter(Boolean)),
         ];
@@ -179,15 +224,15 @@ export function TaskEvidence({
           (receipt) => receipt.kind === "verification" && receipt.status === "done",
         );
         const allFiles = allChanges.length > 0 ? allChanges : files;
-        const visibleFiles =
-          allChanges.length > 0
-            ? changes
-            : changesExpanded
-              ? files
-              : files.slice(-TASK_EVIDENCE_FILES_PREVIEW_LIMIT);
-        const hiddenFileCount = Math.max(0, allFiles.length - visibleFiles.length);
-        return (
-          <div key={activity.id} className="rune-task-evidence-item">
+        const changeWindow = taskEvidenceWindow(
+          allFiles.length,
+          changePages.get(activity.id) ?? 0,
+          TASK_EVIDENCE_FILES_PREVIEW_LIMIT,
+        );
+        const visibleFiles = allFiles.slice(changeWindow.start, changeWindow.end);
+        const receiptItemsId = `${evidenceReceiptsId}-${activity.id}`;
+          return (
+            <div key={activity.id} id={receiptItemsId} className="rune-task-evidence-item">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="rune-task-evidence-label">
                 {activity.reasoningSummary ?? activity.label}
@@ -204,33 +249,44 @@ export function TaskEvidence({
                 </span>
               ))}
             </div>
-            {hiddenFileCount > 0 ||
-            (changesExpanded && allChanges.length > TASK_EVIDENCE_FILES_PREVIEW_LIMIT) ? (
-              <button
-                type="button"
-                className="rune-task-evidence-file rune-task-evidence-more cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                aria-expanded={changesExpanded}
-                onClick={() =>
-                  setExpandedChangeGroups((current) => {
-                    const next = new Set(current);
-                    if (next.has(activity.id)) next.delete(activity.id);
-                    else next.add(activity.id);
-                    return next;
-                  })
-                }
-              >
-                {changesExpanded
-                  ? `Show fewer ${allChanges.length > 0 ? "changes" : "files"}`
-                  : `Show ${hiddenFileCount} more ${
-                      hiddenFileCount === 1
-                        ? allChanges.length > 0
-                          ? "change"
-                          : "file"
-                        : allChanges.length > 0
-                          ? "changes"
-                          : "files"
-                    }`}
-              </button>
+            {allFiles.length > TASK_EVIDENCE_FILES_PREVIEW_LIMIT ? (
+              <div className="rune-task-evidence-navigation" aria-label="Change receipt navigation">
+                {changeWindow.hasEarlier ? (
+                  <button
+                    type="button"
+                    className="rune-task-evidence-file rune-task-evidence-more cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-controls={receiptItemsId}
+                    onClick={() =>
+                      setChangePages((current) => {
+                        const next = new Map(current);
+                        next.set(activity.id, (current.get(activity.id) ?? 0) + 1);
+                        return next;
+                      })
+                    }
+                  >
+                    Earlier {allChanges.length > 0 ? "changes" : "files"}
+                  </button>
+                ) : null}
+                {changeWindow.hasLater ? (
+                  <button
+                    type="button"
+                    className="rune-task-evidence-file rune-task-evidence-more cursor-pointer text-left underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-controls={receiptItemsId}
+                    onClick={() =>
+                      setChangePages((current) => {
+                        const next = new Map(current);
+                        next.set(activity.id, Math.max(0, (current.get(activity.id) ?? 0) - 1));
+                        return next;
+                      })
+                    }
+                  >
+                    Newer {allChanges.length > 0 ? "changes" : "files"}
+                  </button>
+                ) : null}
+                <span className="rune-task-evidence-count">
+                  Showing {changeWindow.start + 1}–{changeWindow.end} of {allFiles.length}
+                </span>
+              </div>
             ) : null}
             {visibleFiles.map((item) => {
               const file = typeof item === "string" ? item : item.path;
@@ -250,9 +306,10 @@ export function TaskEvidence({
                 </span>
               );
             })}
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -397,6 +454,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
   onDismiss,
   onCollapse,
   onOpenSidePanel,
+  onOpenChange,
   progress,
   steps,
   activities = EMPTY_TASK_ACTIVITIES,
@@ -404,6 +462,7 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
   readonly onDismiss: () => void;
   readonly onCollapse: () => void;
   readonly onOpenSidePanel?: () => void;
+  readonly onOpenChange?: (change: AgentActivityChangeRecord) => void;
   readonly activities?: readonly OrchestrationThreadActivity[];
   readonly progress: ComposerTasksProgress;
   readonly steps: readonly ComposerTaskStep[];
@@ -532,12 +591,12 @@ export const ComposerTasksDrawer = memo(function ComposerTasksDrawer({
                       : null}
                 </span>
               </div>
-              {step.status === "inProgress" && activities.length > 0 ? (
-                <TaskEvidence activities={activities} />
-              ) : null}
             </div>
           );
         })}
+        {activities.length > 0 ? (
+          <TaskEvidence activities={activities} onOpenChange={onOpenChange} />
+        ) : null}
         {olderCompletedCount > 0 && !allDone && !historyExpanded ? (
           <button
             type="button"

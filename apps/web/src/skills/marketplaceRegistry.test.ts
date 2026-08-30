@@ -6,6 +6,7 @@ import {
   marketplaceSkillIdentity,
   marketplaceSourceMetadata,
   projectMarketplaceView,
+  projectMarketplaceViewModel,
 } from "./marketplaceRegistry";
 
 describe("marketplaceRegistry", () => {
@@ -37,6 +38,49 @@ describe("marketplaceRegistry", () => {
       ],
     });
     expect(entry?.status).toBe("update");
+    expect(entry?.installedVersion).toBe(1);
+  });
+
+  it("projects marketplace, installed, discover, and update collections without fake counts", () => {
+    const model = projectMarketplaceViewModel({
+      registry: [
+        { ...BUNDLED_SKILL_MARKETPLACE[0]!, version: 2 },
+        BUNDLED_SKILL_MARKETPLACE[1]!,
+      ],
+      installed: [
+        {
+          name: "grill-me",
+          repositoryUrl: "https://github.com/mattpocock/skills",
+          version: 1,
+        },
+      ],
+    });
+
+    expect(model.marketplace.map((entry) => entry.slug)).toEqual(["grill-me", "grilling"]);
+    expect(model.discover).toHaveLength(2);
+    expect(model.installed.map((entry) => entry.slug)).toEqual(["grill-me"]);
+    expect(model.updates.map((entry) => entry.slug)).toEqual(["grill-me"]);
+  });
+
+  it("keeps the highest known version when providers report the same installation twice", () => {
+    const [entry] = projectMarketplaceView({
+      registry: [{ ...BUNDLED_SKILL_MARKETPLACE[0]!, version: 3 }],
+      installed: [
+        {
+          name: "grill-me",
+          repositoryUrl: "https://github.com/mattpocock/skills",
+          version: 1,
+        },
+        {
+          name: "Grill Me",
+          repositoryUrl: "https://GITHUB.com/mattpocock/skills/",
+          version: 2,
+        },
+      ],
+    });
+
+    expect(entry?.status).toBe("update");
+    expect(entry?.installedVersion).toBe(2);
   });
 
   it("leaves an unversioned local report installed without inventing an update", () => {

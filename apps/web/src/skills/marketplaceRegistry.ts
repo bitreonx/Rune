@@ -111,36 +111,90 @@ export type SkillMarketplaceStatus = "available" | "installed" | "update";
 export interface SkillMarketplaceView extends SkillMarketplaceRecord {
   readonly identity: string;
   readonly status: SkillMarketplaceStatus;
+  /** The installed version is only present when the provider reported one. */
+  readonly installedVersion?: number;
+}
+
+export interface SkillMarketplaceViewModel {
+  /** All marketplace records, including their truthful installed state. */
+  readonly marketplace: ReadonlyArray<SkillMarketplaceView>;
+  /** Marketplace records currently installed in the selected project. */
+  readonly installed: ReadonlyArray<SkillMarketplaceView>;
+  /** The discover/marketplace tab intentionally keeps installed badges visible. */
+  readonly discover: ReadonlyArray<SkillMarketplaceView>;
+  /** Records with a known, older installed version. */
+  readonly updates: ReadonlyArray<SkillMarketplaceView>;
+}
+
+type InstalledMarketplaceSkill = {
+  readonly name: string;
+  readonly repositoryUrl?: string;
+  readonly version?: number;
+};
+
+function knownInstalledVersion(skill: InstalledMarketplaceSkill): number | undefined {
+  return Number.isInteger(skill.version) && skill.version > 0 ? skill.version : undefined;
+}
+
+function selectInstalledReport(
+  current: InstalledMarketplaceSkill | undefined,
+  candidate: InstalledMarketplaceSkill,
+): InstalledMarketplaceSkill {
+  if (!current) return candidate;
+  const currentVersion = knownInstalledVersion(current);
+  const candidateVersion = knownInstalledVersion(candidate);
+  if (candidateVersion !== undefined && (currentVersion === undefined || candidateVersion > currentVersion)) {
+    return candidate;
+  }
+  return current;
 }
 
 export function projectMarketplaceView(input: {
   readonly registry?: ReadonlyArray<SkillMarketplaceRecord>;
-  readonly installed: ReadonlyArray<{
-    readonly name: string;
-    readonly repositoryUrl?: string;
-    readonly version?: number;
-  }>;
+  readonly installed: ReadonlyArray<InstalledMarketplaceSkill>;
 }): SkillMarketplaceView[] {
-  const installedByIdentity = new Map(
-    input.installed.map((skill) => [
-      canonicalSkillIdentity({ slug: skill.name, repositoryUrl: skill.repositoryUrl }),
-      skill,
-    ]),
-  );
-  return (input.registry ?? BUNDLED_SKILL_MARKETPLACE)
-    .filter(isValidMarketplaceRecord)
-    .map((record) => {
-      const identity = marketplaceSkillIdentity(record);
+  const installedByIdentity = new Map<string, InstalledMarketplaceSkill>();
+  for (const skill of input.installed) {
+    const identity = canonicalSkillIdentity({ slug: skill.name, repositoryUrl: skill.repositoryUrl });
+    installedByIdentity.set(identity, selectInstalledReport(installedByIdentity.get(identity), skill));
+  }
+
+  const recordsByIdentity = new Map<string, SkillMarketplaceRecord>();
+  for (const record of input.registry ?? BUNDLED_SKILL_MARKETPLACE) {
+    if (!isValidMarketplaceRecord(record)) continue;
+    const identity = marketplaceSkillIdentity(record);
+    const current = recordsByIdentity.get(identity);
+    if (!current || record.version > current.version) recordsByIdentity.set(identity, record);
+  }
+
+  return [...recordsByIdentity.entries()]
+    .map(([identity, record]) => {
       const installed = installedByIdentity.get(identity);
+      const installedVersion = installed ? knownInstalledVersion(installed) : undefined;
       return {
         ...record,
         identity,
+        ...(installedVersion !== undefined ? { installedVersion } : {}),
         status:
-          installed?.version !== undefined && installed.version < record.version
+          installedVersion !== undefined && installedVersion < record.version
             ? "update"
             : installed
               ? "installed"
               : "available",
       } satisfies SkillMarketplaceView;
-    });
+    })
+    .sort((left, right) => left.slug.localeCompare(right.slug) || left.identity.localeCompare(right.identity));
+}
+
+export function projectMarketplaceViewModel(input: {
+  readonly registry?: ReadonlyArray<SkillMarketplaceRecord>;
+  readonly installed: ReadonlyArray<InstalledMarketplaceSkill>;
+}): SkillMarketplaceViewModel {
+  const marketplace = projectMarketplaceView(input);
+  return {
+    marketplace,
+    installed: marketplace.filter((entry) => entry.status !== "available"),
+    discover: marketplace,
+    updates: marketplace.filter((entry) => entry.status === "update"),
+  };
 }

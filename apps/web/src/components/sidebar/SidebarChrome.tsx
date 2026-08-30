@@ -55,6 +55,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   return (
     <SidebarHeader
       data-rune-sidebar-section="workspace"
+      data-rune-sidebar-surface="header"
       className={cn(
         "rune-sidebar-header @container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] px-3 py-0 md:px-0",
         isElectron && "drag-region",
@@ -137,16 +138,16 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const currentFooterPage = useLocation({
     select: (location) =>
       /^\/settings(?:\/|$)/.test(location.pathname)
-      ? "settings"
-      : location.pathname === "/usage"
-        ? "usage"
-        : location.pathname === "/pull-requests"
-          ? "pull-requests"
-          : location.pathname === "/skills"
-            ? "skills"
-            : location.pathname === "/plugins"
-              ? "plugins"
-          : null,
+        ? "settings"
+        : location.pathname === "/usage"
+          ? "usage"
+          : location.pathname === "/pull-requests"
+            ? "pull-requests"
+            : location.pathname === "/skills"
+              ? "skills"
+              : location.pathname === "/plugins"
+                ? "plugins"
+                : null,
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -208,16 +209,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
-          <SidebarUtilityItem
-            icon={<SparklesIcon />}
-            label="Skills"
-            onClick={handleSkillsClick}
-          />
-          <SidebarUtilityItem
-            icon={<PuzzleIcon />}
-            label="Plugins"
-            onClick={handlePluginsClick}
-          />
+          <SidebarUtilityItem icon={<SparklesIcon />} label="Skills" onClick={handleSkillsClick} />
+          <SidebarUtilityItem icon={<PuzzleIcon />} label="Plugins" onClick={handlePluginsClick} />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<GitPullRequestIcon />}
@@ -242,6 +235,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     <SidebarFooter
       className="rune-sidebar-footer border-t border-sidebar-border/70 bg-[var(--rune-sidebar-surface-subtle)] p-[var(--sidebar-content-inset)]"
       data-rune-sidebar-section="utility"
+      data-rune-sidebar-surface="footer"
     >
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />

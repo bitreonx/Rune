@@ -40,22 +40,21 @@ import {
 import {
   BUNDLED_SKILL_MARKETPLACE,
   marketplaceSkillIdentity,
-  projectMarketplaceView,
+  projectMarketplaceViewModel,
   marketplaceSourceMetadata,
   type SkillMarketplaceView,
 } from "../../skills/marketplaceRegistry";
 import { fetchMarketplaceSkillBody } from "../../skills/marketplaceInstaller";
 import {
-  MARKETPLACE_INSTALL_DIRECTORY,
-  MARKETPLACE_INSTALL_SCOPE,
+  MARKETPLACE_INSTALL_SCOPE_LABEL,
   MarketplaceCompatibilityMarks,
   marketplaceStatusLabel,
   marketplaceStatusVariant,
 } from "./MarketplaceSkillMetadata";
 
-type SkillView = "installed" | "discover" | "updates";
+export type SkillView = "installed" | "discover" | "updates";
 
-const SKILL_VIEWS: ReadonlyArray<{ value: SkillView; label: string }> = [
+export const SKILL_VIEWS: ReadonlyArray<{ value: SkillView; label: string }> = [
   { value: "installed", label: "Installed" },
   { value: "discover", label: "Discover" },
   { value: "updates", label: "Updates" },
@@ -112,6 +111,57 @@ function EnvironmentPicker({
   );
 }
 
+export function SkillViewTabs({
+  view,
+  counts,
+  onSelect,
+  onKeyDown,
+  setTabRef,
+}: {
+  readonly view: SkillView;
+  readonly counts: Readonly<Record<SkillView, number>>;
+  readonly onSelect: (view: SkillView) => void;
+  readonly onKeyDown: (event: KeyboardEvent<HTMLButtonElement>, view: SkillView) => void;
+  readonly setTabRef?: (view: SkillView, element: HTMLButtonElement | null) => void;
+}) {
+  return (
+    <nav
+      className="mt-5 flex gap-1 border-b border-border/60"
+      role="tablist"
+      aria-label="Skill views"
+      data-rune-skill-tabs
+    >
+      {SKILL_VIEWS.map(({ value, label }) => {
+        const tabId = `skills-view-${value}-tab`;
+        const panelId = `skills-view-${value}-panel`;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            id={tabId}
+            aria-selected={view === value}
+            aria-controls={panelId}
+            tabIndex={view === value ? 0 : -1}
+            ref={(element) => setTabRef?.(value, element)}
+            className={cn(
+              "border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+              view === value
+                ? "border-[var(--rune-violet-strong)] text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => onSelect(value)}
+            onKeyDown={(event) => onKeyDown(event, value)}
+          >
+            {label}
+            <span className="ms-1.5 tabular-nums text-muted-foreground">{counts[value]}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function SkillListRow({
   entry,
   selected,
@@ -132,6 +182,7 @@ function SkillListRow({
       )}
       onClick={onSelect}
       aria-pressed={selected}
+      data-rune-skill-selected={selected ? "true" : "false"}
       data-rune-skill-row={entry.key}
     >
       <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl border border-border/70 bg-background/65 text-[var(--rune-violet-strong)]">
@@ -216,8 +267,8 @@ export function MarketplaceListRow({
             <span className="font-medium text-foreground">Author:</span> {source.author}
           </span>
           <span className="truncate">
-            <span className="font-medium text-foreground">Install:</span> {MARKETPLACE_INSTALL_SCOPE}{" "}
-            <span className="text-muted-foreground/75">({MARKETPLACE_INSTALL_DIRECTORY})</span>
+            <span className="font-medium text-foreground">Install:</span>{" "}
+            {MARKETPLACE_INSTALL_SCOPE_LABEL}
           </span>
           <span className="truncate">
             <span className="font-medium text-foreground">Version:</span> v{entry.version}
@@ -247,11 +298,10 @@ export function SkillsPage() {
     () => new Set(),
   );
   const viewTabRefs = useRef<Partial<Record<SkillView, HTMLButtonElement>>>({});
+  const listScrollTops = useRef<Partial<Record<SkillView, number>>>({});
 
   const selectView = (nextView: SkillView, focus = false) => {
     setView(nextView);
-    setSelectedKey(null);
-    setSelectedMarketplaceKey(null);
     if (focus) viewTabRefs.current[nextView]?.focus();
   };
 
@@ -293,17 +343,20 @@ export function SkillsPage() {
   const selectedEntry =
     filteredEntries.find((entry) => entry.key === selectedKey) ?? filteredEntries[0] ?? null;
   const enabledCount = entries.filter((entry) => entry.skill.enabled).length;
-  const marketplaceEntries = useMemo(
+  const marketplaceViewModel = useMemo(
     () =>
-      projectMarketplaceView({
+      projectMarketplaceViewModel({
         installed: [
           ...entries.map((entry) => ({
             name: entry.name,
             ...(entry.repositoryUrl ? { repositoryUrl: entry.repositoryUrl } : {}),
           })),
-          ...BUNDLED_SKILL_MARKETPLACE.filter((entry) =>
-            environmentId !== null &&
-            recentlyInstalledKeys.has(marketplaceInstallationKey(environmentId, marketplaceSkillIdentity(entry))),
+          ...BUNDLED_SKILL_MARKETPLACE.filter(
+            (entry) =>
+              environmentId !== null &&
+              recentlyInstalledKeys.has(
+                marketplaceInstallationKey(environmentId, marketplaceSkillIdentity(entry)),
+              ),
           ).map((entry) => ({
             name: entry.slug,
             repositoryUrl: entry.repository,
@@ -311,10 +364,12 @@ export function SkillsPage() {
           })),
         ],
       }),
-    [entries, recentlyInstalledKeys],
+    [environmentId, entries, recentlyInstalledKeys],
   );
-  const marketplaceUpdates = marketplaceEntries.filter((entry) => entry.status === "update");
-  const marketplaceVisibleEntries = view === "updates" ? marketplaceUpdates : marketplaceEntries;
+  const marketplaceEntries = marketplaceViewModel.marketplace;
+  const marketplaceUpdates = marketplaceViewModel.updates;
+  const marketplaceVisibleEntries =
+    view === "updates" ? marketplaceViewModel.updates : marketplaceViewModel.discover;
   const selectedMarketplaceEntry =
     marketplaceVisibleEntries.find((entry) => entry.identity === selectedMarketplaceKey) ??
     marketplaceVisibleEntries[0] ??
@@ -350,8 +405,9 @@ export function SkillsPage() {
         }
         return;
       }
-      setRecentlyInstalledKeys((current) =>
-        new Set([...current, marketplaceInstallationKey(environmentId, entry.identity)]),
+      setRecentlyInstalledKeys(
+        (current) =>
+          new Set([...current, marketplaceInstallationKey(environmentId, entry.identity)]),
       );
       toastManager.add({
         type: "success",
@@ -404,53 +460,23 @@ export function SkillsPage() {
             value={environmentId}
             onChange={(value) => {
               setEnvironmentOverride(value);
-              setSelectedKey(null);
-              setSelectedMarketplaceKey(null);
             }}
           />
         </header>
 
-        <nav
-          className="mt-5 flex gap-1 border-b border-border/60"
-          role="tablist"
-          aria-label="Skill views"
-        >
-          {SKILL_VIEWS.map(({ value, label }) => {
-            const count =
-              value === "installed"
-                ? entries.length
-                : value === "discover"
-                  ? marketplaceEntries.length
-                  : marketplaceUpdates.length;
-            const tabId = `skills-view-${value}-tab`;
-            const panelId = `skills-view-${value}-panel`;
-            return (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              id={tabId}
-              aria-selected={view === value}
-              aria-controls={panelId}
-              tabIndex={view === value ? 0 : -1}
-              ref={(element) => {
-                viewTabRefs.current[value] = element ?? undefined;
-              }}
-              className={cn(
-                "border-b-2 px-3 py-2 text-xs font-medium transition-colors",
-                view === value
-                  ? "border-[var(--rune-violet-strong)] text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => selectView(value)}
-              onKeyDown={(event) => handleViewKeyDown(event, value)}
-            >
-              {label}
-              <span className="ms-1.5 tabular-nums text-muted-foreground">{count}</span>
-            </button>
-            );
-          })}
-        </nav>
+        <SkillViewTabs
+          view={view}
+          counts={{
+            installed: entries.length,
+            discover: marketplaceEntries.length,
+            updates: marketplaceUpdates.length,
+          }}
+          onSelect={selectView}
+          onKeyDown={handleViewKeyDown}
+          setTabRef={(tabView, element) => {
+            viewTabRefs.current[tabView] = element ?? undefined;
+          }}
+        />
 
         <div className="mt-6 grid gap-2 sm:grid-cols-3">
           <div className="rounded-2xl border border-border/60 bg-card/35 p-4">
@@ -520,6 +546,7 @@ export function SkillsPage() {
           role="tabpanel"
           aria-labelledby={`skills-view-${view}-tab`}
           tabIndex={-1}
+          data-rune-skill-view={view}
         >
           {!isReady || (environmentId && providerValue === null) ? (
             <div
@@ -551,6 +578,14 @@ export function SkillsPage() {
               <section
                 className="min-h-0 min-w-0 space-y-2 lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
                 aria-label="Available skills"
+                data-rune-skill-list="installed"
+                data-rune-skill-list-scroll="true"
+                ref={(element) => {
+                  if (element) element.scrollTop = listScrollTops.current.installed ?? 0;
+                }}
+                onScroll={(event) => {
+                  listScrollTops.current.installed = event.currentTarget.scrollTop;
+                }}
               >
                 {filteredEntries.map((entry) => (
                   <SkillListRow
@@ -582,6 +617,14 @@ export function SkillsPage() {
               <section
                 className="min-h-0 min-w-0 space-y-2 lg:max-h-[calc(100dvh-17rem)] lg:overflow-y-auto lg:pe-1"
                 aria-label="Marketplace skills"
+                data-rune-skill-list={view}
+                data-rune-skill-list-scroll="true"
+                ref={(element) => {
+                  if (element) element.scrollTop = listScrollTops.current[view] ?? 0;
+                }}
+                onScroll={(event) => {
+                  listScrollTops.current[view] = event.currentTarget.scrollTop;
+                }}
               >
                 {marketplaceVisibleEntries.map((entry) => (
                   <MarketplaceListRow

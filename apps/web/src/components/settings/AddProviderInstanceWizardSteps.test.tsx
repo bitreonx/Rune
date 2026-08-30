@@ -20,7 +20,7 @@ function renderStepButtons(
 ): ReactElement<StepButtonProps>[] {
   const header = AddProviderInstanceWizardSteps({
     currentStep,
-    summaries: ["Codex", "Codex Workspace", null],
+    summaries: ["Codex", "Codex Workspace", null, null, null],
     instanceIdError,
     onNavigation,
   });
@@ -56,7 +56,7 @@ describe("AddProviderInstanceWizardSteps", () => {
 
   it("preserves the actual backward header click", () => {
     const onNavigation = vi.fn();
-    const buttons = renderStepButtons(2, "Instance ID is required.", onNavigation);
+    const buttons = renderStepButtons(3, "Instance ID is required.", onNavigation);
 
     buttons[0]!.props.onClick();
 

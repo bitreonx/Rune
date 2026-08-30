@@ -545,6 +545,7 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         role="button"
         tabIndex={0}
         data-rune-sidebar-row="draft"
+        data-rune-sidebar-active={props.isActive ? "true" : "false"}
         data-testid="sidebar-draft-row"
         className={cn(
           "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left text-sidebar-foreground outline-none select-none",
@@ -1310,7 +1311,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             )
           : cn(
               "truncate group-hover/sidebar-row:text-foreground",
-              props.isActive || isWoke
+              props.isActive || isSelected || isWoke
                 ? "text-foreground"
                 : isUnread
                   ? "text-muted-foreground"
@@ -4004,6 +4005,7 @@ export default function Sidebar() {
           <SidebarGroup
             className="rune-sidebar-toolbar relative z-[1] gap-1 border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] p-[var(--sidebar-content-inset)]"
             data-rune-sidebar-section="search"
+            data-rune-sidebar-surface="toolbar"
           >
             <div className="flex items-center gap-1">
               <div

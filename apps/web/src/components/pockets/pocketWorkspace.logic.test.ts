@@ -3,7 +3,14 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   filterPocketThreads,
   groupPocketThreads,
+  POCKET_MOTION_PHASES,
+  POCKET_MOTION_SEQUENCE,
+  POCKET_SHELF_DEFAULT_ITEMS,
+  POCKET_SHELF_MAX_ITEMS,
+  POCKET_SHELF_MIN_ITEMS,
+  POCKET_SURFACE_STATES,
   pocketPeekChildLimit,
+  projectPocketShelf,
   selectPocketPeekThreads,
   selectPocketShelfThreads,
   sortPocketThreads,
@@ -41,6 +48,33 @@ describe("Pocket workspace projection", () => {
     expect(shelf).toHaveLength(6);
     expect(shelf.map((item) => item.id)).toContain("pinned");
     expect(shelf.map((item) => item.id)).toContain("needs-you");
+  });
+
+  it("keeps the shelf cap between five and seven and reports hidden threads", () => {
+    const threads = Array.from({ length: 10 }, (_, index) => thread(String(index)));
+
+    expect(POCKET_SHELF_DEFAULT_ITEMS).toBe(6);
+    expect(projectPocketShelf(threads, POCKET_SHELF_MIN_ITEMS)).toMatchObject({
+      threads: expect.any(Array),
+      overflow: 5,
+    });
+    expect(projectPocketShelf(threads, 2).threads).toHaveLength(POCKET_SHELF_MIN_ITEMS);
+    expect(projectPocketShelf(threads, 99).threads).toHaveLength(POCKET_SHELF_MAX_ITEMS);
+    expect(projectPocketShelf(threads, 99).overflow).toBe(3);
+  });
+
+  it("keeps the Pocket state and finite motion vocabularies stable", () => {
+    expect(POCKET_SURFACE_STATES).toEqual(["closed", "hover", "open"]);
+    expect(POCKET_MOTION_PHASES).toEqual([
+      "acknowledge",
+      "lip-lift",
+      "geometry-morph",
+      "clip-reveal",
+      "settle",
+    ]);
+    expect(POCKET_MOTION_SEQUENCE).toBe(
+      "acknowledge -> lip-lift -> geometry-morph -> clip-reveal -> settle",
+    );
   });
 
   it("keeps a closed Pocket preview to four prioritized threads", () => {

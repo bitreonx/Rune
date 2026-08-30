@@ -2,6 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import threadSidebarMarkup from "../Sidebar.tsx?raw";
+import appSidebarLayoutMarkup from "../AppSidebarLayout.tsx?raw";
+import sidebarChromeMarkup from "../sidebar/SidebarChrome.tsx?raw";
+import sidebarEntityRowMarkup from "../sidebar/SidebarEntityRow.tsx?raw";
+import { SidebarEntityRow } from "../sidebar/SidebarEntityRow";
 
 import {
   SidebarMenuAction,
@@ -34,6 +38,48 @@ describe("sidebar interactive cursors", () => {
     expect(markup).toContain("data-rune-sidebar-section");
     expect(markup).toContain("data-rune-sidebar-row");
     expect(markup).toContain("data-rune-sidebar-scope");
+  });
+
+  it("keeps the Rune shell as the sidebar styling authority", () => {
+    expect(appSidebarLayoutMarkup).toContain('data-app-sidebar=""');
+    expect(appSidebarLayoutMarkup).toContain('data-rune-shell="sidebar"');
+    expect(appSidebarLayoutMarkup).toContain("data-rune-sidebar-scope");
+    expect(sidebarChromeMarkup).toContain('data-rune-sidebar-surface="header"');
+    expect(sidebarChromeMarkup).toContain('data-rune-sidebar-surface="footer"');
+    expect(threadSidebarMarkup).toContain('data-rune-sidebar-surface="toolbar"');
+  });
+
+  it("keeps active and selected state contracts free of the legacy stripe", () => {
+    expect(threadSidebarMarkup).toContain(
+      'data-rune-sidebar-active={props.isActive ? "true" : "false"}',
+    );
+    expect(threadSidebarMarkup).toContain(
+      'data-rune-sidebar-selected={isSelected ? "true" : "false"}',
+    );
+    expect(threadSidebarMarkup).toContain("props.isActive || isSelected || isWoke");
+    expect(threadSidebarMarkup).not.toContain("before:absolute");
+    const draftMarkup = threadSidebarMarkup.slice(
+      threadSidebarMarkup.indexOf("const SidebarDraftRow"),
+      threadSidebarMarkup.indexOf("const SidebarDraftBlock"),
+    );
+    expect(draftMarkup).toContain(
+      'data-rune-sidebar-active={props.isActive ? "true" : "false"}',
+    );
+    expect(sidebarEntityRowMarkup).toContain(
+      'data-rune-sidebar-selected={props.selected ? "true" : "false"}',
+    );
+  });
+
+  it("gives selected sidebar entities the shared raised surface contract", () => {
+    const markup = renderToStaticMarkup(
+      <SidebarEntityRow variant="thread" selected>
+        Thread
+      </SidebarEntityRow>,
+    );
+
+    expect(markup).toContain('data-rune-sidebar-entity="thread"');
+    expect(markup).toContain('data-rune-sidebar-selected="true"');
+    expect(markup).toContain("bg-sidebar-row-active");
   });
 
   it("keeps the snoozed shelf header in the semantic sidebar hierarchy", () => {

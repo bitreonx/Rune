@@ -8,7 +8,7 @@ import {
 } from "./AddProviderInstanceDialog.logic";
 
 interface AddProviderInstanceWizardStepsProps {
-  /** Step labels; defaults to the add-provider wizard's three steps. */
+  /** Step labels; defaults to the add-provider wizard's canonical stages. */
   readonly steps?: ReadonlyArray<string>;
   readonly currentStep: number;
   readonly summaries: readonly (string | null)[];

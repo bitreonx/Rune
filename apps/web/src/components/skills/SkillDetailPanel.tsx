@@ -17,11 +17,16 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import type { SkillWorkspaceEntry } from "../../skills/skillsWorkspace.logic";
 import {
-  MARKETPLACE_COMPATIBILITY_LABEL,
   marketplaceSourceMetadata,
   type SkillMarketplaceView,
 } from "../../skills/marketplaceRegistry";
-import { getProviderOrServiceIcon } from "../chat/providerIconUtils";
+import {
+  MARKETPLACE_INSTALL_SCOPE_LABEL,
+  MarketplaceCompatibilityMarks,
+  marketplaceRepositoryHref,
+  marketplaceStatusLabel,
+  marketplaceStatusVariant,
+} from "./MarketplaceSkillMetadata";
 
 export function SkillDetailPanel({
   entry,
@@ -53,19 +58,14 @@ export function SkillDetailPanel({
 
   if (marketplaceEntry) {
     const source = marketplaceSourceMetadata(marketplaceEntry.repository);
-    const repositoryUrl = (() => {
-      try {
-        const url = new URL(marketplaceEntry.repository);
-        return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
-      } catch {
-        return null;
-      }
-    })();
+    const repositoryUrl = marketplaceRepositoryHref(marketplaceEntry.repository);
+    const installCommand = repositoryUrl
+      ? `npx skills add ${new URL(repositoryUrl).pathname.replace(/^\//u, "")} --skill=${marketplaceEntry.slug}`
+      : null;
     const copyInstallCommand = async () => {
+      if (!installCommand) return;
       try {
-        await navigator.clipboard.writeText(
-          `npx skills add ${new URL(marketplaceEntry.repository).pathname.replace(/^\//u, "")} --skill=${marketplaceEntry.slug}`,
-        );
+        await navigator.clipboard.writeText(installCommand);
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1600);
       } catch {
@@ -75,8 +75,10 @@ export function SkillDetailPanel({
 
     return (
       <aside
-        className="sticky top-5 max-h-[calc(100dvh-2.5rem)] overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+        className="lg:sticky top-5 lg:max-h-[calc(100dvh-2.5rem)] lg:overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
         data-rune-skill-marketplace-detail
+        data-rune-skill-detail-layout="sticky"
+        data-rune-skill-detail-scroll="viewport"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -91,14 +93,11 @@ export function SkillDetailPanel({
             </div>
           </div>
           <Badge
-            variant={marketplaceEntry.status === "available" ? "outline" : "success"}
+            variant={marketplaceStatusVariant(marketplaceEntry.status)}
             size="sm"
+            data-rune-marketplace-status={marketplaceEntry.status}
           >
-            {marketplaceEntry.status === "available"
-              ? "Available"
-              : marketplaceEntry.status === "update"
-                ? "Update"
-                : "Installed"}
+            {marketplaceStatusLabel(marketplaceEntry.status)}
           </Badge>
         </div>
 
@@ -112,39 +111,36 @@ export function SkillDetailPanel({
             <dd className="mt-1 break-all font-medium text-foreground">
               {source.provider} · {source.author}
             </dd>
+            <dd className="mt-1 break-all text-muted-foreground">{marketplaceEntry.repository}</dd>
             <dd className="mt-1 break-all text-muted-foreground">
               {source.repositoryName} / {marketplaceEntry.path}
             </dd>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
             <dt className="text-muted-foreground">Catalog version</dt>
-            <dd className="font-medium text-foreground">v{marketplaceEntry.version}</dd>
+            <dd className="font-medium text-foreground" data-rune-marketplace-catalog-version>
+              v{marketplaceEntry.version}
+            </dd>
           </div>
+          {marketplaceEntry.installedVersion !== undefined ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
+              <dt className="text-muted-foreground">Installed version</dt>
+              <dd className="font-medium text-foreground" data-rune-marketplace-installed-version>
+                v{marketplaceEntry.installedVersion}
+              </dd>
+            </div>
+          ) : null}
           <div className="rounded-xl bg-muted/35 px-3 py-2.5">
             <dt className="text-muted-foreground">Compatible harnesses</dt>
-            <dd className="mt-2 flex flex-wrap gap-1.5">
-              {marketplaceEntry.compatibility.map((harness) => (
-                <Badge key={harness} variant="outline" size="sm">
-                  {(() => {
-                    const iconKind =
-                      harness === "rune-native"
-                        ? "runeNative"
-                        : harness === "claude"
-                          ? "claudeAgent"
-                          : harness;
-                    const ProviderIcon = getProviderOrServiceIcon(iconKind);
-                    return ProviderIcon ? (
-                      <ProviderIcon className="me-1 inline size-3" aria-hidden />
-                    ) : null;
-                  })()}
-                  {MARKETPLACE_COMPATIBILITY_LABEL[harness]}
-                </Badge>
-              ))}
+            <dd className="mt-2">
+              <MarketplaceCompatibilityMarks compatibility={marketplaceEntry.compatibility} />
             </dd>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5">
             <dt className="text-muted-foreground">Install scope</dt>
-            <dd className="font-medium text-foreground">Project · .agents/skills</dd>
+            <dd className="font-medium text-foreground" data-rune-marketplace-install-scope>
+              {MARKETPLACE_INSTALL_SCOPE_LABEL}
+            </dd>
           </div>
         </dl>
 
@@ -156,6 +152,7 @@ export function SkillDetailPanel({
               onClick={() => onInstallMarketplace?.(marketplaceEntry)}
               disabled={!onInstallMarketplace || isInstalling}
               title={onInstallMarketplace ? undefined : "Connect a writable project first"}
+              data-rune-marketplace-action={marketplaceEntry.status}
             >
               <DownloadIcon className="size-3.5" />
               {isInstalling
@@ -183,7 +180,8 @@ export function SkillDetailPanel({
               variant="ghost-muted"
               render={<a href={repositoryUrl} target="_blank" rel="noreferrer" />}
             >
-              <ExternalLinkIcon className="size-3.5" /> Open on GitHub
+              <ExternalLinkIcon className="size-3.5" />
+              {source.provider === "GitHub" ? "Open on GitHub" : "Open repository"}
             </Button>
           ) : null}
         </div>
@@ -228,8 +226,10 @@ export function SkillDetailPanel({
 
   return (
     <aside
-      className="sticky top-5 max-h-[calc(100dvh-2.5rem)] overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+      className="lg:sticky top-5 lg:max-h-[calc(100dvh-2.5rem)] lg:overflow-y-auto rounded-2xl border border-[color-mix(in_srgb,var(--rune-violet-soft)_30%,var(--border))] bg-[var(--rune-surface-raised)] p-5 shadow-[0_18px_50px_-34px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
       data-rune-skill-detail
+      data-rune-skill-detail-layout="sticky"
+      data-rune-skill-detail-scroll="viewport"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">

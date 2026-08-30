@@ -253,7 +253,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
         primaryServerVersion: "0.0.27",
         fallbackStageLabel: "Stable",
       }),
-    ).toBe("Alpha");
+    ).toBe("Stable");
   });
 
   it("returns the fallback label when the primary server version is missing", () => {
@@ -271,7 +271,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
         primaryServerVersion: "0.0.28-nightly.20260616",
         fallbackStageLabel: "Stable",
       }),
-    ).toBe("Alpha");
+    ).toBe("Stable");
   });
 });
 

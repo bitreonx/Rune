@@ -79,27 +79,36 @@ describe("AddProviderInstanceDialog environment routing", () => {
     expect(settingsHooks.update).toHaveBeenCalledWith(remoteEnvironmentId);
   });
 
-  it("hides harness selection for contextual instance setup", () => {
-    hooks.beginRender();
-    const dialog = AddProviderInstanceDialog({
-      open: true,
-      environmentId: remoteEnvironmentId,
-      environmentLabel: "Remote device",
-      initialDriver: ProviderDriverKind.make("claudeAgent"),
-      onOpenChange: vi.fn(),
-    });
+  it("projects contextual setup for each supported harness without Harness selection", () => {
+    const harnesses = ["codex", "claudeAgent", "opencode", "antigravity"] as const;
 
-    const wizard = findElement(
-      dialog,
-      (element) =>
-        "currentStep" in element.props && "summaries" in element.props,
-    );
+    for (const driver of harnesses) {
+      hooks.beginRender();
+      const dialog = AddProviderInstanceDialog({
+        open: true,
+        environmentId: remoteEnvironmentId,
+        environmentLabel: "Remote device",
+        initialDriver: ProviderDriverKind.make(driver),
+        onOpenChange: vi.fn(),
+      });
 
-    expect(wizard?.props.steps).toEqual(["Identity", "Config"]);
-    expect(wizard?.props.currentStep).toBe(0);
+      const wizard = findElement(
+        dialog,
+        (element) => "currentStep" in element.props && "summaries" in element.props,
+      );
+
+      expect(wizard?.props.steps).toEqual([
+        "Identity",
+        "Connection",
+        "Model / Runtime",
+        "Verify",
+      ]);
+      expect(wizard?.props.steps).not.toContain("Harness");
+      expect(wizard?.props.currentStep).toBe(0);
+    }
   });
 
-  it("uses Agent Harness terminology for global instance setup", () => {
+  it("uses the global five-stage projection when no harness is preselected", () => {
     hooks.beginRender();
     const dialog = AddProviderInstanceDialog({
       open: true,
@@ -114,6 +123,12 @@ describe("AddProviderInstanceDialog environment routing", () => {
         "currentStep" in element.props && "summaries" in element.props,
     );
 
-    expect(wizard?.props.steps).toEqual(["Harness", "Identity", "Config"]);
+    expect(wizard?.props.steps).toEqual([
+      "Harness",
+      "Identity",
+      "Connection / Config",
+      "Model / Runtime",
+      "Verify",
+    ]);
   });
 });

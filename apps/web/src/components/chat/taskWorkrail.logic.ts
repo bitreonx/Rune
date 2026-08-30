@@ -29,20 +29,28 @@ export function deriveWorkrailModel(
   progress: { readonly completedSteps: number; readonly totalSteps: number } | null,
   steps: readonly WorkrailStep[] | null,
 ): WorkrailModel | null {
-  if (progress === null || steps === null || progress.totalSteps <= 0) return null;
+  if (progress === null || steps === null || progress.totalSteps <= 0 || steps.length === 0) {
+    return null;
+  }
 
   const activeIndex = steps.findIndex((step) => step.status === "inProgress");
   const fallbackIndex =
     activeIndex >= 0 ? activeIndex : steps.findIndex((step) => step.status === "pending");
   const rows = steps.map((step, index) => ({ id: String(index), index, step }));
   const active = fallbackIndex >= 0 ? rows[fallbackIndex] : undefined;
+  const completed = rows.filter(
+    ({ step }) => step.status === "completed" || step.status === "skipped",
+  );
 
   return {
-    total: progress.totalSteps,
-    complete: Math.min(Math.max(progress.completedSteps, 0), progress.totalSteps),
+    // The step list is the structural source of truth. The runtime counters
+    // are useful for transport, but using them here can show a false total or
+    // completion state while a fresh plan snapshot is still arriving.
+    total: rows.length,
+    complete: completed.length,
     ...(active === undefined ? {} : { activeTaskId: active.id, active }),
     queued: rows.filter(({ step, index }) => step.status === "pending" && index !== fallbackIndex),
-    completed: rows.filter(({ step }) => step.status === "completed" || step.status === "skipped"),
+    completed,
     blocked: rows.filter(({ step }) => step.status === "blocked" || step.status === "failed"),
   };
 }

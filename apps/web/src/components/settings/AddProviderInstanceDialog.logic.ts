@@ -4,7 +4,56 @@ export type WizardNavigation =
 
 const IDENTITY_STEP = 1;
 
-export const ADD_PROVIDER_WIZARD_STEPS = ["Driver", "Identity", "Config"] as const;
+/** Stages shown when the add flow starts from Settings → Add harness. */
+export const ADD_PROVIDER_WIZARD_STEPS = [
+  "Harness",
+  "Identity",
+  "Connection / Config",
+  "Model / Runtime",
+  "Verify",
+] as const;
+
+/** Stages shown when the harness is already known from its detail page. */
+export const CONTEXTUAL_ADD_PROVIDER_WIZARD_STEPS = [
+  "Identity",
+  "Connection",
+  "Model / Runtime",
+  "Verify",
+] as const;
+
+/**
+ * Project the canonical wizard stages into the entry point's visible stages.
+ * Contextual entry keeps the canonical Harness slot in the state machine so
+ * the existing identity validation remains shared, but does not render it.
+ */
+export function resolveAddProviderWizardSteps(
+  initialDriver: string | undefined,
+): typeof ADD_PROVIDER_WIZARD_STEPS | typeof CONTEXTUAL_ADD_PROVIDER_WIZARD_STEPS {
+  return initialDriver === undefined
+    ? ADD_PROVIDER_WIZARD_STEPS
+    : CONTEXTUAL_ADD_PROVIDER_WIZARD_STEPS;
+}
+
+/** Translate a visible step index to the canonical state-machine index. */
+export function resolveWizardStep(initialDriver: string | undefined, visibleStep: number): number {
+  return initialDriver === undefined ? visibleStep : visibleStep + IDENTITY_STEP;
+}
+
+/** Translate a canonical state-machine index to the visible step index. */
+export function resolveVisibleWizardStep(
+  initialDriver: string | undefined,
+  wizardStep: number,
+): number {
+  return initialDriver === undefined ? wizardStep : wizardStep - IDENTITY_STEP;
+}
+
+/** Keep the global title generic and contextual titles tied to the harness. */
+export function resolveAddProviderInstanceDialogTitle(
+  initialDriver: string | undefined,
+  harnessLabel: string,
+): string {
+  return initialDriver === undefined ? "Add harness instance" : `Add ${harnessLabel} instance`;
+}
 
 /**
  * Contextual instance entry points already know the harness family. Keep the
@@ -12,7 +61,7 @@ export const ADD_PROVIDER_WIZARD_STEPS = ["Driver", "Identity", "Config"] as con
  * identity instead of making the user select the same harness twice.
  */
 export function resolveInitialWizardStep(initialDriver: string | undefined): number {
-  return initialDriver === undefined ? 0 : IDENTITY_STEP;
+  return resolveWizardStep(initialDriver, 0);
 }
 
 /**

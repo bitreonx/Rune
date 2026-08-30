@@ -42,8 +42,12 @@ import { ProviderSettingsForm, deriveProviderSettingsFields } from "./ProviderSe
 import { AnimatedHeight } from "../AnimatedHeight";
 import {
   ADD_PROVIDER_WIZARD_STEPS,
+  resolveAddProviderInstanceDialogTitle,
+  resolveAddProviderWizardSteps,
   resolveInitialWizardStep,
+  resolveVisibleWizardStep,
   resolveWizardNavigation,
+  resolveWizardStep,
   type WizardNavigation,
 } from "./AddProviderInstanceDialog.logic";
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
@@ -201,16 +205,14 @@ export function AddProviderInstanceDialog({
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
   const isContextual = initialDriver !== undefined;
   // The state machine keeps the global step numbers so the existing save and
-  // validation rules stay intact. Contextual entry points expose only the
-  // identity/config screens and translate their visible indexes below.
-  const activeWizardStep = isContextual ? Math.max(1, wizardStep) : wizardStep;
-  const visibleWizardStep = isContextual ? activeWizardStep - 1 : activeWizardStep;
-  const wizardSteps = isContextual
-    ? (["Identity", "Config"] as const)
-    : (["Harness", "Identity", "Config"] as const);
+  // validation rules stay intact. Contextual entry points project those
+  // indexes onto the four visible stages without rendering Harness.
+  const activeWizardStep = Math.max(resolveInitialWizardStep(initialDriver), wizardStep);
+  const visibleWizardStep = resolveVisibleWizardStep(initialDriver, activeWizardStep);
+  const wizardSteps = resolveAddProviderWizardSteps(initialDriver);
   const wizardStepSummaries = isContextual
-    ? ([previewLabel, null] as const)
-    : ([driverOption.label, previewLabel, null] as const);
+    ? ([previewLabel, null, null, null] as const)
+    : ([driverOption.label, previewLabel, null, null, null] as const);
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
@@ -233,7 +235,7 @@ export function AddProviderInstanceDialog({
   };
 
   const navigateToStep = (requestedStep: number) => {
-    const internalStep = isContextual ? requestedStep + 1 : requestedStep;
+    const internalStep = resolveWizardStep(initialDriver, requestedStep);
     applyWizardNavigation(
       resolveWizardNavigation(activeWizardStep, internalStep, ADD_PROVIDER_WIZARD_STEPS.length, {
         instanceIdError,
@@ -244,7 +246,7 @@ export function AddProviderInstanceDialog({
   const resolveVisibleWizardNavigation = (requestedStep: number): WizardNavigation =>
     resolveWizardNavigation(
       activeWizardStep,
-      isContextual ? requestedStep + 1 : requestedStep,
+      resolveWizardStep(initialDriver, requestedStep),
       ADD_PROVIDER_WIZARD_STEPS.length,
       { instanceIdError },
     );
@@ -306,7 +308,7 @@ export function AddProviderInstanceDialog({
         <div className="flex min-h-0 flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>
-              {initialDriver ? `Add ${driverOption.label} instance` : "Add harness instance"}
+              {resolveAddProviderInstanceDialogTitle(initialDriver, driverOption.label)}
             </DialogTitle>
             <DialogDescription>
               {initialDriver
@@ -608,6 +610,87 @@ export function AddProviderInstanceDialog({
                   </p>
                 </div>
               ) : null}
+
+              {wizardStep === 3 ? (
+                <section
+                  aria-labelledby="add-instance-model-runtime-title"
+                  data-wizard-stage="model-runtime"
+                  className="grid gap-3 rounded-xl border border-border/70 bg-card/60 p-4"
+                >
+                  <div className="grid gap-1">
+                    <h3
+                      id="add-instance-model-runtime-title"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Model / Runtime
+                    </h3>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      RUNE will discover this harness&apos;s models and validate the same runtime
+                      configuration used by sessions after the instance is added.
+                    </p>
+                  </div>
+                  <dl className="grid gap-2 text-xs">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Harness</dt>
+                      <dd className="font-medium text-foreground">{driverOption.label}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Model profile</dt>
+                      <dd className="font-medium text-foreground">Harness defaults</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Runtime</dt>
+                      <dd className="font-medium text-foreground">Pending verification</dd>
+                    </div>
+                  </dl>
+                </section>
+              ) : null}
+
+              {wizardStep === 4 ? (
+                <section
+                  aria-labelledby="add-instance-verify-title"
+                  data-wizard-stage="verify"
+                  className="grid gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 dark:bg-primary/10"
+                >
+                  <div className="grid gap-1">
+                    <h3
+                      id="add-instance-verify-title"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Verify
+                    </h3>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Review the instance before saving. Host authentication, model discovery, and
+                      runtime readiness are checked when RUNE refreshes this instance.
+                    </p>
+                  </div>
+                  <dl className="grid gap-2 text-xs">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Harness</dt>
+                      <dd className="font-medium text-foreground">{driverOption.label}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Instance ID</dt>
+                      <dd className="font-mono text-foreground">{instanceId || "Not set"}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Configuration</dt>
+                      <dd className="font-medium text-foreground">
+                        {driverSettingsFields.length > 0
+                          ? `${driverSettingsFields.length} driver setting${driverSettingsFields.length === 1 ? "" : "s"}`
+                          : "Harness defaults"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {instanceIdError !== null ? (
+                    <p className="text-[11px] text-destructive">{instanceIdError}</p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Ready to save. This does not claim the host runtime is verified yet.
+                    </p>
+                  )}
+                </section>
+              ) : null}
             </AnimatedHeight>
           </div>
 
@@ -620,7 +703,9 @@ export function AddProviderInstanceDialog({
                   onOpenChange(false);
                   return;
                 }
-                setWizardStep((step) => Math.max(isContextual ? 1 : 0, step - 1));
+                setWizardStep((step) =>
+                  Math.max(resolveInitialWizardStep(initialDriver), step - 1),
+                );
               }}
             >
               {visibleWizardStep === 0 ? "Cancel" : "Back"}

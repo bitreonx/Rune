@@ -27,19 +27,20 @@ import { PROVIDER_OPTIONS } from "../../session-logic";
  * `PROVIDER_ICON_BY_PROVIDER[harness.kind as any]` without TypeScript
  * complaining; the harness string keys never collide with driver kinds.
  */
-const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"], Icon> = {
-  rune: RuneMarkIcon,
-  openai: OpenAI,
-  claude: ClaudeAI,
-  antigravity: AntigravityIcon,
-  opencode: OpenCodeIcon,
-  cursor: CursorIcon,
-  grok: GrokIcon,
-  openrouter: OpenRouterIcon,
-  google: Gemini,
-  deepseek: DeepSeekIcon,
-  xai: xAIIcon,
-};
+const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"], Icon> =
+  {
+    rune: RuneMarkIcon,
+    openai: OpenAI,
+    claude: ClaudeAI,
+    antigravity: AntigravityIcon,
+    opencode: OpenCodeIcon,
+    cursor: CursorIcon,
+    grok: GrokIcon,
+    openrouter: OpenRouterIcon,
+    google: Gemini,
+    deepseek: DeepSeekIcon,
+    xai: xAIIcon,
+  };
 
 export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind | string, Icon>> =
   Object.fromEntries(
@@ -52,9 +53,30 @@ export const SERVICE_ICON_BY_KIND: Record<string, Icon> = Object.fromEntries(
     .map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
 );
 
-export function getProviderOrServiceIcon(kind: string): Icon | null {
+export interface ProviderBrandPresentation {
+  readonly id: string;
+  readonly displayName: string;
+  readonly iconKey: (typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"];
+  readonly accessibilityLabel: string;
+  readonly source: (typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["source"];
+  readonly icon: Icon;
+}
+
+/**
+ * Resolve provider/service identity and its renderer in one place. Callers
+ * should use this for labels and marks together so an instance cannot display
+ * a mark from one provider beside another provider's name.
+ */
+export function getProviderBrandPresentation(kind: string): ProviderBrandPresentation | null {
   const brand = getProviderBrand(kind);
-  return brand ? ICON_BY_KEY[brand.iconKey] : null;
+  if (!brand) return null;
+  const icon = ICON_BY_KEY[brand.iconKey];
+  if (!icon) return null;
+  return { ...brand, icon };
+}
+
+export function getProviderOrServiceIcon(kind: string): Icon | null {
+  return getProviderBrandPresentation(kind)?.icon ?? null;
 }
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {

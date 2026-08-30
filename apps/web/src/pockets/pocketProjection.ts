@@ -8,6 +8,8 @@ export type PocketSort = "activity" | "title" | "created";
 export interface PocketViewState {
   readonly view: PocketView;
   readonly sort: PocketSort;
+  /** Search belongs to the Pocket surface, so reopening it should not clear it. */
+  readonly query?: string;
   readonly lastThreadKey?: string;
   readonly scrollTop?: number;
   readonly expandedChildPocketIds: ReadonlyArray<PocketId>;
@@ -30,6 +32,7 @@ export function sanitizePocketViewState(value: unknown): PocketViewState {
   return {
     view: view === "compact" || view === "board" ? view : "flow",
     sort: sort === "title" || sort === "created" ? sort : "activity",
+    ...(typeof candidate.query === "string" ? { query: candidate.query } : {}),
     ...(typeof candidate.lastThreadKey === "string" && candidate.lastThreadKey.length > 0
       ? { lastThreadKey: candidate.lastThreadKey }
       : {}),

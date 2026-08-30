@@ -1,3 +1,5 @@
+import * as NodePath from "node:path";
+
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,6 +14,7 @@ import {
 
 import {
   createAttachmentId,
+  inferAttachmentExtension,
   planAttachmentClaim,
   PENDING_ATTACHMENT_THREAD_SEGMENT,
   parseThreadSegmentFromAttachmentId,
@@ -176,12 +179,20 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                       }),
                   ),
                 );
-                if (info.type !== "File" || info.size !== BigInt(attachment.sizeBytes)) {
+                const expectedExtension = inferAttachmentExtension({
+                  mimeType: attachment.mimeType,
+                  fileName: attachment.name,
+                });
+                if (
+                  info.type !== "File" ||
+                  info.size !== BigInt(attachment.sizeBytes) ||
+                  NodePath.extname(existingPath).toLowerCase() !== expectedExtension
+                ) {
                   return yield* new OrchestrationDispatchCommandError({
                     message:
                       "Attachment '" +
                       attachment.name +
-                      "' cannot be sent: stored size does not match.",
+                      "' cannot be sent: stored type or size does not match.",
                   });
                 }
                 return {
@@ -307,12 +318,20 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
                     }),
                 ),
               );
-              if (info.type !== "File" || info.size !== BigInt(attachment.sizeBytes)) {
+              const expectedExtension = inferAttachmentExtension({
+                mimeType: attachment.mimeType,
+                fileName: attachment.name,
+              });
+              if (
+                info.type !== "File" ||
+                info.size !== BigInt(attachment.sizeBytes) ||
+                NodePath.extname(existingPath).toLowerCase() !== expectedExtension
+              ) {
                 return yield* new OrchestrationDispatchCommandError({
                   message:
                     "Attachment '" +
                     attachment.name +
-                    "' cannot be sent: stored size does not match.",
+                    "' cannot be sent: stored type or size does not match.",
                 });
               }
               return {

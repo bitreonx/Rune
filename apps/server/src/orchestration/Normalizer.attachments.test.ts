@@ -241,6 +241,25 @@ describe("normalizeDispatchCommand attachments", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("rejects a finalized attachment whose stored extension disagrees with its type", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = "thread-1-" + attachmentUuid;
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, attachmentId + ".bin"),
+        Buffer.from("pixels"),
+      );
+
+      const failure = yield* normalizeDispatchCommand(
+        turnStartCommand({
+          attachments: [{ id: attachmentId, sizeBytes: 6 }],
+        }),
+      ).pipe(Effect.flip);
+
+      expect(failure.message).toContain("stored type or size does not match");
+    }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("normalizes inline and uploaded attachments in the same turn", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

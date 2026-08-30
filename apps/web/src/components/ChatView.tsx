@@ -1556,7 +1556,10 @@ function ChatViewContent(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerFileAttachmentsRef = useRef<ComposerFileAttachment[]>([]);
-  const pendingHistoricalAttachmentRefsRef = useRef<ChatAttachment[]>([]);
+  const pendingHistoricalAttachmentRefsRef = useRef<{
+    readonly threadId: string;
+    readonly attachments: ReadonlyArray<ChatAttachment>;
+  } | null>(null);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
@@ -5058,6 +5061,7 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     setIsRevertingCheckpoint(false);
     setPendingUserMessageEdit(null);
+    pendingHistoricalAttachmentRefsRef.current = null;
     setIsTurnPaused(false);
     setIsContinuingTurn(false);
   }, [activeThread?.id]);
@@ -6642,9 +6646,10 @@ function ChatViewContent(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerFileAttachmentsSnapshot = [...composerFileAttachments];
-    const pendingHistoricalAttachmentRefsSnapshot = [
-      ...pendingHistoricalAttachmentRefsRef.current,
-    ];
+    const pendingHistoricalAttachmentRefsSnapshot =
+      pendingHistoricalAttachmentRefsRef.current?.threadId === threadIdForSend
+        ? [...pendingHistoricalAttachmentRefsRef.current.attachments]
+        : [];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
@@ -7135,7 +7140,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        pendingHistoricalAttachmentRefsRef.current = [];
+        pendingHistoricalAttachmentRefsRef.current = null;
         // The chat exists and is flagged; the next send starts a normal chat,
         // so disarm the stale draft (removing it when nothing else remains).
         if (sendTemporary) {
@@ -8437,8 +8442,8 @@ function ChatViewContent(props: ChatViewProps) {
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen]);
-  // Both the Map and the rewind handler are read from refs at call-time so
-  // the callback references stay fully stable and never bust context identity.
+  // The rewind handler is read from a ref at call-time so the callback
+  // reference stays fully stable and never busts timeline context identity.
   const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
   revertTurnCountRef.current = revertTurnCountByUserMessageId;
   const historicalMessageHasFileChangesRef = useRef(historicalMessageHasFileChangesById);
@@ -8450,10 +8455,53 @@ function ChatViewContent(props: ChatViewProps) {
     return typeof targetTurnCount === "number" ? targetTurnCount : null;
   }, []);
   const onEditUserMessage = useCallback(
-    (messageId: MessageId, messageText: string) => {
+    (
+      messageId: MessageId,
+      messageText: string,
+      options?: { readonly excludedAttachmentId?: string },
+    ) => {
       const targetTurnCount = resolveRewindTurnCount(messageId);
       if (targetTurnCount === null) {
+        pendingHistoricalAttachmentRefsRef.current = null;
         return;
+      }
+      const historicalMessage = activeThread?.messages.find(
+        (message) => message.id === messageId && message.role === "user",
+      );
+      const excludedAttachmentId = options?.excludedAttachmentId;
+      const historicalAttachments = (historicalMessage?.attachments ?? []).filter(
+        (attachment) =>
+          attachment.type === "thread-mention" || attachment.id !== excludedAttachmentId,
+      );
+      pendingHistoricalAttachmentRefsRef.current =
+        activeThread && historicalMessage
+          ? {
+              threadId: activeThread.id,
+              attachments: historicalAttachments.filter(
+                (attachment): attachment is Extract<ChatAttachment, { readonly type: "image" }> =>
+                  attachment.type === "image",
+              ),
+            }
+          : null;
+      if (excludedAttachmentId) {
+        removeComposerDraftFileAttachment(composerDraftTarget, excludedAttachmentId);
+      }
+      const historicalFiles = historicalAttachments.flatMap((attachment) => {
+        if (attachment.type !== "file") return [];
+        return [
+          {
+            type: "file" as const,
+            kind: attachment.kind,
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            ...(attachment.path ? { path: attachment.path } : { serverOwned: true as const }),
+          } satisfies ComposerFileAttachment,
+        ];
+      });
+      if (historicalFiles.length > 0) {
+        addComposerDraftFileAttachments(composerDraftTarget, historicalFiles);
       }
       const hasFileChangesAfter = historicalMessageHasFileChangesRef.current.get(messageId) ?? true;
       pendingUserMessageEditRef.current = {
@@ -8470,7 +8518,15 @@ function ChatViewContent(props: ChatViewProps) {
       });
       scheduleComposerFocus();
     },
-    [composerDraftTarget, resolveRewindTurnCount, scheduleComposerFocus, setComposerDraftPrompt],
+    [
+      activeThread,
+      addComposerDraftFileAttachments,
+      composerDraftTarget,
+      removeComposerDraftFileAttachment,
+      resolveRewindTurnCount,
+      scheduleComposerFocus,
+      setComposerDraftPrompt,
+    ],
   );
   const onDeleteUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -8512,31 +8568,7 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
 
-      pendingHistoricalAttachmentRefsRef.current = (message.attachments ?? []).filter(
-        (candidateAttachment) => candidateAttachment.type === "image",
-      );
-      const remainingFiles = (message.attachments ?? []).flatMap((candidateAttachment) => {
-        if (candidateAttachment.type !== "file" || candidateAttachment.id === attachment.id) {
-          return [];
-        }
-        return [
-          {
-            type: "file" as const,
-            kind: candidateAttachment.kind,
-            id: candidateAttachment.id,
-            name: candidateAttachment.name,
-            mimeType: candidateAttachment.mimeType,
-            sizeBytes: candidateAttachment.sizeBytes,
-            ...(candidateAttachment.path ? { path: candidateAttachment.path } : {}),
-            ...(candidateAttachment.path ? {} : { serverOwned: true as const }),
-          } satisfies ComposerFileAttachment,
-        ];
-      });
-      removeComposerDraftFileAttachment(composerDraftTarget, attachment.id);
-      if (remainingFiles.length > 0) {
-        addComposerDraftFileAttachments(composerDraftTarget, remainingFiles);
-      }
-      onEditUserMessage(message.id, message.text);
+      onEditUserMessage(message.id, message.text, { excludedAttachmentId: attachment.id });
       toastManager.add({
         type: "info",
         title: "Attachment removed from edit",
@@ -8545,10 +8577,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [
       activeThread,
-      addComposerDraftFileAttachments,
-      composerDraftTarget,
       onEditUserMessage,
-      removeComposerDraftFileAttachment,
       resolveRewindTurnCount,
     ],
   );

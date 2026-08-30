@@ -1,10 +1,15 @@
+import {
+  PROJECT_WRITE_BATCH_MAX_BYTES,
+  PROJECT_WRITE_BATCH_MAX_FILES,
+  PROJECT_WRITE_FILE_MAX_BYTES,
+} from "@rune/contracts";
 import { normalizeSkillRepositoryUrl } from "@rune/shared/skillsIdentity";
 
 import { isValidMarketplaceRecord, type SkillMarketplaceRecord } from "./marketplaceRegistry";
 
-const MAX_SKILL_BODY_BYTES = 256 * 1024;
-const MAX_SKILL_FILES = 64;
-const MAX_SKILL_TOTAL_BYTES = 2 * 1024 * 1024;
+const MAX_SKILL_BODY_BYTES = PROJECT_WRITE_FILE_MAX_BYTES;
+const MAX_SKILL_FILES = PROJECT_WRITE_BATCH_MAX_FILES;
+const MAX_SKILL_TOTAL_BYTES = PROJECT_WRITE_BATCH_MAX_BYTES;
 
 export interface MarketplaceSkillFile {
   readonly relativePath: string;

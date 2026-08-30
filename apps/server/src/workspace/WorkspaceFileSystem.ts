@@ -106,26 +106,6 @@ async function missingParentDirectories(
   return missing.reverse();
 }
 
-async function replaceBatchTarget(stagedPath: string, targetPath: string): Promise<void> {
-  let targetExists = false;
-  try {
-    targetExists = (await NodeFSP.lstat(targetPath)).isFile();
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
-  }
-
-  // Windows does not consistently replace an existing file with rename().
-  // Copying over a verified regular file is the portable replacement path;
-  // rename remains atomic for a new target and never follows a destination
-  // symlink.
-  if (process.platform === "win32" && targetExists) {
-    await NodeFSP.copyFile(stagedPath, targetPath);
-    await NodeFSP.rm(stagedPath, { force: true });
-    return;
-  }
-  await NodeFSP.rename(stagedPath, targetPath);
-}
-
 async function restoreBatchTarget(backupPath: string, targetPath: string): Promise<void> {
   if (process.platform === "win32") {
     await NodeFSP.copyFile(backupPath, targetPath);
@@ -653,6 +633,7 @@ export const make = Effect.gen(function* () {
         }
         const stagingRoot = await NodeFSP.mkdtemp(NodePath.join(input.cwd, ".rune-write-files-"));
         const backups = new Map<string, string>();
+        const liveBackups = new Map<string, string>();
         const committed: string[] = [];
         const createdDirectories: string[] = [];
         try {
@@ -692,17 +673,38 @@ export const make = Effect.gen(function* () {
             createdDirectories.push(...missingDirectories);
             await assertBatchTargetDoesNotTraverseSymlink(input.cwd, target.absolutePath);
             committed.push(target.absolutePath);
-            await replaceBatchTarget(
-              NodePath.join(stagingRoot, "file-" + index),
-              target.absolutePath,
-            );
+            const stagedPath = NodePath.join(stagingRoot, "file-" + index);
+            if (process.platform === "win32" && backups.has(target.absolutePath)) {
+              // Windows rename cannot overwrite a live file reliably. Move the
+              // verified original out of the way first, then install the staged
+              // file with a second atomic rename. The live backup lets rollback
+              // restore without ever copying over a partially-written target.
+              const liveBackupPath = NodePath.join(stagingRoot, "live-backup-" + index);
+              await NodeFSP.rename(target.absolutePath, liveBackupPath);
+              liveBackups.set(target.absolutePath, liveBackupPath);
+              await NodeFSP.rename(stagedPath, target.absolutePath);
+            } else {
+              await NodeFSP.rename(stagedPath, target.absolutePath);
+            }
           }
           return targets.map((target) => ({ relativePath: target.relativePath }));
         } catch (cause) {
           const rollbackErrors: unknown[] = [];
           for (const absolutePath of committed.toReversed()) {
             const backupPath = backups.get(absolutePath);
-            if (backupPath) {
+            const liveBackupPath = liveBackups.get(absolutePath);
+            if (liveBackupPath && backupPath) {
+              await NodeFSP.rm(absolutePath, { force: true }).catch((rollbackCause) => {
+                rollbackErrors.push(rollbackCause);
+              });
+              await NodeFSP.rename(liveBackupPath, absolutePath).catch(async (rollbackCause) => {
+                try {
+                  await NodeFSP.copyFile(backupPath, absolutePath);
+                } catch (fallbackCause) {
+                  rollbackErrors.push(rollbackCause, fallbackCause);
+                }
+              });
+            } else if (backupPath) {
               await restoreBatchTarget(backupPath, absolutePath).catch((rollbackCause) => {
                 rollbackErrors.push(rollbackCause);
               });

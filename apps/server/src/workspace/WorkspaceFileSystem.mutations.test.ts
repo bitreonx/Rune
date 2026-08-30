@@ -89,6 +89,27 @@ describe("WorkspaceFileSystem mutations", () => {
     );
   });
 
+  it("replaces an existing target through the platform-safe staged path", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const root = makeTemporaryWorkspace();
+        try {
+          NodeFS.writeFileSync(NodePath.join(root, "existing.bin"), Buffer.from([0, 1, 2]));
+          yield* workspaceFileSystem.writeFiles({
+            cwd: root,
+            files: [
+              { relativePath: "existing.bin", contents: { encoding: "base64", data: "/wA=" } },
+            ],
+          });
+          expect([...NodeFS.readFileSync(NodePath.join(root, "existing.bin"))]).toEqual([255, 0]);
+        } finally {
+          NodeFS.rmSync(root, { recursive: true, force: true });
+        }
+      }).pipe(Effect.provide(TestLayers)),
+    );
+  });
+
   it("rejects invalid binary transport and aggregate-over-limit batches before mutation", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {

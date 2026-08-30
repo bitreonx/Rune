@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as NodeFS from "node:fs";
@@ -54,6 +55,9 @@ describe("WorkspaceFileSystem mutations", () => {
             .pipe(Effect.exit);
 
           expect(result._tag).toBe("Failure");
+          expect(Cause.squash(result.cause)).toMatchObject({
+            relativePath: "blocked/child.txt",
+          });
           expect(NodeFS.readFileSync(NodePath.join(root, "existing.txt"), "utf8")).toBe("before");
           expect(NodeFS.existsSync(NodePath.join(root, "created.txt"))).toBe(false);
           expect(NodeFS.existsSync(NodePath.join(root, "created"))).toBe(false);

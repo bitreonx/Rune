@@ -697,14 +697,10 @@ export const make = Effect.gen(function* () {
               await NodeFSP.rm(absolutePath, { force: true }).catch((rollbackCause) => {
                 rollbackErrors.push(rollbackCause);
               });
-              await NodeFSP.rename(liveBackupPath, absolutePath).catch(async (rollbackCause) => {
-                try {
-                  await NodeFSP.copyFile(backupPath, absolutePath);
-                } catch (fallbackCause) {
-                  rollbackErrors.push(rollbackCause, fallbackCause);
-                }
+              await NodeFSP.rename(liveBackupPath, absolutePath).catch((rollbackCause) => {
+                rollbackErrors.push(rollbackCause);
               });
-            } else if (backupPath) {
+            } else if (backupPath && process.platform !== "win32") {
               await restoreBatchTarget(backupPath, absolutePath).catch((rollbackCause) => {
                 rollbackErrors.push(rollbackCause);
               });

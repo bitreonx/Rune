@@ -323,7 +323,7 @@ import {
   shouldRestoreRunePanelToggleFocus,
   useRunePanelMotionState,
 } from "../runePanelMotion";
-import { RUNE_MOTION_MS } from "../runeMotion";
+import { RUNE_MOTION_MS, resolveRuneMotionDurationForProfile } from "../runeMotion";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
@@ -1950,11 +1950,13 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
+  const rightPanelMotionReduced =
+    prefersReducedMotion || settings.motionProfile === "reduced";
   const rawRightPanelMotionState = useRunePanelMotionState({
     open: rightPanelOpen,
-    reducedMotion: prefersReducedMotion,
+    reducedMotion: rightPanelMotionReduced,
     motionProfile: settings.motionProfile,
-    motionMs: RUNE_MOTION_MS.standard,
+    motionMs: RUNE_MOTION_MS.slow,
   });
   // The open bit is the source of truth for mounting a newly opened panel;
   // the hook then advances it to `opening` in the effect phase. Closing keeps
@@ -1982,14 +1984,18 @@ function ChatViewContent(props: ChatViewProps) {
   const rightPanelToggleRef = useRef<HTMLButtonElement | null>(null);
   const shouldRestoreRightPanelToggleFocusRef = useRef(false);
   useEffect(() => {
-    if (prefersReducedMotion || shouldUseRightPanelSheet) return;
+    if (rightPanelMotionReduced || shouldUseRightPanelSheet) return;
     const host = rightPanelHostRef.current;
     if (!host) return;
     if (rightPanelMotionState === "opening") {
       const targetWidth = host.scrollWidth;
       if (targetWidth <= 0) return;
       const animation = host.animate([{ width: "0px" }, { width: `${targetWidth}px` }], {
-        duration: RUNE_MOTION_MS.slow,
+        duration: resolveRuneMotionDurationForProfile(
+          RUNE_MOTION_MS.slow,
+          settings.motionProfile,
+          rightPanelMotionReduced,
+        ),
         easing: "cubic-bezier(0.22, 1, 0.36, 1)",
       });
       return () => animation.cancel();
@@ -2000,20 +2006,29 @@ function ChatViewContent(props: ChatViewProps) {
       // fill forwards pins the collapsed width until the motion state reaches
       // `closed` and the host unmounts via display:none.
       const animation = host.animate([{ width: `${startWidth}px` }, { width: "0px" }], {
-        duration: RUNE_MOTION_MS.standard,
+        duration: resolveRuneMotionDurationForProfile(
+          RUNE_MOTION_MS.standard,
+          settings.motionProfile,
+          rightPanelMotionReduced,
+        ),
         easing: "cubic-bezier(0.4, 0, 1, 1)",
         fill: "forwards",
       });
       return () => animation.cancel();
     }
-  }, [prefersReducedMotion, rightPanelMotionState, shouldUseRightPanelSheet]);
+  }, [
+    rightPanelMotionReduced,
+    rightPanelMotionState,
+    settings.motionProfile,
+    shouldUseRightPanelSheet,
+  ]);
 
   useEffect(() => {
     if (
       !shouldRestoreRunePanelToggleFocus({
         closeIntent: shouldRestoreRightPanelToggleFocusRef.current,
         open: rightPanelOpen,
-        reducedMotion: prefersReducedMotion,
+        reducedMotion: rightPanelMotionReduced,
         state: rightPanelMotionState,
       })
     ) {
@@ -2034,7 +2049,7 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
     toggle.focus({ preventScroll: true });
-  }, [prefersReducedMotion, rightPanelMotionState, rightPanelOpen]);
+  }, [rightPanelMotionReduced, rightPanelMotionState, rightPanelOpen]);
 
   useEffect(() => {
     if (!activeThreadRef) return;

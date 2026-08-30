@@ -30,7 +30,7 @@ describe("ComposerFileAttachmentChip", () => {
     expect(html).toContain("ALT70xlbnR.mp4");
     expect(html).toContain("17.5 MB");
     expect(html).toContain("Video");
-    expect(html).toContain("Preview");
+    expect(html).toContain('data-composer-file-attachment-preview="rune-viewer"');
     expect(html).toContain("Attachment actions for ALT70xlbnR.mp4");
     expect(COMPOSER_FILE_ATTACHMENT_ACTIONS).toEqual([
       "Preview",
@@ -63,5 +63,31 @@ describe("ComposerFileAttachmentChip", () => {
     expect(html).toContain("release");
     expect(html).toContain("0 B");
     expect(html).toContain("Folder");
+  });
+
+  it("labels binary uploads and keeps path actions unavailable without a path", () => {
+    const html = renderToStaticMarkup(
+      <ComposerFileAttachmentChip
+        attachment={{
+          type: "file",
+          kind: "file",
+          id: "binary-1",
+          name: "payload.bin",
+          mimeType: "application/octet-stream; charset=binary",
+          sizeBytes: 512,
+        }}
+        onPreview={vi.fn()}
+        onRevealInFiles={vi.fn()}
+        onRevealInExplorer={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("payload.bin");
+    expect(html).toContain("512 B");
+    expect(html).toContain("Binary");
+    expect(html).toContain('data-composer-file-attachment-preview="rune-viewer"');
+    expect(html).toContain('data-composer-file-attachment-has-path="false"');
+    expect(html).not.toContain("C:\\");
   });
 });

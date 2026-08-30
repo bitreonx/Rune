@@ -165,7 +165,10 @@ export function ComposerAttachmentCapabilityDetails(props: {
         <CapabilityRow label="Folders" state={mediaSupport.folder} description={copy.folder} />
         <CapabilityRow label="PDF" state={mediaSupport.pdf} description={copy.pdf} />
       </div>
-      <p className="px-2 text-[11px] leading-4 text-muted-foreground">
+      <p
+        className="px-2 text-[11px] leading-4 text-muted-foreground"
+        data-composer-attachment-capability-transport="secondary"
+      >
         {copy.transport}
       </p>
     </div>

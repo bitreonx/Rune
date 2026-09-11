@@ -61,7 +61,6 @@ export function nextScheduleOccurrence(input: {
   const elapsedIntervals = Math.floor((after - firstRunAt) / intervalMs) + 1;
   return { status: "next", at: formatInstant(firstRunAt + elapsedIntervals * intervalMs) };
 }
-
 /**
  * Resolve missed work to one bounded action. The caller persists the returned
  * decision before dispatching, so a restart never requires materializing every
@@ -117,4 +116,3 @@ export function resolveMissedOccurrence(input: {
         nextRunAt: formatInstant(nextRunAt),
       };
 }
-

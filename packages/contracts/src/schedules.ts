@@ -315,11 +315,14 @@ export type ScheduleNextDueResult = typeof ScheduleNextDueResult.Type;
 
 export const ScheduleRunSettlementInput = Schema.Struct({
   runId: ScheduleRunId,
-  status: Schema.Literals(["succeeded", "blocked", "failed", "skipped"]),
+  status: Schema.Literals(["succeeded", "blocked", "failed", "skipped", "dispatch-uncertain"]),
   completedAt: ScheduleDateTime,
   receiptSummary: Schema.optionalKey(TrimmedNonEmptyString),
   providerInstanceId: Schema.optionalKey(ProviderInstanceId),
   threadId: Schema.optionalKey(ThreadId),
+  orchestrationCommandId: Schema.optionalKey(CommandId),
+  actionRunId: Schema.optionalKey(TrimmedNonEmptyString),
+  providerReceiptId: Schema.optionalKey(TrimmedNonEmptyString),
   error: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type ScheduleRunSettlementInput = typeof ScheduleRunSettlementInput.Type;
@@ -440,4 +443,3 @@ export class ScheduleRegistryError extends Schema.TaggedErrorClass<ScheduleRegis
     runId: Schema.optionalKey(ScheduleRunId),
   },
 ) {}
-

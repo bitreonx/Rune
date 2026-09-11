@@ -457,7 +457,7 @@ const makeRegistry = Effect.gen(function* () {
       const run = yield* decodeRunRow(stored);
       const schedule = yield* getSchedule(input.scope, run.scheduleId);
       if (run.leaseOwner !== input.leaseOwner) return yield* Effect.fail(scheduleRegistryFailure("authorization-required", "Schedule run lease is owned by another runner.", { runId: run.id }));
-      if (run.status === "dispatching" || run.status === "running" || run.status === "succeeded") return run;
+      if (run.status === "dispatching" || run.status === "running" || run.status === "succeeded" || run.status === "dispatch-uncertain") return run;
       const at = input.now;
       const next = { ...run, status: "dispatching" as const } satisfies ScheduleRun;
       yield* mapSql(sql.withTransaction(Effect.gen(function* () {
@@ -491,14 +491,25 @@ const makeRegistry = Effect.gen(function* () {
       if (row === undefined) return yield* Effect.fail(scheduleRegistryFailure("not-found", "Schedule run not found.", { runId: input.runId }));
       const current = yield* decodeRunRow(row);
       const schedule = yield* getSchedule(scope, current.scheduleId);
-      const next = { ...current, status: input.status, completedAt: input.completedAt, ...(input.receiptSummary === undefined ? {} : { receiptSummary: input.receiptSummary }), ...(input.providerInstanceId === undefined ? {} : { providerInstanceId: input.providerInstanceId }), ...(input.threadId === undefined ? {} : { threadId: input.threadId }), ...(input.error === undefined ? {} : { error: input.error }) } satisfies ScheduleRun;
+      if (current.status === input.status && ["succeeded", "blocked", "failed", "skipped", "dispatch-uncertain"].includes(current.status)) return current;
+      const next = {
+        ...current,
+        status: input.status,
+        completedAt: input.completedAt,
+        ...(input.receiptSummary === undefined ? {} : { receiptSummary: input.receiptSummary }),
+        ...(input.providerInstanceId === undefined ? {} : { providerInstanceId: input.providerInstanceId }),
+        ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+        ...(input.orchestrationCommandId === undefined ? {} : { orchestrationCommandId: input.orchestrationCommandId }),
+        ...(input.actionRunId === undefined ? {} : { actionRunId: input.actionRunId }),
+        ...(input.providerReceiptId === undefined ? {} : { providerReceiptId: input.providerReceiptId }),
+        ...(input.error === undefined ? {} : { error: input.error }),
+      } satisfies ScheduleRun;
       if (["succeeded", "blocked", "failed", "skipped"].includes(current.status)) {
-        if (current.status === input.status) return current;
         return yield* Effect.fail(scheduleRegistryFailure("execution-failed", "A terminal schedule run cannot change state.", { runId: current.id }));
       }
       yield* mapSql(sql.withTransaction(Effect.gen(function* () {
-        yield* sql`UPDATE schedule_runs SET status = ${next.status}, completed_at = ${next.completedAt}, receipt_summary = ${next.receiptSummary ?? null}, provider_instance_id = ${next.providerInstanceId ?? null}, thread_id = ${next.threadId}, error = ${next.error ?? null} WHERE run_id = ${current.id}`;
-        yield* sql`UPDATE schedule_dispatch_outbox SET status = 'settled', updated_at = ${input.completedAt} WHERE run_id = ${current.id}`;
+        yield* sql`UPDATE schedule_runs SET status = ${next.status}, completed_at = ${next.completedAt}, receipt_summary = ${next.receiptSummary ?? null}, provider_instance_id = ${next.providerInstanceId ?? null}, thread_id = ${next.threadId}, orchestration_command_id = ${next.orchestrationCommandId ?? null}, action_run_id = ${next.actionRunId ?? null}, provider_receipt_id = ${next.providerReceiptId ?? null}, error = ${next.error ?? null} WHERE run_id = ${current.id}`;
+        yield* sql`UPDATE schedule_dispatch_outbox SET status = ${next.status === "dispatch-uncertain" ? "uncertain" : "settled"}, updated_at = ${input.completedAt} WHERE run_id = ${current.id}`;
         yield* appendEvent({ environmentId: schedule.environmentId, scheduleId: schedule.id, kind: "run-settled", at: input.completedAt, schedule, run: next });
       })));
       return next;

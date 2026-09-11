@@ -17,6 +17,11 @@ import {
 } from "../../processRunner.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
+import {
+  SCHEDULE_MUTATION_TOOLS,
+  SCHEDULE_READ_TOOLS,
+  type NativeScheduleContext,
+} from "./ApiScheduleTools.ts";
 import { COMPOUND_MUTATION_TOOLS, COMPOUND_READ_TOOLS } from "./ApiWorkspaceTools.ts";
 
 /**
@@ -35,6 +40,8 @@ export interface NativeToolContext {
   readonly workspaceEntries: typeof WorkspaceEntries.Service;
   /** Required by `shell`; absent contexts fail that tool with an observation. */
   readonly processRunner?: typeof ProcessRunner.Service | undefined;
+  /** Authoritative RUNE control-plane scope for schedule tools. */
+  readonly schedule?: NativeScheduleContext | undefined;
 }
 
 export interface NativeToolDef {
@@ -551,6 +558,7 @@ export const runeOperationTool: NativeToolDef = {
 export const SAFE_TOOLS: ReadonlyArray<NativeToolDef> = [
   askUserTool,
   ...COMPOUND_READ_TOOLS,
+  ...SCHEDULE_READ_TOOLS,
   readFileTool,
   listDirTool,
   searchTool,
@@ -678,6 +686,7 @@ export const shellTool: NativeToolDef = {
 
 export const GATED_TOOLS: ReadonlyArray<NativeToolDef> = [
   ...COMPOUND_MUTATION_TOOLS,
+  ...SCHEDULE_MUTATION_TOOLS,
   editFileTool,
   runeOperationTool,
   shellTool,

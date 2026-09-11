@@ -514,6 +514,68 @@ const makeRegistry = Effect.gen(function* () {
       return next;
     });
 
+  const renewRunLease: ScheduleRegistryShape["renewRunLease"] = (input) =>
+    Effect.gen(function* () {
+      const rows = yield* mapSql(selectRun(input.runId));
+      const row = rows[0];
+      if (row === undefined) {
+        return yield* Effect.fail(
+          scheduleRegistryFailure("not-found", "Schedule run not found.", { runId: input.runId }),
+        );
+      }
+      const current = yield* decodeRunRow(row);
+      const schedule = yield* getSchedule(input.scope, current.scheduleId);
+      if (current.leaseOwner !== input.leaseOwner) {
+        return yield* Effect.fail(
+          scheduleRegistryFailure(
+            "authorization-required",
+            "Schedule run lease is owned by another runner.",
+            { runId: current.id },
+          ),
+        );
+      }
+      if (
+        !["claimed", "dispatching", "running"].includes(current.status) ||
+        current.leaseExpiresAt === undefined ||
+        Date.parse(current.leaseExpiresAt) <= Date.parse(input.now)
+      ) {
+        return yield* Effect.fail(
+          scheduleRegistryFailure("execution-failed", "Schedule run lease is no longer live.", {
+            runId: current.id,
+          }),
+        );
+      }
+
+      const leaseExpiresAt = addSeconds(input.now, input.leaseForSeconds);
+      yield* mapSql(
+        sql`UPDATE schedule_runs
+            SET lease_expires_at = ${leaseExpiresAt}
+            WHERE run_id = ${current.id}
+              AND environment_id = ${schedule.environmentId}
+              AND lease_owner = ${input.leaseOwner}
+              AND status IN ('claimed', 'dispatching', 'running')
+              AND lease_expires_at > ${input.now}`,
+      );
+      const refreshedRows = yield* mapSql(selectRun(current.id));
+      const refreshed = refreshedRows[0];
+      if (refreshed === undefined) {
+        return yield* Effect.fail(
+          scheduleRegistryFailure("not-found", "Schedule run disappeared during lease renewal.", {
+            runId: current.id,
+          }),
+        );
+      }
+      const next = yield* decodeRunRow(refreshed);
+      if (next.leaseOwner !== input.leaseOwner || next.leaseExpiresAt !== leaseExpiresAt) {
+        return yield* Effect.fail(
+          scheduleRegistryFailure("execution-failed", "Schedule run lease renewal was lost.", {
+            runId: current.id,
+          }),
+        );
+      }
+      return next;
+    });
+
   const reclaimExpiredRuns: ScheduleRegistryShape["reclaimExpiredRuns"] = (input) =>
     Effect.gen(function* () {
       const rows = yield* mapSql(sql<StoredRunRow>`SELECT run_id AS "runId", schedule_id AS "scheduleId", environment_id AS "environmentId", trigger, scheduled_for AS "scheduledFor", created_at AS "createdAt", started_at AS "startedAt", completed_at AS "completedAt", status, lease_owner AS "leaseOwner", lease_expires_at AS "leaseExpiresAt", provider_instance_id AS "providerInstanceId", thread_id AS "threadId", orchestration_command_id AS "orchestrationCommandId", action_run_id AS "actionRunId", provider_receipt_id AS "providerReceiptId", receipt_summary AS "receiptSummary", error, dispatch_idempotency_key AS "dispatchIdempotencyKey" FROM schedule_runs WHERE environment_id = ${input.scope.environmentId} AND status IN ('claimed', 'dispatching', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at <= ${input.now}`);
@@ -613,7 +675,7 @@ const makeRegistry = Effect.gen(function* () {
 
   const get: ScheduleRegistryShape["get"] = (scope, input) => getSchedule(scope, input.scheduleId);
 
-  return { list, get, create, update, pause, resume, remove, runNow, reconcileMissed, claimDueRun, issueDispatch, reclaimExpiredRuns, settleRun, runs, nextDue, subscription } satisfies ScheduleRegistryShape;
+  return { list, get, create, update, pause, resume, remove, runNow, reconcileMissed, claimDueRun, issueDispatch, renewRunLease, reclaimExpiredRuns, settleRun, runs, nextDue, subscription } satisfies ScheduleRegistryShape;
 });
 
 export const ScheduleRegistryLive = Layer.effect(ScheduleRegistry, makeRegistry);

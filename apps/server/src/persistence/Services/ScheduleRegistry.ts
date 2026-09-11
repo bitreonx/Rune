@@ -91,6 +91,14 @@ export interface ScheduleRegistryShape {
     readonly idempotencyKey: string;
     readonly now: ScheduleDateTime;
   }) => Effect.Effect<ScheduleRun, ScheduleRegistryError>;
+  /** Extend an owned, still-live execution lease without appending an event. */
+  readonly renewRunLease?: (input: {
+    readonly scope: ScheduleAccessScope;
+    readonly runId: ScheduleRunId;
+    readonly leaseOwner: string;
+    readonly leaseForSeconds: number;
+    readonly now: ScheduleDateTime;
+  }) => Effect.Effect<ScheduleRun, ScheduleRegistryError>;
   readonly reclaimExpiredRuns: (input: {
     readonly scope: ScheduleAccessScope;
     readonly now: ScheduleDateTime;

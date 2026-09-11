@@ -41,6 +41,7 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
 import * as TemporaryThreadSweeper from "./orchestration/Services/TemporaryThreadSweeper.ts";
+import * as ScheduleRunner from "./scheduler/ScheduleRunner.ts";
 import { forkParked } from "./serverActivation.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import {
@@ -490,6 +491,7 @@ export const make = (options?: StartupOptions) =>
     const orchestrationReactor = yield* OrchestrationReactor.OrchestrationReactor;
     const providerSessionReaper = yield* ProviderSessionReaper.ProviderSessionReaper;
     const temporaryThreadSweeper = yield* TemporaryThreadSweeper.TemporaryThreadSweeper;
+    const scheduleRunner = yield* ScheduleRunner.ScheduleRunner;
     const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
@@ -540,6 +542,7 @@ export const make = (options?: StartupOptions) =>
           yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
           yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
           yield* temporaryThreadSweeper.start().pipe(Scope.provide(reactorScope));
+          yield* forkParked(scheduleRunner.run).pipe(Scope.provide(reactorScope));
         }),
       );
 

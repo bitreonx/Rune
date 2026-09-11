@@ -129,6 +129,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectActionExecutor from "./project/ProjectActionExecutor.ts";
 import * as ActionRegistry from "./persistence/Services/ActionRegistry.ts";
+import * as ScheduleRegistry from "./persistence/Services/ScheduleRegistry.ts";
 import * as ChatMutationLedger from "./persistence/Services/ChatMutationLedger.ts";
 import * as PlanSession from "./persistence/Services/PlanSession.ts";
 import * as PlanExecutionCoordinator from "./orchestration/PlanExecutionCoordinator.ts";
@@ -559,12 +560,16 @@ const makeWsRpcLayer = (
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const projectActionExecutor = yield* ProjectActionExecutor.ProjectActionExecutor;
       const actionRegistry = yield* ActionRegistry.ActionRegistry;
+      const scheduleRegistry = yield* ScheduleRegistry.ScheduleRegistry;
       const chatMutationLedger = yield* ChatMutationLedger.ChatMutationLedger;
       const planSession = yield* PlanSession.PlanSession;
       const planExecutionCoordinator = yield* Effect.serviceOption(
         PlanExecutionCoordinator.PlanExecutionCoordinator,
       );
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+      const scheduleScope = {
+        environmentId: yield* serverEnvironment.getEnvironmentId,
+      } as const;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
       yield* Effect.addFinalizer(() =>
@@ -2280,6 +2285,56 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.actionsListRunHistory, actionRegistry.listRunHistory(input), {
             "rpc.aggregate": "actions",
           }),
+        [WS_METHODS.schedulesList]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesList, scheduleRegistry.list(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesGet]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesGet, scheduleRegistry.get(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesCreate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.schedulesCreate,
+            scheduleRegistry.create(
+              scheduleScope,
+              { ...input, environmentId: scheduleScope.environmentId },
+              "user",
+            ),
+            { "rpc.aggregate": "schedules" },
+          ),
+        [WS_METHODS.schedulesUpdate]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesUpdate, scheduleRegistry.update(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesPause]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesPause, scheduleRegistry.pause(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesResume]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesResume, scheduleRegistry.resume(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesDelete]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesDelete, scheduleRegistry.remove(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesRunNow]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesRunNow, scheduleRegistry.runNow(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesRuns]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesRuns, scheduleRegistry.runs(scheduleScope, input), {
+            "rpc.aggregate": "schedules",
+          }),
+        [WS_METHODS.schedulesSubscribe]: (input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.schedulesSubscribe,
+            scheduleRegistry.subscription(scheduleScope, input).pipe(
+              Effect.map((snapshot) => Stream.make(snapshot)),
+            ),
+            { "rpc.aggregate": "schedules" },
+          ),
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetTraceDiagnostics,

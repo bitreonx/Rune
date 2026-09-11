@@ -85,6 +85,36 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
   const idleSeconds = config.idleSleepSeconds ?? 30;
   const idleUntil = (now: ScheduleDateTime) => new Date(Date.parse(now) + idleSeconds * 1_000).toISOString() as ScheduleDateTime;
 
+  const executeWithLease = (schedule: RuneSchedule, run: ScheduleRun) => {
+    const execute = config.bridge.execute({ schedule, run });
+    if (config.registry.renewRunLease === undefined) return execute;
+
+    const heartbeat = Effect.gen(function* () {
+      const heartbeatSeconds = Math.max(1, Math.floor(config.leaseForSeconds / 2));
+      while (true) {
+        const now = yield* config.clock.now;
+        const renewAt = new Date(Date.parse(now) + heartbeatSeconds * 1_000).toISOString() as ScheduleDateTime;
+        yield* config.clock.sleepUntil(renewAt);
+        yield* config.registry.renewRunLease!({
+          scope: config.scope,
+          runId: run.id,
+          leaseOwner: config.leaseOwner,
+          leaseForSeconds: config.leaseForSeconds,
+          now: yield* config.clock.now,
+        });
+      }
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.succeed({
+          status: "dispatch-uncertain" as const,
+          reason: `Schedule lease renewal failed: ${error.message}`,
+          threadId: run.threadId,
+        }),
+      ),
+    );
+    return Effect.raceFirst(execute, heartbeat);
+  };
+
   const executeClaimed = (schedule: RuneSchedule, run: ScheduleRun) =>
     Effect.gen(function* () {
       const dispatchedAt = yield* config.clock.now;
@@ -96,7 +126,7 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
         now: dispatchedAt,
       });
       if (dispatching.status !== "dispatching") return;
-      const execution = yield* config.bridge.execute({ schedule, run: dispatching }).pipe(
+      const execution = yield* executeWithLease(schedule, dispatching).pipe(
         Effect.catchAll((error) =>
           Effect.succeed(
             error.code === "provider-unavailable" || error.code === "authorization-required"

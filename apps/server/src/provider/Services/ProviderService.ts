@@ -30,6 +30,7 @@ import type {
 } from "@rune/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 import type * as Stream from "effect/Stream";
 
 import type { ProviderServiceError } from "../Errors.ts";
@@ -139,6 +140,13 @@ export interface ProviderServiceShape {
    * Fan-out is owned by ProviderService (not by a standalone event-bus service).
    */
   readonly streamEvents: Stream.Stream<ProviderRuntimeEvent>;
+
+  /** Subscribe synchronously before a dispatch that must be correlated. */
+  readonly subscribeEvents?: Effect.Effect<
+    Stream.Stream<ProviderRuntimeEvent>,
+    never,
+    Scope.Scope
+  >;
 }
 
 /**

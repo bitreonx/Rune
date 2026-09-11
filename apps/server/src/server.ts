@@ -30,6 +30,8 @@ import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/
 import { ActionRegistryLive } from "./persistence/Layers/ActionRegistry.ts";
 import { ChatMutationLedgerLive } from "./persistence/Layers/ChatMutationLedger.ts";
 import { PlanSessionLive } from "./persistence/Layers/PlanSession.ts";
+import { ScheduleRegistryLive } from "./persistence/Layers/ScheduleRegistry.ts";
+import * as ScheduleRegistry from "./persistence/Services/ScheduleRegistry.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory.ts";
@@ -126,6 +128,9 @@ import {
   OrchestrationLayerLive,
 } from "./orchestration/runtimeLayer.ts";
 import { TemporaryThreadSweeperLive } from "./orchestration/Layers/TemporaryThreadSweeper.ts";
+import * as ScheduleClock from "./scheduler/ScheduleClock.ts";
+import * as ScheduleExecutionBridge from "./scheduler/ScheduleExecutionBridge.ts";
+import * as ScheduleRunner from "./scheduler/ScheduleRunner.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -285,7 +290,27 @@ const PersistenceLayerLive = Layer.mergeAll(
   ActionRegistryLive,
   ChatMutationLedgerLive,
   PlanSessionLive,
+  ScheduleRegistryLive,
 ).pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+
+const ScheduleRunnerLayerLive = Layer.effect(
+  ScheduleRunner.ScheduleRunner,
+  Effect.gen(function* () {
+    const environment = yield* ServerEnvironment.ServerEnvironment;
+    const bridge = yield* ScheduleExecutionBridge.ScheduleExecutionBridge;
+    const registry = yield* ScheduleRegistry.ScheduleRegistry;
+    const clock = yield* ScheduleClock.ScheduleClock;
+    const environmentId = yield* environment.getEnvironmentId;
+    return ScheduleRunner.makeScheduleRunner({
+      scope: { environmentId },
+      leaseOwner: `rune-server:${process.pid}`,
+      leaseForSeconds: 120,
+      registry,
+      clock,
+      bridge,
+    });
+  }),
+);
 
 const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProjectConfig.layer),
@@ -425,6 +450,9 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // consumer sees the same service instead of relying on one nested runtime
   // layer to re-export it.
   Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(ScheduleClock.ScheduleClockLive),
+  Layer.provideMerge(ScheduleExecutionBridge.ScheduleExecutionBridgeLive),
+  Layer.provideMerge(ScheduleRunnerLayerLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(SkillRegistryLive),
   // The instance registry is the new routing keystone — text generation,

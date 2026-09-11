@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  CommandId,
   ApprovalRequestId,
   EventId,
   IsoDateTime,
@@ -73,6 +74,8 @@ export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
 export const ProviderSendTurnInput = Schema.Struct({
   threadId: ThreadId,
+  /** Server-owned command correlation for background/control-plane dispatches. */
+  orchestrationCommandId: Schema.optional(CommandId),
   input: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
   ),

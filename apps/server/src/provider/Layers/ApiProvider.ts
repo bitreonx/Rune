@@ -16,6 +16,9 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import { makeApiTextGeneration } from "../../textGeneration/ApiTextGeneration.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
+import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ScheduleRegistry from "../../persistence/Services/ScheduleRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
@@ -122,6 +125,13 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
   Settings extends ApiProviderSettings,
 >(input: ApiProviderFactoryInput<Settings>) {
   const serverSettings = yield* ServerSettingsService;
+  const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const scheduleRegistry = yield* ScheduleRegistry.ScheduleRegistry;
+  const enableAgentScheduleAccess = yield* serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.enableAgentScheduleAccess),
+    Effect.catchAll(() => Effect.succeed(false)),
+  );
   const processEnv = mergeProviderInstanceEnvironment(input.environment);
   const apiKeyName = apiKeyEnvironmentVariableForDriver(input.driver);
   const apiKey = apiKeyName ? (processEnv[apiKeyName] ?? "") : "";
@@ -135,6 +145,18 @@ export const makeApiProviderInstance = Effect.fn("makeApiProviderInstance")(func
     workspaceFileSystem: yield* WorkspaceFileSystem,
     workspaceEntries: yield* WorkspaceEntries,
     ...(Option.isSome(optionalProcessRunner) ? { processRunner: optionalProcessRunner.value } : {}),
+    ...(enableAgentScheduleAccess
+      ? {
+          schedule: {
+            environmentId: yield* serverEnvironment.getEnvironmentId,
+            registry: scheduleRegistry,
+            resolveProjectId: (threadId: import("@rune/contracts").ThreadId) =>
+              projectionSnapshotQuery
+                .getThreadShellById(threadId)
+                .pipe(Effect.map(Option.getOrUndefined), Effect.map((thread) => thread?.projectId)),
+          },
+        }
+      : {}),
   };
   const stampIdentity = withInstanceIdentity({
     instanceId: input.instanceId,

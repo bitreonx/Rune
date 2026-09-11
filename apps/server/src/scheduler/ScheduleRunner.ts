@@ -6,7 +6,6 @@ import {
   ScheduleRun,
   RuneSchedule,
 } from "@rune/contracts";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Context from "effect/Context";
 
@@ -86,44 +85,82 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
   const idleSeconds = config.idleSleepSeconds ?? 30;
   const idleUntil = (now: ScheduleDateTime) => new Date(Date.parse(now) + idleSeconds * 1_000).toISOString() as ScheduleDateTime;
 
-  const processDue = (scheduleId: RuneSchedule["id"], now: ScheduleDateTime) =>
+  const executeClaimed = (schedule: RuneSchedule, run: ScheduleRun) =>
     Effect.gen(function* () {
-      const schedule = yield* config.registry.get(config.scope, { scheduleId });
-      if (schedule.nextRunAt === null || schedule.status !== "active" || Date.parse(schedule.nextRunAt) > Date.parse(now)) return;
-      const run = yield* config.registry.claimDueRun({
-        scope: config.scope,
-        scheduleId,
-        scheduledFor: schedule.nextRunAt,
-        now,
-        leaseOwner: config.leaseOwner,
-        leaseForSeconds: config.leaseForSeconds,
-      });
+      const dispatchedAt = yield* config.clock.now;
       const dispatching = yield* config.registry.issueDispatch({
         scope: config.scope,
         runId: run.id,
         leaseOwner: config.leaseOwner,
         idempotencyKey: run.id,
-        now,
+        now: dispatchedAt,
       });
+      if (dispatching.status !== "dispatching") return;
       const execution = yield* config.bridge.execute({ schedule, run: dispatching }).pipe(
-        Effect.catchAll((error) => Effect.succeed({
-          status: "failed" as const,
-          reason: error.message,
-          threadId: run.threadId,
-        })),
+        Effect.catchAll((error) =>
+          Effect.succeed(
+            error.code === "provider-unavailable" || error.code === "authorization-required"
+              ? {
+                  status: "blocked" as const,
+                  reason: error.message,
+                  threadId: run.threadId,
+                }
+              : {
+                  status: "dispatch-uncertain" as const,
+                  reason: error.message,
+                  threadId: run.threadId,
+                },
+          ),
+        ),
       );
       const completedAt = yield* config.clock.now;
       yield* config.registry.settleRun(config.scope, settlementFor(dispatching, execution, completedAt));
     });
 
+  const processDue = (scheduleId: RuneSchedule["id"]) =>
+    Effect.gen(function* () {
+      const initial = yield* config.registry.get(config.scope, { scheduleId });
+      const initialNow = yield* config.clock.now;
+      if (
+        initial.nextRunAt === null ||
+        initial.status !== "active" ||
+        Date.parse(initial.nextRunAt) > Date.parse(initialNow)
+      ) return;
+
+      const reconciled = yield* config.registry.reconcileMissed({
+        scope: config.scope,
+        scheduleId,
+        now: initialNow,
+      });
+      if (reconciled.decision.status !== "coalesce-one") return;
+
+      const run = yield* config.registry.claimDueRun({
+        scope: config.scope,
+        scheduleId,
+        scheduledFor: reconciled.decision.scheduledFor,
+        now: yield* config.clock.now,
+        leaseOwner: config.leaseOwner,
+        leaseForSeconds: config.leaseForSeconds,
+        expectedNextRunAt: initial.nextRunAt,
+      });
+      const current = yield* config.registry.get(config.scope, { scheduleId });
+      yield* executeClaimed(current, run);
+    });
+
   const tick = Effect.gen(function* () {
     const now = yield* config.clock.now;
-    yield* config.registry.reclaimExpiredRuns({
+    const reclaimed = yield* config.registry.reclaimExpiredRuns({
       scope: config.scope,
       now,
       leaseOwner: config.leaseOwner,
       leaseForSeconds: config.leaseForSeconds,
     });
+    for (const run of reclaimed) {
+      if (run.status !== "claimed") continue;
+      yield* config.registry.get(config.scope, { scheduleId: run.scheduleId }).pipe(
+        Effect.flatMap((schedule) => executeClaimed(schedule, run)),
+      );
+    }
     const next = yield* config.registry.nextDue(config.scope, now);
     if (next.nextRunAt === null) {
       yield* config.clock.sleepUntil(idleUntil(now));
@@ -134,7 +171,7 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
       return;
     }
     for (const scheduleId of next.scheduleIds) {
-      yield* processDue(scheduleId, now).pipe(
+      yield* processDue(scheduleId).pipe(
         Effect.catchAll((error) =>
           Effect.logWarning("scheduled run failed before settlement", {
             scheduleId,
@@ -150,7 +187,11 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
       tick.pipe(
         Effect.catchAll((error) =>
           Effect.logWarning("scheduler tick failed", { error: error.message }).pipe(
-            Effect.zipRight(Effect.sleep(Duration.seconds(idleSeconds))),
+            Effect.zipRight(
+              config.clock.now.pipe(
+                Effect.flatMap((now) => config.clock.sleepUntil(idleUntil(now))),
+              ),
+            ),
           ),
         ),
       ),

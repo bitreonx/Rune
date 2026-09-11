@@ -1,16 +1,20 @@
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import { EnvironmentId, ScheduleId, ScheduleRunId, ThreadId } from "@rune/contracts";
 
 import { makeScheduleRunner, type ScheduleExecutionBridgeShape } from "./ScheduleRunner.ts";
 import type { ScheduleClockShape } from "./ScheduleClock.ts";
 import type { ScheduleRegistryShape } from "../persistence/Services/ScheduleRegistry.ts";
 
+const scheduleId = ScheduleId.make("schedule:test");
+const environmentId = EnvironmentId.make("environment:test");
+const threadId = ThreadId.make("thread:test");
 const schedule = {
-  id: "schedule:test",
+  id: scheduleId,
   name: "Test",
-  environmentId: "environment:test",
+  environmentId,
   trigger: { type: "once" as const, runAt: "2026-01-01T00:00:00.000Z" },
-  target: { type: "prompt" as const, threadId: "thread:test", prompt: "Run" },
+  target: { type: "prompt" as const, threadId, prompt: "Run" },
   policy: { approvalPolicy: "inherit" as const, allowProviderFallback: false, catchUp: "skip" as const },
   displayTimeZone: "UTC",
   status: "active" as const,
@@ -23,7 +27,7 @@ const schedule = {
 };
 
 const run = {
-  id: "schedule-run:test",
+  id: ScheduleRunId.make("schedule-run:test"),
   scheduleId: schedule.id,
   trigger: "scheduled" as const,
   scheduledFor: schedule.nextRunAt,
@@ -31,7 +35,7 @@ const run = {
   status: "claimed" as const,
   leaseOwner: "runner:test",
   leaseExpiresAt: "2026-01-01T00:01:00.000Z",
-  threadId: "thread:test",
+  threadId,
 };
 
 it("claims, dispatches, and settles one due run", () => {
@@ -41,6 +45,10 @@ it("claims, dispatches, and settles one due run", () => {
     get: () => Effect.succeed(schedule),
     nextDue: () => Effect.succeed({ nextRunAt: schedule.nextRunAt, scheduleIds: [schedule.id] }),
     reclaimExpiredRuns: () => Effect.succeed([]),
+    reconcileMissed: () => Effect.succeed({
+      schedule,
+      decision: { status: "coalesce-one" as const, scheduledFor: schedule.nextRunAt, nextRunAt: schedule.nextRunAt },
+    }),
     claimDueRun: () => { calls.push("claim"); return Effect.succeed(run); },
     issueDispatch: () => { calls.push("dispatch"); return Effect.succeed({ ...run, status: "dispatching" as const }); },
     settleRun: (_, input) => { calls.push("settle"); settledStatuses.push(input.status); return Effect.succeed({ ...run, status: "succeeded" as const }); },
@@ -54,9 +62,9 @@ it("claims, dispatches, and settles one due run", () => {
     sleepUntil: () => Effect.interrupt,
   };
   const bridge: ScheduleExecutionBridgeShape = {
-    execute: () => { calls.push("execute"); return Effect.succeed({ status: "succeeded" as const, summary: "ok", threadId: "thread:test" }); },
+    execute: () => { calls.push("execute"); return Effect.succeed({ status: "succeeded" as const, summary: "ok", threadId }); },
   };
-  const fiber = Effect.runSync(Effect.fork(makeScheduleRunner({ registry, clock, bridge, scope: { environmentId: "environment:test" }, leaseOwner: "runner:test", leaseForSeconds: 60 }).run));
+  const fiber = Effect.runSync(Effect.fork(makeScheduleRunner({ registry, clock, bridge, scope: { environmentId }, leaseOwner: "runner:test", leaseForSeconds: 60 }).run));
   Effect.runSync(Effect.interruptFiber(fiber));
   expect(calls).toEqual(["claim", "dispatch", "execute", "settle"]);
   expect(settledStatuses).toEqual(["succeeded"]);

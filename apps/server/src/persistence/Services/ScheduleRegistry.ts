@@ -20,6 +20,7 @@ import {
   ScheduleRunNowResult,
   ScheduleRunSettlementInput,
   ScheduleRunsInput,
+  ScheduleMissedOccurrenceDecision,
   ScheduleSubscribeInput,
   ScheduleSubscriptionSnapshot,
   ScheduleUpdateInput,
@@ -65,6 +66,14 @@ export interface ScheduleRegistryShape {
     scope: ScheduleAccessScope,
     input: ScheduleRunNowInput,
   ) => Effect.Effect<ScheduleRunNowResult, ScheduleRegistryError>;
+  readonly reconcileMissed: (input: {
+    readonly scope: ScheduleAccessScope;
+    readonly scheduleId: ScheduleId;
+    readonly now: ScheduleDateTime;
+  }) => Effect.Effect<{
+    readonly schedule: RuneSchedule;
+    readonly decision: ScheduleMissedOccurrenceDecision;
+  }, ScheduleRegistryError>;
   readonly claimDueRun: (input: {
     readonly scope: ScheduleAccessScope;
     readonly scheduleId: ScheduleId;
@@ -72,6 +81,8 @@ export interface ScheduleRegistryShape {
     readonly now: ScheduleDateTime;
     readonly leaseOwner: string;
     readonly leaseForSeconds: number;
+    /** Expected current pointer; supplied by the runner to close the coalesce race. */
+    readonly expectedNextRunAt?: ScheduleDateTime;
   }) => Effect.Effect<ScheduleRun, ScheduleRegistryError>;
   readonly issueDispatch: (input: {
     readonly scope: ScheduleAccessScope;

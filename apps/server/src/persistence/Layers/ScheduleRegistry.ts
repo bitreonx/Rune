@@ -39,6 +39,7 @@ import {
 } from "@rune/contracts";
 import {
   nextScheduleOccurrence,
+  resolveMissedOccurrence,
 } from "@rune/shared/scheduleRecurrence";
 import { ScheduleRegistry, scheduleRegistryFailure, type ScheduleRegistryShape } from "../Services/ScheduleRegistry.ts";
 
@@ -429,6 +430,7 @@ const makeRegistry = Effect.gen(function* () {
     Effect.gen(function* () {
       const current = yield* getSchedule(input.scope, input.scheduleId);
       if (current.status !== "active" || current.nextRunAt === null || Date.parse(current.nextRunAt) > Date.parse(input.now)) return yield* Effect.fail(scheduleRegistryFailure("duplicate-run", "Schedule is not due.", { scheduleId: current.id }));
+      if (input.expectedNextRunAt !== undefined && current.nextRunAt !== input.expectedNextRunAt) return yield* Effect.fail(scheduleRegistryFailure("duplicate-run", "Schedule advanced before this run was claimed.", { scheduleId: current.id }));
       const existing = yield* mapSql(sql<StoredRunRow>`SELECT run_id AS "runId", schedule_id AS "scheduleId", environment_id AS "environmentId", trigger, scheduled_for AS "scheduledFor", created_at AS "createdAt", started_at AS "startedAt", completed_at AS "completedAt", status, lease_owner AS "leaseOwner", lease_expires_at AS "leaseExpiresAt", provider_instance_id AS "providerInstanceId", thread_id AS "threadId", orchestration_command_id AS "orchestrationCommandId", action_run_id AS "actionRunId", provider_receipt_id AS "providerReceiptId", receipt_summary AS "receiptSummary", error, dispatch_idempotency_key AS "dispatchIdempotencyKey" FROM schedule_runs WHERE schedule_id = ${current.id} AND scheduled_for = ${input.scheduledFor}`);
       if (existing[0] !== undefined) return yield* decodeRunRow(existing[0]);
       const at = input.now;
@@ -442,11 +444,55 @@ const makeRegistry = Effect.gen(function* () {
       const run: ScheduleRun = { id: runId(), scheduleId: current.id, trigger: "scheduled", scheduledFor: input.scheduledFor, createdAt: at, status: "claimed", leaseOwner: input.leaseOwner, leaseExpiresAt: addSeconds(at, input.leaseForSeconds), threadId: current.target.threadId };
       yield* mapSql(sql.withTransaction(Effect.gen(function* () {
         yield* sql`INSERT INTO schedule_runs (run_id, schedule_id, environment_id, trigger, scheduled_for, created_at, status, lease_owner, lease_expires_at, thread_id, dispatch_idempotency_key) VALUES (${run.id}, ${run.scheduleId}, ${current.environmentId}, 'scheduled', ${run.scheduledFor}, ${run.createdAt}, 'claimed', ${run.leaseOwner}, ${run.leaseExpiresAt}, ${run.threadId}, ${run.id})`;
-        yield* sql`UPDATE schedules SET status = ${nextStatus}, claimed_run_count = ${nextCount}, next_run_at = ${nextRunAt}, last_run_at = ${input.scheduledFor}, version = version + 1, latest_sequence = latest_sequence + 1, updated_at = ${at} WHERE schedule_id = ${current.id} AND status = 'active' AND next_run_at = ${current.nextRunAt}`;
+        yield* sql`UPDATE schedules SET status = ${nextStatus}, claimed_run_count = ${nextCount}, next_run_at = ${nextRunAt}, last_run_at = ${input.scheduledFor}, version = version + 1, latest_sequence = latest_sequence + 1, updated_at = ${at} WHERE schedule_id = ${current.id} AND status = 'active' AND next_run_at = ${current.nextRunAt} AND (${input.expectedNextRunAt ?? null} IS NULL OR next_run_at = ${input.expectedNextRunAt ?? null})`;
         yield* sql`INSERT INTO schedule_dispatch_outbox (run_id, schedule_id, environment_id, idempotency_key, status, lease_owner, lease_expires_at, intent_json, created_at, updated_at) VALUES (${run.id}, ${run.scheduleId}, ${current.environmentId}, ${run.id}, 'pending', ${run.leaseOwner}, ${run.leaseExpiresAt}, ${JSON.stringify({ runId: run.id, scheduleId: run.scheduleId, threadId: run.threadId, scheduledFor: run.scheduledFor })}, ${at}, ${at})`;
         yield* appendEvent({ environmentId: current.environmentId, scheduleId: current.id, kind: "run-claimed", at, schedule: { ...current, status: nextStatus, claimedRunCount: nextCount, nextRunAt, lastRunAt: input.scheduledFor, version: current.version + 1, updatedAt: at }, run });
       })));
       return run;
+    });
+
+  const reconcileMissed: ScheduleRegistryShape["reconcileMissed"] = (input) =>
+    Effect.gen(function* () {
+      const current = yield* getSchedule(input.scope, input.scheduleId);
+      if (current.status !== "active" || current.nextRunAt === null) {
+        return {
+          schedule: current,
+          decision: { status: "completed" as const },
+        };
+      }
+
+      // The helper takes the last scheduled instant, while the projection
+      // stores the next pointer. Derive the former from the pointer so a skip
+      // decision remains idempotent after a restart without materializing every
+      // missed interval.
+      const lastScheduledFor = current.trigger.type === "interval"
+        ? new Date(Date.parse(current.nextRunAt) - current.trigger.everySeconds * 1_000).toISOString()
+        : current.nextRunAt;
+      const decision = resolveMissedOccurrence({
+        trigger: current.trigger,
+        lastScheduledFor,
+        now: input.now,
+        catchUp: current.policy.catchUp,
+        claimedRunCount: current.claimedRunCount,
+        maxRuns: current.policy.maxRuns,
+      });
+      if (decision.status !== "skip" && decision.status !== "completed") {
+        return { schedule: current, decision };
+      }
+
+      const at = input.now;
+      const next = {
+        ...current,
+        status: decision.status === "completed" ? "completed" as const : current.status,
+        nextRunAt: decision.status === "completed" ? null : decision.nextRunAt,
+        version: current.version + 1,
+        updatedAt: at,
+      } satisfies RuneSchedule;
+      yield* mapSql(sql.withTransaction(Effect.gen(function* () {
+        yield* sql`UPDATE schedules SET status = ${next.status}, next_run_at = ${next.nextRunAt}, version = ${next.version}, updated_at = ${at} WHERE schedule_id = ${current.id} AND status = 'active' AND version = ${current.version} AND next_run_at = ${current.nextRunAt}`;
+        yield* appendEvent({ environmentId: current.environmentId, scheduleId: current.id, kind: "updated", at, schedule: next });
+      })));
+      return { schedule: next, decision };
     });
 
   const issueDispatch: ScheduleRegistryShape["issueDispatch"] = (input) =>
@@ -567,7 +613,7 @@ const makeRegistry = Effect.gen(function* () {
 
   const get: ScheduleRegistryShape["get"] = (scope, input) => getSchedule(scope, input.scheduleId);
 
-  return { list, get, create, update, pause, resume, remove, runNow, claimDueRun, issueDispatch, reclaimExpiredRuns, settleRun, runs, nextDue, subscription } satisfies ScheduleRegistryShape;
+  return { list, get, create, update, pause, resume, remove, runNow, reconcileMissed, claimDueRun, issueDispatch, reclaimExpiredRuns, settleRun, runs, nextDue, subscription } satisfies ScheduleRegistryShape;
 });
 
 export const ScheduleRegistryLive = Layer.effect(ScheduleRegistry, makeRegistry);

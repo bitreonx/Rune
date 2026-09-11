@@ -302,6 +302,10 @@
     "./usageIntelligence": {
       "types": "./src/usageIntelligence.ts",
       "import": "./src/usageIntelligence.ts"
+    },
+    "./scheduleRecurrence": {
+      "types": "./src/scheduleRecurrence.ts",
+      "import": "./src/scheduleRecurrence.ts"
     }
   },
   "scripts": {

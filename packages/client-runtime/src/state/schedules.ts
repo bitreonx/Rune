@@ -53,6 +53,7 @@ export function createSchedulesEnvironmentAtoms<R, E>(
     tag: WS_METHODS.schedulesList,
     staleTimeMs: SCHEDULE_LIST_STALE_TIME_MS,
     idleTtlMs: SCHEDULE_QUERY_IDLE_TTL_MS,
+    refreshIntervalMs: 15_000,
   });
   const get = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:schedules:get",

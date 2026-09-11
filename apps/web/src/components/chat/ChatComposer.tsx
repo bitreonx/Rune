@@ -299,6 +299,7 @@ import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
+  RUNE_SCHEDULE_SKILL,
 } from "@rune/client-runtime/providerSkills";
 import { providerSkillMenuItemId, searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -1305,7 +1306,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       );
       const slashMenuSkills = getProviderSkillsForSlashMenu(
-        selectedProviderStatus?.skills ?? [],
+        [RUNE_SCHEDULE_SKILL, ...(selectedProviderStatus?.skills ?? [])],
         settings.showSkillsInSlashMenu,
       );
       const providerSlashCommandItems = getProviderSlashCommandsForSlashMenu(
@@ -1339,7 +1340,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return searchSlashCommandItems(slashCommandItems, query);
     }
     if (composerTrigger.kind === "skill") {
-      return searchProviderSkills(selectedProviderStatus?.skills ?? [], composerTrigger.query).map(
+      return searchProviderSkills(
+        [RUNE_SCHEDULE_SKILL, ...(selectedProviderStatus?.skills ?? [])],
+        composerTrigger.query,
+      ).map(
         (skill) => ({
           id: providerSkillMenuItemId(selectedProvider, skill),
           type: "skill" as const,
@@ -3861,7 +3865,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         ? composerTerminalContexts
                         : []
                     }
-                    skills={selectedProviderStatus?.skills ?? []}
+                    skills={[RUNE_SCHEDULE_SKILL, ...(selectedProviderStatus?.skills ?? [])]}
                     {...(showMobilePendingAnswerActions ? { className: "max-sm:pb-11" } : {})}
                     onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
                     onChange={onPromptChange}

@@ -122,6 +122,7 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
         scope: config.scope,
         runId: run.id,
         leaseOwner: config.leaseOwner,
+        leaseForSeconds: config.leaseForSeconds,
         idempotencyKey: run.id,
         now: dispatchedAt,
       });
@@ -190,6 +191,20 @@ export const makeScheduleRunner = (config: ScheduleRunnerConfig): ScheduleRunner
       yield* config.registry.get(config.scope, { scheduleId: run.scheduleId }).pipe(
         Effect.flatMap((schedule) => executeClaimed(schedule, run)),
       );
+    }
+    if (config.registry.pendingManualRuns !== undefined) {
+      const pending = yield* config.registry.pendingManualRuns(config.scope);
+      for (const run of pending) {
+        yield* config.registry.get(config.scope, { scheduleId: run.scheduleId }).pipe(
+          Effect.flatMap((schedule) => executeClaimed(schedule, run)),
+          Effect.catchAll((error) =>
+            Effect.logWarning("manual scheduled run failed before settlement", {
+              runId: run.id,
+              error: error.message,
+            }),
+          ),
+        );
+      }
     }
     const next = yield* config.registry.nextDue(config.scope, now);
     if (next.nextRunAt === null) {

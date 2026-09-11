@@ -7,8 +7,20 @@ import {
   getProviderSkillIdentity,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
+  RUNE_SCHEDULE_SKILL,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
+
+describe("RUNE schedule composer skill", () => {
+  it("provides the stable $sch alias as app-owned metadata", () => {
+    expect(RUNE_SCHEDULE_SKILL).toMatchObject({
+      name: "sch",
+      displayName: "RUNE Schedule",
+      scope: "app",
+      enabled: true,
+    });
+  });
+});
 
 describe("formatRegistrySkillDisplayName", () => {
   it("formats the registry name while retaining a slug fallback", () => {

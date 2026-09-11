@@ -393,6 +393,44 @@ function AgentBrowserAccessSetting() {
   );
 }
 
+function AgentScheduleAccessSetting() {
+  const settings = usePrimarySettings();
+  const updateSettings = useUpdatePrimarySettings();
+
+  return (
+    <SettingsRow
+      {...searchableSetting("agent-schedule-access")}
+      description="Let agents create, update, pause, resume, delete, and run schedules in RUNE. Access is limited to the active environment, project, and thread, and applies to sessions started from now on."
+      status={
+        settings.enableAgentScheduleAccess
+          ? undefined
+          : "Off by default; enable it when an agent should manage RUNE schedules."
+      }
+      resetAction={
+        settings.enableAgentScheduleAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentScheduleAccess ? (
+          <SettingResetButton
+            label="agent schedule access"
+            onClick={() =>
+              updateSettings({
+                enableAgentScheduleAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentScheduleAccess,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.enableAgentScheduleAccess}
+          onCheckedChange={(checked) =>
+            updateSettings({ enableAgentScheduleAccess: Boolean(checked) })
+          }
+          aria-label="Allow agent schedule access"
+        />
+      }
+    />
+  );
+}
+
 function BrowserAutoShowFloatingPreviewSetting({ disabled }: { readonly disabled: boolean }) {
   const autoShow = useClientSettings((settings) => settings.browserAutoShowFloatingPreview);
   const updateSettings = useUpdatePrimarySettings();
@@ -467,6 +505,9 @@ export function IntegrationsSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <SettingsSection id="agents" title="Agents">
+        <AgentScheduleAccessSetting />
+      </SettingsSection>
       <SettingsSection id="browser" title="Browser">
         {/* Server-authoritative, so it stays editable on every client and sits
             outside the block covering the desktop-only defaults. */}

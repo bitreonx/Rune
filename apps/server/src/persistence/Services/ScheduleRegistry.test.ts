@@ -50,6 +50,18 @@ describe("ScheduleRegistry", () => {
       const before = yield* registry.get(scope, { scheduleId: created.schedule.id });
       const manual = yield* registry.runNow(scope, { scheduleId: created.schedule.id, idempotencyKey: "request:schedule:manual" });
       expect(manual.run.trigger).toBe("manual");
+      expect(yield* registry.runNow(scope, { scheduleId: created.schedule.id, idempotencyKey: "request:schedule:manual" })).toEqual(manual);
+      expect((yield* registry.pendingManualRuns!(scope)).map((pending) => pending.id)).toContain(manual.run.id);
+      const dispatching = yield* registry.issueDispatch({
+        scope,
+        runId: manual.run.id,
+        leaseOwner: "runner:test",
+        leaseForSeconds: 60,
+        idempotencyKey: manual.run.id,
+        now: "2026-01-01T00:02:00.000Z",
+      });
+      expect(dispatching.status).toBe("dispatching");
+      expect(dispatching.leaseOwner).toBe("runner:test");
       const after = yield* registry.get(scope, { scheduleId: created.schedule.id });
       expect(after.claimedRunCount).toBe(before.claimedRunCount);
       expect(after.nextRunAt).toBe(before.nextRunAt);

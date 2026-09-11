@@ -53,6 +53,7 @@ it("claims, dispatches, and settles one due run", () => {
     get: () => Effect.succeed(schedule),
     nextDue: () => Effect.succeed({ nextRunAt: schedule.nextRunAt, scheduleIds: [schedule.id] }),
     reclaimExpiredRuns: () => Effect.succeed([]),
+    pendingManualRuns: () => Effect.succeed([]),
     reconcileMissed: () => Effect.succeed({
       schedule,
       decision: { status: "coalesce-one" as const, scheduledFor: schedule.nextRunAt, nextRunAt: schedule.nextRunAt },
@@ -85,6 +86,7 @@ it("settles dispatch-uncertain when the lease heartbeat cannot renew", () => {
     get: () => Effect.succeed(schedule),
     nextDue: () => Effect.succeed({ nextRunAt: schedule.nextRunAt, scheduleIds: [schedule.id] }),
     reclaimExpiredRuns: () => Effect.succeed([]),
+    pendingManualRuns: () => Effect.succeed([]),
     reconcileMissed: () =>
       Effect.succeed({
         schedule,

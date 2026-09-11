@@ -88,6 +88,7 @@ export interface ScheduleRegistryShape {
     readonly scope: ScheduleAccessScope;
     readonly runId: ScheduleRunId;
     readonly leaseOwner: string;
+    readonly leaseForSeconds: number;
     readonly idempotencyKey: string;
     readonly now: ScheduleDateTime;
   }) => Effect.Effect<ScheduleRun, ScheduleRegistryError>;
@@ -105,6 +106,10 @@ export interface ScheduleRegistryShape {
     readonly leaseOwner: string;
     readonly leaseForSeconds: number;
   }) => Effect.Effect<ReadonlyArray<ScheduleRun>, ScheduleRegistryError>;
+  /** Manual run-now requests have no schedule pointer to make them due. */
+  readonly pendingManualRuns?: (
+    scope: ScheduleAccessScope,
+  ) => Effect.Effect<ReadonlyArray<ScheduleRun>, ScheduleRegistryError>;
   readonly settleRun: (
     scope: ScheduleAccessScope,
     input: ScheduleRunSettlementInput,

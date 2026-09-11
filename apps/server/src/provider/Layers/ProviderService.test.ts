@@ -2504,4 +2504,14 @@ describe("agent browser access", () => {
       );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  it.effect("can grant schedule access without granting browser access", () =>
+    Effect.gen(function* () {
+      requestedCapabilities.length = 0;
+      const issued = yield* startSessionWith(false, asThreadId("thread-schedule-only"), true);
+
+      assert.deepEqual(issued, [asThreadId("thread-schedule-only")]);
+      assert.deepEqual([...requestedCapabilities[0]!], ["schedules-read", "schedules-write"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });

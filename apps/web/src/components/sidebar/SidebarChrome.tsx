@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  CalendarClockIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
   PuzzleIcon,
@@ -137,16 +138,18 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const currentFooterPage = useLocation({
     select: (location) =>
       /^\/settings(?:\/|$)/.test(location.pathname)
-      ? "settings"
-      : location.pathname === "/usage"
-        ? "usage"
-        : location.pathname === "/pull-requests"
-          ? "pull-requests"
-          : location.pathname === "/skills"
-            ? "skills"
-            : location.pathname === "/plugins"
-              ? "plugins"
-          : null,
+        ? "settings"
+        : location.pathname === "/usage"
+          ? "usage"
+          : location.pathname === "/pull-requests"
+            ? "pull-requests"
+            : location.pathname === "/skills"
+              ? "skills"
+              : location.pathname === "/plugins"
+                ? "plugins"
+                : location.pathname === "/schedules"
+                  ? "schedules"
+                  : null,
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -181,6 +184,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const handlePluginsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/plugins" });
+  }, [closeMobileSidebar, navigate]);
+  const handleSchedulesClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/schedules" });
   }, [closeMobileSidebar, navigate]);
 
   const handleBackClick = useCallback(() => {
@@ -217,6 +224,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             icon={<PuzzleIcon />}
             label="Plugins"
             onClick={handlePluginsClick}
+          />
+          <SidebarUtilityItem
+            icon={<CalendarClockIcon />}
+            label="Schedules"
+            onClick={handleSchedulesClick}
           />
           {pullRequestsSupported ? (
             <SidebarUtilityItem

@@ -108,7 +108,7 @@ export function AddServiceDialog(props: {
 
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="service-kind">Service Type</Label>
+                <Label htmlFor="service-kind">Model service</Label>
                 <select
                   id="service-kind"
                   value={kind}
@@ -191,7 +191,7 @@ export function AddServiceDialog(props: {
                 Cancel
               </Button>
               <Button type="submit">
-                {props.editingService ? "Save Changes" : "Connect Service"}
+                {props.editingService ? "Save Changes" : "Connect model service"}
               </Button>
             </DialogFooter>
           </form>

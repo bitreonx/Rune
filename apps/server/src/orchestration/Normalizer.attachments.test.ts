@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -12,14 +13,18 @@ import {
 } from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
+import { createAttachmentId } from "../attachmentStore.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 
 const testLayer = Layer.mergeAll(
   WorkspacePaths.layer,
   ServerConfig.layerTest(process.cwd(), { prefix: "rune-normalizer-attachments-" }),
+  SqlitePersistenceMemory,
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 const attachmentUuid = "00000000-0000-4000-8000-0000000000aa";
@@ -66,7 +71,7 @@ function expectImage(
   return attachment;
 }
 
-function fileAttachmentCommand(): Extract<
+function fileAttachmentCommand(path: string): Extract<
   ClientOrchestrationCommand,
   { readonly type: "thread.turn.start" }
 > {
@@ -86,7 +91,7 @@ function fileAttachmentCommand(): Extract<
           name: "clip.mp4",
           mimeType: "video/mp4",
           sizeBytes: 1234,
-          path: "D:\\media\\clip.mp4",
+          path,
         },
       ],
     },
@@ -99,14 +104,21 @@ function fileAttachmentCommand(): Extract<
 describe("normalizeDispatchCommand attachments", () => {
   it.effect("preserves typed non-image attachments without claiming an upload", () =>
     Effect.gen(function* () {
-      const command = fileAttachmentCommand();
-      const normalized = yield* normalizeDispatchCommand(command);
+      const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "rune-file-attachment-"));
+      const filePath = NodePath.join(tempDir, "clip.mp4");
+      NodeFS.writeFileSync(filePath, Buffer.alloc(1234));
+      try {
+        const command = fileAttachmentCommand(filePath);
+        const normalized = yield* normalizeDispatchCommand(command);
 
-      if (normalized.type !== "thread.turn.start") {
-        throw new Error("Expected a thread.turn.start command.");
+        if (normalized.type !== "thread.turn.start") {
+          throw new Error("Expected a thread.turn.start command.");
+        }
+
+        expect(normalized.message.attachments).toEqual(command.message.attachments);
+      } finally {
+        NodeFS.rmSync(tempDir, { recursive: true, force: true });
       }
-
-      expect(normalized.message.attachments).toEqual(command.message.attachments);
     }).pipe(Effect.provide(testLayer)),
   );
 
@@ -160,6 +172,200 @@ describe("normalizeDispatchCommand attachments", () => {
       expect(NodeFS.existsSync(NodePath.join(config.attachmentsDir, `${attachmentId}.png`))).toBe(
         true,
       );
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("reuses a finalized image attachment from the same thread", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = createAttachmentId("thread-1");
+      if (!attachmentId) throw new Error("Expected a thread attachment id.");
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, attachmentId + ".png"),
+        Buffer.from("pixels"),
+      );
+
+      const normalized = yield* normalizeDispatchCommand(
+        turnStartCommand({
+          attachments: [{ id: attachmentId, sizeBytes: 6 }],
+        }),
+      );
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+
+      expect(normalized.message.attachments).toEqual([
+        {
+          type: "image",
+          id: attachmentId,
+          name: "screenshot.png",
+          mimeType: "image/png",
+          sizeBytes: 6,
+          ownerThreadId: "thread-1",
+        },
+      ]);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("reuses a finalized file attachment from the same thread", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = createAttachmentId("thread-file-attachment");
+      if (!attachmentId) throw new Error("Expected a thread attachment id.");
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, attachmentId + ".mp4"),
+        Buffer.alloc(1234),
+      );
+      const command = fileAttachmentCommand("unused");
+      const [fileAttachment] = command.message.attachments;
+      if (!fileAttachment || fileAttachment.type !== "file") {
+        throw new Error("Expected a file attachment.");
+      }
+      const { path: _path, ...reusableAttachment } = fileAttachment;
+      const reusableCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...reusableAttachment, id: attachmentId }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const normalized = yield* normalizeDispatchCommand(reusableCommand);
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+
+      expect(normalized.message.attachments).toEqual([
+        {
+          type: "file",
+          kind: "file",
+          id: attachmentId,
+          name: "clip.mp4",
+          mimeType: "video/mp4",
+          sizeBytes: 1234,
+          ownerThreadId: "thread-file-attachment",
+        },
+      ]);
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("reuses a legacy finalized attachment when migration ownership matches", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
+      const attachmentId = "legacy-thread-a-00000000-0000-4000-8000-000000000001";
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
+        Buffer.from("pixels"),
+      );
+      const command = turnStartCommand({
+        threadId: "thread-a",
+        attachments: [{ id: attachmentId, sizeBytes: 6 }],
+      });
+      const original = command.message.attachments[0]!;
+      const migratedCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...original, ownerThreadId: "thread-a" }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      yield* sql`
+        INSERT INTO attachment_ownership (attachment_id, thread_id, ambiguous)
+        VALUES (${attachmentId}, 'thread-a', 0)
+      `;
+
+      const normalized = yield* normalizeDispatchCommand(migratedCommand);
+      if (normalized.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+      expect(normalized.message.attachments[0]).toMatchObject({
+        id: attachmentId,
+        ownerThreadId: "thread-a",
+      });
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects forged legacy ownership metadata", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
+      const attachmentId = "legacy-thread-a-00000000-0000-4000-8000-000000000002";
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
+        Buffer.from("pixels"),
+      );
+      yield* sql`
+        INSERT INTO attachment_ownership (attachment_id, thread_id, ambiguous)
+        VALUES (${attachmentId}, 'thread-a', 0)
+      `;
+      const command = turnStartCommand({
+        threadId: "thread-b",
+        attachments: [{ id: attachmentId, sizeBytes: 6 }],
+      });
+      const original = command.message.attachments[0]!;
+      const forgedCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...original, ownerThreadId: "thread-b" }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const failure = yield* normalizeDispatchCommand(forgedCommand).pipe(Effect.flip);
+      expect(failure.message).toContain("attachment must be a pending upload");
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects legacy ownership when the attachment id is shared across threads", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
+      const attachmentId = "shared-thread-a-00000000-0000-4000-8000-000000000003";
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${attachmentId}.png`),
+        Buffer.from("pixels"),
+      );
+      yield* sql`
+        INSERT INTO attachment_ownership (attachment_id, thread_id, ambiguous)
+        VALUES (${attachmentId}, 'thread-a', 1)
+      `;
+      const command = turnStartCommand({
+        threadId: "thread-a",
+        attachments: [{ id: attachmentId, sizeBytes: 6 }],
+      });
+      const original = command.message.attachments[0]!;
+      const migratedCommand = {
+        ...command,
+        message: {
+          ...command.message,
+          attachments: [{ ...original, ownerThreadId: "thread-a" }],
+        },
+      } satisfies ClientOrchestrationCommand;
+
+      const failure = yield* normalizeDispatchCommand(migratedCommand).pipe(Effect.flip);
+      expect(failure.message).toContain("attachment must be a pending upload");
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects a finalized attachment whose stored extension disagrees with its type", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const attachmentId = createAttachmentId("thread-1");
+      if (!attachmentId) throw new Error("Expected a thread attachment id.");
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, attachmentId + ".bin"),
+        Buffer.from("pixels"),
+      );
+
+      const failure = yield* normalizeDispatchCommand(
+        turnStartCommand({
+          attachments: [{ id: attachmentId, sizeBytes: 6 }],
+        }),
+      ).pipe(Effect.flip);
+
+      expect(failure.message).toContain("stored type or size does not match");
     }).pipe(Effect.provide(testLayer)),
   );
 

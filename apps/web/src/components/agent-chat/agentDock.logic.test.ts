@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { RuntimeSubagent } from "@rune/client-runtime/state/subagentRuntime";
 import {
   buildAgentPassport,
+  deriveAgentActivityStory,
   deriveAgentDockRows,
   deriveAgentTrail,
   resolveAgentDockStatus,
@@ -108,5 +109,63 @@ describe("agentDock.logic", () => {
     expect(trail.Changes[0]?.text).toContain("Changed");
     expect(trail.Verification[0]?.text).toContain("typecheck");
     expect(trail.Result[0]?.text).toBe("Five findings recorded");
+  });
+
+  it("keeps the primary activity story chronological across semantic sections", () => {
+    const current = agent({
+      result: "Finished",
+      recentActivity: [
+        { at: "2026-08-29T10:03:00Z", summary: "Ran tests" },
+        { at: "2026-08-29T10:01:00Z", summary: "Searched the route registry" },
+        { at: "2026-08-29T10:02:00Z", summary: "Changed the provider route" },
+      ],
+      completedAt: "2026-08-29T10:04:00Z",
+      status: "completed",
+    });
+
+    expect(deriveAgentActivityStory(current).map((entry) => entry.text)).toEqual([
+      "Searched the route registry",
+      "Changed the provider route",
+      "Ran tests",
+      "Finished",
+    ]);
+  });
+
+  it("preserves durable source order for equal and missing timestamps", () => {
+    const current = agent({
+      recentActivity: [
+        { at: "2026-08-29T10:00:00Z", summary: "Changed the first file" },
+        { at: "2026-08-29T10:00:00Z", summary: "Searched the second file" },
+        { at: null, summary: "Decided the verification path" },
+      ],
+      status: "running",
+      result: null,
+      completedAt: null,
+    });
+
+    expect(deriveAgentActivityStory(current).map((entry) => entry.text)).toEqual([
+      "Changed the first file",
+      "Searched the second file",
+      "Decided the verification path",
+    ]);
+  });
+
+  it("keeps the complete durable sequence when missing timestamps are interleaved", () => {
+    const current = agent({
+      recentActivity: [
+        { at: "2026-08-29T10:03:00Z", summary: "Third runtime event" },
+        { at: null, summary: "Unknown-time runtime event" },
+        { at: "2026-08-29T10:01:00Z", summary: "First runtime event" },
+      ],
+      status: "running",
+      result: null,
+      completedAt: null,
+    });
+
+    expect(deriveAgentActivityStory(current).map((entry) => entry.text)).toEqual([
+      "Third runtime event",
+      "Unknown-time runtime event",
+      "First runtime event",
+    ]);
   });
 });

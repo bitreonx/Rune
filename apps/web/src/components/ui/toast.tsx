@@ -46,6 +46,8 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./tooltip";
 
 export type ThreadToastData = {
+  /** Semantic notification lane; defaults from type/action presence. */
+  notificationKind?: ToastNotificationKind;
   threadRef?: ScopedThreadRef | null;
   threadId?: ThreadId | null;
   leadingIcon?: ReactNode;
@@ -72,8 +74,6 @@ export type ThreadToastData = {
   /** When set with `expandableContent`, the summary + label act as one text disclosure (no separate chevron row). */
   expandableDescriptionTrigger?: boolean;
   actionLayout?: "inline" | "stacked-end";
-  /** User-facing notification semantics; defaults are derived from type/action. */
-  notificationKind?: ToastNotificationKind;
   actionVariant?:
     | "default"
     | "destructive"
@@ -121,13 +121,11 @@ function normalizeToastUpdateOptions<T extends ThreadToastData>(
   };
 }
 
-// Keep one public manager while applying taxonomy defaults before Base UI
+// Keep one public manager while applying semantic defaults before Base UI
 // receives a toast. The provider subscribes to the unwrapped manager below.
-const toastManager: Omit<ManagedToast, "add" | "update"> & Pick<ManagedToast, "add" | "update"> = {
-  " subscribe": baseToastManager[" subscribe"],
+const toastManager: ManagedToast = {
+  ...baseToastManager,
   add: (options) => baseToastManager.add(normalizeToastAddOptions(options)),
-  close: baseToastManager.close,
-  promise: baseToastManager.promise,
   update: (toastId, options) =>
     baseToastManager.update(toastId, normalizeToastUpdateOptions(options)),
 };
@@ -341,13 +339,6 @@ function deriveToastBodyDescriptor(toast: {
   readonly data?: ThreadToastData | undefined;
 }): ToastBodyDescriptor {
   const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
-  const notificationKind = resolveToastNotificationPolicy(toast).kind;
-  const stackedActionLayout =
-    toast.data?.actionLayout === "stacked-end" &&
-    (hasVisibleToastAction(toast.actionProps) ||
-      toast.type === "error" ||
-      (toast.data?.additionalActions?.length ?? 0) > 0 ||
-      toast.data?.secondaryActionProps !== undefined);
   const actionVariant: NonNullable<ThreadToastData["actionVariant"]> =
     toast.data?.actionVariant ?? "default";
   const secondaryActionVariant: NonNullable<ThreadToastData["secondaryActionVariant"]> =
@@ -358,12 +349,19 @@ function deriveToastBodyDescriptor(toast: {
       : null;
   const hasAdditionalActions = (toast.data?.additionalActions?.length ?? 0) > 0;
   const hasSecondaryAction = toast.data?.secondaryActionProps !== undefined;
+  const stackedActionLayout =
+    toast.data?.actionLayout === "stacked-end" &&
+    (hasVisibleToastAction(toast.actionProps) ||
+      toast.type === "error" ||
+      hasAdditionalActions ||
+      hasSecondaryAction);
   const hasTrailingControls =
     copyErrorText !== null ||
     hasVisibleToastAction(toast.actionProps) ||
     hasAdditionalActions ||
     hasSecondaryAction;
   const inlineContentEndPad = hasTrailingControls ? "pr-6" : "pr-10";
+  const notificationKind = resolveToastNotificationPolicy(toast).kind;
   return {
     Icon,
     stackedActionLayout,
@@ -482,6 +480,10 @@ type ToastPosition =
   | "bottom-center"
   | "bottom-right";
 
+interface ToastProviderProps extends Toast.Provider.Props {
+  position?: ToastPosition;
+}
+
 export const toastRootMotionClassName =
   "motion-safe:[transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s] motion-reduce:transition-none";
 
@@ -497,10 +499,6 @@ export function getToastViewportPresentation(position: ToastPosition) {
     ),
     position,
   };
-}
-
-interface ToastProviderProps extends Toast.Provider.Props {
-  position?: ToastPosition;
 }
 
 function useActiveThreadRefFromRoute(): ScopedThreadRef | null {
@@ -658,6 +656,10 @@ function Toasts({ position }: { position: ToastPosition }) {
                 "dropdown-glass absolute z-[calc(9999-var(--toast-index))] w-full overflow-visible select-none rounded-lg text-popover-foreground shadow-xl shadow-black/25",
                 toastRootMotionClassName,
                 notificationKind === "quiet" ? "max-w-80" : "max-w-90",
+                "data-[notification-kind=quiet]:border-border/45",
+                "data-[notification-kind=action-required]:border-warning/45",
+                "data-[notification-kind=agent-child]:border-primary/45",
+                "data-[notification-kind=error]:border-destructive/45",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
                 "data-[position*=left]:right-auto data-[position*=left]:left-0",
@@ -794,7 +796,7 @@ function AnchoredToasts() {
             const tooltipStyle = toast.data?.tooltipStyle ?? false;
             const positionerProps = toast.positionerProps;
             const bodyDescriptor = deriveToastBodyDescriptor(toast);
-            const { stackedActionLayout, inlineContentEndPad } = bodyDescriptor;
+            const { notificationKind, stackedActionLayout, inlineContentEndPad } = bodyDescriptor;
 
             if (!positionerProps?.anchor) {
               return null;
@@ -810,10 +812,15 @@ function AnchoredToasts() {
               >
                 <Toast.Root
                   className={cn(
-                    "dropdown-glass relative overflow-visible text-balance text-popover-foreground text-xs shadow-xl shadow-black/25 motion-safe:transition-[scale,opacity] motion-reduce:transition-none data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+                    "dropdown-glass relative overflow-visible border text-balance text-popover-foreground text-xs shadow-xl shadow-black/25 motion-safe:transition-[scale,opacity] motion-reduce:transition-none data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+                    "data-[notification-kind=quiet]:border-border/45",
+                    "data-[notification-kind=action-required]:border-warning/45",
+                    "data-[notification-kind=agent-child]:border-primary/45",
+                    "data-[notification-kind=error]:border-destructive/45",
                     tooltipStyle ? "rounded-md" : "rounded-lg",
                   )}
                   data-slot="toast-popup"
+                  data-notification-kind={notificationKind}
                   toast={toast}
                 >
                   {tooltipStyle ? (

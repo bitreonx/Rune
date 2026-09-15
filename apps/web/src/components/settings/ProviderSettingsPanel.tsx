@@ -80,6 +80,7 @@ import { AddServiceTile } from "./ClaudeSubscriptionCard";
 import { HarnessesSection } from "./HarnessesSection";
 import { ModelServicesSection } from "./ModelServicesSection";
 import { DRIVER_OPTIONS, getProviderSetupGuide } from "./providerDriverMeta";
+import { getProviderBrandPresentation } from "../chat/providerIconUtils";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
@@ -652,7 +653,7 @@ export function EnvironmentProviderSettings({
       <Dialog open={isDocsOpen} onOpenChange={setIsDocsOpen}>
         <DialogPopup className="max-w-xl">
           <DialogHeader>
-              <DialogTitle>How connections work</DialogTitle>
+            <DialogTitle>How connections work</DialogTitle>
             <DialogDescription>
               Each card is one independent account or service. Add multiple instances when you use
               more than one account for the same harness.
@@ -670,8 +671,7 @@ export function EnvironmentProviderSettings({
               <div>
                 <p className="font-medium">1. Add an account</p>
                 <p className="text-muted-foreground">
-                  Choose Add harness, select a harness, and give the instance a
-                  recognizable name.
+                  Choose Add harness, select a harness, and give the instance a recognizable name.
                 </p>
               </div>
               <div>
@@ -685,7 +685,8 @@ export function EnvironmentProviderSettings({
                 {DRIVER_OPTIONS.map((option) => {
                   const guide = getProviderSetupGuide(option.value);
                   if (!guide) return null;
-                  const IconComponent = option.icon;
+                  const IconComponent = getProviderBrandPresentation(String(option.value))?.icon;
+                  if (!IconComponent) return null;
                   return (
                     <div
                       key={option.value}

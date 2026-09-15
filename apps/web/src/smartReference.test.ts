@@ -22,12 +22,22 @@ describe("classifySmartReference", () => {
   });
 
   it("treats executable artifacts as reveal-only workspace files", () => {
-    const reference = classifySmartReference({ href: "release/RUNE-Setup-0.5.1.exe", cwd });
+    const reference = classifySmartReference({ href: "release/RUNE-Setup-0.5.1.dll", cwd });
 
     expect(reference).toMatchObject({
       kind: "workspace-file",
       unsafeToAutoExecute: true,
-      file: { workspaceRelativePath: "release/RUNE-Setup-0.5.1.exe" },
+      file: { workspaceRelativePath: "release/RUNE-Setup-0.5.1.dll" },
+    });
+  });
+
+  it("keeps WebAssembly and archive binaries reveal-only too", () => {
+    expect(
+      classifySmartReference({ href: "release/RUNE-Setup-0.5.1.wasm", cwd }),
+    ).toMatchObject({ kind: "workspace-file", unsafeToAutoExecute: true });
+    expect(classifySmartReference({ href: "release/RUNE-Setup-0.5.1.tar", cwd })).toMatchObject({
+      kind: "workspace-file",
+      unsafeToAutoExecute: true,
     });
   });
 

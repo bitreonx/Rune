@@ -13,7 +13,7 @@ import {
 } from "@rune/contracts";
 import { PlusIcon, ChevronRightIcon, SparklesIcon } from "lucide-react";
 import { Button } from "../ui/button";
-import { PROVIDER_ICON_BY_PROVIDER } from "../chat/providerIconUtils";
+import { getProviderBrandPresentation } from "../chat/providerIconUtils";
 import { AddHarnessDialog } from "./AddHarnessDialog";
 import { cn } from "../../lib/utils";
 import { StatusBadge } from "./StatusBadge";
@@ -167,8 +167,8 @@ export function HarnessesSection(props: {
             Agent Harnesses
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            One calm place to connect harnesses, accounts, models, tools, subagents, and execution
-            environments.
+            Coding-agent runtimes and their configured instances. Open a harness to manage its
+            accounts and models.
           </p>
         </div>
         {!props.readOnly ? (
@@ -252,7 +252,7 @@ export function HarnessesSection(props: {
               ? `${statusLabel} · ${instanceCount} instance${instanceCount === 1 ? "" : "s"}${!isEnabled ? " · Disabled" : ""}`
               : statusLabel;
 
-          const IconComp = PROVIDER_ICON_BY_PROVIDER[kind as any];
+          const IconComp = getProviderBrandPresentation(String(kind))?.icon;
           return (
             <div key={kind} className="flex min-w-0 flex-col gap-2">
               <button

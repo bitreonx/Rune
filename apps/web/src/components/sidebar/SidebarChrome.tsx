@@ -56,6 +56,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   return (
     <SidebarHeader
       data-rune-sidebar-section="workspace"
+      data-rune-sidebar-surface="header"
       className={cn(
         "rune-sidebar-header @container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center border-b border-sidebar-border/70 bg-[var(--rune-sidebar-surface)] px-3 py-0 md:px-0",
         isElectron && "drag-region",
@@ -215,16 +216,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
-          <SidebarUtilityItem
-            icon={<SparklesIcon />}
-            label="Skills"
-            onClick={handleSkillsClick}
-          />
-          <SidebarUtilityItem
-            icon={<PuzzleIcon />}
-            label="Plugins"
-            onClick={handlePluginsClick}
-          />
+          <SidebarUtilityItem icon={<SparklesIcon />} label="Skills" onClick={handleSkillsClick} />
+          <SidebarUtilityItem icon={<PuzzleIcon />} label="Plugins" onClick={handlePluginsClick} />
           <SidebarUtilityItem
             icon={<CalendarClockIcon />}
             label="Schedules"
@@ -254,6 +247,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     <SidebarFooter
       className="rune-sidebar-footer border-t border-sidebar-border/70 bg-[var(--rune-sidebar-surface-subtle)] p-[var(--sidebar-content-inset)]"
       data-rune-sidebar-section="utility"
+      data-rune-sidebar-surface="footer"
     >
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />

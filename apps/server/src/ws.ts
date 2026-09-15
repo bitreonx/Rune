@@ -324,6 +324,14 @@ function projectFileFailureContext(
   }
 }
 
+function projectFileRelativePath(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "relativePath" in error) {
+    const relativePath = (error as { readonly relativePath?: unknown }).relativePath;
+    if (typeof relativePath === "string" && relativePath.trim().length > 0) return relativePath;
+  }
+  return fallback;
+}
+
 function projectSetupScriptCompatibilityDetail(
   error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError,
 ): string {
@@ -2654,6 +2662,25 @@ const makeWsRpcLayer = (
                   new ProjectWriteFileError({
                     cwd: input.cwd,
                     relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsWriteFiles]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsWriteFiles,
+            workspaceFileSystem.writeFiles(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectWriteFileError({
+                    cwd: input.cwd,
+                    relativePath: projectFileRelativePath(
+                      cause,
+                      input.files[0]?.relativePath ?? ".",
+                    ),
                     ...projectFileFailureContext(cause),
                     cause,
                   }),

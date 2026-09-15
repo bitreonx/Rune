@@ -3,6 +3,7 @@ import {
   resolveMarkdownFileLinkMeta,
   type MarkdownFileLinkMeta,
 } from "./markdown-links";
+import { classifyWorkspaceFile } from "@rune/shared/fileKind";
 
 export type SmartReference =
   | {
@@ -178,7 +179,12 @@ function classifyFile(meta: MarkdownFileLinkMeta): SmartReference {
   return {
     kind: "workspace-file",
     file: meta,
-    unsafeToAutoExecute: REVEAL_ONLY_EXTENSIONS.has(extensionOf(meta.filePath)),
+    // Keep this aligned with the shared viewer classification. A binary that
+    // is not in the small legacy allowlist below is still never safe to
+    // execute from a reference (for example .dll, .so, or .wasm).
+    unsafeToAutoExecute:
+      classifyWorkspaceFile(meta.filePath) === "binary" ||
+      REVEAL_ONLY_EXTENSIONS.has(extensionOf(meta.filePath)),
   };
 }
 

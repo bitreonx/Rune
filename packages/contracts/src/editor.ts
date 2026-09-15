@@ -72,6 +72,8 @@ export type EditorId = typeof EditorId.Type;
 export const LaunchEditorInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   editor: EditorId,
+  /** File-manager-only intent. `reveal` selects a file without opening it. */
+  mode: Schema.optionalKey(Schema.Literals(["open", "reveal"])),
 });
 export type LaunchEditorInput = typeof LaunchEditorInput.Type;
 

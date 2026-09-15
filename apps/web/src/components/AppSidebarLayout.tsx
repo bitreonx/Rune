@@ -236,6 +236,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="icon"
         data-app-sidebar=""
+        data-rune-shell="sidebar"
         data-rune-sidebar-scope={
           isOnSettings ? "settings" : legacySidebarEnabled ? "legacy-threads" : "threads"
         }

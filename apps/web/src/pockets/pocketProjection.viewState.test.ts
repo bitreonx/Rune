@@ -15,6 +15,7 @@ describe("Pocket view state", () => {
       sanitizePocketViewState({
         view: "board",
         sort: "title",
+        query: "release notes",
         lastThreadKey: "thread-1",
         scrollTop: 128,
         expandedChildPocketIds: ["child", 4, ""],
@@ -22,6 +23,7 @@ describe("Pocket view state", () => {
     ).toEqual({
       view: "board",
       sort: "title",
+      query: "release notes",
       lastThreadKey: "thread-1",
       scrollTop: 128,
       expandedChildPocketIds: ["child"],

@@ -1,5 +1,6 @@
 import {
   type EnvironmentId,
+  type OrchestrationSessionStatus,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -14,12 +15,14 @@ import { ChevronDownIcon } from "lucide-react";
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import ProjectScriptsControl, {
@@ -61,6 +64,11 @@ interface ChatHeaderProps {
   gitStatus: VcsStatusResult | null;
   chatDiff: ReadonlyArray<TurnDiffFileChange> | null;
   configuredPreviewUrls: ReadonlyArray<string>;
+  providerLabel?: string | null;
+  modelLabel?: string | null;
+  sessionStatus?: OrchestrationSessionStatus | null;
+  agentCount?: number;
+  verificationSummary?: string | null;
   readonly onOpenEnvironment: () => void;
   readonly onOpenFiles: () => void;
   readonly onOpenDiff: () => void;
@@ -90,68 +98,27 @@ export function resolveRenameCommit(input: {
 }
 
 /**
- * Resolve the position passed to the shared action-menu bridge. Pointer
- * clicks already provide the correct anchor point; keyboard activation has no
- * pointer coordinates, so it falls back to the trigger's bottom edge.
+ * Keep title-menu placement tied to the title trigger. Pointer context menus
+ * use the pointer location, while keyboard activation and the title button's
+ * click use the trigger's bottom edge so the menu cannot drift away when the
+ * title is resized or ellipsized.
  */
 export function resolveThreadTitleMenuPosition(input: {
-  readonly pointerPosition: { readonly x: number; readonly y: number } | null;
-  readonly anchorRect?: { readonly left: number; readonly bottom: number };
+  readonly anchorRect?: { readonly left: number; readonly bottom: number } | null;
+  readonly pointer?: { readonly x: number; readonly y: number } | null;
 }): { x: number; y: number } | null {
-  if (input.pointerPosition !== null) return input.pointerPosition;
-  if (input.anchorRect === undefined) return null;
+  if (input.pointer) return { x: input.pointer.x, y: input.pointer.y };
+  if (!input.anchorRect) return null;
   return { x: input.anchorRect.left, y: input.anchorRect.bottom + 4 };
 }
 
-interface ThreadTitleAnchorProps {
-  readonly activeThreadTitle: string;
-  readonly onDoubleClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-  readonly onOpenMenu: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-}
-
-/** The title and its menu trigger share one flex anchor so neither can drift. */
-export function ThreadTitleAnchor({
-  activeThreadTitle,
-  onDoubleClick,
-  onOpenMenu,
-}: ThreadTitleAnchorProps) {
-  return (
-    <div data-thread-title-anchor className="flex min-w-0 flex-1 items-center gap-1">
-      <h2 className="min-w-0 flex-1 text-sm font-medium">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={activeThreadTitle}
-                onDoubleClick={onDoubleClick}
-                className="block min-w-0 max-w-full cursor-text truncate rounded-sm text-left text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            }
-          >
-            {activeThreadTitle}
-          </TooltipTrigger>
-          <TooltipPopup
-            side="top"
-            className="duration-[var(--rune-motion-fast)] ease-out motion-reduce:transition-none"
-          >
-            {activeThreadTitle}
-          </TooltipPopup>
-        </Tooltip>
-      </h2>
-      <button
-        type="button"
-        data-thread-title-trigger
-        aria-label={`Thread actions for ${activeThreadTitle}`}
-        aria-haspopup="menu"
-        onClick={onOpenMenu}
-        className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/70 transition-[color,opacity,transform] duration-[var(--rune-motion-fast)] ease-out hover:scale-105 hover:text-foreground hover:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:scale-95 motion-reduce:transition-none motion-reduce:transform-none"
-      >
-        <ChevronDownIcon aria-hidden className="size-3.5" />
-      </button>
-    </div>
-  );
-}
+// How long a click on the thread title waits before opening the action menu,
+// so a double-click-to-rename can cancel it first. Only the native desktop
+// menu needs this: it swallows input while open, so the wait must cover the
+// OS double-click interval. The browser fallback menu keeps seeing DOM
+// events (the second click dismisses it and dblclick still fires), so it
+// opens immediately.
+const TITLE_MENU_OPEN_DELAY_MS = 500;
 
 export function shouldShowOpenInPicker(input: {
   readonly activeProjectName: string | undefined;
@@ -189,6 +156,11 @@ export const ChatHeader = memo(function ChatHeader({
   gitStatus,
   chatDiff,
   configuredPreviewUrls,
+  providerLabel,
+  modelLabel,
+  sessionStatus,
+  agentCount,
+  verificationSummary,
   onOpenEnvironment,
   onOpenFiles,
   onOpenDiff,
@@ -254,35 +226,60 @@ export const ChatHeader = memo(function ChatHeader({
     changeRequest,
     onStartRename: startRename,
   });
-  const openMenuFromTitleTrigger = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>) => {
-      const position =
-        event.detail === 0
-          ? resolveThreadTitleMenuPosition({
-              pointerPosition: null,
-              // Keyboard-generated clicks have no viewport coordinates. This
-              // is the only case that needs a DOM measurement; pointer opens
-              // stay anchored to the actual trigger event and the menu bridge
-              // handles collision.
-              anchorRect: (() => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                return { left: rect.left, bottom: rect.bottom };
-              })(),
-            })
-          : resolveThreadTitleMenuPosition({
-              pointerPosition: { x: event.clientX, y: event.clientY },
-            });
-      if (position !== null) openMenu(position);
+  const titleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleMenuTimerRef = useRef<number | null>(null);
+  const cancelPendingTitleMenu = useCallback(() => {
+    if (titleMenuTimerRef.current === null) return;
+    clearTimeout(titleMenuTimerRef.current);
+    titleMenuTimerRef.current = null;
+  }, []);
+  // Drop a pending menu-open when the thread changes or the header unmounts,
+  // so it can never fire for a thread the user already left.
+  useEffect(
+    () => () => {
+      cancelPendingTitleMenu();
     },
-    [openMenu],
+    [activeThreadId, cancelPendingTitleMenu],
+  );
+  const openTitleMenuNow = useCallback(() => {
+    cancelPendingTitleMenu();
+    const rect = titleButtonRef.current?.getBoundingClientRect();
+    const position = resolveThreadTitleMenuPosition({ anchorRect: rect });
+    if (!position) return;
+    openMenu(position);
+  }, [cancelPendingTitleMenu, openMenu]);
+  const openMenuFromTitle = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      // The trailing click of a double-click belongs to rename, not the menu.
+      if (isTrailingDoubleClick(event.detail)) return;
+      // Keyboard activation and the explicit chevron affordance can never be
+      // the first half of a double-click, so they open without waiting.
+      const clickedChevron =
+        (event.target as HTMLElement).closest("[data-thread-title-chevron]") !== null;
+      if (event.detail === 0 || clickedChevron || window.desktopBridge === undefined) {
+        openTitleMenuNow();
+        return;
+      }
+      // Stay pending long enough for dblclick to cancel the open before the
+      // native menu appears and swallows the second click.
+      cancelPendingTitleMenu();
+      titleMenuTimerRef.current = window.setTimeout(() => {
+        titleMenuTimerRef.current = null;
+        openTitleMenuNow();
+      }, TITLE_MENU_OPEN_DELAY_MS);
+    },
+    [cancelPendingTitleMenu, openTitleMenuNow],
   );
   const handleTitleDoubleClick = useCallback(
     (event: ReactMouseEvent) => {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      // The chevron is the explicit menu affordance; only the title text renames.
+      if ((event.target as HTMLElement).closest("[data-thread-title-chevron]") !== null) return;
+      cancelPendingTitleMenu();
       closeMenu();
       startRename();
     },
-    [closeMenu, startRename],
+    [cancelPendingTitleMenu, closeMenu, startRename],
   );
   const handleHeaderContextMenu = useCallback(
     (event: ReactMouseEvent) => {
@@ -290,10 +287,11 @@ export const ChatHeader = memo(function ChatHeader({
       // The right-side controls (git, scripts, open-in) keep their own
       // behavior; only the breadcrumb area opens the thread menu.
       if ((event.target as HTMLElement).closest("[data-chat-header-actions]")) return;
+      cancelPendingTitleMenu();
       event.preventDefault();
       openMenu({ x: event.clientX, y: event.clientY });
     },
-    [isServerThread, openMenu, renamingTitle],
+    [cancelPendingTitleMenu, isServerThread, openMenu, renamingTitle],
   );
   const handleRenameKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -345,7 +343,7 @@ export const ChatHeader = memo(function ChatHeader({
             <WorkspaceBreadcrumbSeparator />
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="flex-1">
+        <WorkspaceBreadcrumbItem current className="min-w-0 flex-1">
           {renamingTitle !== null ? (
             <input
               autoFocus
@@ -360,11 +358,31 @@ export const ChatHeader = memo(function ChatHeader({
               onKeyDown={handleRenameKeyDown}
             />
           ) : isServerThread ? (
-            <ThreadTitleAnchor
-              activeThreadTitle={activeThreadTitle}
-              onDoubleClick={handleTitleDoubleClick}
-              onOpenMenu={openMenuFromTitleTrigger}
-            />
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    ref={titleButtonRef}
+                    type="button"
+                    aria-label={`Thread actions for ${activeThreadTitle}`}
+                    aria-haspopup="menu"
+                    data-thread-title-trigger="true"
+                    onClick={openMenuFromTitle}
+                    onDoubleClick={handleTitleDoubleClick}
+                    onBlur={cancelPendingTitleMenu}
+                    className="group/thread-title inline-flex w-full min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                }
+              >
+                <h2 className="min-w-0 flex-1 truncate">{activeThreadTitle}</h2>
+                <ChevronDownIcon
+                  aria-hidden
+                  data-thread-title-chevron
+                  className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-hover/thread-title:text-foreground group-focus-visible/thread-title:text-foreground motion-reduce:transition-none"
+                />
+              </TooltipTrigger>
+              <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
+            </Tooltip>
           ) : (
             <Tooltip>
               <TooltipTrigger
@@ -406,6 +424,11 @@ export const ChatHeader = memo(function ChatHeader({
             chatDiff={chatDiff}
             gitStatus={gitStatus}
             configuredPreviewUrls={configuredPreviewUrls}
+            providerLabel={providerLabel}
+            modelLabel={modelLabel}
+            sessionStatus={sessionStatus}
+            agentCount={agentCount}
+            verificationSummary={verificationSummary}
             onOpenEnvironment={onOpenEnvironment}
             onOpenFiles={onOpenFiles}
             onOpenDiff={onOpenDiff}

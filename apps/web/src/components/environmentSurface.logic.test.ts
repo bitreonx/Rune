@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatChangeSummary, summarizeEnvironmentChanges } from "./environmentSurface.logic";
+import {
+  formatChangeSummary,
+  hasEnvironmentChanges,
+  summarizeEnvironmentChanges,
+} from "./environmentSurface.logic";
 
 describe("environment surface change summary", () => {
   it("prefers chat-scoped changes when they are available", () => {
@@ -38,5 +42,10 @@ describe("environment surface change summary", () => {
         },
       }),
     ).toEqual({ files: 2, additions: 7, deletions: 4 });
+  });
+
+  it("does not treat a zero chat scope as proof that the workspace is clean", () => {
+    expect(hasEnvironmentChanges({ files: 0, additions: 0, deletions: 0 })).toBe(false);
+    expect(hasEnvironmentChanges({ files: 1, additions: 0, deletions: 0 })).toBe(true);
   });
 });

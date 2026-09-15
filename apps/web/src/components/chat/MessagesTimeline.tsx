@@ -17,6 +17,7 @@ import {
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
 const NOOP_OPEN_CHAT_DIFF = () => {};
+const NOOP_OPEN_ATTACHMENT: (attachment: ChatFileAttachment) => void = () => {};
 import { resolveChatListAnchoredEndSpace } from "@rune/shared/chatList";
 import {
   createContext,
@@ -40,7 +41,11 @@ import {
   workEntryDisplayIndicatesToolFailure,
   workLogEntryIsToolLike,
 } from "../../session-logic";
-import { type ChatImageAttachment, type TurnDiffSummary } from "../../types";
+import {
+  type ChatFileAttachment,
+  type ChatImageAttachment,
+  type TurnDiffSummary,
+} from "../../types";
 import {
   getRenderablePatch,
   resolveDiffThemeName,
@@ -107,6 +112,7 @@ import {
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { SentFileAttachmentChip } from "./SentFileAttachmentChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
@@ -162,6 +168,10 @@ interface TimelineRowSharedState {
   onEditUserMessage: (messageId: MessageId, messageText: string) => void;
   onDeleteUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  onOpenAttachment: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInFiles?: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInExplorer?: (attachment: ChatFileAttachment) => void;
+  onRemoveAttachment?: (attachment: ChatFileAttachment) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenChatDiff: () => void;
   chatDiff: ReadonlyArray<TurnDiffFileChange>;
@@ -322,6 +332,10 @@ interface MessagesTimelineProps {
   onDeleteUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  onOpenAttachment?: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInFiles?: (attachment: ChatFileAttachment) => void;
+  onRevealAttachmentInExplorer?: (attachment: ChatFileAttachment) => void;
+  onRemoveAttachment?: (attachment: ChatFileAttachment) => void;
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
@@ -374,6 +388,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onDeleteUserMessage,
   isRevertingCheckpoint,
   onImageExpand,
+  onOpenAttachment = NOOP_OPEN_ATTACHMENT,
+  onRevealAttachmentInFiles,
+  onRevealAttachmentInExplorer,
+  onRemoveAttachment,
   activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
@@ -636,6 +654,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onEditUserMessage,
       onDeleteUserMessage,
       onImageExpand,
+      onOpenAttachment,
+      onRevealAttachmentInFiles,
+      onRevealAttachmentInExplorer,
+      onRemoveAttachment,
       onOpenTurnDiff,
       onOpenChatDiff,
       chatDiff,
@@ -658,6 +680,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onEditUserMessage,
       onDeleteUserMessage,
       onImageExpand,
+      onOpenAttachment,
+      onRevealAttachmentInFiles,
+      onRevealAttachmentInExplorer,
+      onRemoveAttachment,
       onOpenTurnDiff,
       onOpenChatDiff,
       chatDiff,
@@ -1116,8 +1142,12 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
-  const userImages = (row.message.attachments ?? []).filter(
+  const userAttachments = row.message.attachments ?? [];
+  const userImages = userAttachments.filter(
     (attachment): attachment is ChatImageAttachment => attachment.type === "image",
+  );
+  const userFiles = userAttachments.filter(
+    (attachment): attachment is ChatFileAttachment => attachment.type === "file",
   );
   const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
   const terminalContexts = displayedUserMessage.contexts;
@@ -1174,6 +1204,20 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         )}
+        {userFiles.length > 0 ? (
+          <div className="mb-2 flex max-w-full flex-wrap gap-1.5" data-sent-file-attachments="true">
+            {userFiles.map((attachment) => (
+              <SentFileAttachmentChip
+                key={attachment.id}
+                attachment={attachment}
+                onOpenAttachment={ctx.onOpenAttachment}
+                onRevealInFiles={ctx.onRevealAttachmentInFiles}
+                onRevealInExplorer={ctx.onRevealAttachmentInExplorer}
+                onRemove={ctx.onRemoveAttachment}
+              />
+            ))}
+          </div>
+        ) : null}
         {previewAnnotations.map((annotation, index) => (
           <UserMessagePreviewAnnotationCard
             key={annotation.id}

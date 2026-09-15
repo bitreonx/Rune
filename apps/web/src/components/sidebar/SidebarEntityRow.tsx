@@ -14,6 +14,7 @@ export function SidebarEntityRow(props: SidebarEntityRowProps) {
   return (
     <div
       data-rune-sidebar-entity={props.variant}
+      data-rune-sidebar-selected={props.selected ? "true" : "false"}
       className={cn(
         "group/sidebar-entity flex min-h-8 items-center gap-1 rounded-md border border-transparent px-1 text-sm transition-colors motion-reduce:transition-none",
         props.selected

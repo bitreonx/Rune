@@ -312,3 +312,54 @@ export function deriveAgentTrail(agent: RuntimeSubagent): AgentTrail {
   }
   return sections;
 }
+
+/**
+ * Build the compact primary story without grouping away the runtime order.
+ * The full trail remains available to the verification surface; the dock
+ * should narrate the latest events as they happened.
+ */
+export function deriveAgentActivityStory(
+  agent: RuntimeSubagent,
+  limit = 6,
+): ReadonlyArray<AgentTrailEntry> {
+  if (limit <= 0) return [];
+  const entryTimestamp = (value: string | null): number => {
+    if (value === null) return Number.POSITIVE_INFINITY;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  };
+  const entries: Array<{ readonly entry: AgentTrailEntry; readonly sourceIndex: number }> =
+    agent.recentActivity.map((activity, sourceIndex) => ({
+      entry: { at: activity.at, text: activity.summary },
+      sourceIndex,
+    }));
+  const terminalText = agent.result ?? agent.error ?? (agent.status === "completed" ? "Completed" : null);
+  if (agent.outputFile) {
+    entries.push({
+      entry: { at: agent.updatedAt, text: `Artifact recorded: ${agent.outputFile}` },
+      sourceIndex: entries.length,
+    });
+  }
+  if (terminalText || agent.status === "failed" || agent.status === "interrupted") {
+    entries.push({
+      entry: {
+        at: agent.completedAt ?? agent.updatedAt,
+        text: terminalText ?? "The provider did not record a result.",
+      },
+      sourceIndex: entries.length,
+    });
+  }
+  const timestamps = entries.map(({ entry }) => entryTimestamp(entry.at));
+  const hasUnknownTimestamp = timestamps.some((timestamp) => !Number.isFinite(timestamp));
+  const ordered = hasUnknownTimestamp
+    ? // A missing provider timestamp gives us no safe insertion point. Keep
+      // the durable source sequence intact rather than applying a partial
+      // comparator that can contradict itself for mixed entries.
+      entries
+    : entries.toSorted(
+        (left, right) =>
+          entryTimestamp(left.entry.at) - entryTimestamp(right.entry.at) ||
+          left.sourceIndex - right.sourceIndex,
+      );
+  return ordered.slice(-limit).map(({ entry }) => entry);
+}

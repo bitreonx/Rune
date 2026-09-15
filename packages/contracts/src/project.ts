@@ -10,6 +10,10 @@ const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+export const PROJECT_WRITE_BATCH_MAX_FILES = 64;
+export const PROJECT_WRITE_FILE_MAX_BYTES = 256 * 1024;
+export const PROJECT_WRITE_BATCH_MAX_BYTES = 2 * 1024 * 1024;
+const PROJECT_WRITE_FILE_MAX_BASE64_LENGTH = Math.ceil((PROJECT_WRITE_FILE_MAX_BYTES * 4) / 3) + 4;
 
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
@@ -212,6 +216,8 @@ export class ProjectListEntriesError extends Schema.TaggedErrorClass<ProjectList
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  /** Return file identity metadata without decoding file contents. */
+  metadataOnly: Schema.optional(Schema.Boolean),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 
@@ -220,6 +226,12 @@ export const ProjectReadFileResult = Schema.Struct({
   contents: Schema.String,
   byteLength: NonNegativeInt,
   truncated: Schema.Boolean,
+  /** Best-effort path-derived type label, omitted when no type is known. */
+  mimeType: Schema.optional(TrimmedNonEmptyString),
+  /** Filesystem modification time in ISO-8601 form. */
+  modifiedAt: Schema.optional(Schema.String),
+  /** SHA-256 is omitted for files above the bounded hashing threshold. */
+  sha256: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 
@@ -334,10 +346,41 @@ export const ProjectWriteFileInput = Schema.Struct({
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
+/**
+ * Batch writes may carry text or an explicitly encoded binary payload. Keeping
+ * binary transport opt-in prevents accidental UTF-8 corruption while retaining
+ * the simple string shape for the existing single-file and provider callers.
+ */
+export const ProjectWriteFileContents = Schema.Union([
+  Schema.String.check(Schema.isMaxLength(PROJECT_WRITE_FILE_MAX_BYTES)),
+  Schema.Struct({
+    encoding: Schema.Literal("base64"),
+    data: Schema.String.check(Schema.isMaxLength(PROJECT_WRITE_FILE_MAX_BASE64_LENGTH)),
+  }),
+]);
+export type ProjectWriteFileContents = typeof ProjectWriteFileContents.Type;
+
+export const ProjectWriteFilesFile = Schema.Struct({
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  contents: ProjectWriteFileContents,
+});
+export type ProjectWriteFilesFile = typeof ProjectWriteFilesFile.Type;
+
+export const ProjectWriteFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  files: Schema.Array(ProjectWriteFilesFile).check(
+    Schema.isMaxLength(PROJECT_WRITE_BATCH_MAX_FILES),
+  ),
+});
+export type ProjectWriteFilesInput = typeof ProjectWriteFilesInput.Type;
+
 export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
+
+export const ProjectWriteFilesResult = Schema.Array(ProjectWriteFileResult);
+export type ProjectWriteFilesResult = typeof ProjectWriteFilesResult.Type;
 
 export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteFileError>()(
   "ProjectWriteFileError",

@@ -8,7 +8,14 @@
  * @module WorkspaceFileSystem
  */
 import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
+import { createHash } from "node:crypto";
 
+import {
+  PROJECT_WRITE_BATCH_MAX_BYTES,
+  PROJECT_WRITE_BATCH_MAX_FILES,
+  PROJECT_WRITE_FILE_MAX_BYTES,
+} from "@rune/contracts";
 import type {
   ProjectCreateEntryInput,
   ProjectCreateEntryResult,
@@ -20,6 +27,8 @@ import type {
   ProjectRenameEntryInput,
   ProjectRenameEntryResult,
   ProjectWriteFileInput,
+  ProjectWriteFileContents,
+  ProjectWriteFilesFile,
   ProjectWriteFileResult,
 } from "@rune/contracts";
 import * as Context from "effect/Context";
@@ -30,11 +39,80 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { workspaceFileMimeType } from "@rune/shared/fileKind";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+const PROJECT_METADATA_HASH_MAX_BYTES = 16 * 1024 * 1024;
+
+function decodeBatchFileContents(contents: ProjectWriteFileContents): Buffer {
+  if (typeof contents === "string") return Buffer.from(contents, "utf8");
+
+  const decoded = Buffer.from(contents.data, "base64");
+  if (contents.data.length % 4 !== 0 || decoded.toString("base64") !== contents.data) {
+    throw new Error("Batch file contents must be valid padded base64.");
+  }
+  return decoded;
+}
+
+async function assertBatchTargetDoesNotTraverseSymlink(
+  workspaceRoot: string,
+  targetPath: string,
+): Promise<void> {
+  const rootPath = NodePath.resolve(workspaceRoot);
+  let currentPath = NodePath.resolve(targetPath);
+  while (currentPath !== rootPath) {
+    try {
+      const stat = await NodeFSP.lstat(currentPath);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Workspace batch target traverses a symlink: ${currentPath}`);
+      }
+      if (currentPath !== targetPath && !stat.isDirectory()) {
+        throw new Error(`Workspace batch parent is not a directory: ${currentPath}`);
+      }
+      currentPath = NodePath.dirname(currentPath);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+      currentPath = NodePath.dirname(currentPath);
+    }
+  }
+}
+
+async function missingParentDirectories(
+  parentPath: string,
+  workspaceRoot: string,
+): Promise<string[]> {
+  const rootPath = NodePath.resolve(workspaceRoot);
+  let currentPath = NodePath.resolve(parentPath);
+  const missing: string[] = [];
+  while (currentPath !== rootPath) {
+    try {
+      const stat = await NodeFSP.lstat(currentPath);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Workspace batch parent traverses a symlink: ${currentPath}`);
+      }
+      if (!stat.isDirectory()) {
+        throw new Error(`Workspace batch parent is not a directory: ${currentPath}`);
+      }
+      break;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+      missing.push(currentPath);
+      currentPath = NodePath.dirname(currentPath);
+    }
+  }
+  return missing.reverse();
+}
+
+async function restoreBatchTarget(backupPath: string, targetPath: string): Promise<void> {
+  if (process.platform === "win32") {
+    await NodeFSP.copyFile(backupPath, targetPath);
+  } else {
+    await NodeFSP.rename(backupPath, targetPath);
+  }
+}
 
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
@@ -154,7 +232,7 @@ export class WorkspaceFileSystem extends Context.Service<
     /** Validate every target before writing a batch of related files. */
     readonly writeFiles: (input: {
       readonly cwd: string;
-      readonly files: ReadonlyArray<{ readonly relativePath: string; readonly contents: string }>;
+      readonly files: ReadonlyArray<ProjectWriteFilesFile>;
     }) => Effect.Effect<
       ReadonlyArray<ProjectWriteFileResult>,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
@@ -290,6 +368,38 @@ export const make = Effect.gen(function* () {
               relativePath: input.relativePath,
               resolvedPath: realTargetPath,
             });
+          }
+
+          if (input.metadataOnly === true) {
+            const sha256 =
+              stat.size <= PROJECT_METADATA_HASH_MAX_BYTES
+                ? createHash("sha256")
+                    .update(
+                      yield* Effect.tryPromise({ try: () => handle.readFile() }).pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new WorkspaceFileSystemOperationError({
+                              workspaceRoot: input.cwd,
+                              relativePath: input.relativePath,
+                              resolvedPath: realTargetPath,
+                              operationPath: realTargetPath,
+                              operation: "read",
+                              cause,
+                            }),
+                        ),
+                      ),
+                    )
+                    .digest("hex")
+                : undefined;
+            return {
+              relativePath: target.relativePath,
+              contents: "",
+              byteLength: stat.size,
+              truncated: false,
+              modifiedAt: stat.mtime.toISOString(),
+              mimeType: workspaceFileMimeType(target.relativePath) || undefined,
+              ...(sha256 === undefined ? {} : { sha256 }),
+            };
           }
 
           const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);
@@ -489,38 +599,149 @@ export const make = Effect.gen(function* () {
       }
       seen.add(target.relativePath);
     }
-    const results: ProjectWriteFileResult[] = [];
-    for (const [index, target] of targets.entries()) {
-      const file = input.files[index];
-      if (!file) continue;
-      yield* fileSystem.makeDirectory(path.dirname(target.absolutePath), { recursive: true }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new WorkspaceFileSystemOperationError({
-              workspaceRoot: input.cwd,
-              relativePath: file.relativePath,
-              resolvedPath: target.absolutePath,
-              operationPath: path.dirname(target.absolutePath),
-              operation: "make-directory",
+    let failedFile = input.files[0];
+    let failedTarget = targets[0];
+    const results = yield* Effect.tryPromise({
+      try: async () => {
+        if (input.files.length > PROJECT_WRITE_BATCH_MAX_FILES) {
+          throw new Error(
+            `A workspace batch may contain at most ${PROJECT_WRITE_BATCH_MAX_FILES} files.`,
+          );
+        }
+        const preparedContents = input.files.map((file, index) => {
+          failedFile = file;
+          failedTarget = targets[index];
+          const contents = decodeBatchFileContents(file.contents);
+          if (contents.byteLength > PROJECT_WRITE_FILE_MAX_BYTES) {
+            throw new Error(
+              `Workspace batch file '${file.relativePath}' exceeds RUNE's per-file size limit.`,
+            );
+          }
+          return contents;
+        });
+        const totalBytes = preparedContents.reduce(
+          (total, contents) => total + contents.byteLength,
+          0,
+        );
+        if (totalBytes > PROJECT_WRITE_BATCH_MAX_BYTES) {
+          throw new Error("The workspace batch exceeds RUNE's safe aggregate size limit.");
+        }
+        for (const [index, target] of targets.entries()) {
+          failedFile = input.files[index];
+          failedTarget = target;
+          await assertBatchTargetDoesNotTraverseSymlink(input.cwd, target.absolutePath);
+        }
+        const stagingRoot = await NodeFSP.mkdtemp(NodePath.join(input.cwd, ".rune-write-files-"));
+        const backups = new Map<string, string>();
+        const liveBackups = new Map<string, string>();
+        const committed: string[] = [];
+        const createdDirectories: string[] = [];
+        try {
+          for (const [index, target] of targets.entries()) {
+            failedFile = input.files[index];
+            failedTarget = target;
+            try {
+              const stat = await NodeFSP.stat(target.absolutePath);
+              if (stat.isDirectory()) {
+                throw new Error("Target is a directory.");
+              }
+              const backupPath = NodePath.join(stagingRoot, "backup-" + backups.size);
+              await NodeFSP.copyFile(target.absolutePath, backupPath);
+              backups.set(target.absolutePath, backupPath);
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+            }
+          }
+
+          for (const [index, target] of targets.entries()) {
+            const file = input.files[index];
+            if (!file) continue;
+            const stagedPath = NodePath.join(stagingRoot, "file-" + index);
+            failedFile = file;
+            failedTarget = target;
+            await NodeFSP.writeFile(stagedPath, preparedContents[index]!);
+          }
+
+          for (const [index, target] of targets.entries()) {
+            const file = input.files[index];
+            if (!file) continue;
+            failedFile = file;
+            failedTarget = target;
+            const parentPath = NodePath.dirname(target.absolutePath);
+            const missingDirectories = await missingParentDirectories(parentPath, input.cwd);
+            await NodeFSP.mkdir(parentPath, { recursive: true });
+            createdDirectories.push(...missingDirectories);
+            await assertBatchTargetDoesNotTraverseSymlink(input.cwd, target.absolutePath);
+            const stagedPath = NodePath.join(stagingRoot, "file-" + index);
+            if (process.platform === "win32" && backups.has(target.absolutePath)) {
+              // Windows rename cannot overwrite a live file reliably. Move the
+              // verified original out of the way first, then install the staged
+              // file with a second atomic rename. The live backup lets rollback
+              // restore without ever copying over a partially-written target.
+              const liveBackupPath = NodePath.join(stagingRoot, "live-backup-" + index);
+              await NodeFSP.rename(target.absolutePath, liveBackupPath);
+              liveBackups.set(target.absolutePath, liveBackupPath);
+              committed.push(target.absolutePath);
+              await NodeFSP.rename(stagedPath, target.absolutePath);
+            } else {
+              await NodeFSP.rename(stagedPath, target.absolutePath);
+              committed.push(target.absolutePath);
+            }
+          }
+          return targets.map((target) => ({ relativePath: target.relativePath }));
+        } catch (cause) {
+          const rollbackErrors: unknown[] = [];
+          for (const absolutePath of committed.toReversed()) {
+            const backupPath = backups.get(absolutePath);
+            const liveBackupPath = liveBackups.get(absolutePath);
+            if (liveBackupPath && backupPath) {
+              await NodeFSP.rm(absolutePath, { force: true }).catch((rollbackCause) => {
+                rollbackErrors.push(rollbackCause);
+              });
+              await NodeFSP.rename(liveBackupPath, absolutePath).catch((rollbackCause) => {
+                rollbackErrors.push(rollbackCause);
+              });
+            } else if (backupPath && process.platform !== "win32") {
+              await restoreBatchTarget(backupPath, absolutePath).catch((rollbackCause) => {
+                rollbackErrors.push(rollbackCause);
+              });
+            } else {
+              await NodeFSP.rm(absolutePath, { force: true }).catch((rollbackCause) => {
+                rollbackErrors.push(rollbackCause);
+              });
+            }
+          }
+          for (const directory of createdDirectories.toReversed()) {
+            await NodeFSP.rm(directory, { force: true }).catch((rollbackCause) => {
+              rollbackErrors.push(rollbackCause);
+            });
+          }
+          if (rollbackErrors.length > 0) {
+            const details = rollbackErrors
+              .map((rollbackCause) =>
+                rollbackCause instanceof Error ? rollbackCause.message : String(rollbackCause),
+              )
+              .join("; ");
+            throw new Error(`Batch write failed and rollback was incomplete: ${details}`, {
               cause,
-            }),
-        ),
-      );
-      yield* fileSystem.writeFileString(target.absolutePath, file.contents).pipe(
-        Effect.mapError(
-          (cause) =>
-            new WorkspaceFileSystemOperationError({
-              workspaceRoot: input.cwd,
-              relativePath: file.relativePath,
-              resolvedPath: target.absolutePath,
-              operationPath: target.absolutePath,
-              operation: "write-file",
-              cause,
-            }),
-        ),
-      );
-      results.push({ relativePath: target.relativePath });
-    }
+            });
+          }
+          throw cause;
+        } finally {
+          await NodeFSP.rm(stagingRoot, { recursive: true, force: true });
+        }
+      },
+      catch: (cause) => {
+        return new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: failedFile?.relativePath ?? ".",
+          resolvedPath: failedTarget?.absolutePath ?? input.cwd,
+          operationPath: failedTarget?.absolutePath ?? input.cwd,
+          operation: "write-file",
+          cause,
+        });
+      },
+    });
     yield* workspaceEntries.refresh(input.cwd);
     return results;
   });
@@ -559,21 +780,19 @@ export const make = Effect.gen(function* () {
     }
 
     if (input.kind === "directory") {
-      yield* fileSystem
-        .makeDirectory(target.absolutePath, { recursive: true })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new WorkspaceFileSystemOperationError({
-                workspaceRoot: input.cwd,
-                relativePath: input.relativePath,
-                resolvedPath: target.absolutePath,
-                operationPath: target.absolutePath,
-                operation: "create-directory",
-                cause,
-              }),
-          ),
-        );
+      yield* fileSystem.makeDirectory(target.absolutePath, { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemOperationError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: target.absolutePath,
+              operationPath: target.absolutePath,
+              operation: "create-directory",
+              cause,
+            }),
+        ),
+      );
     } else {
       // Same parent-creation the editor's save path uses, so a "new file" in a
       // not-yet-existing folder behaves like typing the file into an editor.
@@ -612,7 +831,11 @@ export const make = Effect.gen(function* () {
   const renameEntry: WorkspaceFileSystem["Service"]["renameEntry"] = Effect.fn(
     "WorkspaceFileSystem.renameEntry",
   )(function* (input) {
-    if (input.newName.includes("/") || input.newName.includes("\\") || input.newName.includes("\0")) {
+    if (
+      input.newName.includes("/") ||
+      input.newName.includes("\\") ||
+      input.newName.includes("\0")
+    ) {
       return yield* new WorkspaceFileSystemOperationError({
         workspaceRoot: input.cwd,
         relativePath: input.relativePath,
@@ -776,6 +999,5 @@ export const make = Effect.gen(function* () {
     deleteEntry,
   });
 });
-
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

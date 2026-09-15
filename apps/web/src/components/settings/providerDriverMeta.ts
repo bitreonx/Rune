@@ -10,16 +10,6 @@ import {
   ProviderDriverKind,
 } from "@rune/contracts";
 import type * as Schema from "effect/Schema";
-import {
-  ClaudeAI,
-  CursorIcon,
-  GrokIcon,
-  AntigravityIcon,
-  type Icon,
-  OpenAI,
-  OpenCodeIcon,
-  OpenRouterIcon,
-} from "../Icons";
 
 type ProviderSettingsSchema = {
   readonly fields: Readonly<Record<string, Schema.Top>>;
@@ -34,7 +24,6 @@ type ProviderSettingsSchema = {
 export interface ProviderClientDefinition {
   readonly value: ProviderDriverKind;
   readonly label: string;
-  readonly icon: Icon;
   readonly settingsSchema: ProviderSettingsSchema;
   /**
    * Optional short label rendered as a `variant="warning"` badge next to
@@ -64,51 +53,43 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
   {
     value: ProviderDriverKind.make("codex"),
     label: "Codex",
-    icon: OpenAI,
     settingsSchema: CodexSettings,
   },
   {
     value: ProviderDriverKind.make("claudeAgent"),
     label: "Claude Code",
-    icon: ClaudeAI,
     settingsSchema: ClaudeSettings,
   },
   {
     value: ProviderDriverKind.make("antigravity"),
     label: "Antigravity",
-    icon: AntigravityIcon,
     settingsSchema: AntigravitySettings,
   },
   {
     value: ProviderDriverKind.make("cursor"),
     label: "Cursor",
-    icon: CursorIcon,
     badgeLabel: "Early Access",
     settingsSchema: CursorSettings,
   },
   {
     value: ProviderDriverKind.make("grok"),
     label: "Grok",
-    icon: GrokIcon,
     badgeLabel: "Early Access",
     settingsSchema: GrokSettings,
   },
   {
     value: ProviderDriverKind.make("opencode"),
     label: "OpenCode",
-    icon: OpenCodeIcon,
     settingsSchema: OpenCodeSettings,
   },
   {
     value: ProviderDriverKind.make("openaiApi"),
     label: "OpenAI API",
-    icon: OpenAI,
     settingsSchema: OpenAiApiSettings,
   },
   {
     value: ProviderDriverKind.make("openrouter"),
     label: "OpenRouter",
-    icon: OpenRouterIcon,
     settingsSchema: OpenRouterSettings,
   },
 ];
@@ -119,7 +100,25 @@ export const PROVIDER_CLIENT_DEFINITION_BY_VALUE: Partial<
   PROVIDER_CLIENT_DEFINITIONS.map((definition) => [definition.value, definition]),
 );
 
-export const DRIVER_OPTIONS = PROVIDER_CLIENT_DEFINITIONS;
+const MODEL_SERVICE_DRIVER_VALUES = new Set<ProviderDriverKind>([
+  ProviderDriverKind.make("openaiApi"),
+  ProviderDriverKind.make("openrouter"),
+]);
+
+/**
+ * Drivers that can own a harness instance. Model services are deliberately
+ * excluded: they have their own Connections/Model Services flow and must not
+ * appear in the contextual "Add instance" wizard.
+ */
+export const HARNESS_DRIVER_OPTIONS = PROVIDER_CLIENT_DEFINITIONS.filter(
+  (definition) => !MODEL_SERVICE_DRIVER_VALUES.has(definition.value),
+);
+
+export const MODEL_SERVICE_OPTIONS = PROVIDER_CLIENT_DEFINITIONS.filter((definition) =>
+  MODEL_SERVICE_DRIVER_VALUES.has(definition.value),
+);
+
+export const DRIVER_OPTIONS = HARNESS_DRIVER_OPTIONS;
 export const DRIVER_OPTION_BY_VALUE = PROVIDER_CLIENT_DEFINITION_BY_VALUE;
 export type DriverOption = ProviderClientDefinition;
 

@@ -18,30 +18,69 @@ export interface SelectableModelOption {
   name: string;
 }
 
+export type ModelCapabilityState = boolean | "unknown";
+
 export interface ModelMediaSupport {
-  readonly image: boolean;
-  readonly audio: boolean;
-  readonly video: boolean;
+  readonly image: ModelCapabilityState;
+  readonly audio: ModelCapabilityState;
+  readonly video: ModelCapabilityState;
+  readonly pdf: ModelCapabilityState;
+  readonly folder: ModelCapabilityState;
 }
 
 /**
  * Resolve attachment support from provider-neutral model metadata.
- * Unknown catalogs remain conservative and accept images only, matching the
- * legacy attachment behavior without inventing audio/video support.
+ * Missing input modality metadata is unknown for every capability. When a
+ * catalog provides a modality list, media and document support are explicit;
+ * folder support stays unknown unless the catalog names a folder-like input.
  */
 export function resolveModelMediaSupport(
   metadata: ModelMetadata | null | undefined,
 ): ModelMediaSupport {
   const modalities = metadata?.inputModalities;
   if (modalities === undefined) {
-    return { image: true, audio: false, video: false };
+    return {
+      image: "unknown",
+      audio: "unknown",
+      video: "unknown",
+      pdf: "unknown",
+      folder: "unknown",
+    };
   }
-  const normalized = new Set(modalities.map((modality) => modality.toLowerCase()));
+
+  const normalized = new Set(
+    modalities.map((modality) => modality.trim().toLowerCase()).filter(Boolean),
+  );
+
   return {
-    image: normalized.has("image"),
-    audio: normalized.has("audio"),
-    video: normalized.has("video"),
+    image: resolveAdvertisedModality(normalized, ["image", "images"], "image/"),
+    audio: resolveAdvertisedModality(normalized, ["audio", "audios"], "audio/"),
+    video: resolveAdvertisedModality(normalized, ["video", "videos"], "video/"),
+    pdf: resolveAdvertisedModality(normalized, ["pdf", "document", "documents", "application/pdf"]),
+    folder: resolveFolderModality(normalized),
   };
+}
+
+function resolveAdvertisedModality(
+  modalities: ReadonlySet<string>,
+  exactValues: ReadonlyArray<string>,
+  mimePrefix?: string,
+): ModelCapabilityState {
+  for (const modality of modalities) {
+    if (
+      exactValues.includes(modality) ||
+      (mimePrefix !== undefined && modality.startsWith(mimePrefix))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveFolderModality(modalities: ReadonlySet<string>): ModelCapabilityState {
+  return resolveAdvertisedModality(modalities, ["folder", "folders", "directory", "directories"])
+    ? true
+    : "unknown";
 }
 
 export function createModelCapabilities(input: {

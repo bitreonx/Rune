@@ -2,21 +2,36 @@ import type { ReactNode } from "react";
 import { ChevronRightIcon, LayersIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { selectPocketShelfThreads, type PocketWorkspaceThreadData } from "./pocketWorkspace.logic";
+import {
+  POCKET_MOTION_SEQUENCE,
+  projectPocketShelf,
+  type PocketMotionPhase,
+  type PocketWorkspaceThreadData,
+} from "./pocketWorkspace.logic";
 
 export function PocketShelf(props: {
   readonly threads: ReadonlyArray<PocketWorkspaceThreadData>;
   readonly onOpenThread: (thread: PocketWorkspaceThreadData) => void;
   readonly renderProviderMark?: (thread: PocketWorkspaceThreadData) => ReactNode;
   readonly maxVisible?: number;
+  readonly motionPhase?: PocketMotionPhase;
+  readonly motionProfile?: "balanced" | "expressive" | "reduced";
 }) {
-  const limit = props.maxVisible ?? 6;
-  const shelf = selectPocketShelfThreads(props.threads, limit);
-  const overflow = Math.max(0, props.threads.length - shelf.length);
+  const { threads: shelf, overflow } = projectPocketShelf(props.threads, props.maxVisible);
   if (shelf.length === 0) return null;
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden" data-rune-pocket-shelf>
+    <div
+      className="flex min-w-0 items-center gap-1.5 overflow-hidden"
+      data-rune-pocket-shelf
+      data-rune-pocket-surface-state="open"
+      data-rune-pocket-motion-phase={props.motionPhase ?? "settle"}
+      data-rune-pocket-motion-profile={props.motionProfile ?? "balanced"}
+      data-rune-pocket-motion-finite="true"
+      data-rune-pocket-motion-sequence={POCKET_MOTION_SEQUENCE}
+      data-rune-pocket-shelf-count={shelf.length}
+      data-rune-pocket-shelf-overflow={overflow}
+    >
       <LayersIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
       <div className="flex min-w-0 items-center gap-1 overflow-hidden">
         {shelf.map((thread) => (
@@ -43,7 +58,11 @@ export function PocketShelf(props: {
           </button>
         ))}
         {overflow > 0 ? (
-          <span className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground/70">
+          <span
+            className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-medium text-muted-foreground/70"
+            aria-label={`${overflow} more threads`}
+            data-rune-pocket-shelf-overflow-label
+          >
             +{overflow}
           </span>
         ) : null}

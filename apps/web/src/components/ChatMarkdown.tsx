@@ -83,6 +83,7 @@ import {
   shouldOpenMarkdownFileLinkInEditor,
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
+import { classifySmartReference } from "../smartReference";
 import { readLocalApi } from "../localApi";
 import { useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
@@ -860,6 +861,7 @@ interface MarkdownFileLinkProps {
   onOpen: (targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>;
   onOpenInPanel: (workspaceRelativePath: string, line: number | undefined) => void;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
+  unsafeToAutoExecute: boolean;
   className?: string | undefined;
 }
 
@@ -1211,8 +1213,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpen,
   onOpenInPanel,
   onOpenInBrowser,
+  unsafeToAutoExecute,
   className,
 }: MarkdownFileLinkProps) {
+  const canOpenInRuneViewer = threadRef != null && workspaceRelativePath !== null;
   const handleOpenInEditor = useCallback(() => {
     void (async () => {
       try {
@@ -1249,12 +1253,23 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   }, [onOpen, targetPath]);
 
   const handleOpenInFilePreview = useCallback(() => {
+    if (unsafeToAutoExecute && !canOpenInRuneViewer) {
+      return;
+    }
     if (!threadRef || !workspaceRelativePath) {
       handleOpenInEditor();
       return;
     }
     onOpenInPanel(workspaceRelativePath, line);
-  }, [handleOpenInEditor, line, onOpenInPanel, threadRef, workspaceRelativePath]);
+  }, [
+    canOpenInRuneViewer,
+    handleOpenInEditor,
+    line,
+    onOpenInPanel,
+    threadRef,
+    unsafeToAutoExecute,
+    workspaceRelativePath,
+  ]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!onOpenInBrowser) {
@@ -1344,10 +1359,16 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       try {
         const clicked = await api.contextMenu.show(
           [
-            { id: "open-in-rune", label: "Open in RUNE Files" },
-            { id: "open", label: "Open in editor" },
-            ...(onOpenInBrowser
-              ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
+            ...(canOpenInRuneViewer
+              ? ([{ id: "open-in-rune", label: "Open in RUNE Files" }] as const)
+              : []),
+            ...(!unsafeToAutoExecute
+              ? ([
+                  { id: "open", label: "Open in editor" },
+                  ...(onOpenInBrowser
+                    ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
+                    : []),
+                ] as const)
               : []),
             { id: "copy-relative", label: "Copy relative path" },
             { id: "copy-reference", label: "Copy reference" },
@@ -1360,11 +1381,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           handleOpenInFilePreview();
           return;
         }
-        if (clicked === "open") {
+        if (!unsafeToAutoExecute && clicked === "open") {
           handleOpenInEditor();
           return;
         }
-        if (clicked === "open-in-browser") {
+        if (!unsafeToAutoExecute && clicked === "open-in-browser") {
           handleOpenInBrowser();
           return;
         }
@@ -1393,8 +1414,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       handleOpenInBrowser,
       handleOpenInEditor,
       handleOpenInFilePreview,
+      canOpenInRuneViewer,
       onOpenInBrowser,
       targetPath,
+      unsafeToAutoExecute,
       workspaceRelativePath,
     ],
   );
@@ -1406,11 +1429,18 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           <a
             href={href}
             aria-label={`Workspace file ${label}`}
+            aria-disabled={unsafeToAutoExecute && !canOpenInRuneViewer ? true : undefined}
             className={cn(CHAT_FILE_TAG_CHIP_CLASS_NAME, MARKDOWN_FILE_LINK_CLASS_NAME, className)}
+            data-smart-reference-unsafe={unsafeToAutoExecute ? "true" : undefined}
             data-markdown-copy={copyMarkdown}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (unsafeToAutoExecute) {
+                if (!canOpenInRuneViewer) return;
+                handleOpenInFilePreview();
+                return;
+              }
               if (shouldOpenMarkdownFileLinkInEditor(event)) {
                 handleOpenInEditor();
                 return;
@@ -1455,6 +1485,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.onOpen === next.onOpen &&
     previous.onOpenInPanel === next.onOpenInPanel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
+    previous.unsafeToAutoExecute === next.unsafeToAutoExecute &&
     previous.className === next.className
   );
 }
@@ -1621,6 +1652,7 @@ function ChatMarkdown({
       fileLinkMeta: MarkdownFileLinkMeta,
       copyMarkdown: string,
       className?: string,
+      unsafeToAutoExecute = false,
     ) => {
       const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
       const labelParts = [fileLinkMeta.basename];
@@ -1648,12 +1680,14 @@ function ChatMarkdown({
           onOpen={openInPreferredEditor}
           onOpenInPanel={openFileInPanel}
           onOpenInBrowser={
+            !unsafeToAutoExecute &&
             threadRef &&
             isPreviewSupportedInRuntime() &&
             isBrowserPreviewFile(fileLinkMeta.filePath)
               ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
               : undefined
           }
+          unsafeToAutoExecute={unsafeToAutoExecute}
           className={className}
         />
       );
@@ -1733,10 +1767,16 @@ function ChatMarkdown({
       },
       a({ node, href, children, title: _title, ...props }) {
         const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
-        const fileLinkMeta = normalizedHref
-          ? (markdownFileLinkMetaByHref.get(normalizedHref) ??
-            resolveMarkdownFileLinkMeta(normalizedHref, cwd))
+        const smartReference = href
+          ? classifySmartReference({ href, cwd })
           : null;
+        const fileLinkMeta =
+          smartReference?.kind === "workspace-file"
+            ? smartReference.file
+            : smartReference?.kind === "workspace-directory" && normalizedHref
+              ? (markdownFileLinkMetaByHref.get(normalizedHref) ??
+                resolveMarkdownFileLinkMeta(normalizedHref, cwd))
+              : null;
         if (!fileLinkMeta) {
           const faviconHost = resolveExternalWebLinkHost(href);
           const isSameDocumentLink = href?.startsWith("#") ?? false;
@@ -1758,7 +1798,9 @@ function ChatMarkdown({
                 // conversation instead of in a browser: it is the thing being talked about, and
                 // the panel it opens offers the browser as one of its actions. Anything else is
                 // an ordinary link and keeps the `_blank` the shell already handles.
-                if (href) openChangeRequestLink(event, href);
+                if (smartReference?.kind === "change-request" && href) {
+                  openChangeRequestLink(event, href);
+                }
               }}
               onContextMenu={(event) => {
                 if (!href || !faviconHost) return;
@@ -1817,16 +1859,27 @@ function ChatMarkdown({
           fileLinkMeta,
           `[${fileLinkMeta.basename}](${normalizedHref})`,
           props.className,
+          smartReference?.kind === "workspace-file" && smartReference.unsafeToAutoExecute,
         );
       },
       code({ node, children, className, ...props }) {
         if (node?.properties?.dataInlineCode != null) {
           const codeText = nodeToPlainText(children);
+          const smartReference = classifySmartReference({ text: codeText, cwd });
           const fileLinkMeta =
-            inlineCodeFileLinkMetaByText.get(codeText.trim()) ??
-            resolveInlineCodeFileLinkMeta(codeText, cwd);
+            smartReference?.kind === "workspace-file"
+              ? smartReference.file
+              : smartReference?.kind === "workspace-directory"
+                ? (inlineCodeFileLinkMetaByText.get(codeText.trim()) ??
+                  resolveInlineCodeFileLinkMeta(codeText, cwd))
+                : null;
           if (fileLinkMeta) {
-            return fileLinkChip(fileLinkMeta, `\`${codeText}\``);
+            return fileLinkChip(
+              fileLinkMeta,
+              `\`${codeText}\``,
+              undefined,
+              smartReference?.kind === "workspace-file" && smartReference.unsafeToAutoExecute,
+            );
           }
         }
         return (

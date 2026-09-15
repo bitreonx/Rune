@@ -1,4 +1,5 @@
 import type {
+  ChatFileAttachment as ContractChatFileAttachment,
   ChatImageAttachment as ContractChatImageAttachment,
   ChatThreadAttachment as ContractChatThreadAttachment,
   OrchestrationCheckpointFile,
@@ -41,8 +42,11 @@ export interface ChatImageAttachment extends ContractChatImageAttachment {
   readonly previewUrl?: string;
 }
 
+/** Metadata-only file-system reference attached to a turn. */
+export type ChatFileAttachment = ContractChatFileAttachment;
+
 export type ChatThreadAttachment = ContractChatThreadAttachment;
-export type ChatAttachment = ChatImageAttachment | ChatThreadAttachment;
+export type ChatAttachment = ChatImageAttachment | ChatFileAttachment | ChatThreadAttachment;
 
 export interface ChatMessage extends Omit<OrchestrationMessage, "attachments"> {
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;

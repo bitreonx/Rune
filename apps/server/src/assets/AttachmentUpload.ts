@@ -3,7 +3,7 @@ import * as NodeCrypto from "node:crypto";
 
 import {
   ATTACHMENT_UPLOAD_URL_TTL_MS,
-  type AttachmentCreateUploadUrlInput,
+  AttachmentCreateUploadUrlInput,
   AttachmentUploadSigningKeyError,
 } from "@rune/contracts";
 import * as Clock from "effect/Clock";
@@ -15,6 +15,7 @@ import * as Schema from "effect/Schema";
 
 import {
   createPendingAttachmentId,
+  inferAttachmentExtension,
   parseThreadSegmentFromAttachmentId,
   PENDING_ATTACHMENT_THREAD_SEGMENT,
   resolveAttachmentPathById,
@@ -29,7 +30,6 @@ import {
 } from "../auth/utils.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
-import { inferImageExtension } from "../imageMime.ts";
 
 export const ATTACHMENT_UPLOAD_ROUTE_PREFIX = "/api/attachments/upload";
 
@@ -143,6 +143,20 @@ export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(functio
   claims: AttachmentUploadClaims,
   bytes: Uint8Array,
 ) {
+  if (
+    !Schema.is(AttachmentCreateUploadUrlInput)({
+      name: claims.name,
+      mimeType: claims.mimeType,
+      sizeBytes: claims.sizeBytes,
+    })
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      detail: "Attachment upload metadata is invalid.",
+    } satisfies StoreAttachmentUploadResult;
+  }
+
   if (bytes.byteLength !== claims.sizeBytes) {
     return {
       ok: false,
@@ -152,7 +166,10 @@ export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(functio
   }
 
   const config = yield* ServerConfig.ServerConfig;
-  const extension = inferImageExtension({ mimeType: claims.mimeType, fileName: claims.name });
+  const extension = inferAttachmentExtension({
+    mimeType: claims.mimeType,
+    fileName: claims.name,
+  });
   const relativePath = `${claims.attachmentId}${extension}`;
   const finalPath = resolveAttachmentRelativePath({
     attachmentsDir: config.attachmentsDir,

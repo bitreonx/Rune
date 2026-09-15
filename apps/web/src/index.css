@@ -2011,9 +2011,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-active="true"],
-[data-app-sidebar] [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"] {
+[data-app-sidebar]
+  [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"]:not(
+    [data-rune-sidebar-active="true"]
+  ) {
   background: var(--sidebar-row-active);
-  border-color: var(--sidebar-border);
+  border-color: color-mix(in srgb, var(--sidebar-foreground) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rune-sidebar-focus) 18%, transparent),
+    0 1px 2px color-mix(in srgb, black 18%, transparent);
+}
+
+[data-app-sidebar]
+  [data-rune-sidebar-row="thread"][data-rune-sidebar-selected="true"]:not(
+    [data-rune-sidebar-active="true"]
+  ) {
+  background: var(--sidebar-row-selected);
+  border-color: color-mix(in srgb, var(--sidebar-foreground) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sidebar-foreground) 8%, transparent);
 }
 
 [data-app-sidebar] [data-rune-sidebar-row="thread"]:focus-visible {
@@ -2070,6 +2085,126 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 [data-app-sidebar] [data-rune-sidebar-row]:focus-visible {
   outline: 2px solid var(--rune-sidebar-focus);
   outline-offset: 2px;
+}
+
+/* Pockets read as a physical work surface: a quiet folder lip, a raised
+   hover state, and one short preview instead of a second thread list. */
+[data-app-sidebar] [data-rune-pocket-state] {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-app-sidebar] [data-rune-pocket-state="closed"] [data-rune-action="pocket.enter"] {
+  transition:
+    background-color var(--rune-motion-fast) ease,
+    color var(--rune-motion-fast) ease,
+    transform var(--rune-motion-fast) cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-app-sidebar]
+  [data-rune-pocket-state="closed"][data-rune-pocket-peek-visible="true"]
+  [data-rune-action="pocket.enter"] {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--sidebar-row-hover) 88%, var(--rune-violet-strong) 12%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+
+[data-rune-pocket-workspace] {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--rune-surface-raised) 94%, white 6%),
+    var(--rune-surface-raised)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 9%, transparent),
+    0 18px 44px -32px color-mix(in srgb, var(--rune-violet-strong) 60%, transparent);
+}
+
+[data-rune-pocket-workspace]::before {
+  position: absolute;
+  z-index: -1;
+  top: -7px;
+  left: 12px;
+  width: 84px;
+  height: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, var(--rune-violet-strong) 18%);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--rune-surface-raised) 92%, white 8%);
+  content: "";
+  transform-origin: left bottom;
+  transition: transform var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-rune-pocket-workspace][data-rune-pocket-state="open"]::before {
+  transform: translateY(-2px) rotate(-1deg);
+}
+
+/* The open surface advances through a finite, stateful morph. The React hook
+   changes the phase at measured boundaries; CSS only handles each short
+   interpolation so the compositor never runs an infinite shimmer. */
+[data-rune-pocket-motion-phase] {
+  transition:
+    transform var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path var(--rune-motion-standard) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity var(--rune-motion-fast) ease;
+}
+
+[data-rune-pocket-motion-phase="acknowledge"] {
+  opacity: 0.96;
+  transform: translateY(2px) scale(0.995);
+  clip-path: inset(0 0 2% 0 round 8px);
+}
+
+[data-rune-pocket-motion-phase="lip-lift"] {
+  transform: translateY(-1px) scale(0.998);
+}
+
+[data-rune-pocket-motion-phase="geometry-morph"] {
+  transform: translateY(-2px) scale(1.002);
+}
+
+[data-rune-pocket-motion-phase="clip-reveal"] {
+  clip-path: inset(0 0 0 0 round 8px);
+  opacity: 1;
+}
+
+[data-rune-pocket-motion-phase="settle"] {
+  transform: none;
+  clip-path: none;
+  opacity: 1;
+  will-change: auto;
+}
+
+[data-rune-pocket-peek] {
+  transform-origin: top center;
+  animation: rune-pocket-peek-in var(--rune-motion-fast) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes rune-pocket-peek-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem) scaleY(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0.375rem) scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-rune-pocket-state="closed"] [data-rune-action="pocket.enter"],
+  [data-rune-pocket-workspace]::before,
+  [data-rune-pocket-peek],
+  [data-rune-pocket-motion-phase] {
+    animation: none;
+    transition: none;
+    transform: none;
+    clip-path: none;
+    opacity: 1;
+  }
 }
 
 /* Keep fixed workspace chrome above the page body while the current route
@@ -2425,8 +2560,25 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   line-height: 1.35;
 }
 
+.rune-task-evidence-item + .rune-task-evidence-item {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
 .rune-task-evidence-label {
   color: color-mix(in srgb, var(--foreground) 72%, transparent);
+}
+
+.rune-task-evidence-stats {
+  color: color-mix(in srgb, var(--foreground) 58%, var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.rune-task-evidence-verification {
+  color: var(--success);
+  font-weight: 600;
 }
 
 .rune-task-evidence-file {

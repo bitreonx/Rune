@@ -1,9 +1,15 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@rune/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ProviderInstanceConfig,
+  type ServerProvider,
+} from "@rune/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   applyProviderInstanceSettings,
   deriveProviderEntriesByEnvironment,
   deriveProviderInstanceEntries,
+  formatProviderInstanceRouteLabel,
   getDefaultProviderInstanceModel,
   isProviderInstancePickerReady,
   isProviderInstancePickerVisible,
@@ -167,6 +173,38 @@ describe("applyProviderInstanceSettings", () => {
     });
 
     expect(entry?.enabled).toBe(false);
+  });
+
+  it("keeps routed model labels unambiguous for the picker and editor", () => {
+    const routedInstance: ProviderInstanceConfig = {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      instanceId: ProviderInstanceId.make("claude_work"),
+      displayName: "Research",
+      enabled: true,
+      connectionId: "openrouter_work",
+      serviceKind: "openrouter",
+      authMode: "rune-managed",
+      modelBindings: { main: "stealth/ox-alpha" },
+    };
+    const entries = deriveProviderInstanceEntries([
+      provider({
+        provider: routedInstance.driver,
+        instanceId: routedInstance.instanceId,
+        displayName: routedInstance.displayName,
+      }),
+    ]);
+
+    const [entry] = applyProviderInstanceSettings(entries, {
+      providerInstances: {
+        [routedInstance.instanceId]: routedInstance,
+      },
+      providers: {},
+    });
+
+    expect(formatProviderInstanceRouteLabel({ instance: routedInstance })).toBe(
+      "via OpenRouter · stealth/ox-alpha",
+    );
+    expect(entry?.displayName).toBe("Research · via OpenRouter");
   });
 });
 

@@ -3,6 +3,16 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   filterPocketThreads,
   groupPocketThreads,
+  POCKET_MOTION_PHASES,
+  POCKET_MOTION_SEQUENCE,
+  POCKET_SHELF_DEFAULT_ITEMS,
+  POCKET_SHELF_MAX_ITEMS,
+  POCKET_SHELF_MIN_ITEMS,
+  POCKET_SURFACE_STATES,
+  pocketPeekChildLimit,
+  projectPocketShelf,
+  resolvePocketMotionPhase,
+  selectPocketPeekThreads,
   selectPocketShelfThreads,
   sortPocketThreads,
   type PocketWorkspaceThreadData,
@@ -39,6 +49,70 @@ describe("Pocket workspace projection", () => {
     expect(shelf).toHaveLength(6);
     expect(shelf.map((item) => item.id)).toContain("pinned");
     expect(shelf.map((item) => item.id)).toContain("needs-you");
+  });
+
+  it("keeps the shelf cap between five and seven and reports hidden threads", () => {
+    const threads = Array.from({ length: 10 }, (_, index) => thread(String(index)));
+
+    expect(POCKET_SHELF_DEFAULT_ITEMS).toBe(6);
+    expect(projectPocketShelf(threads, POCKET_SHELF_MIN_ITEMS)).toMatchObject({
+      threads: expect.any(Array),
+      overflow: 5,
+    });
+    expect(projectPocketShelf(threads, 2).threads).toHaveLength(POCKET_SHELF_MIN_ITEMS);
+    expect(projectPocketShelf(threads, 99).threads).toHaveLength(POCKET_SHELF_MAX_ITEMS);
+    expect(projectPocketShelf(threads, 99).overflow).toBe(3);
+  });
+
+  it("keeps the Pocket state and finite motion vocabularies stable", () => {
+    expect(POCKET_SURFACE_STATES).toEqual(["closed", "hover", "open"]);
+    expect(POCKET_MOTION_PHASES).toEqual([
+      "acknowledge",
+      "lip-lift",
+      "geometry-morph",
+      "clip-reveal",
+      "settle",
+    ]);
+    expect(POCKET_MOTION_SEQUENCE).toBe(
+      "acknowledge -> lip-lift -> geometry-morph -> clip-reveal -> settle",
+    );
+  });
+
+  it("projects a finite expressive open sequence instead of jumping to settle", () => {
+    expect(resolvePocketMotionPhase(0, false)).toBe("acknowledge");
+    expect(resolvePocketMotionPhase(100, false)).toBe("lip-lift");
+    expect(resolvePocketMotionPhase(220, false)).toBe("geometry-morph");
+    expect(resolvePocketMotionPhase(400, false)).toBe("clip-reveal");
+    expect(resolvePocketMotionPhase(700, false)).toBe("settle");
+  });
+
+  it("settles immediately for reduced motion", () => {
+    expect(resolvePocketMotionPhase(0, true)).toBe("settle");
+    expect(resolvePocketMotionPhase(999, true)).toBe("settle");
+  });
+
+  it("keeps a closed Pocket preview to four prioritized threads", () => {
+    const threads = [
+      thread("recent", { updatedAt: "2026-08-29T00:04:00.000Z" }),
+      thread("pinned", { pinned: true, updatedAt: "2026-08-01T00:00:00.000Z" }),
+      thread("working", { status: "working", updatedAt: "2026-08-02T00:00:00.000Z" }),
+      thread("needs-you", { status: "needs-you", updatedAt: "2026-08-03T00:00:00.000Z" }),
+      thread("waiting", { status: "waiting", updatedAt: "2026-08-05T00:00:00.000Z" }),
+    ];
+
+    expect(selectPocketPeekThreads(threads)).toHaveLength(4);
+    expect(selectPocketPeekThreads(threads).map((item) => item.id)).toEqual([
+      "pinned",
+      "needs-you",
+      "working",
+      "recent",
+    ]);
+  });
+
+  it("caps child-pocket rows after prioritized thread rows", () => {
+    expect(pocketPeekChildLimit(0, 9)).toBe(4);
+    expect(pocketPeekChildLimit(3, 9)).toBe(1);
+    expect(pocketPeekChildLimit(4, 9)).toBe(0);
   });
 
   it("filters immediately across title, provider, and subtitle", () => {

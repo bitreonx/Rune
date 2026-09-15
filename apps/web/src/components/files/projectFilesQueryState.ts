@@ -25,6 +25,9 @@ const EMPTY_PROJECT_DIRECTORY_QUERY_ATOM = Atom.make(
 const EMPTY_PROJECT_FILE_QUERY_ATOM = Atom.make(
   AsyncResult.initial<ProjectReadFileResult, never>(false),
 ).pipe(Atom.withLabel("project-file-query:empty"));
+const EMPTY_PROJECT_FILE_METADATA_QUERY_ATOM = Atom.make(
+  AsyncResult.initial<ProjectReadFileResult, never>(false),
+).pipe(Atom.withLabel("project-file-metadata-query:empty"));
 
 export function shouldReadProjectFile(relativePath: string | null, enabled = true): boolean {
   return enabled && relativePath !== null;
@@ -72,6 +75,21 @@ export function getProjectFileQueryAtom(
   return projectEnvironment.readFile({
     environmentId,
     input: { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH },
+  });
+}
+
+export function getProjectFileMetadataQueryAtom(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string | null,
+) {
+  return projectEnvironment.readFile({
+    environmentId,
+    input: {
+      cwd,
+      relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH,
+      metadataOnly: true,
+    },
   });
 }
 
@@ -248,6 +266,26 @@ export function useProjectFileQuery(
 
   return {
     data: optimisticFile?.data ?? data,
+    error: errorMessage(result),
+    isPending: result.waiting,
+    refresh,
+  };
+}
+
+export function useProjectFileMetadataQuery(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string | null,
+  enabled = true,
+): ProjectQueryState<ProjectReadFileResult> {
+  const atom = shouldReadProjectFile(relativePath, enabled)
+    ? getProjectFileMetadataQueryAtom(environmentId, cwd, relativePath)
+    : EMPTY_PROJECT_FILE_METADATA_QUERY_ATOM;
+  const result = useAtomValue(atom);
+  const refreshAtom = useAtomRefresh(atom);
+  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  return {
+    data: Option.getOrNull(AsyncResult.value(result)),
     error: errorMessage(result),
     isPending: result.waiting,
     refresh,

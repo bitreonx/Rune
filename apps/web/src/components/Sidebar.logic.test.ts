@@ -20,6 +20,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
+  resolveSidebarThreadSurfaceClassName,
   resolveSidebarThreadStatus,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
@@ -252,7 +253,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
         primaryServerVersion: "0.0.27",
         fallbackStageLabel: "Stable",
       }),
-    ).toBe("Alpha");
+    ).toBe("Stable");
   });
 
   it("returns the fallback label when the primary server version is missing", () => {
@@ -270,7 +271,7 @@ describe("resolveSidebarStageBadgeLabel", () => {
         primaryServerVersion: "0.0.28-nightly.20260616",
         fallbackStageLabel: "Stable",
       }),
-    ).toBe("Alpha");
+    ).toBe("Stable");
   });
 });
 
@@ -1213,6 +1214,25 @@ describe("resolveThreadRowClassName", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
     expect(className).toContain("bg-sidebar-row-active");
     expect(className).toContain("hover:bg-sidebar-row-active");
+  });
+});
+
+describe("resolveSidebarThreadSurfaceClassName", () => {
+  it("uses elevation and a restrained semantic accent without a full-height stripe", () => {
+    const className = resolveSidebarThreadSurfaceClassName({ isActive: true, isSelected: false });
+
+    expect(className).toContain("bg-sidebar-row-active");
+    expect(className).toContain("ring-1");
+    expect(className).not.toContain("before:");
+    expect(className).not.toContain("bg-primary");
+  });
+
+  it("keeps selected rows distinct without neon treatment", () => {
+    const className = resolveSidebarThreadSurfaceClassName({ isActive: false, isSelected: true });
+
+    expect(className).toContain("bg-sidebar-row-selected");
+    expect(className).not.toContain("before:");
+    expect(className).not.toContain("bg-primary");
   });
 });
 

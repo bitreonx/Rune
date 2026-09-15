@@ -58,15 +58,9 @@ export function stackedThreadToast(
   if (actionVariant !== undefined) {
     mergedData.actionVariant = actionVariant;
   }
-  if (notificationKind !== undefined) {
-    mergedData.notificationKind = notificationKind;
-  }
-  if (threadRef !== undefined) {
-    mergedData.threadRef = threadRef;
-  }
-  if (threadId !== undefined) {
-    mergedData.threadId = threadId;
-  }
+  if (notificationKind !== undefined) mergedData.notificationKind = notificationKind;
+  if (threadRef !== undefined) mergedData.threadRef = threadRef;
+  if (threadId !== undefined) mergedData.threadId = threadId;
 
   const payload: ToastManagerAddOptions<ThreadToastData> = {
     type,

@@ -24,6 +24,8 @@ import { resolveAppModelSelectionState } from "../../modelSelection";
 import { CLAUDE_ROLE_ENVIRONMENT_VARIABLE_NAMES } from "../../claudeRoles";
 import {
   deriveProviderInstanceEntries,
+  formatProviderInstanceConnectionLabel,
+  formatProviderInstanceRouteLabel,
   instanceBadgePresentation,
   normalizeProviderAccentColor,
   withIsolatedProviderInstanceConfig,
@@ -244,6 +246,13 @@ function ProviderInstanceEditContent(props: {
   const displayName = instance.displayName?.trim() || driverOption?.label || String(slot.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
   const badge = entry ? instanceBadgePresentation(entry, [entry]) : null;
+  const routeModel =
+    instance.modelBindings?.main?.trim() || entry?.snapshot.models.find((model) => model.isDefault)?.slug;
+  const routeLabel = formatProviderInstanceRouteLabel({
+    instance,
+    services,
+    ...(routeModel ? { model: routeModel } : {}),
+  });
 
   // ── Writes ─────────────────────────────────────────────────────────
   const applyUpdate = (
@@ -501,6 +510,9 @@ function ProviderInstanceEditContent(props: {
               ) : null}
               <StatusBadge readiness={readiness} className="bg-background" />
             </div>
+            <p className="truncate text-xs text-muted-foreground" data-provider-route-label>
+              {driverOption?.label ?? String(slot.driver)} · {routeLabel}
+            </p>
           </div>
           <ProviderSetupNotice
             driver={slot.driver}
@@ -552,7 +564,21 @@ function ProviderInstanceEditContent(props: {
                 candidate.instance.displayName?.trim() ||
                 getDriverOption(candidate.driver)?.label ||
                 String(candidate.driver);
-              const candidateService = resolveClaudeInstanceService(candidate.instance);
+              const candidateConnectionLabel = formatProviderInstanceConnectionLabel({
+                instance: candidate.instance,
+                services,
+              });
+              const candidateService =
+                resolveClaudeInstanceService(candidate.instance) ??
+                (candidateConnectionLabel === "OpenRouter" ? "openrouter" : undefined);
+              const candidateModel =
+                candidate.instance.modelBindings?.main?.trim() ||
+                candidateEntry?.models.find((model) => model.isDefault)?.slug;
+              const candidateRouteLabel = formatProviderInstanceRouteLabel({
+                instance: candidate.instance,
+                services,
+                ...(candidateModel ? { model: candidateModel } : {}),
+              });
               return (
                 <button
                   key={String(candidate.instanceId)}
@@ -597,7 +623,7 @@ function ProviderInstanceEditContent(props: {
                       ) : null}
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                      {candidateEntry?.models.length ?? 0} models ·{" "}
+                      {candidateEntry?.models.length ?? 0} models · {candidateRouteLabel} ·{" "}
                       {instanceReadinessLabel(candidateReadiness)}
                     </span>
                   </span>

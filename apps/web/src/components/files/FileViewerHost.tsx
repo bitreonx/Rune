@@ -21,6 +21,8 @@ export interface FileViewerContext {
   readonly onOpenExternally?: () => void;
   readonly onCopyPath?: () => void;
   readonly onAddToChat?: () => void;
+  readonly onRevealInFiles?: () => void;
+  readonly onRevealInExplorer?: () => void;
   readonly onClose?: () => void;
 }
 
@@ -69,7 +71,10 @@ export function FilePreviewSurface(props: {
   readonly context: FileViewerContext;
   readonly contents: string;
   readonly byteLength?: number;
+  readonly mimeType?: string;
+  readonly modifiedAt?: string;
   readonly mode: ViewerMode;
+  readonly sha256?: string;
 }) {
   const { descriptor, context } = props;
   let content: ReactNode = null;
@@ -151,7 +156,15 @@ export function FilePreviewSurface(props: {
         <BinaryViewer
           contents={props.contents}
           byteLength={props.byteLength}
+          {...(props.mimeType !== undefined ? { mimeType: props.mimeType } : {})}
+          {...(props.modifiedAt !== undefined ? { modifiedAt: props.modifiedAt } : {})}
           relativePath={context.relativePath}
+          {...(props.sha256 !== undefined ? { sha256: props.sha256 } : {})}
+          {...(context.onRevealInFiles ? { onRevealInFiles: context.onRevealInFiles } : {})}
+          {...(context.onRevealInExplorer
+            ? { onRevealInExplorer: context.onRevealInExplorer }
+            : {})}
+          {...(context.onCopyPath ? { onCopyPath: context.onCopyPath } : {})}
         />
       );
       break;

@@ -96,6 +96,7 @@ import { isElectron } from "../env";
 import { APP_BASE_NAME } from "../branding";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import type { AgentActivityChangeRecord } from "@rune/shared/agentActivity";
 import { playSoundEffect } from "../sound/playback";
 import {
   collapseExpandedComposerCursor,
@@ -137,11 +138,15 @@ import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
+  type ChatAttachment,
   type ChatMessage,
+  type ChatFileAttachment,
   type SessionPhase,
   type Thread,
   type TurnDiffSummary,
 } from "../types";
+import type { ComposerFileAttachment } from "../composerDraftStore";
+import { resolveWorkspaceRelativePath } from "../filePathDisplay";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
@@ -305,6 +310,7 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { AttachmentViewerDialog, type AttachmentViewerItem } from "./chat/AttachmentViewerDialog";
 import { RunePageTransition } from "./RunePageTransition";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -314,7 +320,7 @@ import {
   shouldRestoreRunePanelToggleFocus,
   useRunePanelMotionState,
 } from "../runePanelMotion";
-import { RUNE_MOTION_MS } from "../runeMotion";
+import { RUNE_MOTION_MS, resolveRuneMotionDurationForProfile } from "../runeMotion";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
@@ -405,8 +411,11 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import {
   awaitAttachmentUploads,
+  getUploadedFileAttachment,
   getUploadedAttachments,
+  releaseFileAttachmentUploads,
   releaseAttachmentUploads,
+  startFileAttachmentUpload,
   startAttachmentUpload,
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
@@ -439,6 +448,8 @@ import { useAssetUrls } from "../assets/assetUrls";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more files without additional text. Inspect the attached file(s) and respond using the conversation context.]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1316,6 +1327,25 @@ function releaseChatTimelineAnchor<T extends { readonly messageId: MessageId | n
   return current.messageId === null ? current : { ...current, messageId: null };
 }
 
+function isSafeWorkspaceRelativeAttachmentPath(
+  relativePath: string | null,
+): relativePath is string {
+  if (!relativePath || /^[A-Za-z]:[\\/]/.test(relativePath)) return false;
+  const segments = relativePath.replaceAll("\\", "/").split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function isAttachmentPathWithinWorkspace(attachmentPath: string, workspaceRoot: string): boolean {
+  const normalizedPath = attachmentPath.replaceAll("\\", "/");
+  const normalizedRoot = workspaceRoot.replaceAll("\\", "/").replace(/\/+$/u, "") || "/";
+  const comparisonPath = normalizedPath.toLowerCase();
+  const comparisonRoot = normalizedRoot.toLowerCase();
+  return (
+    comparisonPath === comparisonRoot ||
+    comparisonPath.startsWith(comparisonRoot === "/" ? "/" : comparisonRoot + "/")
+  );
+}
+
 function ChatViewContent(props: ChatViewProps) {
   const {
     environmentId,
@@ -1470,6 +1500,7 @@ function ChatViewContent(props: ChatViewProps) {
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
+  const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerItem | null>(null);
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.runtimeMode ?? null,
@@ -1501,6 +1532,9 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const setComposerDraftTemporary = useComposerDraftStore((store) => store.setTemporary);
+  const addComposerDraftFileAttachments = useComposerDraftStore(
+    (store) => store.addFileAttachments,
+  );
   const setComposerTemporaryChat = useCallback(
     (temporary: boolean) => {
       setComposerDraftTemporary(composerDraftTarget, temporary);
@@ -1518,6 +1552,12 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
+  const composerFileAttachmentsRef = useRef<ComposerFileAttachment[]>([]);
+  const pendingHistoricalAttachmentRefsRef = useRef<{
+    readonly threadId: string;
+    readonly attachments: ReadonlyArray<ChatAttachment>;
+  } | null>(null);
+  const historicalEditExclusionsRef = useRef(new Map<string, ReadonlySet<string>>());
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
@@ -1909,9 +1949,12 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
+  const rightPanelMotionReduced = prefersReducedMotion || settings.motionProfile === "reduced";
   const rawRightPanelMotionState = useRunePanelMotionState({
     open: rightPanelOpen,
-    reducedMotion: prefersReducedMotion,
+    reducedMotion: rightPanelMotionReduced,
+    motionProfile: settings.motionProfile,
+    motionMs: RUNE_MOTION_MS.standard,
   });
   // The open bit is the source of truth for mounting a newly opened panel;
   // the hook then advances it to `opening` in the effect phase. Closing keeps
@@ -1921,6 +1964,8 @@ function ChatViewContent(props: ChatViewProps) {
   const terminalMotionState = useRunePanelMotionState({
     open: activeThreadRef !== null && terminalUiState.terminalOpen,
     reducedMotion: prefersReducedMotion,
+    motionProfile: settings.motionProfile,
+    motionMs: RUNE_MOTION_MS.standard,
   });
   const rightPanelMounted =
     activeThreadRef !== null && (rightPanelOpen || rightPanelMotionState !== "closed");
@@ -1937,14 +1982,18 @@ function ChatViewContent(props: ChatViewProps) {
   const rightPanelToggleRef = useRef<HTMLButtonElement | null>(null);
   const shouldRestoreRightPanelToggleFocusRef = useRef(false);
   useEffect(() => {
-    if (prefersReducedMotion || shouldUseRightPanelSheet) return;
+    if (rightPanelMotionReduced || shouldUseRightPanelSheet) return;
     const host = rightPanelHostRef.current;
     if (!host) return;
     if (rightPanelMotionState === "opening") {
       const targetWidth = host.scrollWidth;
       if (targetWidth <= 0) return;
       const animation = host.animate([{ width: "0px" }, { width: `${targetWidth}px` }], {
-        duration: RUNE_MOTION_MS.slow,
+        duration: resolveRuneMotionDurationForProfile(
+          RUNE_MOTION_MS.standard,
+          settings.motionProfile,
+          rightPanelMotionReduced,
+        ),
         easing: "cubic-bezier(0.22, 1, 0.36, 1)",
       });
       return () => animation.cancel();
@@ -1955,20 +2004,29 @@ function ChatViewContent(props: ChatViewProps) {
       // fill forwards pins the collapsed width until the motion state reaches
       // `closed` and the host unmounts via display:none.
       const animation = host.animate([{ width: `${startWidth}px` }, { width: "0px" }], {
-        duration: RUNE_MOTION_MS.standard,
+        duration: resolveRuneMotionDurationForProfile(
+          RUNE_MOTION_MS.standard,
+          settings.motionProfile,
+          rightPanelMotionReduced,
+        ),
         easing: "cubic-bezier(0.4, 0, 1, 1)",
         fill: "forwards",
       });
       return () => animation.cancel();
     }
-  }, [prefersReducedMotion, rightPanelMotionState, shouldUseRightPanelSheet]);
+  }, [
+    rightPanelMotionReduced,
+    rightPanelMotionState,
+    settings.motionProfile,
+    shouldUseRightPanelSheet,
+  ]);
 
   useEffect(() => {
     if (
       !shouldRestoreRunePanelToggleFocus({
         closeIntent: shouldRestoreRightPanelToggleFocusRef.current,
         open: rightPanelOpen,
-        reducedMotion: prefersReducedMotion,
+        reducedMotion: rightPanelMotionReduced,
         state: rightPanelMotionState,
       })
     ) {
@@ -1989,7 +2047,7 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
     toggle.focus({ preventScroll: true });
-  }, [prefersReducedMotion, rightPanelMotionState, rightPanelOpen]);
+  }, [rightPanelMotionReduced, rightPanelMotionState, rightPanelOpen]);
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -4074,6 +4132,83 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const openComposerAttachment = useCallback(
+    (attachment: AttachmentViewerItem) => {
+      if (attachment.kind === "folder" || !attachment.path || !activeWorkspaceRoot) {
+        setAttachmentViewer(attachment);
+        return;
+      }
+      if (!isAttachmentPathWithinWorkspace(attachment.path, activeWorkspaceRoot)) {
+        setAttachmentViewer(attachment);
+        return;
+      }
+      const normalizedRoot = activeWorkspaceRoot.replaceAll("\\", "/").replace(/\/+$/, "");
+      const normalizedPath = attachment.path.replaceAll("\\", "/");
+      const pathForComparison = normalizedPath.toLowerCase();
+      const rootForComparison = normalizedRoot.toLowerCase();
+      if (
+        pathForComparison !== rootForComparison &&
+        !pathForComparison.startsWith(`${rootForComparison}/`)
+      ) {
+        setAttachmentViewer(attachment);
+        return;
+      }
+      const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot);
+      if (!isSafeWorkspaceRelativeAttachmentPath(relativePath)) {
+        setAttachmentViewer(attachment);
+        return;
+      }
+      openFileSurface(relativePath);
+    },
+    [activeWorkspaceRoot, openFileSurface],
+  );
+  const revealComposerAttachmentInFiles = useCallback(
+    (attachment: AttachmentViewerItem) => {
+      if (!activeThreadRef || !activeProject || !activeWorkspaceRoot || !attachment.path) return;
+      if (!isAttachmentPathWithinWorkspace(attachment.path, activeWorkspaceRoot)) {
+        toastManager.add({
+          type: "info",
+          title: "Attachment is outside this workspace",
+          description:
+            "Use Reveal in system Explorer for provider-host files outside the workspace.",
+        });
+        return;
+      }
+      const relativePath = resolveWorkspaceRelativePath(attachment.path, activeWorkspaceRoot);
+      if (!isSafeWorkspaceRelativeAttachmentPath(relativePath)) {
+        toastManager.add({
+          type: "info",
+          title: "Attachment is outside this workspace",
+          description:
+            "Use Reveal in system Explorer for provider-host files outside the workspace.",
+        });
+        return;
+      }
+      openFileSurface(relativePath);
+    },
+    [activeProject, activeThreadRef, activeWorkspaceRoot, openFileSurface],
+  );
+  const revealComposerAttachmentInExplorer = useCallback(
+    (attachment: AttachmentViewerItem) => {
+      if (!activeThread || !attachment.path) return;
+      void openInEditor({
+        environmentId: activeThread.environmentId,
+        input: { cwd: attachment.path, editor: "file-manager", mode: "reveal" },
+      }).then((result) => {
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to reveal attachment",
+              description:
+                "The selected attachment could not be opened in the system file manager.",
+            }),
+          );
+        }
+      });
+    },
+    [activeThread, openInEditor],
+  );
   const openEnvironmentServer = useCallback(
     (server: PreviewableServer) => {
       if (!activeThreadRef) return;
@@ -4945,6 +5080,7 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     setIsRevertingCheckpoint(false);
     setPendingUserMessageEdit(null);
+    pendingHistoricalAttachmentRefsRef.current = null;
     setIsTurnPaused(false);
     setIsContinuingTurn(false);
   }, [activeThread?.id]);
@@ -6132,6 +6268,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     const {
       images: sendContextImages,
+      fileAttachments: sendContextFileAttachments,
       terminalContexts: composerTerminalContexts,
       elementContexts: composerElementContexts,
       previewAnnotations: sendContextPreviewAnnotations,
@@ -6147,6 +6284,7 @@ function ChatViewContent(props: ChatViewProps) {
       !sendContextImages.some((image) => image.id === directAnnotation.image?.id)
         ? [...sendContextImages, directAnnotation.image]
         : sendContextImages;
+    const composerFileAttachments = sendContextFileAttachments;
     const composerPreviewAnnotations =
       directAnnotation &&
       !sendContextPreviewAnnotations.some(
@@ -6170,7 +6308,7 @@ function ChatViewContent(props: ChatViewProps) {
       hasSendableContent,
     } = deriveComposerSendState({
       prompt: promptForSend,
-      imageCount: composerImages.length,
+      imageCount: composerImages.length + composerFileAttachments.length,
       terminalContexts: composerTerminalContexts,
       elementContextCount:
         composerElementContexts.length +
@@ -6180,6 +6318,7 @@ function ChatViewContent(props: ChatViewProps) {
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
       composerImages.length === 0 &&
+      composerFileAttachments.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
@@ -6301,6 +6440,7 @@ function ChatViewContent(props: ChatViewProps) {
     const standaloneSlashCommand =
       settings.planModeEnabled &&
       composerImages.length === 0 &&
+      composerFileAttachments.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
@@ -6524,6 +6664,11 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     const composerImagesSnapshot = [...composerImages];
+    const composerFileAttachmentsSnapshot = [...composerFileAttachments];
+    const pendingHistoricalAttachmentRefsSnapshot =
+      pendingHistoricalAttachmentRefsRef.current?.threadId === threadIdForSend
+        ? [...pendingHistoricalAttachmentRefsRef.current.attachments]
+        : [];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
@@ -6558,7 +6703,11 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text:
+        messageTextForSend ||
+        (composerFileAttachments.length === 0
+          ? IMAGE_ONLY_BOOTSTRAP_PROMPT
+          : ATTACHMENT_ONLY_BOOTSTRAP_PROMPT),
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -6569,6 +6718,7 @@ function ChatViewContent(props: ChatViewProps) {
       !directAnnotation &&
       trimmed.length > 0 &&
       composerImagesSnapshot.length === 0 &&
+      composerFileAttachmentsSnapshot.length === 0 &&
       composerTerminalContextsSnapshot.length === 0 &&
       composerElementContextsSnapshot.length === 0 &&
       composerPreviewAnnotationsSnapshot.length === 0 &&
@@ -6706,14 +6856,36 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     setIsTurnPaused(false);
-    if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
+    const composerFileUploadsSnapshot = composerFileAttachmentsSnapshot.filter(
+      (attachment): attachment is ComposerFileAttachment & { readonly file: File } =>
+        attachment.file !== undefined && attachment.path === undefined,
+    );
+    if (
+      supportsAttachmentUploads &&
+      (composerImagesSnapshot.length > 0 || composerFileUploadsSnapshot.length > 0)
+    ) {
       for (const image of composerImagesSnapshot) {
         startAttachmentUpload({ environmentId, image });
       }
-      await awaitAttachmentUploads(composerImagesSnapshot.map((image) => image.id));
+      for (const attachment of composerFileUploadsSnapshot) {
+        startFileAttachmentUpload({ environmentId, attachment });
+      }
+      await awaitAttachmentUploads([
+        ...composerImagesSnapshot.map((image) => image.id),
+        ...composerFileUploadsSnapshot.map((attachment) => attachment.id),
+      ]);
       if (getUploadedAttachments({ environmentId, images: composerImagesSnapshot }) === null) {
         sendInFlightRef.current = false;
         setThreadError(threadIdForSend, "Retry or remove failed image uploads before sending.");
+        return;
+      }
+      if (
+        composerFileUploadsSnapshot.some(
+          (attachment) => getUploadedFileAttachment({ environmentId, attachment }) === null,
+        )
+      ) {
+        sendInFlightRef.current = false;
+        setThreadError(threadIdForSend, "Retry or remove failed file uploads before sending.");
         return;
       }
     }
@@ -6766,15 +6938,37 @@ function ChatViewContent(props: ChatViewProps) {
           dataUrl: await readFileAsDataUrl(image.file),
         };
       }),
-    ).then((images) => [...images, ...threadAttachments]);
-    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      previewUrl: image.previewUrl,
-    }));
+    ).then((images) => [
+      ...pendingHistoricalAttachmentRefsSnapshot,
+      ...images,
+      ...composerFileAttachmentsSnapshot.map((attachment) => {
+        if (attachment.file !== undefined && attachment.path === undefined) {
+          const uploaded = getUploadedFileAttachment({ environmentId, attachment });
+          if (!uploaded) {
+            throw new Error(`File '${attachment.name}' did not finish uploading.`);
+          }
+          return uploaded;
+        }
+        const { file: _file, serverOwned: _serverOwned, ...wireAttachment } = attachment;
+        return wireAttachment;
+      }),
+      ...threadAttachments,
+    ]);
+    const optimisticAttachments = [
+      ...pendingHistoricalAttachmentRefsSnapshot,
+      ...composerImagesSnapshot.map((image) => ({
+        type: "image" as const,
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        previewUrl: image.previewUrl,
+      })),
+      ...composerFileAttachmentsSnapshot.map((attachment): ChatFileAttachment => {
+        const { file: _file, serverOwned: _serverOwned, ...wireAttachment } = attachment;
+        return wireAttachment;
+      }),
+    ];
     const shouldAnchorFirstMessage =
       activeThread.latestTurn === null &&
       !timelineMessages.some((message) => message.role === "user");
@@ -6838,10 +7032,13 @@ function ChatViewContent(props: ChatViewProps) {
         firstComposerImageName = firstComposerImage.name;
       }
     }
+    const firstComposerFileName = composerFileAttachmentsSnapshot[0]?.name ?? null;
     let titleSeed = trimmed;
     if (!titleSeed) {
       if (firstComposerImageName) {
         titleSeed = `Image: ${firstComposerImageName}`;
+      } else if (firstComposerFileName) {
+        titleSeed = `Attachment: ${firstComposerFileName}`;
       } else if (composerTerminalContextsSnapshot.length > 0) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
       } else if (composerElementContextsSnapshot.length > 0) {
@@ -6959,6 +7156,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        pendingHistoricalAttachmentRefsRef.current = null;
         // The chat exists and is flagged; the next send starts a normal chat,
         // so disarm the stale draft (removing it when nothing else remains).
         if (sendTemporary) {
@@ -6966,6 +7164,7 @@ function ChatViewContent(props: ChatViewProps) {
         }
         if (supportsAttachmentUploads) {
           releaseAttachmentUploads(composerImagesSnapshot);
+          releaseFileAttachmentUploads(composerFileUploadsSnapshot);
         }
         acknowledgeActiveThreadWoke();
         if (backgroundThreadRef) {
@@ -7022,6 +7221,7 @@ function ChatViewContent(props: ChatViewProps) {
       if (
         promptRef.current.length === 0 &&
         composerImagesRef.current.length === 0 &&
+        composerFileAttachmentsRef.current.length === 0 &&
         composerTerminalContextsRef.current.length === 0 &&
         composerElementContextsRef.current.length === 0 &&
         (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
@@ -7040,10 +7240,12 @@ function ChatViewContent(props: ChatViewProps) {
         promptRef.current = promptForSend;
         const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
         composerImagesRef.current = retryComposerImages;
+        composerFileAttachmentsRef.current = composerFileAttachmentsSnapshot;
         composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
         composerElementContextsRef.current = composerElementContextsSnapshot;
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
+        addComposerDraftFileAttachments(composerDraftTarget, composerFileAttachmentsSnapshot);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
         setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
@@ -8248,16 +8450,26 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, isServerThread, onDiffPanelOpen],
   );
-  const onOpenChatDiff = useCallback(() => {
-    if (!isServerThread || !activeThreadRef || !activeThread) return;
-    useDiffPanelStore
-      .getState()
-      .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount);
-    useRightPanelStore.getState().open(activeThreadRef, "diff");
-    onDiffPanelOpen?.();
-  }, [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen]);
-  // Both the Map and the rewind handler are read from refs at call-time so
-  // the callback references stay fully stable and never bust context identity.
+  const onOpenChatDiff = useCallback(
+    (filePath?: string) => {
+      if (!isServerThread || !activeThreadRef || !activeThread) return;
+      useDiffPanelStore
+        .getState()
+        .selectChat(activeThreadRef, activeThread.chatDiff.throughTurnCount, filePath);
+      useRightPanelStore.getState().open(activeThreadRef, "diff");
+      onDiffPanelOpen?.();
+    },
+    [activeThread, activeThreadRef, isServerThread, onDiffPanelOpen],
+  );
+  const onOpenTaskChange = useCallback(
+    (change: AgentActivityChangeRecord) => {
+      if (change.turnId !== null) onOpenTurnDiff(change.turnId, change.path);
+      else onOpenChatDiff(change.path);
+    },
+    [onOpenChatDiff, onOpenTurnDiff],
+  );
+  // The rewind handler is read from a ref at call-time so the callback
+  // reference stays fully stable and never busts timeline context identity.
   const revertTurnCountRef = useRef(revertTurnCountByUserMessageId);
   revertTurnCountRef.current = revertTurnCountByUserMessageId;
   const historicalMessageHasFileChangesRef = useRef(historicalMessageHasFileChangesById);
@@ -8269,11 +8481,38 @@ function ChatViewContent(props: ChatViewProps) {
     return typeof targetTurnCount === "number" ? targetTurnCount : null;
   }, []);
   const onEditUserMessage = useCallback(
-    (messageId: MessageId, messageText: string) => {
+    (
+      messageId: MessageId,
+      messageText: string,
+      options?: { readonly excludedAttachmentId?: string },
+    ) => {
       const targetTurnCount = resolveRewindTurnCount(messageId);
       if (targetTurnCount === null) {
+        pendingHistoricalAttachmentRefsRef.current = null;
         return;
       }
+      const historicalMessage = activeThread?.messages.find(
+        (message) => message.id === messageId && message.role === "user",
+      );
+      const excludedAttachmentId = options?.excludedAttachmentId;
+      const excludedAttachmentIds = new Set(
+        historicalEditExclusionsRef.current.get(messageId) ?? [],
+      );
+      if (excludedAttachmentId) {
+        excludedAttachmentIds.add(excludedAttachmentId);
+        historicalEditExclusionsRef.current.set(messageId, excludedAttachmentIds);
+      }
+      const historicalAttachments = (historicalMessage?.attachments ?? []).filter(
+        (attachment) =>
+          attachment.type === "thread-mention" || !excludedAttachmentIds.has(attachment.id),
+      );
+      pendingHistoricalAttachmentRefsRef.current =
+        activeThread && historicalMessage
+          ? {
+              threadId: activeThread.id,
+              attachments: historicalAttachments,
+            }
+          : null;
       const hasFileChangesAfter = historicalMessageHasFileChangesRef.current.get(messageId) ?? true;
       pendingUserMessageEditRef.current = {
         messageId,
@@ -8289,7 +8528,7 @@ function ChatViewContent(props: ChatViewProps) {
       });
       scheduleComposerFocus();
     },
-    [composerDraftTarget, resolveRewindTurnCount, scheduleComposerFocus, setComposerDraftPrompt],
+    [activeThread, resolveRewindTurnCount, scheduleComposerFocus, setComposerDraftPrompt],
   );
   const onDeleteUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -8303,6 +8542,45 @@ function ChatViewContent(props: ChatViewProps) {
       });
     },
     [resolveRewindTurnCount],
+  );
+  const onRemoveSentAttachment = useCallback(
+    (attachment: ChatFileAttachment) => {
+      const message = activeThread?.messages.find(
+        (candidate) =>
+          candidate.role === "user" &&
+          candidate.attachments?.some(
+            (candidateAttachment) =>
+              candidateAttachment.type === "file" && candidateAttachment.id === attachment.id,
+          ),
+      );
+      if (!message || message.role !== "user") {
+        toastManager.add({
+          type: "warning",
+          title: "Attachment cannot be edited here",
+          description: "This attachment is not attached to an editable user message.",
+        });
+        return;
+      }
+      if (resolveRewindTurnCount(message.id) === null) {
+        toastManager.add({
+          type: "warning",
+          title: "Attachment cannot be edited here",
+          description: "This message has no safe rewind point in the current thread.",
+        });
+        return;
+      }
+
+      const exclusions = new Set(historicalEditExclusionsRef.current.get(message.id) ?? []);
+      exclusions.add(attachment.id);
+      historicalEditExclusionsRef.current.set(message.id, exclusions);
+      onEditUserMessage(message.id, message.text, { excludedAttachmentId: attachment.id });
+      toastManager.add({
+        type: "info",
+        title: "Attachment removed from edit",
+        description: "Send the edited message to apply this change to the thread.",
+      });
+    },
+    [activeThread, onEditUserMessage, resolveRewindTurnCount],
   );
   // A turn-card revert rewinds to before that turn; the ref read keeps the
   // callback identity stable for the timeline's shared context.
@@ -8454,6 +8732,7 @@ function ChatViewContent(props: ChatViewProps) {
     ) : activeRightPanelSurface?.kind === "tasks" ? (
       <TasksPanel
         activities={threadActivities}
+        onOpenChange={onOpenTaskChange}
         progress={activeComposerTasksProgress}
         steps={activeComposerTaskSteps}
       />
@@ -8579,6 +8858,24 @@ function ChatViewContent(props: ChatViewProps) {
             gitStatus={gitStatusQuery.data ?? null}
             chatDiff={activeThread.chatDiff.files}
             configuredPreviewUrls={configuredPreviewUrls}
+            providerLabel={
+              activeProviderStatus?.displayName?.trim() ??
+              activeThread.session?.providerName ??
+              formatProviderDriverKindLabel(selectedProvider)
+            }
+            modelLabel={activeThread.modelSelection.model}
+            sessionStatus={activeThread.session?.status ?? null}
+            agentCount={
+              agentPanelModel.runningCount +
+              agentPanelModel.waitingCount +
+              agentPanelModel.idleCount +
+              agentPanelModel.settledCount
+            }
+            verificationSummary={
+              activePlan && activePlan.steps.length > 0
+                ? `${activePlan.steps.filter((step) => step.status === "completed").length}/${activePlan.steps.length}`
+                : null
+            }
             onOpenEnvironment={addEnvironmentSurface}
             onOpenFiles={openFilesSurface}
             onOpenDiff={onOpenChatDiff}
@@ -8669,6 +8966,10 @@ function ChatViewContent(props: ChatViewProps) {
                   onDeleteUserMessage={onDeleteUserMessage}
                   isRevertingCheckpoint={isRevertingCheckpoint}
                   onImageExpand={onExpandTimelineImage}
+                  onOpenAttachment={openComposerAttachment}
+                  onRevealAttachmentInFiles={revealComposerAttachmentInFiles}
+                  onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}
+                  onRemoveAttachment={onRemoveSentAttachment}
                   markdownCwd={gitCwd ?? undefined}
                   resolvedTheme={resolvedTheme}
                   timestampFormat={timestampFormat}
@@ -8822,7 +9123,10 @@ function ChatViewContent(props: ChatViewProps) {
                             activeTasksProgress={activeComposerTasksProgress}
                             activeTaskSteps={activeComposerTaskSteps}
                             onOpenTasks={addTasksSurface}
+                            onOpenTaskChange={onOpenTaskChange}
                             onOpenFiles={openFilesSurface}
+                            onOpenAttachment={openComposerAttachment}
+                            onRevealAttachmentInExplorer={revealComposerAttachmentInExplorer}
                             activeGoal={activeGoal || null}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
@@ -8847,6 +9151,7 @@ function ChatViewContent(props: ChatViewProps) {
                             gitCwd={gitCwd}
                             promptRef={promptRef}
                             composerImagesRef={composerImagesRef}
+                            composerFileAttachmentsRef={composerFileAttachmentsRef}
                             composerTerminalContextsRef={composerTerminalContextsRef}
                             composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
@@ -9089,6 +9394,19 @@ function ChatViewContent(props: ChatViewProps) {
           onClose={closeExpandedImage}
         />
       )}
+      <AttachmentViewerDialog
+        open={attachmentViewer !== null}
+        attachment={attachmentViewer}
+        environmentId={activeThread?.environmentId ?? environmentId}
+        onOpenChange={(open) => {
+          if (!open) setAttachmentViewer(null);
+        }}
+        onRevealInFiles={revealComposerAttachmentInFiles}
+        onRevealInExplorer={revealComposerAttachmentInExplorer}
+        onCopyPath={(attachment) => {
+          if (attachment.path) copyRightPanelFilePath(attachment.path);
+        }}
+      />
     </div>
   );
 }

@@ -29,7 +29,11 @@ import {
 import { cn } from "../../lib/utils";
 import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeServices";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { normalizeProviderAccentColor } from "../../providerInstances";
+import {
+  formatProviderInstanceConnectionLabel,
+  formatProviderInstanceRouteLabel,
+  normalizeProviderAccentColor,
+} from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -50,7 +54,7 @@ import {
   CLAUDE_SERVICE_ENVIRONMENT_VARIABLE_NAMES,
   ClaudeServiceSettings,
 } from "./ClaudeServiceSettings";
-import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
+import { ProviderInstanceIcon, providerInstanceInitials } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import {
@@ -248,11 +252,14 @@ export function ProviderInstanceCard({
   const versionLabel = getProviderVersionLabel(liveProvider?.version);
   const versionAdvisory = getProviderVersionAdvisoryPresentation(liveProvider?.versionAdvisory);
   const updateCommand = versionAdvisory?.updateCommand ?? null;
-  const FallbackIconComponent = driverOption?.icon;
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
-  const serviceBadge = resolveClaudeInstanceService(instance);
+  const connectionLabel = formatProviderInstanceConnectionLabel({ instance, services });
+  const routeLabel = formatProviderInstanceRouteLabel({ instance, services });
+  const serviceBadge =
+    resolveClaudeInstanceService(instance) ??
+    (connectionLabel === "OpenRouter" ? "openrouter" : undefined);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
       toastManager.add({
@@ -354,9 +361,11 @@ export function ProviderInstanceCard({
       iconClassName="size-4 text-foreground/80"
       badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-[7px]"
     />
-  ) : FallbackIconComponent ? (
+  ) : (
     <span className="relative inline-flex size-5 shrink-0 items-center justify-center">
-      <FallbackIconComponent className="size-4 text-foreground/80" aria-hidden />
+      <span className="text-[10px] font-semibold leading-none text-foreground/80">
+        {providerInstanceInitials(displayName)}
+      </span>
       <span
         className={cn(
           "pointer-events-none absolute -left-0.5 -top-0.5 size-2 rounded-full ring-2 ring-card",
@@ -365,8 +374,6 @@ export function ProviderInstanceCard({
         aria-hidden
       />
     </span>
-  ) : (
-    <span className={cn("size-2 shrink-0 rounded-full", statusStyle.dot)} />
   );
 
   const titleHeadNode = (
@@ -436,6 +443,9 @@ export function ProviderInstanceCard({
         </>
       )}
       {summary.detail ? <span>- {summary.detail}</span> : null}
+      <span className="basis-full text-xs text-muted-foreground/70" data-provider-route-label>
+        Route: {routeLabel}
+      </span>
     </p>
   );
 

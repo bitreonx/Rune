@@ -27,6 +27,8 @@ import { PocketWorkspace } from "../pockets/PocketWorkspace";
 import {
   type PocketThreadStatus,
   type PocketWorkspaceThreadData,
+  pocketPeekChildLimit,
+  selectPocketPeekThreads,
 } from "../pockets/pocketWorkspace.logic";
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -68,6 +70,33 @@ function newPocketId(): PocketId {
 
 function orderKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function projectPocketThread(
+  thread: EnvironmentThreadShell,
+  providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>,
+): PocketWorkspaceThreadData {
+  const status = resolveSidebarThreadStatus(thread);
+  const workspaceStatus: PocketThreadStatus =
+    status === "working"
+      ? "working"
+      : status === "approval" || status === "input" || status === "failed"
+        ? "needs-you"
+        : status === "ready" && thread.latestTurn?.completedAt != null
+          ? "done"
+          : "waiting";
+  const modelInstanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+  const providerEntry = providerEntryByInstanceId.get(modelInstanceId);
+  return {
+    id: thread.id,
+    title: thread.title,
+    updatedAt: thread.updatedAt,
+    createdAt: thread.createdAt,
+    status: workspaceStatus,
+    pinned: thread.pinnedAt != null,
+    providerLabel: providerEntry?.displayName ?? String(modelInstanceId),
+    subtitle: thread.branch ?? undefined,
+  };
 }
 
 export function PocketSidebarSection(props: PocketSidebarSectionProps) {
@@ -139,48 +168,34 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
     props.selectedPocketId === null
       ? null
       : (activePockets.find((pocket) => pocket.id === props.selectedPocketId) ?? null);
+  const projectedThreads = useMemo<ReadonlyArray<PocketWorkspaceThreadData>>(
+    () =>
+      props.threads
+        .filter((thread) => thread.environmentId === props.environmentId)
+        .map((thread) => projectPocketThread(thread, props.providerEntryByInstanceId)),
+    [props.environmentId, props.providerEntryByInstanceId, props.threads],
+  );
+  const pocketThreadsById = useMemo(() => {
+    const result = new Map<PocketId, ReadonlyArray<PocketWorkspaceThreadData>>();
+    if (props.snapshot === null) return result;
+    for (const pocket of activePockets) {
+      const pocketIds = pocketDescendantIds(props.snapshot, pocket.id);
+      const threadIds = new Set(
+        props.snapshot.threadMemberships
+          .filter((membership) => pocketIds.has(membership.pocketId))
+          .map((membership) => membership.threadId),
+      );
+      result.set(
+        pocket.id,
+        projectedThreads.filter((thread) => threadIds.has(thread.id)),
+      );
+    }
+    return result;
+  }, [activePockets, projectedThreads, props.snapshot]);
   const workspaceThreads = useMemo<ReadonlyArray<PocketWorkspaceThreadData>>(() => {
-    if (selectedPocket === null || props.snapshot === null) return [];
-    const pocketIds = pocketDescendantIds(props.snapshot, selectedPocket.id);
-    const threadIds = new Set(
-      props.snapshot.threadMemberships
-        .filter((membership) => pocketIds.has(membership.pocketId))
-        .map((membership) => membership.threadId),
-    );
-    return props.threads
-      .filter((thread) => thread.environmentId === props.environmentId && threadIds.has(thread.id))
-      .map((thread) => {
-        const status = resolveSidebarThreadStatus(thread);
-        const workspaceStatus: PocketThreadStatus =
-          status === "working"
-            ? "working"
-            : status === "approval" || status === "input" || status === "failed"
-              ? "needs-you"
-              : status === "ready" && thread.latestTurn?.completedAt != null
-                ? "done"
-                : "waiting";
-        const modelInstanceId =
-          thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
-        const providerEntry = props.providerEntryByInstanceId.get(modelInstanceId);
-        return {
-          id: thread.id,
-          title: thread.title,
-          updatedAt: thread.updatedAt,
-          createdAt: thread.createdAt,
-          status: workspaceStatus,
-          pinned: thread.pinnedAt != null,
-          providerLabel: providerEntry?.displayName ?? String(modelInstanceId),
-          subtitle: thread.branch ?? undefined,
-        } satisfies PocketWorkspaceThreadData;
-      });
-  }, [
-    activePockets,
-    props.environmentId,
-    props.providerEntryByInstanceId,
-    props.snapshot,
-    props.threads,
-    selectedPocket,
-  ]);
+    if (selectedPocket === null) return [];
+    return pocketThreadsById.get(selectedPocket.id) ?? [];
+  }, [pocketThreadsById, selectedPocket]);
 
   const renderProviderMark = (thread: PocketWorkspaceThreadData) => {
     const source = props.threads.find((candidate) => candidate.id === thread.id);
@@ -351,6 +366,10 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
 
   const renderPocket = (pocket: (typeof activePockets)[number], depth: number) => {
     const children = pocketsByParent.get(pocket.id) ?? [];
+    const pocketThreads = pocketThreadsById.get(pocket.id) ?? [];
+    const peekThreads = selectPocketPeekThreads(pocketThreads);
+    const visibleChildCount = pocketPeekChildLimit(peekThreads.length, children.length);
+    const hasPeekableContent = children.length > 0 || pocketThreads.length > 0;
     const expanded = expandedIds.has(pocket.id);
     const selected = props.selectedPocketId === pocket.id;
     const editing = editingPocketId === pocket.id;
@@ -360,6 +379,8 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
         role="none"
         className="relative list-none"
         data-rune-pocket-id={pocket.id}
+        data-rune-pocket-state={expanded ? "expanded" : selected ? "selected" : "closed"}
+        data-rune-pocket-peek-visible={peekedPocketId === pocket.id ? "true" : "false"}
       >
         <SidebarEntityRow variant="pocket" depth={depth} selected={selected}>
           {children.length > 0 ? (
@@ -414,13 +435,20 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
               }
               data-rune-pocket-title={pocket.title}
               draggable
-              onFocus={() => setFocusedPocketId(pocket.id)}
               onClick={() => props.onSelectPocket(selected ? null : pocket.id)}
               onKeyDown={(event) => handlePocketKeyDown(event, pocket, children, expanded)}
               onMouseEnter={() => {
-                if (!expanded && children.length > 0) startPeek(pocket.id);
+                if (!expanded && hasPeekableContent) startPeek(pocket.id);
               }}
               onMouseLeave={() => {
+                clearPeekTimer();
+                setPeekedPocketId(null);
+              }}
+              onFocus={() => {
+                setFocusedPocketId(pocket.id);
+                if (!expanded && hasPeekableContent) startPeek(pocket.id);
+              }}
+              onBlur={() => {
                 clearPeekTimer();
                 setPeekedPocketId(null);
               }}
@@ -552,21 +580,38 @@ export function PocketSidebarSection(props: PocketSidebarSectionProps) {
             </MenuPopup>
           </Menu>
         </SidebarEntityRow>
-        {peekedPocketId === pocket.id && !expanded && children.length > 0 ? (
+        {peekedPocketId === pocket.id &&
+        !expanded &&
+        hasPeekableContent ? (
           <div
-            aria-hidden="true"
+            aria-label={`${pocket.title} prioritized threads`}
+            role="group"
             data-rune-pocket-peek
-            className="pointer-events-none absolute inset-x-2 top-full z-10 translate-y-1.5 rounded-md border border-sidebar-border/70 bg-sidebar px-2 py-1 text-[11px] text-sidebar-muted-foreground opacity-100 shadow-md transition-[opacity,transform] duration-150 motion-reduce:translate-y-0 motion-reduce:transition-none"
+            className="rune-pocket-peek pointer-events-none absolute inset-x-2 top-full z-10 translate-y-1.5 rounded-md border border-sidebar-border/70 bg-sidebar px-2 py-1 text-[11px] text-sidebar-muted-foreground opacity-100 shadow-md transition-[opacity,transform] duration-[var(--rune-motion-fast)] motion-reduce:translate-y-0 motion-reduce:transition-none"
           >
-            {children.slice(0, 4).map((child) => (
-              <div key={child.id} className="truncate py-0.5">
+            {peekThreads.map((thread) => (
+              <div
+                key={thread.id}
+                className="flex min-w-0 items-center gap-1.5 py-0.5"
+                data-rune-pocket-peek-thread={thread.id}
+              >
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full bg-sidebar-muted-foreground/50",
+                    thread.status === "working" && "bg-sidebar-ring",
+                    thread.status === "needs-you" && "bg-amber-400",
+                  )}
+                  aria-hidden
+                />
+                <span className="min-w-0 truncate">{thread.title}</span>
+              </div>
+            ))}
+            {children.slice(0, visibleChildCount).map((child) => (
+              <div key={child.id} className="truncate py-0.5 text-sidebar-muted-foreground/75">
                 <span className="me-1 text-sidebar-muted-foreground/60">├</span>
                 {child.title}
               </div>
             ))}
-            {children.length > 4 ? (
-              <div className="py-0.5 text-sidebar-muted-foreground/65">+{children.length - 4}</div>
-            ) : null}
           </div>
         ) : null}
         {expanded && children.length > 0 ? (

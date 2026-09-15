@@ -16,45 +16,45 @@ import {
 } from "../Icons";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
+const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"], Icon> =
+  {
+    rune: RuneMarkIcon,
+    openai: OpenAI,
+    claude: ClaudeAI,
+    antigravity: AntigravityIcon,
+    opencode: OpenCodeIcon,
+    cursor: CursorIcon,
+    grok: GrokIcon,
+    openrouter: OpenRouterIcon,
+    google: Gemini,
+    deepseek: DeepSeekIcon,
+    xai: xAIIcon,
+  };
+
+export interface ProviderBrandPresentation {
+  readonly id: string;
+  readonly displayName: string;
+  readonly iconKey: (typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"];
+  readonly accessibilityLabel: string;
+  readonly source: (typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["source"];
+  readonly icon: Icon;
+}
+
 /**
- * Provider / harness → icon registry.
- *
- * The map is keyed by `ProviderDriverKind` for the provider-driver surfaces
- * (Codex, Claude, etc.) and additionally by `HarnessKind` strings for the
- * harness picker surfaces (`runeNative` is a `HarnessKind` but no
- * `ProviderDriverKind`, so it has to be looked up via a type-loose key). The
- * `string` key signature here is what lets `AddHarnessDialog` do
- * `PROVIDER_ICON_BY_PROVIDER[harness.kind as any]` without TypeScript
- * complaining; the harness string keys never collide with driver kinds.
+ * Resolve provider/service identity and its renderer in one place. Callers
+ * should use this for labels and marks together so an instance cannot display
+ * a mark from one provider beside another provider's name.
  */
-const ICON_BY_KEY: Record<(typeof PROVIDER_BRANDS)[keyof typeof PROVIDER_BRANDS]["iconKey"], Icon> = {
-  rune: RuneMarkIcon,
-  openai: OpenAI,
-  claude: ClaudeAI,
-  antigravity: AntigravityIcon,
-  opencode: OpenCodeIcon,
-  cursor: CursorIcon,
-  grok: GrokIcon,
-  openrouter: OpenRouterIcon,
-  google: Gemini,
-  deepseek: DeepSeekIcon,
-  xai: xAIIcon,
-};
-
-export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind | string, Icon>> =
-  Object.fromEntries(
-    Object.values(PROVIDER_BRANDS).map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
-  );
-
-export const SERVICE_ICON_BY_KIND: Record<string, Icon> = Object.fromEntries(
-  Object.values(PROVIDER_BRANDS)
-    .filter((brand) => brand.source === "service")
-    .map((brand) => [brand.id, ICON_BY_KEY[brand.iconKey]]),
-);
+export function getProviderBrandPresentation(kind: string): ProviderBrandPresentation | null {
+  const brand = getProviderBrand(kind);
+  if (!brand) return null;
+  const icon = ICON_BY_KEY[brand.iconKey];
+  if (!icon) return null;
+  return { ...brand, icon };
+}
 
 export function getProviderOrServiceIcon(kind: string): Icon | null {
-  const brand = getProviderBrand(kind);
-  return brand ? ICON_BY_KEY[brand.iconKey] : null;
+  return getProviderBrandPresentation(kind)?.icon ?? null;
 }
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {

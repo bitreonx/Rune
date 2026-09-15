@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useClientSettings } from "../../hooks/useSettings";
 import {
   readPocketViewState,
   writePocketViewState,
@@ -22,10 +24,12 @@ import { PocketShelf } from "./PocketShelf";
 import {
   filterPocketThreads,
   groupPocketThreads,
+  POCKET_MOTION_SEQUENCE,
   sortPocketThreads,
   type PocketThreadStatus,
   type PocketWorkspaceThreadData,
 } from "./pocketWorkspace.logic";
+import { usePocketMotionPhase } from "./pocketMotion";
 
 interface PocketChild {
   readonly id: string;
@@ -60,7 +64,12 @@ export function PocketWorkspace(props: {
   const [savedState, setSavedState] = useState<PocketViewState>(() =>
     readPocketViewState(props.pocketId),
   );
-  const [query, setQuery] = useState("");
+  const motionProfile = useClientSettings((settings) => settings.motionProfile);
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const motionPhase = usePocketMotionPhase({
+    motionProfile,
+    reducedMotion: prefersReducedMotion,
+  });
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const savedStateRef = useRef(savedState);
 
@@ -68,7 +77,6 @@ export function PocketWorkspace(props: {
     const next = readPocketViewState(props.pocketId);
     savedStateRef.current = next;
     setSavedState(next);
-    setQuery("");
   }, [props.pocketId]);
 
   useEffect(
@@ -83,8 +91,10 @@ export function PocketWorkspace(props: {
   }, [savedState.scrollTop, savedState.view]);
 
   const updateViewState = (patch: Partial<PocketViewState>) => {
-    setSavedState((current) => {
-      const next = { ...current, ...patch };
+    setSavedState(() => {
+      // Scroll is intentionally kept in a ref during wheel events. Start from
+      // that latest snapshot so changing a view or sort cannot erase it.
+      const next = { ...savedStateRef.current, ...patch };
       savedStateRef.current = next;
       writePocketViewState(props.pocketId, next);
       return next;
@@ -92,8 +102,8 @@ export function PocketWorkspace(props: {
   };
 
   const filteredThreads = useMemo(
-    () => filterPocketThreads(props.threads, query),
-    [props.threads, query],
+    () => filterPocketThreads(props.threads, savedState.query ?? ""),
+    [props.threads, savedState.query],
   );
   const sortedThreads = useMemo(
     () => sortPocketThreads(filteredThreads, savedState.sort),
@@ -122,10 +132,11 @@ export function PocketWorkspace(props: {
           props.onOpenThread(thread);
         }}
         className={cn(
-          "group flex min-w-0 items-center gap-2 border-b border-border/45 px-2 py-2 text-left transition-colors hover:bg-accent/55 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "group flex min-w-0 items-center gap-2 border-b border-border/45 px-2 py-2 text-left [content-visibility:auto] [contain-intrinsic-block-size:44px] transition-colors hover:bg-accent/55 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           savedState.view === "compact" && "py-1 text-xs",
         )}
         data-rune-pocket-thread={thread.id}
+        data-rune-pocket-thread-status={thread.status}
       >
         <span className="grid size-5 shrink-0 place-items-center" aria-hidden>
           {props.renderProviderMark?.(thread) ?? (
@@ -166,9 +177,15 @@ export function PocketWorkspace(props: {
 
   return (
     <section
-      className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-[var(--rune-surface-raised)] shadow-[0_14px_40px_-30px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
+      className="rune-pocket-workspace flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-[var(--rune-surface-raised)] shadow-[0_14px_40px_-30px_color-mix(in_srgb,var(--rune-violet-strong)_55%,transparent)]"
       aria-label={`${props.title} Pocket workspace`}
       data-rune-pocket-workspace
+      data-rune-pocket-state="open"
+      data-rune-pocket-surface-state="open"
+      data-rune-pocket-motion-phase={motionPhase}
+      data-rune-pocket-motion-profile={motionProfile}
+      data-rune-pocket-motion-finite="true"
+      data-rune-pocket-motion-sequence={POCKET_MOTION_SEQUENCE}
     >
       <header className="flex min-w-0 flex-col gap-2 border-b border-border/60 p-2.5">
         <div className="flex min-w-0 items-start gap-2">
@@ -192,13 +209,15 @@ export function PocketWorkspace(props: {
           threads={props.threads}
           onOpenThread={props.onOpenThread}
           renderProviderMark={props.renderProviderMark}
+          motionPhase={motionPhase}
+          motionProfile={motionProfile}
         />
         <div className="flex items-center gap-1.5">
           <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
             <SearchIcon className="size-3.5 shrink-0" aria-hidden />
             <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={savedState.query ?? ""}
+              onChange={(event) => updateViewState({ query: event.target.value })}
               placeholder="Search this Pocket"
               aria-label="Search this Pocket"
               className="min-w-0 flex-1 bg-transparent py-1 text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
@@ -302,12 +321,10 @@ export function PocketWorkspace(props: {
             ))}
           </div>
         ) : sortedThreads.length > 0 ? (
-          <div className="[&>[data-rune-pocket-thread]]:content-visibility-auto">
-            {sortedThreads.map(renderThread)}
-          </div>
+          <div>{sortedThreads.map(renderThread)}</div>
         ) : (
           <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-            {query ? "No matching threads" : "No threads in this Pocket yet"}
+            {savedState.query ? "No matching threads" : "No threads in this Pocket yet"}
           </p>
         )}
       </div>

@@ -94,6 +94,39 @@ it.effect("launches the default browser through the platform command", () => {
   );
 });
 
+it.effect("reveals a Windows file by selecting it instead of opening its association", () => {
+  let spawned: ChildProcess.StandardCommand | undefined;
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "rune-file-manager-" });
+    yield* fileSystem.writeFileString(path.join(binDir, "explorer.exe"), "stub\r\n");
+
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchEditor({
+        editor: "file-manager",
+        cwd: "C:\\workspace\\release\\Rune-Next.exe",
+        mode: "reveal",
+      });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "win32",
+          env: { PATH: binDir, PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+          onSpawn: (command) => {
+            spawned = command;
+          },
+        }),
+      ),
+    );
+
+    assert.ok(spawned);
+    assert.equal(spawned.command, "explorer");
+    assert.deepEqual(spawned.args, ["/select,", "C:\\workspace\\release\\Rune-Next.exe"]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+});
+
 it.effect("launches an installed editor with platform-safe arguments", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;

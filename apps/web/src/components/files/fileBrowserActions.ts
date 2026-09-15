@@ -1,17 +1,6 @@
 import type { ContextMenuItem, ProjectEntry } from "@rune/contracts";
 
-export type FileBrowserContextMenuAction =
-  | "open-file"
-  | "open-diff"
-  | "new-file"
-  | "new-folder"
-  | "rename-entry"
-  | "delete-entry"
-  | "open-in-explorer"
-  | "folder-actions"
-  | "copy-path"
-  | "copy-mention"
-  | "add-to-chat"
+export type FileBrowserFolderAction =
   | "expand-folder"
   | "expand-descendants"
   | "expand-all-folders"
@@ -19,91 +8,114 @@ export type FileBrowserContextMenuAction =
   | "collapse-descendants"
   | "collapse-all-folders";
 
-export type FileBrowserBackgroundContextMenuAction =
+export type FileBrowserWorkspaceAction =
   | "new-file"
   | "new-folder"
   | "refresh"
-  | "expand-all"
-  | "collapse-all"
+  | "expand-all-folders"
+  | "collapse-all-folders"
   | "reveal-workspace";
 
-export function fileBrowserEntryContextMenuItems(options: {
-  readonly kind: ProjectEntry["kind"];
-  readonly isExpanded?: boolean;
+export function folderActionItems(input: {
+  readonly expanded: boolean;
+  readonly disabled?: boolean;
+}): readonly ContextMenuItem<FileBrowserFolderAction>[] {
+  const disabled = input.disabled ?? false;
+  return input.expanded
+    ? [
+        { id: "collapse-folder", label: "Collapse folder", icon: "chevron-up", disabled },
+        {
+          id: "collapse-descendants",
+          label: "Collapse descendants",
+          icon: "chevrons-up",
+          disabled,
+        },
+        {
+          id: "collapse-all-folders",
+          label: "Collapse all folders",
+          icon: "fold-vertical",
+          disabled,
+        },
+      ]
+    : [
+        { id: "expand-folder", label: "Expand folder", icon: "chevron-down", disabled },
+        {
+          id: "expand-descendants",
+          label: "Expand descendants",
+          icon: "chevrons-down",
+          disabled,
+        },
+        {
+          id: "expand-all-folders",
+          label: "Expand all folders",
+          icon: "unfold-vertical",
+          disabled,
+        },
+      ];
+}
+
+export function folderContextMenuItems(input: {
+  readonly expanded: boolean;
   readonly chatScoped: boolean;
-  readonly isChanged?: boolean;
-  readonly canOpenDiff?: boolean;
   readonly fileManagerName: string;
-}): readonly ContextMenuItem<FileBrowserContextMenuAction>[] {
-  const folderActions: ContextMenuItem<FileBrowserContextMenuAction> = {
-    id: "folder-actions",
-    label: "Folder actions",
-    icon: "folder-tree",
-    children:
-      options.isExpanded === true
-        ? [
-            { id: "collapse-folder", label: "Collapse folder", icon: "chevron-down" },
-            { id: "collapse-descendants", label: "Collapse descendants", icon: "chevron-down" },
-            { id: "collapse-all-folders", label: "Collapse all folders", icon: "folder-tree" },
-          ]
-        : [
-            { id: "expand-folder", label: "Expand folder", icon: "chevron-right" },
-            { id: "expand-descendants", label: "Expand descendants", icon: "chevron-down" },
-            { id: "expand-all-folders", label: "Expand all folders", icon: "folder-tree" },
-          ],
-  };
-
-  if (options.kind === "directory") {
-    return [
-      { id: "new-file", label: "New File", icon: "file-plus", disabled: options.chatScoped },
-      { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: options.chatScoped },
-      {
-        id: "rename-entry",
-        label: "Rename",
-        icon: "pencil",
-        disabled: options.chatScoped,
-        separatorBefore: true,
-      },
-      { id: "delete-entry", label: "Delete", icon: "trash", destructive: true },
-      {
-        id: "open-in-explorer",
-        label: `Reveal in ${options.fileManagerName}`,
-        icon: "external-link",
-        separatorBefore: true,
-      },
-      { ...folderActions, separatorBefore: true },
-      { id: "copy-path", label: "Copy Path", icon: "copy" },
-      {
-        id: "add-to-chat",
-        label: "Add to Chat",
-        icon: "message-square-plus",
-        separatorBefore: true,
-      },
-    ];
-  }
-
-  const fileItems: ContextMenuItem<FileBrowserContextMenuAction>[] = [
-    { id: "open-file", label: "Open preview / editor", icon: "file-code" },
-    ...(options.isChanged && options.canOpenDiff
-      ? [
-          {
-            id: "open-diff",
-            label: "Open diff",
-            icon: "file-diff",
-          } satisfies ContextMenuItem<FileBrowserContextMenuAction>,
-        ]
-      : []),
+}): readonly ContextMenuItem[] {
+  return [
+    { id: "new-file", label: "New File", icon: "file-plus", disabled: input.chatScoped },
+    { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: input.chatScoped },
     {
       id: "rename-entry",
       label: "Rename",
       icon: "pencil",
-      disabled: options.chatScoped,
+      disabled: input.chatScoped,
       separatorBefore: true,
     },
     { id: "delete-entry", label: "Delete", icon: "trash", destructive: true },
     {
       id: "open-in-explorer",
-      label: `Reveal in ${options.fileManagerName}`,
+      label: `Reveal in ${input.fileManagerName}`,
+      icon: "external-link",
+      separatorBefore: true,
+    },
+    { id: "copy-path", label: "Copy Path", icon: "copy" },
+    {
+      id: "folder-actions",
+      label: "Folder actions",
+      icon: "folder-cog",
+      separatorBefore: true,
+      // Navigation remains available in chat-scoped/read-only trees. Only
+      // filesystem mutations are disabled by chat scope.
+      children: folderActionItems({ expanded: input.expanded }),
+    },
+    {
+      id: "add-to-chat",
+      label: "Add to Chat",
+      icon: "message-square-plus",
+      separatorBefore: true,
+    },
+  ];
+}
+
+export function fileContextMenuItems(input: {
+  readonly chatScoped: boolean;
+  readonly fileManagerName: string;
+  readonly isChanged: boolean;
+}): readonly ContextMenuItem[] {
+  return [
+    { id: "open-file", label: "Open preview / editor", icon: "file-code" },
+    ...(input.isChanged
+      ? [{ id: "open-diff", label: "Open diff", icon: "file-diff" }]
+      : []),
+    {
+      id: "rename-entry",
+      label: "Rename",
+      icon: "pencil",
+      disabled: input.chatScoped,
+      separatorBefore: true,
+    },
+    { id: "delete-entry", label: "Delete", icon: "trash", destructive: true },
+    {
+      id: "open-in-explorer",
+      label: `Reveal in ${input.fileManagerName}`,
       icon: "external-link",
       separatorBefore: true,
     },
@@ -116,21 +128,29 @@ export function fileBrowserEntryContextMenuItems(options: {
       separatorBefore: true,
     },
   ];
-  return fileItems;
 }
 
-export function fileBrowserBackgroundContextMenuItems(options: {
+export function workspaceContextMenuItems(input: {
   readonly chatScoped: boolean;
-}): readonly ContextMenuItem<FileBrowserBackgroundContextMenuAction>[] {
+  readonly fileManagerName: string;
+}): readonly ContextMenuItem<FileBrowserWorkspaceAction>[] {
   return [
-    { id: "new-file", label: "New File", icon: "file-plus", disabled: options.chatScoped },
-    { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: options.chatScoped },
+    { id: "new-file", label: "New File", icon: "file-plus", disabled: input.chatScoped },
+    { id: "new-folder", label: "New Folder", icon: "folder-plus", disabled: input.chatScoped },
     { id: "refresh", label: "Refresh", icon: "refresh-cw", separatorBefore: true },
-    { id: "expand-all", label: "Expand all", icon: "folder-tree" },
-    { id: "collapse-all", label: "Collapse all", icon: "folder-tree" },
+    {
+      id: "expand-all-folders",
+      label: "Expand all folders",
+      icon: "unfold-vertical",
+    },
+    {
+      id: "collapse-all-folders",
+      label: "Collapse all folders",
+      icon: "fold-vertical",
+    },
     {
       id: "reveal-workspace",
-      label: "Reveal workspace",
+      label: `Reveal workspace in ${input.fileManagerName}`,
       icon: "external-link",
       separatorBefore: true,
     },

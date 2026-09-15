@@ -1,105 +1,72 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
-  deletionConfirmationMessage,
-  fileBrowserBackgroundContextMenuItems,
-  fileBrowserEntryContextMenuItems,
-  relativeEntryTarget,
+  fileContextMenuItems,
+  folderActionItems,
+  folderContextMenuItems,
+  workspaceContextMenuItems,
 } from "./fileBrowserActions";
 
-describe("file browser action outcomes", () => {
-  it("creates a child path for a directory", () => {
-    expect(relativeEntryTarget({ kind: "directory", path: "src" }, "main.ts")).toBe("src/main.ts");
-  });
-
-  it("creates a sibling path for a file", () => {
-    expect(relativeEntryTarget({ kind: "file", path: "src/main.ts" }, "app.ts")).toBe("src/app.ts");
-  });
-
-  it("uses a destructive confirmation message for recursive deletion", () => {
-    expect(deletionConfirmationMessage({ kind: "directory", path: "src" })).toBe(
-      "Delete src and everything inside it?",
-    );
-  });
-});
-
-describe("file browser entry context menu", () => {
-  it("offers expansion actions for a collapsed folder", () => {
-    const items = fileBrowserEntryContextMenuItems({
-      kind: "directory",
-      isExpanded: false,
+describe("file browser context menu actions", () => {
+  it("exposes the state-aware folder actions submenu", () => {
+    const collapsed = folderContextMenuItems({
+      expanded: false,
       chatScoped: false,
-      fileManagerName: "File Explorer",
+      fileManagerName: "Explorer",
     });
-    const folderActions = items.find((item) => item.id === "folder-actions");
+    const expanded = folderContextMenuItems({
+      expanded: true,
+      chatScoped: false,
+      fileManagerName: "Explorer",
+    });
 
-    expect(items.map((item) => item.label)).toEqual([
-      "New File",
-      "New Folder",
-      "Rename",
-      "Delete",
-      "Reveal in File Explorer",
-      "Folder actions",
-      "Copy Path",
-      "Add to Chat",
-    ]);
-    expect(folderActions?.children?.map((item) => item.label)).toEqual([
+    expect(collapsed.find((item) => item.id === "folder-actions")?.children?.map((item) => item.label)).toEqual([
       "Expand folder",
       "Expand descendants",
       "Expand all folders",
     ]);
-  });
-
-  it("offers collapse actions for an expanded folder", () => {
-    const items = fileBrowserEntryContextMenuItems({
-      kind: "directory",
-      isExpanded: true,
-      chatScoped: false,
-      fileManagerName: "Finder",
-    });
-    const folderActions = items.find((item) => item.id === "folder-actions");
-
-    expect(folderActions?.children?.map((item) => item.label)).toEqual([
+    expect(expanded.find((item) => item.id === "folder-actions")?.children?.map((item) => item.label)).toEqual([
       "Collapse folder",
       "Collapse descendants",
       "Collapse all folders",
     ]);
-    expect(items.find((item) => item.label === "Folder actions")?.children).toBeDefined();
   });
 
-  it("does not expose folder actions for a file", () => {
-    const items = fileBrowserEntryContextMenuItems({
-      kind: "file",
+  it("keeps folder-only actions out of file menus and disables workspace mutation in chat scope", () => {
+    const fileItems = fileContextMenuItems({
       chatScoped: false,
+      fileManagerName: "Explorer",
       isChanged: true,
-      canOpenDiff: true,
-      fileManagerName: "File Explorer",
+    });
+    const workspaceItems = workspaceContextMenuItems({
+      chatScoped: true,
+      fileManagerName: "Explorer",
     });
 
-    expect(items.some((item) => item.id === "folder-actions")).toBe(false);
-    expect(items.map((item) => item.label)).toContain("Open diff");
-  });
-});
-
-describe("file browser background context menu", () => {
-  it("offers inline creation, tree controls, refresh, and workspace reveal", () => {
-    const items = fileBrowserBackgroundContextMenuItems({ chatScoped: false });
-
-    expect(items.map((item) => item.label)).toEqual([
+    expect(fileItems.some((item) => item.id === "folder-actions")).toBe(false);
+    expect(fileItems.some((item) => item.id === "open-diff")).toBe(true);
+    expect(workspaceItems.find((item) => item.id === "new-file")?.disabled).toBe(true);
+    expect(workspaceItems.find((item) => item.id === "expand-all-folders")?.disabled).toBeUndefined();
+    expect(workspaceItems.map((item) => item.label)).toEqual([
       "New File",
       "New Folder",
       "Refresh",
-      "Expand all",
-      "Collapse all",
-      "Reveal workspace",
+      "Expand all folders",
+      "Collapse all folders",
+      "Reveal workspace in Explorer",
     ]);
   });
 
-  it("disables inline creation while viewing chat changes", () => {
-    const items = fileBrowserBackgroundContextMenuItems({ chatScoped: true });
-
-    expect(items[0]?.disabled).toBe(true);
-    expect(items[1]?.disabled).toBe(true);
-    expect(items.slice(2).every((item) => item.disabled !== true)).toBe(true);
+  it("switches folder action state without changing the action vocabulary", () => {
+    expect(folderActionItems({ expanded: false }).map((item) => item.id)).toEqual([
+      "expand-folder",
+      "expand-descendants",
+      "expand-all-folders",
+    ]);
+    expect(folderActionItems({ expanded: true }).map((item) => item.id)).toEqual([
+      "collapse-folder",
+      "collapse-descendants",
+      "collapse-all-folders",
+    ]);
   });
 });

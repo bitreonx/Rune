@@ -3,6 +3,7 @@
 import { useMemo, type ReactNode } from "react";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 import type {
   ProviderSettingsFormAnnotation,
   ProviderSettingsFormControl,
@@ -20,6 +21,7 @@ export interface ProviderSettingsFieldModel {
   readonly key: string;
   readonly control: ProviderSettingsFormControl;
   readonly label: string;
+  readonly required?: boolean;
   readonly description?: string | undefined;
   readonly placeholder?: string | undefined;
   readonly clearWhenEmpty: "omit" | "persist";
@@ -69,6 +71,13 @@ function readFieldBooleanDefault(
   return Option.isSome(decoded) && typeof decoded.value === "boolean" ? decoded.value : undefined;
 }
 
+function hasDecodingDefault(
+  fieldSchema: ProviderClientDefinition["settingsSchema"]["fields"][string],
+): boolean {
+  const decodeDefault = Schema.decodeUnknownOption(fieldSchema as Schema.Decoder<unknown>);
+  return Option.isSome(decodeDefault(undefined));
+}
+
 export function deriveProviderSettingsFields(
   definition: ProviderClientDefinition,
 ): ReadonlyArray<ProviderSettingsFieldModel> {
@@ -98,6 +107,7 @@ export function deriveProviderSettingsFields(
           key,
           control: formAnnotation.control ?? "text",
           label: annotatedTitle ?? titleizeFieldKey(key),
+          required: !SchemaAST.isOptional(fieldSchema.ast) && !hasDecodingDefault(fieldSchema),
           ...(annotatedDescription !== undefined ? { description: annotatedDescription } : {}),
           ...(formAnnotation.placeholder !== undefined
             ? { placeholder: formAnnotation.placeholder }

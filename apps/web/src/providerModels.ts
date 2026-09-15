@@ -99,8 +99,8 @@ export function getProviderModelCapabilities(
 
 /**
  * Which input media the selected model accepts natively, per its catalog
- * metadata. Unknown catalogs fall back to images-only so gating never
- * invents audio/video support.
+ * metadata. Missing catalog metadata remains unknown so this helper never
+ * invents provider support.
  */
 export function getProviderModelMediaSupport(
   models: ReadonlyArray<ServerProviderModel>,

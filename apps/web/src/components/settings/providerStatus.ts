@@ -7,6 +7,7 @@ import type {
 } from "@rune/contracts";
 import { resolveProviderInstanceEnabled } from "@rune/contracts";
 import { APP_BASE_NAME } from "../../branding";
+import { resolveClaudeInstanceService } from "../../claudeServices";
 
 /**
  * Visual treatment for each server-reported provider status. Centralized so
@@ -59,6 +60,43 @@ const fallbackModelFrom = (input: InstanceReadinessInput): string | undefined =>
 
 const serviceLabelFrom = (service: ModelServiceConfig): string =>
   service.maskedLabel?.trim() || service.displayName;
+
+const EXTERNAL_SERVICE_LABELS: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
+  deepseek: "DeepSeek",
+  gateway: "Custom gateway",
+  google: "Google Gemini",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+};
+
+function serviceKindLabel(kind: string): string {
+  const normalized = kind.trim().toLowerCase();
+  return (
+    EXTERNAL_SERVICE_LABELS[normalized] ??
+    normalized
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+  );
+}
+
+/**
+ * Detect migration-era routes that predate `connectionId` being persisted.
+ * These routes still describe an external model service, so native harness
+ * authentication must not be treated as the instance's readiness gate.
+ */
+function externalConnectionLabelFrom(instance: ProviderInstanceConfig | undefined): string | undefined {
+  const explicitServiceKind = instance?.serviceKind?.trim();
+  if (explicitServiceKind && explicitServiceKind.toLowerCase() !== "native") {
+    return serviceKindLabel(explicitServiceKind);
+  }
+
+  const claudeService = resolveClaudeInstanceService(instance);
+  if (claudeService === "openrouter") return "OpenRouter";
+  if (claudeService === "gateway") return "Custom gateway";
+
+  return instance?.authMode === "rune-managed" ? "Managed service" : undefined;
+}
 
 /**
  * Resolve the user-actionable state of one exact instance.
@@ -116,6 +154,33 @@ export function resolveInstanceReadiness(input: InstanceReadinessInput): Instanc
       };
     }
     return { tag: "ready", connectionLabel };
+  }
+
+  const externalConnectionLabel = externalConnectionLabelFrom(instance);
+  if (externalConnectionLabel) {
+    if (provider?.availability === "unavailable" || (provider && !provider.installed)) {
+      return { tag: "missing" };
+    }
+    if (!provider) {
+      return {
+        tag: "discovering-models",
+        ...(fallbackModel ? { fallbackModel } : {}),
+      };
+    }
+    if (provider.status === "error" || provider.status === "warning") {
+      return {
+        tag: "needs-attention",
+        reason: provider.message ?? "The harness failed its startup checks.",
+        recovery: "Open the instance diagnostics and refresh the harness.",
+      };
+    }
+    if (provider.status === "ready") {
+      return { tag: "ready", connectionLabel: externalConnectionLabel };
+    }
+    return {
+      tag: "discovering-models",
+      ...(fallbackModel ? { fallbackModel } : {}),
+    };
   }
 
   if (provider?.availability === "unavailable" || (provider && !provider.installed)) {

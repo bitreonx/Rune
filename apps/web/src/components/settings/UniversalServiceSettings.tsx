@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { cn } from "../../lib/utils";
-import { getProviderOrServiceIcon, SERVICE_ICON_BY_KIND } from "../chat/providerIconUtils";
+import { getProviderBrandPresentation } from "../chat/providerIconUtils";
 
 export type ServiceConnectionMode = "native" | "openrouter" | "custom";
 
@@ -65,7 +65,11 @@ export function validateServiceConnection(
 }
 
 export function serviceConnectionModeLabel(mode: ServiceConnectionMode): string {
-  return mode === "native" ? "Native account" : mode === "openrouter" ? "OpenRouter" : "Custom Gateway";
+  return mode === "native"
+    ? "Native account"
+    : mode === "openrouter"
+      ? "OpenRouter"
+      : "Custom Gateway";
 }
 
 function isOpenRouterEndpoint(value: string): boolean {
@@ -241,12 +245,16 @@ export function UniversalServiceSettings(props: {
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">Connection identity</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            This connection belongs to <span className="font-medium text-foreground">{instanceLabel ?? "this instance"}</span> only.
-            Changing it will not reroute another instance.
+            This connection belongs to{" "}
+            <span className="font-medium text-foreground">{instanceLabel ?? "this instance"}</span>{" "}
+            only. Changing it will not reroute another instance.
           </p>
         </div>
         {instanceId ? (
-          <code className="max-w-full truncate rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[10px] text-muted-foreground" aria-label="Provider instance ID">
+          <code
+            className="max-w-full truncate rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[10px] text-muted-foreground"
+            aria-label="Provider instance ID"
+          >
             {instanceId}
           </code>
         ) : null}
@@ -272,9 +280,7 @@ export function UniversalServiceSettings(props: {
             />
             {connectedServices.map((service) => {
               const ServiceIcon =
-                SERVICE_ICON_BY_KIND[service.kind] ??
-                getProviderOrServiceIcon(String(service.kind)) ??
-                SparklesIcon;
+                getProviderBrandPresentation(String(service.kind))?.icon ?? SparklesIcon;
               return (
                 <ServiceConnectionCard
                   key={service.serviceId}
@@ -303,102 +309,102 @@ export function UniversalServiceSettings(props: {
           role="radiogroup"
           aria-label="Service connection"
         >
-        {/* Native Account */}
-        <button
-          id={`${idPrefix}-mode-native`}
-          type="button"
-          role="radio"
-          aria-checked={connection.mode === "native"}
-          tabIndex={connection.mode === "native" ? 0 : -1}
-          onKeyDown={moveConnectionMode}
-          onClick={() => setConnectionMode("native")}
-          className={cn(
-            "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
-            connection.mode === "native"
-              ? "border-primary/50 bg-primary/8 shadow-sm"
-              : "border-border/60 hover:border-border hover:bg-muted/30",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "size-2 rounded-full",
-                connection.mode === "native" ? "bg-primary" : "bg-muted-foreground/40",
-              )}
-            />
-            <span className="text-xs font-semibold text-foreground">{nativeTitle}</span>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            {nativeDescription}
-          </p>
-        </button>
+          {/* Native Account */}
+          <button
+            id={`${idPrefix}-mode-native`}
+            type="button"
+            role="radio"
+            aria-checked={connection.mode === "native"}
+            tabIndex={connection.mode === "native" ? 0 : -1}
+            onKeyDown={moveConnectionMode}
+            onClick={() => setConnectionMode("native")}
+            className={cn(
+              "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
+              connection.mode === "native"
+                ? "border-primary/50 bg-primary/8 shadow-sm"
+                : "border-border/60 hover:border-border hover:bg-muted/30",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className={cn(
+                  "size-2 rounded-full",
+                  connection.mode === "native" ? "bg-primary" : "bg-muted-foreground/40",
+                )}
+              />
+              <span className="text-xs font-semibold text-foreground">{nativeTitle}</span>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              {nativeDescription}
+            </p>
+          </button>
 
-        {/* OpenRouter Gateway */}
-        <button
-          id={`${idPrefix}-mode-openrouter`}
-          type="button"
-          role="radio"
-          aria-checked={connection.mode === "openrouter"}
-          tabIndex={connection.mode === "openrouter" ? 0 : -1}
-          onKeyDown={moveConnectionMode}
-          onClick={() => setConnectionMode("openrouter")}
-          className={cn(
-            "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
-            connection.mode === "openrouter"
-              ? "border-primary/50 bg-primary/8 shadow-sm"
-              : "border-border/60 hover:border-border hover:bg-muted/30",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "size-2 rounded-full",
-                connection.mode === "openrouter" ? "bg-primary" : "bg-muted-foreground/40",
-              )}
-            />
-            <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-              OpenRouter
-              {openRouterService ? (
-                <span className="rounded bg-success/10 px-1 py-0.2 text-[9px] font-medium text-success">
-                  Connected
-                </span>
-              ) : null}
-            </span>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Route this harness through OpenRouter and pick from hundreds of external models.
-          </p>
-        </button>
+          {/* OpenRouter Gateway */}
+          <button
+            id={`${idPrefix}-mode-openrouter`}
+            type="button"
+            role="radio"
+            aria-checked={connection.mode === "openrouter"}
+            tabIndex={connection.mode === "openrouter" ? 0 : -1}
+            onKeyDown={moveConnectionMode}
+            onClick={() => setConnectionMode("openrouter")}
+            className={cn(
+              "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
+              connection.mode === "openrouter"
+                ? "border-primary/50 bg-primary/8 shadow-sm"
+                : "border-border/60 hover:border-border hover:bg-muted/30",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className={cn(
+                  "size-2 rounded-full",
+                  connection.mode === "openrouter" ? "bg-primary" : "bg-muted-foreground/40",
+                )}
+              />
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                OpenRouter
+                {openRouterService ? (
+                  <span className="rounded bg-success/10 px-1 py-0.2 text-[9px] font-medium text-success">
+                    Connected
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Route this harness through OpenRouter and pick from hundreds of external models.
+            </p>
+          </button>
 
-        {/* Custom Gateway */}
-        <button
-          id={`${idPrefix}-mode-custom`}
-          type="button"
-          role="radio"
-          aria-checked={connection.mode === "custom"}
-          tabIndex={connection.mode === "custom" ? 0 : -1}
-          onKeyDown={moveConnectionMode}
-          onClick={() => setConnectionMode("custom")}
-          className={cn(
-            "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
-            connection.mode === "custom"
-              ? "border-primary/50 bg-primary/8 shadow-sm"
-              : "border-border/60 hover:border-border hover:bg-muted/30",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "size-2 rounded-full",
-                connection.mode === "custom" ? "bg-primary" : "bg-muted-foreground/40",
-              )}
-            />
-            <span className="text-xs font-semibold text-foreground">Custom Gateway</span>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Connect to any custom compatible endpoint with your own base URL and API key.
-          </p>
-        </button>
+          {/* Custom Gateway */}
+          <button
+            id={`${idPrefix}-mode-custom`}
+            type="button"
+            role="radio"
+            aria-checked={connection.mode === "custom"}
+            tabIndex={connection.mode === "custom" ? 0 : -1}
+            onKeyDown={moveConnectionMode}
+            onClick={() => setConnectionMode("custom")}
+            className={cn(
+              "flex flex-col items-start justify-between rounded-xl border p-3.5 text-left transition-all",
+              connection.mode === "custom"
+                ? "border-primary/50 bg-primary/8 shadow-sm"
+                : "border-border/60 hover:border-border hover:bg-muted/30",
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className={cn(
+                  "size-2 rounded-full",
+                  connection.mode === "custom" ? "bg-primary" : "bg-muted-foreground/40",
+                )}
+              />
+              <span className="text-xs font-semibold text-foreground">Custom Gateway</span>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Connect to any custom compatible endpoint with your own base URL and API key.
+            </p>
+          </button>
         </div>
       ) : null}
 
@@ -434,14 +440,20 @@ export function UniversalServiceSettings(props: {
                 onCommit={updateApiKey}
                 className="font-mono text-xs"
                 aria-invalid={validation.credential !== null}
-                aria-describedby={validation.credential ? `${idPrefix}-openrouter-key-error` : undefined}
+                aria-describedby={
+                  validation.credential ? `${idPrefix}-openrouter-key-error` : undefined
+                }
               />
               <p className="text-[11px] text-muted-foreground">
                 Enter your key once here or connect OpenRouter in Settings → Model Services to share
                 across all profiles.
               </p>
               {validation.credential ? (
-                <p id={`${idPrefix}-openrouter-key-error`} className="text-[11px] text-destructive" role="alert">
+                <p
+                  id={`${idPrefix}-openrouter-key-error`}
+                  className="text-[11px] text-destructive"
+                  role="alert"
+                >
                   {validation.credential}
                 </p>
               ) : null}
@@ -480,7 +492,11 @@ export function UniversalServiceSettings(props: {
               aria-describedby={validation.baseUrl ? `${idPrefix}-custom-url-error` : undefined}
             />
             {validation.baseUrl ? (
-              <p id={`${idPrefix}-custom-url-error`} className="text-[11px] text-destructive" role="alert">
+              <p
+                id={`${idPrefix}-custom-url-error`}
+                className="text-[11px] text-destructive"
+                role="alert"
+              >
                 {validation.baseUrl}
               </p>
             ) : null}
@@ -504,7 +520,11 @@ export function UniversalServiceSettings(props: {
               aria-describedby={validation.credential ? `${idPrefix}-custom-key-error` : undefined}
             />
             {validation.credential ? (
-              <p id={`${idPrefix}-custom-key-error`} className="text-[11px] text-destructive" role="alert">
+              <p
+                id={`${idPrefix}-custom-key-error`}
+                className="text-[11px] text-destructive"
+                role="alert"
+              >
                 {validation.credential}
               </p>
             ) : null}
@@ -543,7 +563,9 @@ function ServiceConnectionCard(props: {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-semibold text-foreground">{props.label}</span>
-        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{props.detail}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+          {props.detail}
+        </span>
       </span>
       {props.selected ? <CheckIcon className="size-4 shrink-0 text-primary" aria-hidden /> : null}
     </button>

@@ -918,6 +918,7 @@ export const make = Effect.gen(function* () {
     if (Option.isSome(existingWindow)) return;
 
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
+    const iconPaths = yield* assets.iconPaths;
     const splash = yield* electronWindow.create({
       width: 360,
       height: 280,
@@ -931,6 +932,7 @@ export const make = Effect.gen(function* () {
       skipTaskbar: false,
       transparent: false,
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      ...getIconOption(iconPaths, environment.platform),
       title: environment.displayName,
       webPreferences: {
         preload: environment.path.join(environment.dirname, "startupSplash.preload.cjs"),

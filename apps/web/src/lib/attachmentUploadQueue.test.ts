@@ -1,7 +1,7 @@
 import { EnvironmentId } from "@rune/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { ComposerImageAttachment } from "../composerDraftStore";
+import type { ComposerFileAttachment, ComposerImageAttachment } from "../composerDraftStore";
 
 const mocks = vi.hoisted(() => ({
   createUploadUrl: Symbol("create-upload-url"),
@@ -30,10 +30,12 @@ vi.mock("../state/session", () => ({
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
+  getUploadedFileAttachment,
   readAttachmentUpload,
   releaseAttachmentUpload,
   releaseAttachmentUploads,
   retryAttachmentUpload,
+  startFileAttachmentUpload,
   startAttachmentUpload,
   useAttachmentUploadStore,
 } from "./attachmentUploadQueue";
@@ -106,6 +108,21 @@ function makeImage(id: string): ComposerImageAttachment {
     mimeType: file.type,
     sizeBytes: file.size,
     previewUrl: `blob:${id}`,
+    file,
+  };
+}
+
+function makeFile(id: string): ComposerFileAttachment & { readonly file: File } {
+  const file = new File([new Uint8Array([1, 2, 3, 4])], `${id}.pdf`, {
+    type: "application/pdf",
+  });
+  return {
+    type: "file",
+    kind: "file",
+    id,
+    name: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
     file,
   };
 }
@@ -187,6 +204,33 @@ describe("attachmentUploadQueue", () => {
       },
       expect.anything(),
     );
+  });
+
+  it("uploads generic files without putting a renderer path on the wire", async () => {
+    const attachment = makeFile("document-1");
+    startFileAttachmentUpload({ environmentId: firstEnvironment, attachment });
+    await Promise.resolve();
+
+    const request = TestXmlHttpRequest.requests[0]!;
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("Content-Type")).toBe("application/pdf");
+    expect(request.url).toContain("pending-environment-1-document-1.pdf");
+
+    const settled = awaitAttachmentUploads([attachment.id]);
+    request.complete();
+    await settled;
+
+    expect(
+      getUploadedFileAttachment({ environmentId: firstEnvironment, attachment }),
+    ).toEqual({
+      type: "file",
+      kind: "file",
+      id: "pending-environment-1-document-1.pdf",
+      name: "document-1.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 4,
+    });
+    expect(readAttachmentUpload(attachment.id)).toMatchObject({ status: "ready" });
   });
 
   it("retries rejected uploads", async () => {

@@ -275,4 +275,17 @@ describe("environmentBootstrap", () => {
       message: "The window-origin primary environment target uses unsupported protocol file:.",
     });
   });
+
+  it("does not interpret the Electron rune origin as a backend target when desktop bootstrap is unavailable", () => {
+    vi.stubGlobal("window", {
+      location: new URL("rune://app/"),
+      history: { replaceState: vi.fn() },
+      desktopBridge: { getLocalEnvironmentBootstraps: () => [] },
+    });
+
+    const error = captureThrown(readPrimaryEnvironmentTarget);
+
+    expect(isDesktopEnvironmentBootstrapIncompleteError(error)).toBe(true);
+    expect(isPrimaryEnvironmentProtocolUnsupportedError(error)).toBe(false);
+  });
 });

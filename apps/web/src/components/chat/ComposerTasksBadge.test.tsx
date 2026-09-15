@@ -4,9 +4,12 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   ComposerTasksBadge,
   ComposerTasksDrawer,
+  TaskEvidence,
   taskRowMotionStyle,
+  taskEvidenceWindow,
   tasksProgressPercent,
 } from "./ComposerTasksBadge";
+import type { OrchestrationThreadActivity } from "@rune/contracts";
 
 const progress = {
   step: "Attach task progress",
@@ -274,7 +277,145 @@ describe("ComposerTasksDrawer", () => {
   });
 });
 
+describe("TaskEvidence", () => {
+  it("shows real change receipts with file and line statistics", () => {
+    const activity = {
+      id: "activity-change-receipt",
+      tone: "info",
+      kind: "turn.diff.updated",
+      summary: "Updated provider routing",
+      payload: {
+        itemFileChanges: [
+          { path: "apps/web/src/Providers.tsx", additions: 42, deletions: 8 },
+          { path: "apps/server/src/route.ts", additions: 18, deletions: 4 },
+          { path: "packages/contracts/src/route.ts", additions: 4, deletions: 2 },
+        ],
+      },
+      turnId: null,
+      sequence: 1,
+      createdAt: "2026-08-30T00:00:00.000Z",
+    } satisfies OrchestrationThreadActivity;
+
+    const markup = renderToStaticMarkup(
+      <TaskEvidence activities={[activity]} onOpenChange={() => undefined} />,
+    );
+
+    expect(markup).toContain("3 files · +64 −14");
+    expect(markup).toContain("Updating apps/web/src/Providers.tsx");
+    expect(markup).toContain("Open change receipt for apps/web/src/Providers.tsx");
+    expect(markup).toContain('data-rune-task-evidence="true"');
+  });
+
+  it("retains later verification receipts when an earlier activity is still working", () => {
+    const activities = [
+      {
+        id: "activity-working",
+        tone: "info",
+        kind: "agent.execution.progress",
+        summary: "Updating provider routing",
+        payload: { phase: "implement", status: "running" },
+        turnId: null,
+        sequence: 1,
+        createdAt: "2026-08-30T00:00:00.000Z",
+      },
+      {
+        id: "activity-verified",
+        tone: "info",
+        kind: "verification.completed",
+        summary: "Verified 18 tests",
+        payload: { phase: "test", status: "completed" },
+        turnId: null,
+        sequence: 2,
+        createdAt: "2026-08-30T00:00:01.000Z",
+      },
+    ] satisfies ReadonlyArray<OrchestrationThreadActivity>;
+
+    const markup = renderToStaticMarkup(<TaskEvidence activities={activities} />);
+
+    expect(markup).toContain("Updating provider routing");
+    expect(markup).toContain("Verified 18 tests");
+  });
+
+  it("uses explicit disclosure for older Workrail receipt groups", () => {
+    const activities = Array.from({ length: 10 }, (_, index) => ({
+      id: `activity-${index}`,
+      tone: "info",
+      kind: index % 2 === 0 ? "agent.execution.progress" : "verification.completed",
+      summary: `Receipt group ${index}`,
+      payload: { phase: index % 2 === 0 ? "implement" : "test", status: "completed" },
+      turnId: null,
+      sequence: index + 1,
+      createdAt: `2026-08-30T00:00:${String(index).padStart(2, "0")}.000Z`,
+    })) satisfies ReadonlyArray<OrchestrationThreadActivity>;
+
+    const markup = renderToStaticMarkup(<TaskEvidence activities={activities} />);
+
+    expect(markup).not.toContain("Receipt group 0");
+    expect(markup).toContain("Receipt group 9");
+    expect(markup).toContain('aria-controls="rune-task-evidence-receipts-');
+    expect(markup).toContain("Earlier receipts");
+  });
+
+  it("exposes every verification label and an explicit change disclosure", () => {
+    const activity = {
+      id: "activity-many-changes",
+      tone: "info",
+      kind: "verification.completed",
+      summary: "Verified provider route",
+      payload: {
+        phase: "test",
+        status: "completed",
+        itemFileChanges: Array.from({ length: 4 }, (_, index) => ({
+          path: `apps/file-${index}.ts`,
+          additions: index + 1,
+          deletions: 0,
+        })),
+      },
+      turnId: null,
+      sequence: 1,
+      createdAt: "2026-08-30T00:00:00.000Z",
+    } satisfies OrchestrationThreadActivity;
+    const verification = {
+      id: "activity-verification",
+      tone: "info",
+      kind: "verification.completed",
+      summary: "Verification complete",
+      payload: { phase: "test", status: "completed" },
+      turnId: null,
+      sequence: 2,
+      createdAt: "2026-08-30T00:00:01.000Z",
+    } satisfies OrchestrationThreadActivity;
+
+    const markup = renderToStaticMarkup(<TaskEvidence activities={[activity, verification]} />);
+
+    expect(markup).toContain("Earlier changes");
+    expect(markup).toContain("✓ Verification complete");
+    expect(markup).toContain("apps/file-3.ts");
+  });
+});
+
 describe("tasks motion helpers", () => {
+  it("keeps receipt and change windows bounded while allowing paging", () => {
+    expect(taskEvidenceWindow(100, 0, 8)).toEqual({
+      start: 92,
+      end: 100,
+      hasEarlier: true,
+      hasLater: false,
+    });
+    expect(taskEvidenceWindow(100, 1, 8)).toEqual({
+      start: 84,
+      end: 92,
+      hasEarlier: true,
+      hasLater: true,
+    });
+    expect(taskEvidenceWindow(4, 99, 8)).toEqual({
+      start: 0,
+      end: 4,
+      hasEarlier: false,
+      hasLater: false,
+    });
+  });
+
   it("maps progress to a clamped percentage", () => {
     expect(tasksProgressPercent(0, 3)).toBe(0);
     expect(tasksProgressPercent(1, 3)).toBe(33);

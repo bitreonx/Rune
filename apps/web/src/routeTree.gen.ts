@@ -13,6 +13,7 @@ import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PluginsRouteImport } from './routes/plugins'
+import { Route as SchedulesRouteImport } from './routes/schedules'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
@@ -54,6 +55,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const PluginsRoute = PluginsRouteImport.update({
   id: '/plugins',
   path: '/plugins',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchedulesRoute = SchedulesRouteImport.update({
+  id: '/schedules',
+  path: '/schedules',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -174,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/plugins': typeof PluginsRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
@@ -200,6 +207,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/plugins': typeof PluginsRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
@@ -229,6 +237,7 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/plugins': typeof PluginsRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
@@ -259,6 +268,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/plugins'
+    | '/schedules'
     | '/settings'
     | '/skills'
     | '/usage'
@@ -285,6 +295,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/plugins'
+    | '/schedules'
     | '/settings'
     | '/skills'
     | '/usage'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/plugins'
+    | '/schedules'
     | '/settings'
     | '/skills'
     | '/usage'
@@ -342,6 +354,7 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   PairRoute: typeof PairRoute
   PluginsRoute: typeof PluginsRoute
+  SchedulesRoute: typeof SchedulesRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SkillsRoute: typeof SkillsRoute
   UsageRoute: typeof UsageRoute
@@ -377,6 +390,13 @@ declare module '@tanstack/react-router' {
       path: '/plugins'
       fullPath: '/plugins'
       preLoaderRoute: typeof PluginsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schedules': {
+      id: '/schedules'
+      path: '/schedules'
+      fullPath: '/schedules'
+      preLoaderRoute: typeof SchedulesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pair': {

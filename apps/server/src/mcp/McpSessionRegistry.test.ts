@@ -46,11 +46,52 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
 
     const resolved = yield* registry.resolve(token);
     expect(resolved?.threadId).toBe(threadId);
+    expect(resolved?.capabilities).toEqual(new Set(["preview", "schedules-read", "schedules-write"]));
 
     yield* registry.revokeThread(threadId);
     expect(yield* registry.resolve(token)).toBeUndefined();
 
     timestamp += 2_000;
+  }),
+);
+
+it.effect("can issue a read-only schedule credential without granting writes", () =>
+  Effect.gen(function* () {
+    const registry = yield* McpSessionRegistry.__testing
+      .make({
+        now: () => 1_000,
+        capabilities: new Set(["preview", "schedules-read"]),
+      })
+      .pipe(
+        Effect.provideService(HttpServer.HttpServer, fakeHttpServer),
+        Effect.provideService(ServerEnvironment.ServerEnvironment, fakeEnvironment),
+        Effect.provide(NodeServices.layer),
+      );
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-read-only"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+
+    expect((yield* registry.resolve(token))?.capabilities).toEqual(
+      new Set(["preview", "schedules-read"]),
+    );
+  }),
+);
+
+it.effect("lets the session owner narrow capabilities for one issued credential", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-request-scoped"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      capabilities: new Set(["preview", "schedules-read"]),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+
+    expect((yield* registry.resolve(token))?.capabilities).toEqual(
+      new Set(["preview", "schedules-read"]),
+    );
   }),
 );
 

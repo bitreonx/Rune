@@ -1,13 +1,29 @@
 import {
-  type EnvironmentId,
+  EnvironmentId,
   PreviewAutomationUnavailableError,
-  type ProviderInstanceId,
-  type ThreadId,
+  ProviderInstanceId,
+  ThreadId,
 } from "@rune/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
-export type McpCapability = "preview";
+export type McpCapability = "preview" | "schedules-read" | "schedules-write";
+
+export class McpCapabilityUnavailableError extends Schema.TaggedErrorClass<McpCapabilityUnavailableError>()(
+  "McpCapabilityUnavailableError",
+  {
+    capability: Schema.Literals(["schedules-read", "schedules-write"]),
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+    providerSessionId: Schema.String,
+    providerInstanceId: ProviderInstanceId,
+  },
+) {
+  override get message(): string {
+    return `MCP credential does not grant the ${this.capability} capability.`;
+  }
+}
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
@@ -23,18 +39,48 @@ export class McpInvocationContext extends Context.Service<
   McpInvocationScope
 >()("rune/mcp/McpInvocationContext") {}
 
-export const requireMcpCapability = Effect.fn("mcp.requireCapability")(function* (
+export function requireMcpCapability(
+  capability: "preview",
+): Effect.Effect<
+  McpInvocationScope,
+  PreviewAutomationUnavailableError,
+  McpInvocationContext
+>;
+export function requireMcpCapability(
+  capability: "schedules-read" | "schedules-write",
+): Effect.Effect<McpInvocationScope, McpCapabilityUnavailableError, McpInvocationContext>;
+export function requireMcpCapability(
   capability: McpCapability,
-) {
-  const invocation = yield* McpInvocationContext;
-  if (!invocation.capabilities.has(capability)) {
-    return yield* new PreviewAutomationUnavailableError({
-      capability,
-      environmentId: invocation.environmentId,
-      threadId: invocation.threadId,
-      providerSessionId: invocation.providerSessionId,
-      providerInstanceId: invocation.providerInstanceId,
-    });
-  }
-  return invocation;
-});
+): Effect.Effect<
+  McpInvocationScope,
+  PreviewAutomationUnavailableError | McpCapabilityUnavailableError,
+  McpInvocationContext
+>;
+export function requireMcpCapability(capability: McpCapability) {
+  return Effect.gen(function* () {
+    const invocation = yield* McpInvocationContext;
+    if (!invocation.capabilities.has(capability)) {
+      if (capability === "preview") {
+        return yield* new PreviewAutomationUnavailableError({
+          capability,
+          environmentId: invocation.environmentId,
+          threadId: invocation.threadId,
+          providerSessionId: invocation.providerSessionId,
+          providerInstanceId: invocation.providerInstanceId,
+        });
+      }
+      return yield* new McpCapabilityUnavailableError({
+        capability,
+        environmentId: invocation.environmentId,
+        threadId: invocation.threadId,
+        providerSessionId: invocation.providerSessionId,
+        providerInstanceId: invocation.providerInstanceId,
+      });
+    }
+    return invocation;
+  }) as Effect.Effect<
+    McpInvocationScope,
+    PreviewAutomationUnavailableError | McpCapabilityUnavailableError,
+    McpInvocationContext
+  >;
+}

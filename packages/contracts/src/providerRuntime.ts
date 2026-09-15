@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
   EventId,
+  CommandId,
   IsoDateTime,
   NonNegativeInt,
   ProviderItemId,
@@ -361,6 +362,8 @@ const RuntimeErrorType = Schema.Literal("runtime.error");
 
 const ProviderRuntimeEventBase = Schema.Struct({
   eventId: EventId,
+  /** Server-owned command correlation when a turn came from orchestration. */
+  orchestrationCommandId: Schema.optional(CommandId),
   provider: ProviderDriverKind,
   // Optional during the driver/instance migration. See providerInstance.ts
   // for the routing-key-vs-driver-id distinction. Once every emitter

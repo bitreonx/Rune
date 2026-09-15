@@ -19,6 +19,7 @@ import {
   type ProviderUserInputAnswers,
   type UserInputQuestion,
   type RuntimeRouteReceipt,
+  type ThreadId as ContractThreadId,
 } from "@rune/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -35,6 +36,7 @@ import { apiProviderEndpoint, normalizeApiProviderBaseUrl } from "@rune/contract
 import { ProcessRunner } from "../../processRunner.ts";
 import { WorkspaceEntries } from "../../workspace/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
+import type { NativeScheduleContext } from "./ApiScheduleTools.ts";
 import { runAgenticTurn, type AgentLoopDeps, type AgentLoopMessage } from "./ApiAgentLoop.ts";
 import { askUserTool, NATIVE_TOOLS, SAFE_TOOLS, type NativeToolContext } from "./ApiTools.ts";
 import { ApiHarnessLedger, compileOutcomeContract } from "./ApiHarness.ts";
@@ -91,6 +93,11 @@ export interface ApiAdapterToolServices {
   readonly workspaceFileSystem: typeof WorkspaceFileSystem.Service;
   readonly workspaceEntries: typeof WorkspaceEntries.Service;
   readonly processRunner?: typeof ProcessRunner.Service | undefined;
+  readonly schedule?: Omit<NativeScheduleContext, "threadId" | "projectId"> & {
+    readonly resolveProjectId: (
+      threadId: ContractThreadId,
+    ) => Effect.Effect<NativeScheduleContext["projectId"]>;
+  };
 }
 
 export interface ApiAdapterOptions {
@@ -312,19 +319,37 @@ export const makeApiAdapter = Effect.fn("makeApiAdapter")(function* (options: Ap
 
       const cwd = context.session.cwd;
       const toolsAvailable = options.toolServices !== undefined && cwd !== undefined;
-      const offeredTools = !toolsAvailable
+      const scheduleProjectId =
+        toolsAvailable && options.toolServices?.schedule !== undefined
+          ? yield* options.toolServices.schedule.resolveProjectId(context.threadId)
+          : undefined;
+      const candidateTools = !toolsAvailable
         ? [askUserTool]
         : context.sandboxMode === "read-only"
           ? SAFE_TOOLS
           : options.toolServices?.processRunner
             ? NATIVE_TOOLS
             : NATIVE_TOOLS.filter((tool) => tool.name !== "shell");
+      const offeredTools = candidateTools.filter(
+        (tool) =>
+          !tool.name.startsWith("rune_schedule_") || options.toolServices?.schedule !== undefined,
+      );
       const toolContext: NativeToolContext | undefined = toolsAvailable
         ? {
             cwd,
             workspaceFileSystem: options.toolServices!.workspaceFileSystem,
             workspaceEntries: options.toolServices!.workspaceEntries,
             processRunner: options.toolServices!.processRunner,
+            ...(options.toolServices!.schedule === undefined
+              ? {}
+              : {
+                  schedule: {
+                    environmentId: options.toolServices!.schedule.environmentId,
+                    registry: options.toolServices!.schedule.registry,
+                    threadId: context.threadId,
+                    ...(scheduleProjectId === undefined ? {} : { projectId: scheduleProjectId }),
+                  },
+                }),
           }
         : undefined;
       const approvalGate: AgentLoopDeps["approvalGate"] =

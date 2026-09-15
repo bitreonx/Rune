@@ -20,6 +20,7 @@ import {
   ProviderSessionStartInput,
   ProviderStopSessionInput,
   ProviderUploadFeedbackInput,
+  type CommandId,
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
@@ -30,12 +31,14 @@ import {
 import { causeErrorTag } from "@rune/shared/observability";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -65,6 +68,7 @@ import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.
 import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
+import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
@@ -251,6 +255,15 @@ const dieOnMissingBindingInstanceId = (
   );
 };
 
+const turnCorrelationThreadKey = (instanceId: ProviderInstanceId, threadId: ThreadId): string =>
+  `${instanceId}\u0000${threadId}`;
+
+const turnCorrelationKey = (
+  instanceId: ProviderInstanceId,
+  threadId: ThreadId,
+  turnId: TurnId,
+): string => `${turnCorrelationThreadKey(instanceId, threadId)}\u0000${turnId}`;
+
 const correlateRuntimeEventWithInstance = (
   source: {
     readonly instanceId: ProviderInstanceId;
@@ -333,14 +346,20 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const revokeMcpCredential =
     options?.revokeMcpCredential ?? McpSessionRegistry.revokeActiveMcpThread;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  const pendingTurnCorrelations = yield* Ref.make(new Map<string, CommandId>());
+  const activeTurnCorrelations = yield* Ref.make(new Map<string, CommandId>());
+  // A provider can emit its terminal receipt before adapter.sendTurn resolves.
+  // Keep that fact long enough to prevent the post-send bookkeeping from
+  // resurrecting an already-finished correlation.
+  const finishedTurnCorrelations = yield* Ref.make(new Set<string>());
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   /**
    * Attach the `rune` MCP server to the session that is about to start.
    *
    * This is the only place a credential is minted, so withholding one here is
-   * what disables agent browser access everywhere: every adapter already
-   * treats a missing session as "no MCP server", and the `/mcp` endpoint
-   * accepts nothing but tokens issued from this path.
+   * what disables optional agent control access everywhere: every adapter
+   * already treats a missing session as "no MCP server", and the `/mcp`
+   * endpoint accepts nothing but tokens issued from this path.
    */
   /**
    * Deny on an unreadable settings file rather than letting the read failure
@@ -359,10 +378,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ).pipe(Effect.as(false)),
     ),
   );
+  const agentScheduleAccessEnabled = serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.enableAgentScheduleAccess),
+    Effect.catch((cause) =>
+      Effect.logWarning(
+        "Could not read server settings; withholding agent schedule access for this session.",
+        { cause },
+      ).pipe(Effect.as(false)),
+    ),
+  );
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
-      if (!(yield* agentBrowserAccessEnabled)) {
+      const browserAccess = yield* agentBrowserAccessEnabled;
+      const scheduleAccess = yield* agentScheduleAccessEnabled;
+      if (!browserAccess && !scheduleAccess) {
         // Revoke as well as clear. Every other prepare path reaches
         // `issueActiveMcpCredential`, which revokes the thread first, so
         // skipping it here would leave a previously issued bearer token valid
@@ -373,7 +403,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
         return undefined;
       }
-      const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+      const capabilities = new Set<McpInvocationContext.McpCapability>([
+        ...(browserAccess ? (["preview"] as const) : []),
+        ...(scheduleAccess ? (["schedules-read", "schedules-write"] as const) : []),
+      ]);
+      const credential = yield* issueMcpCredential({
+        threadId,
+        providerInstanceId,
+        capabilities,
+      });
       if (credential) {
         yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
       }
@@ -394,6 +432,61 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
       Effect.asVoid,
     );
+
+  const correlateRuntimeEvent = (
+    source: { readonly instanceId: ProviderInstanceId },
+    event: ProviderRuntimeEvent,
+  ): Effect.Effect<ProviderRuntimeEvent> =>
+    Effect.gen(function* () {
+      const existing = event.orchestrationCommandId;
+      const active = yield* Ref.get(activeTurnCorrelations);
+      const pending = yield* Ref.get(pendingTurnCorrelations);
+      const threadKey = turnCorrelationThreadKey(source.instanceId, event.threadId);
+      const commandId =
+        existing ??
+        (event.turnId === undefined
+          ? undefined
+          : active.get(turnCorrelationKey(source.instanceId, event.threadId, event.turnId))) ??
+        (event.type === "turn.started" ? pending.get(threadKey) : undefined);
+
+      if (event.type === "turn.started" && event.turnId !== undefined && commandId !== undefined) {
+        yield* Ref.update(activeTurnCorrelations, (current) =>
+          new Map(current).set(
+            turnCorrelationKey(source.instanceId, event.threadId, event.turnId!),
+            commandId,
+          ),
+        );
+        yield* Ref.update(pendingTurnCorrelations, (current) => {
+          const next = new Map(current);
+          next.delete(threadKey);
+          return next;
+        });
+      }
+
+      if (
+        (event.type === "turn.completed" ||
+          event.type === "turn.aborted" ||
+          event.type === "runtime.error") &&
+        event.turnId !== undefined
+      ) {
+        const correlationKey =
+          event.turnId === undefined
+            ? undefined
+            : turnCorrelationKey(source.instanceId, event.threadId, event.turnId);
+        yield* Ref.update(activeTurnCorrelations, (current) => {
+          const next = new Map(current);
+          if (correlationKey !== undefined) next.delete(correlationKey);
+          return next;
+        });
+        if (correlationKey !== undefined) {
+          yield* Ref.update(finishedTurnCorrelations, (current) =>
+            new Set(current).add(correlationKey),
+          );
+        }
+      }
+
+      return commandId === undefined ? event : { ...event, orchestrationCommandId: commandId };
+    });
 
   const requireBindingInstanceId = (
     operation: string,
@@ -515,7 +608,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   ): Effect.Effect<void> =>
     Effect.sync(() => correlateRuntimeEventWithInstance(source, event)).pipe(
       Effect.flatMap((correlatedEvent) =>
-        withRuntimeRouteReceipt(source, correlatedEvent).pipe(
+        correlateRuntimeEvent(source, correlatedEvent).pipe(
+          Effect.flatMap((correlatedCommandEvent) =>
+            withRuntimeRouteReceipt(source, correlatedCommandEvent),
+          ),
           Effect.flatMap((canonicalEvent) =>
             increment(providerRuntimeEventsTotal, {
               provider: canonicalEvent.provider,
@@ -898,11 +994,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           parsed.modelSelection,
           resolvedInstanceId,
         );
-        const input = {
+      const input = {
           ...parsed,
           threadId,
           provider: resolvedProvider,
-        };
+      };
         if (!instanceInfo.enabled) {
           return yield* toValidationError(
             "ProviderService.startSession",
@@ -1101,7 +1197,46 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       // rather than issuing a new one: sessions that go a long time between
       // browser tool calls used to lose the toolkit outright.
       yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
-      const turn = yield* routed.adapter.sendTurn(input);
+      if (input.orchestrationCommandId !== undefined) {
+        yield* Ref.update(pendingTurnCorrelations, (current) =>
+          new Map(current).set(
+            turnCorrelationThreadKey(routed.instanceId, input.threadId),
+            input.orchestrationCommandId!,
+          ),
+        );
+      }
+      const turn = yield* routed.adapter.sendTurn(input).pipe(
+        Effect.onExit((exit) =>
+          input.orchestrationCommandId === undefined || Exit.isSuccess(exit)
+            ? Effect.void
+            : Ref.update(pendingTurnCorrelations, (current) => {
+                const next = new Map(current);
+                next.delete(turnCorrelationThreadKey(routed.instanceId, input.threadId));
+                return next;
+              }),
+        ),
+      );
+      if (input.orchestrationCommandId !== undefined) {
+        const correlationKey = turnCorrelationKey(routed.instanceId, input.threadId, turn.turnId);
+        const finishedBeforeAdapterReturned = yield* Ref.modify(
+          finishedTurnCorrelations,
+          (current) => {
+            const next = new Set(current);
+            const finished = next.delete(correlationKey);
+            return [finished, next] as const;
+          },
+        );
+        if (!finishedBeforeAdapterReturned) {
+          yield* Ref.update(activeTurnCorrelations, (current) =>
+            new Map(current).set(correlationKey, input.orchestrationCommandId!),
+          );
+        }
+        yield* Ref.update(pendingTurnCorrelations, (current) => {
+          const next = new Map(current);
+          next.delete(turnCorrelationThreadKey(routed.instanceId, input.threadId));
+          return next;
+        });
+      }
       yield* directory.upsert({
         threadId: input.threadId,
         provider: routed.adapter.provider,
@@ -1645,6 +1780,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     // independently receive all runtime events.
     get streamEvents(): ProviderServiceMethod<"streamEvents"> {
       return Stream.fromPubSub(runtimeEventPubSub);
+    },
+    get subscribeEvents(): Effect.Effect<Stream.Stream<ProviderRuntimeEvent>, never, Scope.Scope> {
+      return PubSub.subscribe(runtimeEventPubSub).pipe(
+        Effect.map((subscription) => Stream.fromSubscription(subscription)),
+      );
     },
   } satisfies ProviderService.ProviderService["Service"];
 });

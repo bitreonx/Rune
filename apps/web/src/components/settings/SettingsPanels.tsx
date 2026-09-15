@@ -560,6 +560,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
         ? ["Agent browser access"]
         : []),
+      ...(settings.enableAgentScheduleAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentScheduleAccess
+        ? ["Agent schedule access"]
+        : []),
     ],
     [
       isTextGenerationModelDirty,
@@ -571,6 +574,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.appearanceContrast,
       settings.motionProfile,
       settings.enableAgentBrowserAccess,
+      settings.enableAgentScheduleAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,

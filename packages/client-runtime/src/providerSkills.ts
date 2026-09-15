@@ -11,6 +11,22 @@ import {
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
 
+/**
+ * RUNE-owned composer alias for the product-native scheduling control plane.
+ * This is UI metadata only; the server remains authoritative for every
+ * schedule operation and provider-owned skills are never modified by it.
+ */
+export const RUNE_SCHEDULE_SKILL: ServerProviderSkill = {
+  name: "sch",
+  displayName: "RUNE Schedule",
+  shortDescription: "Create and manage scheduled tasks stored and run by RUNE",
+  description:
+    "Use RUNE's schedule control plane for durable recurring work. The schedule runs through RUNE, not a provider-owned automation service.",
+  path: "rune://control-plane/schedules",
+  scope: "app",
+  enabled: true,
+};
+
 export function getProviderSkillIdentity(
   skill: Pick<ServerProviderSkill, "name" | "repositoryUrl">,
 ): string {

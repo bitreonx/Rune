@@ -763,6 +763,7 @@ const make = Effect.gen(function* () {
 
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
+    readonly orchestrationCommandId?: CommandId;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
@@ -840,6 +841,9 @@ const make = Effect.gen(function* () {
 
     return {
       threadId: input.threadId,
+      ...(input.orchestrationCommandId === undefined
+        ? {}
+        : { orchestrationCommandId: input.orchestrationCommandId }),
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(providerAttachments.length > 0 ? { attachments: providerAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
@@ -1254,6 +1258,7 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
+      ...(event.commandId === null ? {} : { orchestrationCommandId: event.commandId }),
       messageText: message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined

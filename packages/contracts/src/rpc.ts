@@ -261,6 +261,27 @@ import {
   ActionRunResult,
 } from "./actions.ts";
 import {
+  ScheduleCommandReceipt,
+  ScheduleCreateInput,
+  ScheduleDeleteInput,
+  ScheduleEvent,
+  ScheduleGetInput,
+  ScheduleListInput,
+  ScheduleListResult,
+  ScheduleMutationResult,
+  SchedulePauseInput,
+  ScheduleRegistryError,
+  ScheduleResumeInput,
+  ScheduleRunListResult,
+  ScheduleRunNowInput,
+  ScheduleRunNowResult,
+  ScheduleRunsInput,
+  ScheduleSubscribeInput,
+  ScheduleSubscriptionMessage,
+  ScheduleUpdateInput,
+  RuneSchedule,
+} from "./schedules.ts";
+import {
   PocketCommand,
   PocketImportInput,
   PocketOperationError,
@@ -414,6 +435,18 @@ export const WS_METHODS = {
   actionsRecordRun: "actions.recordRun",
   actionsListRunHistory: "actions.listRunHistory",
   actionsRun: "actions.run",
+
+  // RUNE-owned scheduled tasks
+  schedulesList: "schedules.list",
+  schedulesGet: "schedules.get",
+  schedulesCreate: "schedules.create",
+  schedulesUpdate: "schedules.update",
+  schedulesPause: "schedules.pause",
+  schedulesResume: "schedules.resume",
+  schedulesDelete: "schedules.delete",
+  schedulesRunNow: "schedules.runNow",
+  schedulesRuns: "schedules.runs",
+  schedulesSubscribe: "schedules.subscribe",
 
   // Provider-neutral plan sessions
   planSessionCreate: "planSession.create",
@@ -628,6 +661,67 @@ export const WsActionsListRunHistoryRpc = Rpc.make(WS_METHODS.actionsListRunHist
   payload: ActionRunHistoryListInput,
   success: ActionRunHistoryListResult,
   error: Schema.Union([ActionRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesListRpc = Rpc.make(WS_METHODS.schedulesList, {
+  payload: ScheduleListInput,
+  success: ScheduleListResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesGetRpc = Rpc.make(WS_METHODS.schedulesGet, {
+  payload: ScheduleGetInput,
+  success: RuneSchedule,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesCreateRpc = Rpc.make(WS_METHODS.schedulesCreate, {
+  payload: ScheduleCreateInput,
+  success: ScheduleMutationResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesUpdateRpc = Rpc.make(WS_METHODS.schedulesUpdate, {
+  payload: ScheduleUpdateInput,
+  success: ScheduleMutationResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesPauseRpc = Rpc.make(WS_METHODS.schedulesPause, {
+  payload: SchedulePauseInput,
+  success: ScheduleMutationResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesResumeRpc = Rpc.make(WS_METHODS.schedulesResume, {
+  payload: ScheduleResumeInput,
+  success: ScheduleMutationResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesDeleteRpc = Rpc.make(WS_METHODS.schedulesDelete, {
+  payload: ScheduleDeleteInput,
+  success: ScheduleMutationResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesRunNowRpc = Rpc.make(WS_METHODS.schedulesRunNow, {
+  payload: ScheduleRunNowInput,
+  success: ScheduleRunNowResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesRunsRpc = Rpc.make(WS_METHODS.schedulesRuns, {
+  payload: ScheduleRunsInput,
+  success: ScheduleRunListResult,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+});
+
+export const WsSchedulesSubscribeRpc = Rpc.make(WS_METHODS.schedulesSubscribe, {
+  payload: ScheduleSubscribeInput,
+  success: ScheduleSubscriptionMessage,
+  error: Schema.Union([ScheduleRegistryError, EnvironmentAuthorizationError]),
+  stream: true,
 });
 
 export const WsServerGetTraceDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetTraceDiagnostics, {
@@ -1443,6 +1537,16 @@ export const WsRpcGroup = RpcGroup.make(
   WsActionsDismissProposalRpc,
   WsActionsRecordRunRpc,
   WsActionsListRunHistoryRpc,
+  WsSchedulesListRpc,
+  WsSchedulesGetRpc,
+  WsSchedulesCreateRpc,
+  WsSchedulesUpdateRpc,
+  WsSchedulesPauseRpc,
+  WsSchedulesResumeRpc,
+  WsSchedulesDeleteRpc,
+  WsSchedulesRunNowRpc,
+  WsSchedulesRunsRpc,
+  WsSchedulesSubscribeRpc,
   WsServerSignalProcessRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,

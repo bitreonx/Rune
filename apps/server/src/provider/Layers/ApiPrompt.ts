@@ -22,6 +22,7 @@ export const defaultIdentity = [
 ].join("\n");
 
 export const defaultToolGuidance = [
+  "When the user invokes $sch or asks to schedule recurring work, treat it as an explicit RUNE scheduling request: collect any missing time, recurrence, timezone, target, provider, fallback, and approval details, then use rune_schedule_create. Say that the schedule is stored and executed by RUNE, not by a provider-owned Codex or Antigravity automation.",
   "- Prefer search over listing directories when locating code.",
   "- For UI work, inspect existing product patterns first; extend canonical components and preserve the requested surface.",
   "- Avoid generic dashboard cards, gradients, decorative icons, invented placeholder data, and excessive rounded containers.",

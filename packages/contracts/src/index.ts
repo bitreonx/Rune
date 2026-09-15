@@ -39,6 +39,7 @@ export * from "./rpc.ts";
 export * from "./crossThread.ts";
 export * from "./skills.ts";
 export * from "./actions.ts";
+export * from "./schedules.ts";
 export * from "./plan.ts";
 export * from "./command.ts";
 export * from "./harnessModelRoute.ts";

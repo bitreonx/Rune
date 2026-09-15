@@ -2396,8 +2396,13 @@ validation.layer("ProviderServiceLive validation", (it) => {
 
 describe("agent browser access", () => {
   const revokedThreads: Array<ThreadId> = [];
+  const requestedCapabilities: Array<ReadonlySet<string>> = [];
 
-  const startSessionWith = (enableAgentBrowserAccess: boolean, threadId: ThreadId) =>
+  const startSessionWith = (
+    enableAgentBrowserAccess: boolean,
+    threadId: ThreadId,
+    enableAgentScheduleAccess = false,
+  ) =>
     Effect.gen(function* () {
       const issued: Array<ThreadId> = [];
       const codex = makeFakeCodexAdapter();
@@ -2415,13 +2420,19 @@ describe("agent browser access", () => {
         issueMcpCredential: (request) =>
           Effect.sync(() => {
             issued.push(request.threadId);
+            requestedCapabilities.push(request.capabilities ?? new Set());
             return undefined;
           }),
         revokeMcpCredential: (revoked) => Effect.sync(() => void revokedThreads.push(revoked)),
       }).pipe(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
-        Layer.provide(ServerSettings.ServerSettingsService.layerTest({ enableAgentBrowserAccess })),
+        Layer.provide(
+          ServerSettings.ServerSettingsService.layerTest({
+            enableAgentBrowserAccess,
+            enableAgentScheduleAccess,
+          }),
+        ),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
@@ -2477,6 +2488,30 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(true, threadId);
 
       assert.deepEqual(issued, [threadId]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("grants schedule read/write capabilities only when explicitly enabled", () =>
+    Effect.gen(function* () {
+      requestedCapabilities.length = 0;
+      yield* startSessionWith(true, asThreadId("thread-schedule-off"));
+      yield* startSessionWith(true, asThreadId("thread-schedule-on"), true);
+
+      assert.deepEqual([...requestedCapabilities[0]!], ["preview"]);
+      assert.deepEqual(
+        [...requestedCapabilities[1]!],
+        ["preview", "schedules-read", "schedules-write"],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("can grant schedule access without granting browser access", () =>
+    Effect.gen(function* () {
+      requestedCapabilities.length = 0;
+      const issued = yield* startSessionWith(false, asThreadId("thread-schedule-only"), true);
+
+      assert.deepEqual(issued, [asThreadId("thread-schedule-only")]);
+      assert.deepEqual([...requestedCapabilities[0]!], ["schedules-read", "schedules-write"]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

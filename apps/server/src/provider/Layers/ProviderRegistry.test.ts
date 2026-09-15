@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Path from "effect/Path";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -34,17 +36,24 @@ import { applyServerSettingsPatch } from "@rune/shared/serverSettings";
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
+import { AntigravityInstallation } from "../AntigravityInstallation.ts";
+import * as ModelManifest from "../ModelManifest.ts";
+import * as CodexResetCredit from "./codexResetCredit.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
 import {
-  haveProvidersChanged,
   mergeProviderSnapshot,
   ProviderRegistryLive,
 } from "./ProviderRegistry.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettingsModule from "../../serverSettings.ts";
-import { readProviderStatusCache, resolveProviderStatusCachePath } from "../providerStatusCache.ts";
+import {
+  readProviderStatusCache,
+  resolveProviderStatusCachePath,
+  writeProviderStatusCache,
+} from "../providerStatusCache.ts";
+import { COMPACT_SLASH_COMMAND } from "../providerSnapshot.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
@@ -1092,6 +1101,7 @@ it.layer(
               getSnapshot: Effect.succeed(initialProvider),
               refresh: Effect.succeed(authoritativeProvider),
               streamChanges: Stream.fromPubSub(changes),
+              applyUsageLimits: () => Effect.void,
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],

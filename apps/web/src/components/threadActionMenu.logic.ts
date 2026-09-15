@@ -8,6 +8,7 @@ import type { SnoozePreset } from "@rune/client-runtime/state/thread-settled";
  */
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
+  | "project-settings"
   | "pin"
   | "unpin"
   | "settle"

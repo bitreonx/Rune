@@ -1,7 +1,7 @@
 import { ProviderInteractionMode, RuntimeMode } from "@rune/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
-import { ComposerControl } from "./ComposerControl";
+import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import {
   Menu,
   MenuCheckboxItem,
@@ -11,6 +11,8 @@ import {
   MenuSeparator as MenuDivider,
   MenuTrigger,
 } from "../ui/menu";
+import { composerFloatingLayerProps } from "./composerEventScope";
+import { useComposerMenuState } from "./useComposerMenuState";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
@@ -20,18 +22,28 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   showTemporaryToggle?: boolean;
   temporaryChat?: boolean;
   traitsMenuContent?: ReactNode;
+  size?: "sm" | "xs";
+  /**
+   * The resting strip keeps this menu mounted out of flow while every block
+   * fits inline. Its portaled popup would outlive that transition, so an
+   * open menu closes when its trigger hides.
+   */
+  hidden?: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onToggleTemporaryChat?: () => void;
 }) {
+  const size = props.size ?? "sm";
+  const [open, setOpen] = useComposerMenuState(props.hidden);
+
   return (
-    <Menu>
+    <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger
         render={<ComposerControl className="shrink-0" aria-label="More composer controls" />}
       >
-        <EllipsisIcon aria-hidden="true" className="size-4" />
+        <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
-      <MenuPopup align="start">
+      <MenuPopup align="start" {...composerFloatingLayerProps}>
         {props.traitsMenuContent ? (
           <>
             {props.traitsMenuContent}

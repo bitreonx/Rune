@@ -1,29 +1,47 @@
 import {
   isProviderSendTurnSupportedImageMimeType,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+  type EnvironmentId,
   type UploadChatImageAttachment,
 } from "@rune/contracts";
 import { estimateBase64ByteSize } from "./base64";
 import { beginForegroundHandoff } from "./foreground-handoff";
 import { uuidv4 } from "./uuid";
 
-export interface DraftComposerImageAttachment extends UploadChatImageAttachment {
+export interface DraftComposerImageAttachment extends Omit<UploadChatImageAttachment, "dataUrl"> {
   readonly id: string;
   readonly previewUri: string;
+  /** Owned image bytes from a file-backed draft. Current writers still use inline bytes. */
+  readonly fileUri?: string;
+  /** Inline bytes from current writers and older drafts. */
+  readonly dataUrl?: string;
+  readonly uploadedAttachmentId?: string;
+  readonly uploadEnvironmentId?: EnvironmentId;
 }
 
-/** Wire shape for startTurn: pure uploads without client draft id / previewUri. */
-export function toUploadChatImageAttachments(
-  attachments: ReadonlyArray<DraftComposerImageAttachment>,
-): ReadonlyArray<UploadChatImageAttachment> {
-  return attachments.map((attachment) => ({
-    type: attachment.type,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    dataUrl: attachment.dataUrl,
-  }));
+export interface DraftComposerFileAttachment {
+  readonly id: string;
+  readonly type: "file";
+  readonly name: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly fileUri: string;
+  readonly uploadedAttachmentId?: string;
+  readonly uploadEnvironmentId?: EnvironmentId;
+}
+
+export type DraftComposerAttachment = DraftComposerImageAttachment | DraftComposerFileAttachment;
+
+/** Any composer attachment whose bytes live in the app-owned attachment directory. */
+export type FileBackedComposerAttachment = DraftComposerAttachment & { readonly fileUri: string };
+
+/** Files have a local copy. Images can have one after a file-backed draft is restored. */
+export function isFileBackedComposerAttachment(
+  attachment: DraftComposerAttachment,
+): attachment is FileBackedComposerAttachment {
+  return attachment.fileUri !== undefined;
 }
 
 const OWNED_PASTED_IMAGE_DIRECTORY = "rune-composer-paste";
@@ -32,7 +50,7 @@ async function loadImagePicker() {
   try {
     return await import("expo-image-picker");
   } catch (error) {
-    throw new Error("Image attachments are unavailable right now.", { cause: error });
+    throw new Error("The photo library is unavailable right now.", { cause: error });
   }
 }
 
@@ -48,11 +66,26 @@ export async function pickComposerImages(input: { readonly existingCount: number
   readonly images: ReadonlyArray<DraftComposerImageAttachment>;
   readonly error: string | null;
 }> {
+  const result = await pickComposerMedia(input);
+  return {
+    images: result.attachments.filter((attachment) => attachment.type === "image"),
+    error: result.error,
+  };
+}
+
+/** Videos use file uploads; omit maxVideoBytes for image-only destinations. */
+export async function pickComposerMedia(input: {
+  readonly existingCount: number;
+  readonly maxVideoBytes?: number;
+}): Promise<{
+  readonly attachments: ReadonlyArray<DraftComposerAttachment>;
+  readonly error: string | null;
+}> {
   const remainingSlots = PROVIDER_SEND_TURN_MAX_ATTACHMENTS - input.existingCount;
   if (remainingSlots <= 0) {
     return {
-      images: [],
-      error: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`,
+      attachments: [],
+      error: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`,
     };
   }
 
@@ -61,9 +94,8 @@ export async function pickComposerImages(input: { readonly existingCount: number
     imagePicker = await loadImagePicker();
   } catch (error) {
     return {
-      images: [],
-      error:
-        error instanceof Error ? error.message : "Image attachments are unavailable right now.",
+      attachments: [],
+      error: error instanceof Error ? error.message : "The photo library is unavailable right now.",
     };
   }
 
@@ -85,17 +117,44 @@ export async function pickComposerImages(input: { readonly existingCount: number
 
   if (result.canceled) {
     return {
-      images: [],
+      attachments: [],
       error: null,
     };
   }
 
-  const nextImages: DraftComposerImageAttachment[] = [];
+  const attachments: DraftComposerAttachment[] = [];
   let error: string | null = null;
 
   for (const asset of result.assets) {
-    const mimeType = asset.mimeType?.toLowerCase();
-    if (!mimeType?.startsWith("image/")) {
+    if (attachments.length >= remainingSlots) {
+      error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`;
+      break;
+    }
+    let mimeType = asset.mimeType?.toLowerCase();
+    if (asset.type === "video" || mimeType?.startsWith("video/")) {
+      if (input.maxVideoBytes === undefined) {
+        error = "Video attachments are unavailable here.";
+        continue;
+      }
+      try {
+        const { File } = await import("expo-file-system");
+        const file = new File(asset.uri);
+        attachments.push(
+          await createComposerFileAttachment({
+            uri: asset.uri,
+            name: asset.fileName?.trim() || file.name || "video",
+            mimeType: mimeType || file.type || "application/octet-stream",
+            sizeBytes: asset.fileSize ?? null,
+            maxBytes: clampFileAttachmentUploadBytes(input.maxVideoBytes),
+          }),
+        );
+      } catch (cause) {
+        error =
+          cause instanceof Error ? cause.message : `Could not read '${asset.fileName ?? "video"}'.`;
+      }
+      continue;
+    }
+    if (asset.type !== "image" && !mimeType?.startsWith("image/")) {
       error = `Unsupported file type for '${asset.fileName ?? "image"}'.`;
       continue;
     }
@@ -104,31 +163,61 @@ export async function pickComposerImages(input: { readonly existingCount: number
       continue;
     }
 
-    const base64 = asset.base64;
+    let base64 = asset.base64;
     if (!base64) {
       error = `Failed to read '${asset.fileName ?? "image"}'.`;
       continue;
     }
 
-    const sizeBytes = asset.fileSize ?? estimateBase64ByteSize(base64);
+    let name = asset.fileName?.trim() || "image";
+    // The iOS picker returns JPEG base64 even when its metadata describes HEIC,
+    // PNG, or GIF. Keep supported originals so transparency and animation survive;
+    // use the native JPEG conversion for formats providers cannot accept.
+    if (base64.startsWith("/9j/")) {
+      if (
+        mimeType &&
+        mimeType !== "image/jpeg" &&
+        isProviderSendTurnSupportedImageMimeType(mimeType)
+      ) {
+        try {
+          const { File } = await import("expo-file-system");
+          base64 = await new File(asset.uri).base64();
+        } catch {
+          error = `Failed to read '${name}'.`;
+          continue;
+        }
+      } else {
+        mimeType = "image/jpeg";
+        if (!/\.jpe?g$/i.test(name)) {
+          name = `${name.replace(/\.[^.]+$/, "")}.jpg`;
+        }
+      }
+    }
+    if (!mimeType || !isProviderSendTurnSupportedImageMimeType(mimeType)) {
+      error = `'${name}' is not a supported image type. Attach GIF, JPEG, PNG, or WebP images.`;
+      continue;
+    }
+
+    const sizeBytes = estimateBase64ByteSize(base64);
     if (sizeBytes <= 0 || sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
       error = `'${asset.fileName ?? "image"}' exceeds the 10 MB attachment limit.`;
       continue;
     }
 
-    nextImages.push({
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    attachments.push({
       id: uuidv4(),
       type: "image",
-      name: asset.fileName ?? "image",
+      name,
       mimeType,
       sizeBytes,
-      dataUrl: `data:${mimeType};base64,${base64}`,
-      previewUri: asset.uri,
+      dataUrl,
+      previewUri: mimeType === asset.mimeType?.toLowerCase() ? asset.uri : dataUrl,
     });
   }
 
   return {
-    images: nextImages,
+    attachments,
     error,
   };
 }

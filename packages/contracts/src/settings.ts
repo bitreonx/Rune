@@ -1,15 +1,26 @@
+import { SshDeviceHostConfigs } from "./device.ts";
+import { PullRequestMergeMethod } from "./pullRequest.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { ThreadEnvMode } from "./environment.ts";
 import {
+  ForwardCompatibleNullable,
+  ProjectId,
+  TrimmedNonEmptyString,
+  TrimmedString,
+} from "./baseSchemas.ts";
+import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
+import { UsageLimitSourceConfig } from "./providerUsageLimits.ts";
+import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
+import { KeybindingShortcut } from "./keybindings.ts";
+import {
+  CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   ProviderOptionSelections,
 } from "./model.ts";
-import { ModelSelection } from "./orchestration.ts";
+import { ModelSelection, ProjectScript } from "./orchestration.ts";
 import {
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
@@ -35,7 +46,11 @@ import {
 
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
-export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
+const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
+
+export const DiffLayout = Schema.Literals(["stacked", "split"]);
+export type DiffLayout = typeof DiffLayout.Type;
+const DEFAULT_DIFF_LAYOUT: DiffLayout = "stacked";
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
@@ -51,7 +66,7 @@ export const SidebarProjectGroupingMode = Schema.Literals([
   "separate",
 ]);
 export type SidebarProjectGroupingMode = typeof SidebarProjectGroupingMode.Type;
-export const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
+const DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE: SidebarProjectGroupingMode = "repository";
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
 export const SidebarThreadPreviewCount = Schema.Int.check(
@@ -61,7 +76,7 @@ export const SidebarThreadPreviewCount = Schema.Int.check(
   }),
 );
 export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
-export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
+const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
 export const MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 1;
 export const MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 90;
 export const SidebarAutoSettleAfterDays = Schema.Number.check(
@@ -71,7 +86,7 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
   }),
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
-export const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 3;
+const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 3;
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;
 export const GlassOpacity = Schema.Int.check(
@@ -94,6 +109,18 @@ export const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
 export const MotionProfile = Schema.Literals(["reduced", "balanced", "expressive"]);
 export type MotionProfile = typeof MotionProfile.Type;
 export const DEFAULT_MOTION_PROFILE: MotionProfile = "balanced";
+
+/** Bounds for user-configurable workspace panel transitions. */
+export const MIN_PANEL_ANIMATION_DURATION_MS = 0;
+export const MAX_PANEL_ANIMATION_DURATION_MS = 1_000;
+export const PanelAnimationDurationMs = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_PANEL_ANIMATION_DURATION_MS,
+    maximum: MAX_PANEL_ANIMATION_DURATION_MS,
+  }),
+);
+export type PanelAnimationDurationMs = typeof PanelAnimationDurationMs.Type;
+export const DEFAULT_PANEL_ANIMATION_DURATION_MS: PanelAnimationDurationMs = 200;
 /**
  * Font size preferences, in CSS pixels. The ranges are deliberately narrow:
  * the interface size scales every rem-based dimension in the app, so the
@@ -129,11 +156,87 @@ export const TerminalFontSize = Schema.Int.check(
   Schema.isBetween({ minimum: MIN_TERMINAL_FONT_SIZE, maximum: MAX_TERMINAL_FONT_SIZE }),
 );
 export type TerminalFontSize = typeof TerminalFontSize.Type;
-export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
+const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
 export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "pill";
+
+export const SnapShotKeyChord = KeybindingShortcut.check(
+  Schema.makeFilter(
+    (shortcut) =>
+      shortcut.metaKey ||
+      shortcut.ctrlKey ||
+      shortcut.shiftKey ||
+      shortcut.altKey ||
+      shortcut.modKey ||
+      "Snapshot shortcut requires a modifier.",
+  ),
+);
+export type SnapShotKeyChord = typeof SnapShotKeyChord.Type;
+export const SNAP_SHOT_MODIFIERS = ["shift", "meta", "control", "alt"] as const;
+export const SnapShotModifier = Schema.Literals(SNAP_SHOT_MODIFIERS);
+export type SnapShotModifier = typeof SnapShotModifier.Type;
+export const SnapShotShortcut = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("both-shift-keys") }),
+  Schema.Struct({ kind: Schema.Literal("modifier-pair"), modifier: SnapShotModifier }),
+  SnapShotKeyChord,
+]);
+export type SnapShotShortcut = typeof SnapShotShortcut.Type;
+export const SnapShotSound = Schema.Literals(["soft-pop", "camera-shutter"]);
+export type SnapShotSound = typeof SnapShotSound.Type;
+const DEFAULT_SNAP_SHOT_SOUND: SnapShotSound = "soft-pop";
+
+export type SnapShotModifierPairShortcut = Extract<SnapShotShortcut, { readonly kind: string }>;
+
+export function isModifierPairShortcut(
+  shortcut: SnapShotShortcut,
+): shortcut is SnapShotModifierPairShortcut {
+  return "kind" in shortcut;
+}
+
+export function snapShotShortcutModifierPair(
+  shortcut: SnapShotModifierPairShortcut,
+): SnapShotModifier {
+  return shortcut.kind === "both-shift-keys" ? "shift" : shortcut.modifier;
+}
+
+const APPLE_MODIFIER_LABELS: Record<SnapShotModifier, string> = {
+  shift: "Shift",
+  meta: "Command",
+  control: "Control",
+  alt: "Option",
+};
+const OTHER_MODIFIER_LABELS: Record<SnapShotModifier, string> = {
+  shift: "Shift",
+  meta: "Super",
+  control: "Ctrl",
+  alt: "Alt",
+};
+
+export function snapShotModifierPairLabel(modifier: SnapShotModifier, apple: boolean): string {
+  const label = (apple ? APPLE_MODIFIER_LABELS : OTHER_MODIFIER_LABELS)[modifier];
+  return `${label} + ${label}`;
+}
+const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
+  kind: "both-shift-keys",
+};
+
+export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
+export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
+const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
+
+const LegacyConfirmQuit = Schema.Boolean.pipe(
+  Schema.decodeTo(
+    QuitConfirmationMode,
+    SchemaTransformation.transform({
+      decode: (confirmQuit): QuitConfirmationMode => (confirmQuit ? "hold" : "direct"),
+      encode: (mode) => mode === "hold",
+    }),
+  ),
+);
+
+const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);
 
 /**
  * A user-chosen font family (a single name or a comma-separated list). Empty
@@ -157,6 +260,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   motionProfile: MotionProfile.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_MOTION_PROFILE)),
+  ),
+  panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
   ),
   browserDefaultViewport: PreviewViewportSetting.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_VIEWPORT)),
@@ -182,10 +288,12 @@ export const ClientSettingsSchema = Schema.Struct({
   autoContinueAfterRestart: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  confirmThreadUnpin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  diffLayout: DiffLayout.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_DIFF_LAYOUT))),
   environmentIdentificationMode: EnvironmentIdentificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE)),
   ),
@@ -211,6 +319,13 @@ export const ClientSettingsSchema = Schema.Struct({
   // Grayscale `-webkit-font-smoothing: antialiased` (thinner strokes);
   // disabling restores the platform's heavier default. No effect off macOS.
   fontSmoothing: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // When the first-run welcome wizard finished (or was skipped), as an ISO
+  // timestamp. `null` alone does not mean "show the wizard" — every install
+  // that predates this field decodes to `null` — so the gate also requires an
+  // empty workspace before it treats the client as a fresh install.
+  onboardingCompletedAt: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
   // on a custom provider instance (e.g. "Codex Personal · gpt-5") without
@@ -235,6 +350,10 @@ export const ClientSettingsSchema = Schema.Struct({
       ),
       modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
     }),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  pullRequestMergeMethodOverrides: Schema.Record(
+    TrimmedNonEmptyString,
+    PullRequestMergeMethod,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // Legacy plan mode. The composer's Build/Plan toggle was removed from the
   // default UI; this beta flag restores it (plus the /plan and /default slash
@@ -273,6 +392,19 @@ export const ClientSettingsSchema = Schema.Struct({
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
+  snapShotEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  snapShotIncludeAccessibility: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  snapShotShortcut: SnapShotShortcut.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNAP_SHOT_SHORTCUT)),
+  ),
+  snapShotPlaySound: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  snapShotSound: SnapShotSound.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNAP_SHOT_SOUND)),
+  ),
+  snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
@@ -281,9 +413,19 @@ export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientS
 
 // ── Server Settings (server-authoritative) ────────────────────
 
-// Moved to environment.ts so orchestration contracts can use it without an
-// import cycle; re-exported here for compatibility with deep imports.
-export { ThreadEnvMode } from "./environment.ts";
+const UsageModelTokenPrice = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
+
+/** USD per million tokens. Omitted cache rates use the input rate. */
+export const UsageModelPriceOverride = Schema.Struct({
+  inputCostPerMillionTokens: UsageModelTokenPrice,
+  outputCostPerMillionTokens: UsageModelTokenPrice,
+  cacheReadCostPerMillionTokens: Schema.optionalKey(UsageModelTokenPrice),
+  cacheWriteCostPerMillionTokens: Schema.optionalKey(UsageModelTokenPrice),
+});
+export type UsageModelPriceOverride = typeof UsageModelPriceOverride.Type;
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -297,13 +439,20 @@ const makeBinaryPathSetting = (fallback: string) =>
     Schema.withDecodingDefault(Effect.succeed(fallback)),
   );
 
-export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch";
+export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch" | "select";
+
+export interface ProviderSettingsFormOption {
+  readonly value: string;
+  readonly label: string;
+}
 
 export interface ProviderSettingsFormAnnotation {
   readonly control?: ProviderSettingsFormControl | undefined;
   readonly placeholder?: string | undefined;
   readonly hidden?: boolean | undefined;
   readonly clearWhenEmpty?: "omit" | "persist" | undefined;
+  /** Choices for a `select` control. The first entry is the default. */
+  readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
 }
 
 export interface ProviderSettingsFormSchemaAnnotation {
@@ -324,7 +473,7 @@ export type ProviderSettingsOrder<Fields extends Schema.Struct.Fields> = readonl
   string
 >[];
 
-export function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fields>(
+function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fields>(
   fields: Fields,
   options?: {
     readonly order?: ProviderSettingsOrder<Fields> | undefined;
@@ -381,7 +530,7 @@ export const CodexSettings = makeProviderSettingsSchema(
         description: "Additional CLI arguments passed to codex app-server on session start.",
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
+    customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
@@ -391,6 +540,11 @@ export const CodexSettings = makeProviderSettingsSchema(
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;
+
+// Empty, or an integer from 100,000 to 1,000,000. Shared by the full
+// Claude settings schema and its patch so an out-of-range value fails at
+// the update that introduced it.
+const CLAUDE_AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
 
 export const ClaudeSettings = makeProviderSettingsSchema(
   {
@@ -414,7 +568,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "~/.claude", clearWhenEmpty: "omit" },
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
+    customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
@@ -429,9 +583,23 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    autoCompactWindow: TrimmedString.check(
+      Schema.isPattern(CLAUDE_AUTO_COMPACT_WINDOW_PATTERN),
+    ).pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Auto-compact after",
+        description:
+          "Compact after 100,000 to 1,000,000 tokens. Leave empty to use Claude's default.",
+        providerSettingsForm: {
+          placeholder: "e.g. 300000",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "autoCompactWindow", "launchArgs"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
@@ -461,7 +629,7 @@ export const CursorSettings = makeProviderSettingsSchema(
         },
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
+    customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
@@ -487,7 +655,7 @@ export const GrokSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "grok", clearWhenEmpty: "omit" },
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
+    customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
@@ -497,6 +665,22 @@ export const GrokSettings = makeProviderSettingsSchema(
   },
 );
 export type GrokSettings = typeof GrokSettings.Type;
+
+/**
+ * Antigravity ACP auth methods. Personal and Enterprise open a Google sign-in
+ * in the browser. The API key and Agent Platform methods take credentials from
+ * the instance config and never open a browser.
+ */
+export const ANTIGRAVITY_AUTH_METHODS = [
+  { value: "oauth-personal", label: "Google account" },
+  { value: "oauth-business", label: "Gemini Enterprise" },
+  { value: "gemini-api-key", label: "Gemini API key" },
+  { value: "agent-platform", label: "Agent Platform (Vertex AI)" },
+] as const satisfies ReadonlyArray<ProviderSettingsFormOption>;
+export const AntigravityAuthMethod = Schema.Literals(
+  ANTIGRAVITY_AUTH_METHODS.map((method) => method.value),
+);
+export type AntigravityAuthMethod = typeof AntigravityAuthMethod.Type;
 
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
@@ -539,7 +723,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
+    customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
@@ -636,27 +820,67 @@ export type OpenRouterSettings = typeof OpenRouterSettings.Type;
 
 export const AntigravitySettings = makeProviderSettingsSchema(
   {
-    // Antigravity is available by default, but the server health-gates it
-    // when `agy` is missing or has not been authenticated yet.
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
-    binaryPath: makeBinaryPathSetting("agy").pipe(
+    authMethod: AntigravityAuthMethod.pipe(
+      Schema.withDecodingDefault(Effect.succeed("oauth-personal" as const)),
       Schema.annotateKey({
-        title: "Binary path",
-        description: "Path to the Google Antigravity CLI binary.",
-        providerSettingsForm: { placeholder: "agy", clearWhenEmpty: "omit" },
+        title: "Sign-in method",
+        description:
+          "Google account uses your Antigravity subscription. Gemini Enterprise needs a GCP project and location. API key and Agent Platform bill the credential you enter.",
+        providerSettingsForm: {
+          control: "select",
+          options: ANTIGRAVITY_AUTH_METHODS,
+          clearWhenEmpty: "omit",
+        },
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
+    apiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "API key",
+        description:
+          "Gemini API key, or a Vertex AI express key for Agent Platform. Stored in plain text on this environment.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "Optional",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    gcpProject: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "GCP project",
+        description: "Required for Gemini Enterprise. Agent Platform uses it when no API key is set.",
+        providerSettingsForm: { placeholder: "my-project-id", clearWhenEmpty: "omit" },
+      }),
+    ),
+    gcpLocation: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "GCP location",
+        description: "Region for Gemini Enterprise or Agent Platform, such as us-central1.",
+        providerSettingsForm: { placeholder: "us-central1", clearWhenEmpty: "omit" },
+      }),
+    ),
+    binaryPath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Binary path",
+        description:
+          "Optional path to the official Antigravity ACP executable. Leave empty for automatic selection.",
+        providerSettingsForm: { placeholder: "Automatic", clearWhenEmpty: "persist" },
+      }),
+    ),
+    customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
-  {
-    order: ["binaryPath"],
-  },
+  { order: ["authMethod", "apiKey", "gcpProject", "gcpLocation", "binaryPath"] },
 );
 export type AntigravitySettings = typeof AntigravitySettings.Type;
 
@@ -762,6 +986,27 @@ export const ServerSettings = Schema.Struct({
   backgroundActivityProfile: BackgroundActivityProfile.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BACKGROUND_ACTIVITY_PROFILE)),
   ),
+  defaultTheme: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * When the environment's theme was last set, so clients can tell a re-set
+   * of the same value from one they already applied: `RUNE theme set` must act
+   * even when it names the theme it named before. Empty on environments
+   * provisioned by builds that predate it, where clients fall back to
+   * applying once per value.
+   */
+  defaultThemeSetAt: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  /**
+   * The icon clients draw for this environment. Null means "use what the
+   * server detected" (`environment.platform.machine`), falling back to a
+   * generic server. Lives on the server, not the client, so every device
+   * sees the same machine. A kind picked on a newer server decodes as null
+   * here rather than failing the whole settings snapshot for an older client.
+   */
+  environmentIcon: ForwardCompatibleNullable(EnvironmentMachineKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
   ),
@@ -769,6 +1014,12 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  defaultProjectScripts: Schema.Array(ProjectScript).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  projectScriptOverrides: Schema.Record(ProjectId, Schema.NullOr(Schema.Array(ProjectScript))).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -816,6 +1067,15 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({ profiles: {}, services: {} })),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // Keyed by a user-chosen id so a source keeps its rows across edits. Entries
+  // this build cannot decode round-trip untouched, as provider instances do.
+  usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  /** Exact model IDs, applied to past and future usage on this environment. */
+  usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -869,6 +1129,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "normalize",
   "check-exists",
   "read-file",
+  "read-provider-history",
   "read-secret",
   "remove-secret",
   "remove-stale-secret",
@@ -878,7 +1139,7 @@ export const ServerSettingsOperation = Schema.Literals([
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 
-export class ServerSettingsError extends Schema.TaggedErrorClass<ServerSettingsError>()(
+export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>()(
   "ServerSettingsError",
   {
     settingsPath: Schema.String,
@@ -921,28 +1182,43 @@ const CodexSettingsPatch = Schema.Struct({
   homePath: Schema.optionalKey(TrimmedString),
   shadowHomePath: Schema.optionalKey(TrimmedString),
   launchArgs: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
 const ClaudeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
   homePath: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
   launchArgs: Schema.optionalKey(TrimmedString),
+  // Validated at the patch boundary so a typo fails the one update with a
+  // schema error instead of a generic whole-settings failure.
+  autoCompactWindow: Schema.optionalKey(
+    TrimmedString.check(Schema.isPattern(CLAUDE_AUTO_COMPACT_WINDOW_PATTERN)),
+  ),
 });
 
 const CursorSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
   apiEndpoint: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
 const GrokSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
+});
+
+const AntigravitySettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  authMethod: Schema.optionalKey(AntigravityAuthMethod),
+  apiKey: Schema.optionalKey(TrimmedString),
+  gcpProject: Schema.optionalKey(TrimmedString),
+  gcpLocation: Schema.optionalKey(TrimmedString),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
 const OpenCodeSettingsPatch = Schema.Struct({
@@ -950,13 +1226,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(TrimmedString),
   serverUrl: Schema.optionalKey(TrimmedString),
   serverPassword: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-
-const AntigravitySettingsPatch = Schema.Struct({
-  enabled: Schema.optionalKey(Schema.Boolean),
-  binaryPath: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
 export const ServerSettingsPatch = Schema.Struct({
@@ -975,9 +1245,14 @@ export const ServerSettingsPatch = Schema.Struct({
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),
+  environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
+  defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
+  projectScriptOverrides: Schema.optionalKey(
+    Schema.Record(ProjectId, Schema.NullOr(Schema.Array(ProjectScript))),
+  ),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({
@@ -1026,6 +1301,7 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 export const ClientSettingsPatch = Schema.Struct({
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
   motionProfile: Schema.optionalKey(MotionProfile),
+  panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
@@ -1034,9 +1310,12 @@ export const ClientSettingsPatch = Schema.Struct({
   confirmQuit: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
+  confirmThreadUnpin: Schema.optionalKey(Schema.Boolean),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
   fontSizeCode: Schema.optionalKey(CodeFontSize),
@@ -1067,6 +1346,9 @@ export const ClientSettingsPatch = Schema.Struct({
       }),
     ),
   ),
+  pullRequestMergeMethodOverrides: Schema.optionalKey(
+    Schema.Record(TrimmedNonEmptyString, PullRequestMergeMethod),
+  ),
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   simplifiedActivity: Schema.optionalKey(Schema.Boolean),
   showDeveloperTrace: Schema.optionalKey(Schema.Boolean),
@@ -1082,6 +1364,13 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  snapShotEnabled: Schema.optionalKey(Schema.Boolean),
+  snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),
+  snapShotShortcut: Schema.optionalKey(SnapShotShortcut),
+  snapShotPlaySound: Schema.optionalKey(Schema.Boolean),
+  snapShotSound: Schema.optionalKey(SnapShotSound),
+  snapShotFlash: Schema.optionalKey(Schema.Boolean),
+  snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

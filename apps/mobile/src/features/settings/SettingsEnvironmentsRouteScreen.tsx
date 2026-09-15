@@ -12,7 +12,7 @@ import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { cn } from "../../lib/cn";
-import { useThemeColor } from "../../lib/useThemeColor";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import {
   applyShowcaseLocalEnvironmentDisplayUrls,
@@ -148,7 +148,7 @@ export function SettingsEnvironmentsRouteScreen() {
               <SymbolView
                 name="point.3.connected.trianglepath.dotted"
                 size={20}
-                tintColor={accentColor}
+                tintColorClassName={"accent-icon-muted"}
                 type="monochrome"
               />
             </View>

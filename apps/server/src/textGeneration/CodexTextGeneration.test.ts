@@ -14,6 +14,7 @@ import { CodexSettings, ProviderInstanceId, TextGenerationError } from "@rune/co
 import * as ServerConfig from "../config.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { makeCodexTextGeneration } from "./CodexTextGeneration.ts";
+import { writeFakeCli } from "../testUtils/fakeCli.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DEFAULT_TEST_MODEL_SELECTION = createModelSelection(
@@ -25,28 +26,19 @@ const CodexTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process
   prefix: "rune-codex-text-generation-test-",
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
-function makeFakeCodexBinary(
-  dir: string,
-  input: {
-    output: string;
-    exitCode?: number;
-    stderr?: string;
-    requireImage?: boolean;
-    requireServiceTier?: string;
-    requireReasoningEffort?: string;
-    forbidReasoningEffort?: boolean;
-    requireArg?: string;
-    forbidArg?: string;
-    stdinMustContain?: string;
-    stdinMustNotContain?: string;
-  },
-) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const binDir = path.join(dir, "bin");
-    const codexPath = path.join(binDir, "codex");
-    yield* fs.makeDirectory(binDir, { recursive: true });
+interface FakeCodexInput {
+  output: string;
+  exitCode?: number;
+  stderr?: string;
+  requireImage?: boolean;
+  requireServiceTier?: string;
+  requireReasoningEffort?: string;
+  forbidReasoningEffort?: boolean;
+  requireArg?: string;
+  forbidArg?: string;
+  stdinMustContain?: string;
+  stdinMustNotContain?: string;
+}
 
     yield* fs.writeFileString(
       codexPath,
@@ -170,25 +162,12 @@ function makeFakeCodexBinary(
         `exit ${input.exitCode ?? 0}`,
         "",
       ].join("\n"),
-    );
-    yield* fs.chmod(codexPath, 0o755);
-    return codexPath;
+    });
   });
 }
 
 function withFakeCodexEnv<A, E, R>(
-  input: {
-    output: string;
-    exitCode?: number;
-    stderr?: string;
-    requireImage?: boolean;
-    requireServiceTier?: string;
-    requireReasoningEffort?: string;
-    forbidReasoningEffort?: boolean;
-    requireArg?: string;
-    forbidArg?: string;
-    stdinMustContain?: string;
-    stdinMustNotContain?: string;
+  input: FakeCodexInput & {
     launchArgs?: string;
     environment?: NodeJS.ProcessEnv;
   },

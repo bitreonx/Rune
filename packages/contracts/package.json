@@ -1,6 +1,6 @@
 {
   "name": "@rune/contracts",
-  "version": "0.5.1.1",
+  "version": "0.6.0",
   "private": true,
   "files": [
     "dist"
@@ -41,7 +41,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vp test run"
   },
   "dependencies": {

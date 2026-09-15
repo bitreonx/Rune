@@ -58,7 +58,7 @@ export const SkillRegistryErrorKind = Schema.Literals([
 ]);
 export type SkillRegistryErrorKind = typeof SkillRegistryErrorKind.Type;
 
-export class SkillRegistryError extends Schema.TaggedErrorClass<SkillRegistryError>()(
+export class SkillRegistryError extends Schema.TaggedError<SkillRegistryError>()(
   "SkillRegistryError",
   {
     kind: SkillRegistryErrorKind,

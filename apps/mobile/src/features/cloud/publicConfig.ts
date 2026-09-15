@@ -3,7 +3,7 @@ import { relayClerkTokenOptions } from "@rune/shared/relayAuth";
 import { normalizeSecureRelayUrl } from "@rune/shared/relayUrl";
 import * as Schema from "effect/Schema";
 
-export class CloudPublicConfigMissingError extends Schema.TaggedErrorClass<CloudPublicConfigMissingError>()(
+export class CloudPublicConfigMissingError extends Schema.TaggedError<CloudPublicConfigMissingError>()(
   "CloudPublicConfigMissingError",
   {
     key: Schema.Literal("RUNE_CLERK_JWT_TEMPLATE"),

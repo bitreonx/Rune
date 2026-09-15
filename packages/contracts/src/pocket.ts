@@ -231,7 +231,7 @@ export const PocketOperationCode = Schema.Literals([
 ]);
 export type PocketOperationCode = typeof PocketOperationCode.Type;
 
-export class PocketOperationError extends Schema.TaggedErrorClass<PocketOperationError>()(
+export class PocketOperationError extends Schema.TaggedError<PocketOperationError>()(
   "PocketOperationError",
   {
     code: PocketOperationCode,

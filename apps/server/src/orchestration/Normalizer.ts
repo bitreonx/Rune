@@ -4,6 +4,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import {
   type ClientOrchestrationCommand,
+  type UserInputAttachments,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type IsoDateTime,
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
@@ -129,13 +131,16 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       } satisfies OrchestrationCommand;
     }
 
-    if (canonicalCommand.type !== "thread.turn.start") {
+    if (
+      canonicalCommand.type !== "thread.turn.start" &&
+      canonicalCommand.type !== "thread.user-input.respond"
+    ) {
       return canonicalCommand as OrchestrationCommand;
     }
 
     const claimedAttachmentPaths: string[] = [];
     const normalizedAttachments = yield* Effect.forEach(
-      canonicalCommand.message.attachments,
+      attachments,
       (attachment) =>
         Effect.gen(function* () {
           // Thread mentions are cross-thread references, not uploads; the
@@ -233,6 +238,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             name: attachment.name,
             mimeType: parsed.mimeType.toLowerCase(),
             sizeBytes: bytes.byteLength,
+            ...(attachment.source ? { source: attachment.source } : {}),
           };
 
           const attachmentPath = resolveAttachmentPath({
@@ -267,6 +273,25 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       { concurrency: 1 },
     ).pipe(Effect.tapError(() => removeClaimedAttachmentPaths(claimedAttachmentPaths)));
 
+    if (canonicalCommand.type === "thread.user-input.respond") {
+      let index = 0;
+      const attachmentsByQuestionId = Object.fromEntries(
+        Object.entries(canonicalCommand.attachmentsByQuestionId ?? {}).map(
+          ([questionId, original]) => {
+            const claimed = normalizedAttachments.slice(
+              index,
+              index + original.length,
+            ) as UserInputAttachments[string];
+            index += original.length;
+            return [questionId, claimed];
+          },
+        ),
+      );
+      return {
+        ...canonicalCommand,
+        ...(attachments.length > 0 ? { attachmentsByQuestionId } : {}),
+      };
+    }
     return {
       ...canonicalCommand,
       message: {

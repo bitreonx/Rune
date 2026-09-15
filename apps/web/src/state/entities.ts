@@ -23,10 +23,12 @@ import { useMemo } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom } from "./server";
-import { allEnvironmentShellsBootstrappedAtom } from "./shell";
+import {
+  allEnvironmentProjectSnapshotsReadyAtom,
+  allEnvironmentShellsBootstrappedAtom,
+} from "./shell";
 import { environmentThreadDetails, environmentThreadShells } from "./threads";
 
-const EMPTY_PROJECT_REFS: ReadonlyArray<ScopedProjectRef> = Object.freeze([]);
 const EMPTY_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
 const EMPTY_MESSAGES: ReadonlyArray<OrchestrationMessage> = Object.freeze([]);
 const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = Object.freeze([]);
@@ -34,9 +36,6 @@ const EMPTY_PROPOSED_PLANS: ReadonlyArray<OrchestrationProposedPlan> = Object.fr
 
 const EMPTY_PROJECT_ATOM = Atom.make<EnvironmentProject | null>(null).pipe(
   Atom.withLabel("web-project:empty"),
-);
-const EMPTY_PROJECT_REFS_ATOM = Atom.make(EMPTY_PROJECT_REFS).pipe(
-  Atom.withLabel("web-project-refs:empty"),
 );
 const EMPTY_THREAD_REFS_ATOM = Atom.make(EMPTY_THREAD_REFS).pipe(
   Atom.withLabel("web-thread-refs:empty"),
@@ -63,7 +62,7 @@ const EMPTY_SESSION_ATOM = Atom.make<OrchestrationSession | null>(null).pipe(
   Atom.withLabel("web-thread-session:empty"),
 );
 
-export const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
+const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-active-environment-id"),
 );
@@ -72,30 +71,12 @@ export function useActiveEnvironmentId(): EnvironmentId | null {
   return useAtomValue(activeEnvironmentIdAtom);
 }
 
-export function readActiveEnvironmentId(): EnvironmentId | null {
-  return appAtomRegistry.get(activeEnvironmentIdAtom);
-}
-
 export function setActiveEnvironmentId(environmentId: EnvironmentId | null): void {
   appAtomRegistry.set(activeEnvironmentIdAtom, environmentId);
 }
 
-export function useProjectRefs(): ReadonlyArray<ScopedProjectRef> {
-  return useAtomValue(environmentProjects.projectRefsAtom);
-}
-
 export function useThreadRefs(): ReadonlyArray<ScopedThreadRef> {
   return useAtomValue(environmentThreadShells.threadRefsAtom);
-}
-
-export function useEnvironmentProjectRefs(
-  environmentId: EnvironmentId | null,
-): ReadonlyArray<ScopedProjectRef> {
-  return useAtomValue(
-    environmentId === null
-      ? EMPTY_PROJECT_REFS_ATOM
-      : environmentProjects.environmentProjectRefsAtom(environmentId),
-  );
 }
 
 export function useEnvironmentThreadRefs(
@@ -122,6 +103,10 @@ export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
 
 export function useAllEnvironmentShellsBootstrapped(): boolean {
   return useAtomValue(allEnvironmentShellsBootstrappedAtom);
+}
+
+export function useAllEnvironmentProjectSnapshotsReady(): boolean {
+  return useAtomValue(allEnvironmentProjectSnapshotsReadyAtom);
 }
 
 export function useThreadShellsForProjectRefs(
@@ -218,6 +203,35 @@ export function readProject(ref: ScopedProjectRef): EnvironmentProject | null {
   return appAtomRegistry.get(environmentProjects.projectAtom(ref));
 }
 
+export function readProjects(): ReadonlyArray<EnvironmentProject> {
+  return appAtomRegistry.get(environmentProjects.projectsAtom);
+}
+
+/** Resolves when the project event reaches the live client store. */
+export function waitForProject(
+  ref: ScopedProjectRef,
+  timeoutMs = 10_000,
+): Promise<EnvironmentProject> {
+  const current = readProject(ref);
+  if (current !== null) return Promise.resolve(current);
+
+  return new Promise((resolve, reject) => {
+    let unsubscribe: (() => void) | null = null;
+    const timeout = setTimeout(() => {
+      unsubscribe?.();
+      reject(new Error("The project did not appear in the desktop app."));
+    }, timeoutMs);
+    const finish = (project: EnvironmentProject | null) => {
+      if (project === null) return;
+      clearTimeout(timeout);
+      unsubscribe?.();
+      resolve(project);
+    };
+    unsubscribe = appAtomRegistry.subscribe(environmentProjects.projectAtom(ref), finish);
+    finish(readProject(ref));
+  });
+}
+
 export function readThreadShell(ref: ScopedThreadRef): EnvironmentThreadShell | null {
   return appAtomRegistry.get(environmentThreadShells.threadShellAtom(ref));
 }
@@ -268,8 +282,11 @@ export function readEnvironmentSupportsPinReorder(environmentId: EnvironmentId):
   );
 }
 
-export function readThreadDetail(ref: ScopedThreadRef): EnvironmentThread | null {
-  return appAtomRegistry.get(environmentThreadDetails.detailAtom(ref));
+export function readEnvironmentSupportsActiveReorder(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadActiveReorder === true
+  );
 }
 
 export function readEnvironmentThreadRefs(
@@ -278,18 +295,6 @@ export function readEnvironmentThreadRefs(
   return appAtomRegistry.get(environmentThreadShells.environmentThreadRefsAtom(environmentId));
 }
 
-export function readThreadRefs(): ReadonlyArray<ScopedThreadRef> {
-  return appAtomRegistry.get(environmentThreadShells.threadRefsAtom);
-}
-
 export function readThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return appAtomRegistry.get(environmentThreadShells.threadShellsAtom);
-}
-
-export function findThreadRef(threadId: ThreadId): ScopedThreadRef | null {
-  return (
-    appAtomRegistry
-      .get(environmentThreadShells.threadRefsAtom)
-      .find((ref) => ref.threadId === threadId) ?? null
-  );
 }

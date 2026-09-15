@@ -35,7 +35,7 @@ export function ContextWindowMeter(props: {
       <PopoverTrigger
         openOnHover
         delay={150}
-        closeDelay={0}
+        closeDelay={onCompact ? 150 : 0}
         render={
           <Button
             size="icon-sm"
@@ -79,6 +79,7 @@ export function ContextWindowMeter(props: {
         }
       />
       <PopoverPopup
+        {...composerFloatingLayerProps}
         tooltipStyle
         side="top"
         align="end"
@@ -131,8 +132,32 @@ export function ContextWindowMeter(props: {
               {formatContextWindowCompactionMessage(modelDisplayName)}
             </div>
           ) : null}
+          {onCompact ? (
+            <>
+              <Button
+                size="xs"
+                variant="outline"
+                className="mt-1 w-full justify-center"
+                disabled={compactDisabled}
+                onClick={onCompact}
+              >
+                <Minimize2Icon aria-hidden="true" />
+                Compact context
+              </Button>
+              {compactDisabled && compactDisabledReason ? (
+                <div className="text-pretty text-secondary-label text-[11px]">
+                  {compactDisabledReason}
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
       </PopoverPopup>
     </Popover>
   );
+}
+
+/** Holds the meter's footprint while a thread's activities are still loading. */
+export function ContextWindowMeterPlaceholder() {
+  return <span aria-hidden="true" className="size-7 shrink-0" />;
 }

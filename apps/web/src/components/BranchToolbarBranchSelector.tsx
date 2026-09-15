@@ -5,7 +5,7 @@ import {
 } from "@rune/client-runtime/state/runtime";
 import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@rune/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { ChevronDownIcon, GitBranchIcon, SearchIcon } from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -26,7 +26,7 @@ import { readLocalApi } from "../localApi";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { shouldLoadNextBranchPageAfterScroll } from "../state/paginatedBranches";
 import { usePaginatedBranches } from "../state/queries";
-import { useProject, useThread } from "../state/entities";
+import { useProject, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -34,6 +34,7 @@ import { vcsEnvironment } from "../state/vcs";
 import { cn } from "../lib/utils";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
+import { composerFloatingLayerProps } from "./chat/composerEventScope";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
@@ -46,9 +47,10 @@ import {
   shouldIncludeBranchPickerItem,
 } from "./BranchToolbar.logic";
 import {
-  ChangeRequestStatusIcon,
+  ThreadPullRequestBadgeControl,
   prStatusIndicator,
-  resolveThreadPr,
+  resolveThreadPullRequestBadge,
+  useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
@@ -121,7 +123,7 @@ export function BranchToolbarBranchSelector({
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
-  const serverThread = useThread(threadRef, { waitForShell: draftThread !== null });
+  const serverThread = useThreadShell(threadRef);
   const serverSession = serverThread?.session ?? null;
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
@@ -153,7 +155,7 @@ export function BranchToolbarBranchSelector({
   // Thread branch mutation (colocated — only this component calls it)
   // ---------------------------------------------------------------------------
   const setThreadBranch = useCallback(
-    (branch: string | null, worktreePath: string | null) => {
+    (branch: string | null, worktreePath: string | null, automatic = false) => {
       if (!activeThreadId || !activeProject) return;
       if (serverSession && worktreePath !== activeWorktreePath) {
         void stopThreadSession({
@@ -184,6 +186,7 @@ export function BranchToolbarBranchSelector({
         branch,
         worktreePath,
         envMode: nextDraftEnvMode,
+        environmentSelection: automatic ? (draftThread?.environmentSelection ?? "auto") : "manual",
         projectRef: scopeProjectRef(environmentId, activeProject.id),
       });
     },
@@ -199,6 +202,7 @@ export function BranchToolbarBranchSelector({
       threadRef,
       environmentId,
       effectiveEnvMode,
+      draftThread?.environmentSelection,
       stopThreadSession,
       updateThreadMetadata,
     ],
@@ -505,7 +509,7 @@ export function BranchToolbarBranchSelector({
     ) {
       return;
     }
-    setThreadBranch(worktreeBaseBranchCandidate, null);
+    setThreadBranch(worktreeBaseBranchCandidate, null, true);
   }, [
     activeThreadBranch,
     activeWorktreePath,
@@ -612,13 +616,10 @@ export function BranchToolbarBranchSelector({
     startFromOrigin,
   });
 
-  // PR pill shown next to the branch selector when the active branch has one.
-  const branchPr = resolveThreadPr({
-    threadBranch: resolveBranchToolbarPrBranch({
-      activeThreadBranch,
-      resolvedActiveBranch,
-    }),
-    gitStatus: branchStatusQuery.data ?? null,
+  // Branch status is the fallback when this thread has no linked pull requests.
+  const branchPrBranch = resolveBranchToolbarPrBranch({
+    activeThreadBranch,
+    resolvedActiveBranch,
   });
   const branchPrStatus = prStatusIndicator(branchPr, branchStatusQuery.data?.sourceControlProvider);
   // Action-oriented tooltip (the pill opens the PR), distinct from the sidebar's
@@ -759,7 +760,9 @@ export function BranchToolbarBranchSelector({
         >
           <ComboboxTrigger
             render={<Button variant="ghost" size="xs" />}
-            className="min-w-0 max-w-full text-muted-foreground/70 hover:text-foreground/80"
+            // No press-scale: the popup aligns live to this trigger, so a
+            // momentary 0.97 shrink would drag the open popup ~3px sideways.
+            className="min-w-0 max-w-full font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80 active:scale-100"
             disabled={isInitialBranchesLoadPending || isBranchActionPending}
           >
             <GitBranchIcon className="size-3 shrink-0 opacity-70" />
@@ -778,7 +781,12 @@ export function BranchToolbarBranchSelector({
           </ComboboxTrigger>
         </span>
       </div>
-      <ComboboxPopup align="end" side="top" className="flex w-80 flex-col">
+      <ComboboxPopup
+        align="end"
+        side="top"
+        className="flex w-80 flex-col"
+        {...composerFloatingLayerProps}
+      >
         <div className="shrink-0 px-3 pt-2.5">
           <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">
             <SearchIcon
@@ -844,13 +852,13 @@ export function BranchToolbarBranchSelector({
                     className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                      <RefreshCwIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+                      <RefreshIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
                       <span className="truncate">Start from origin</span>
                     </span>
                     <Switch
                       id={startFromOriginSwitchId}
                       checked={startFromOrigin}
-                      className="[--thumb-size:--spacing(3.5)]"
+                      size="sm"
                       aria-label="Start worktree from origin"
                       onCheckedChange={(checked) => onStartFromOriginChange(Boolean(checked))}
                     />

@@ -1,4 +1,6 @@
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -31,12 +33,45 @@ import {
 const ANTIGRAVITY_TIMEOUT_MS = 180_000;
 const decodeJsonString = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const encodeJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const AntigravityConfiguration = Schema.Record(Schema.String, Schema.Unknown);
+const decodeAntigravityConfiguration = Schema.decodeEffect(
+  Schema.fromJsonString(AntigravityConfiguration),
+);
+const decodeAntigravityConfigurationObject = Schema.decodeUnknownEffect(AntigravityConfiguration);
 
 type TextGenerationOperation =
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle";
+
+/** Text generation is disabled when the profile injects hooks or MCP servers.
+ * Those integrations can run before the helper has a chance to constrain a
+ * request, so the provider reports this capability conservatively. */
+export const isAntigravityTextGenerationAvailable = Effect.fn(
+  "isAntigravityTextGenerationAvailable",
+)(function* (profileDirectory: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  for (const name of ["hooks.json", "mcp_config.json"] as const) {
+    const configurationPath = path.join(profileDirectory, "config", name);
+    if (!(yield* fs.exists(configurationPath))) continue;
+    const info = yield* fs.stat(configurationPath);
+    if (info.type !== "File" || info.size > 64_000n) return false;
+    const empty = yield* fs.readFileString(configurationPath).pipe(
+      Effect.flatMap(decodeAntigravityConfiguration),
+      Effect.flatMap((configuration) =>
+        decodeAntigravityConfigurationObject(
+          configuration[name === "hooks.json" ? "hooks" : "mcpServers"] ?? configuration,
+        ),
+      ),
+      Effect.map((configuration) => Object.keys(configuration).length === 0),
+      Effect.orElseSucceed(() => false),
+    );
+    if (!empty) return false;
+  }
+  return true;
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

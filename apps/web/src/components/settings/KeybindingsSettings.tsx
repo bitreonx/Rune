@@ -3,7 +3,6 @@ import {
   CircleXIcon,
   EllipsisIcon,
   FileJsonIcon,
-  InfoIcon,
   MinusIcon,
   PlusIcon,
   SearchIcon,
@@ -45,12 +44,12 @@ import {
   serverEnvironment,
 } from "../../state/server";
 import { usePrimaryEnvironment } from "../../state/environments";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd, KbdGroup } from "../ui/kbd";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle } from "../ui/toggle";
 import { toastManager } from "../ui/toast";
@@ -69,18 +68,25 @@ import {
   type WhenVariableOption,
   unknownWhenVariables,
   whenAstToExpression,
+  whenNodeRemoveLabel,
 } from "./KeybindingsSettings.logic";
-import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 function KeybindingPill({ value }: { value: string }) {
-  const parts = value.split("+");
+  // Keys dedupe repeated parts; a literal "+" in a shortcut splits into empty strings.
+  const seenParts = new Map<string, number>();
+  const parts = value.split("+").map((part) => {
+    const seen = seenParts.get(part) ?? 0;
+    seenParts.set(part, seen + 1);
+    return { part, key: seen === 0 ? part : `${part}-${seen}` };
+  });
   return (
     <KbdGroup className="bg-transparent p-0 shadow-none">
-      {parts.map((part) => (
-        <Kbd key={part} className="min-w-6 justify-center px-1.5">
+      {parts.map(({ part, key }) => (
+        <Kbd key={key} className="min-w-6 justify-center px-1.5">
           {part === "mod"
             ? navigator.platform.toLowerCase().includes("mac")
               ? "⌘"
@@ -131,7 +137,7 @@ function ExpandableHeaderSearch({
                 onClick={() => onOpenChange(true)}
                 aria-label="Search keybindings"
               >
-                <SearchIcon className="size-3" />
+                <SearchIcon />
               </Button>
             }
           />
@@ -232,6 +238,41 @@ function defaultWhenGroup(operator: BooleanOperator = "and"): KeybindingWhenNode
   };
 }
 
+/** Warning glyph whose explanation lives in a tooltip; the one owner of that affordance here. */
+function WarningTooltipIcon({
+  label,
+  focusable = true,
+  className,
+  children,
+}: {
+  label: string;
+  focusable?: boolean;
+  className?: string | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            tabIndex={focusable ? 0 : undefined}
+            aria-label={label}
+            className={cn(
+              "inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-warning outline-none transition-colors hover:bg-warning/10 focus-visible:ring-[3px] focus-visible:ring-warning/25",
+              className,
+            )}
+          />
+        }
+      >
+        <TriangleAlertIcon className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-relaxed">
+        {children}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 function UnknownWhenVariableWarning({
   identifiers,
   focusable = true,
@@ -274,22 +315,9 @@ function KeybindingConflictWarning({ labels }: { labels: ReadonlyArray<string> }
       : `Conflicts with ${labels.slice(0, 3).join(", ")}${labels.length > 3 ? ", and more" : ""}.`;
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            tabIndex={0}
-            aria-label={description}
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-warning outline-none transition-colors hover:bg-warning/10 focus-visible:ring-[3px] focus-visible:ring-warning/25"
-          >
-            <TriangleAlertIcon className="size-3.5" />
-          </span>
-        }
-      />
-      <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-relaxed">
-        {description} The most recent matching binding wins when both conditions can apply.
-      </TooltipPopup>
-    </Tooltip>
+    <WarningTooltipIcon label={description}>
+      {description} The most recent matching binding wins when both conditions can apply.
+    </WarningTooltipIcon>
   );
 }
 
@@ -333,6 +361,37 @@ function WhenVariableSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function WhenExpressionRemoveButton({
+  label,
+  className,
+  onRemove,
+}: {
+  label: string;
+  className?: string | undefined;
+  onRemove: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        delay={200}
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={cn("size-7", className)}
+            aria-label={label}
+            onClick={onRemove}
+          />
+        }
+      >
+        <MinusIcon aria-hidden className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -734,32 +793,20 @@ function rowKeybindingTarget(row: KeybindingRow): ServerRemoveKeybindingInput {
   };
 }
 
-function KeybindingTableRow({
+/** Draft state and actions for editing one existing binding; layouts decide how to render it. */
+function useKeybindingRowEditor({
   row,
   allRows,
-  variables,
-  isSaving,
   onSave,
-  onReset,
-  onRemove,
 }: {
   row: KeybindingRow;
   allRows: ReadonlyArray<KeybindingRow>;
-  variables: ReadonlyArray<WhenVariableOption>;
-  isSaving: boolean;
   onSave: (input: ServerUpsertKeybindingInput) => void;
-  onReset: (row: KeybindingRow) => void;
-  onRemove: (row: KeybindingRow) => void;
 }) {
   const [draft, setDraft] = useReducer(keybindingRowDraftReducer, row, createKeybindingRowDraft);
   const { keyDraft, whenDraft, isRecording, isWhenDraftValid } = draft;
   const whenDraftExpression = whenAstToExpression(whenDraft);
   const isDirty = keyDraft !== row.key || whenDraftExpression !== row.when;
-  const displayShortcut = formatShortcutLabel(row.binding.shortcut);
-  const canReset = row.source === "Custom" && row.defaultKey !== null;
-  const canRemove = row.source !== "Default";
-  const hasRowActions = canReset || canRemove;
-  const showPill = !isRecording && keyDraft === row.key && row.key.length > 0 && !isDirty;
   const conflictLabels = keybindingConflictLabels(allRows, {
     rowId: row.id,
     key: keyDraft,
@@ -786,6 +833,48 @@ function KeybindingTableRow({
     if (!next) return;
     setDraft({ keyDraft: next, isRecording: false });
   };
+
+  return {
+    keyDraft,
+    whenDraft,
+    isRecording,
+    isWhenDraftValid,
+    whenDraftExpression,
+    isDirty,
+    conflictLabels,
+    setDraft,
+    save,
+    captureKeybinding,
+  };
+}
+
+type KeybindingRowEditor = ReturnType<typeof useKeybindingRowEditor>;
+
+interface KeybindingRowActions {
+  allRows: ReadonlyArray<KeybindingRow>;
+  variables: ReadonlyArray<WhenVariableOption>;
+  onSave: (input: ServerUpsertKeybindingInput) => void;
+  onReset: (row: KeybindingRow) => void;
+  onRemove: (row: KeybindingRow) => void;
+}
+
+type KeybindingRowProps = KeybindingRowActions & { row: KeybindingRow; isSaving: boolean };
+
+/** Shortcut pill that turns into a capture input when clicked, plus Save once the draft changes. */
+function KeybindingKeyControl({
+  row,
+  editor,
+  isSaving,
+  pillClassName,
+}: {
+  row: KeybindingRow;
+  editor: KeybindingRowEditor;
+  isSaving: boolean;
+  pillClassName?: string | undefined;
+}) {
+  const { keyDraft, isRecording, isDirty, isWhenDraftValid, setDraft, save, captureKeybinding } =
+    editor;
+  const showPill = !isRecording && keyDraft === row.key && row.key.length > 0 && !isDirty;
 
   return (
     <div className="grid grid-cols-[minmax(190px,1.1fr)_minmax(220px,0.85fr)_minmax(210px,1fr)_60px] items-center px-4 py-1.5 text-sm even:bg-muted/15 hover:bg-accent/40">
@@ -906,20 +995,193 @@ function KeybindingTableRow({
   );
 }
 
-function NewKeybindingTableRow({
-  commandOptions,
-  allRows,
+/** Quiet inline trigger showing the when clause; opens the expression builder. */
+function WhenClauseControl({
+  label,
+  expression,
+  value,
   variables,
-  isSaving,
-  onSave,
-  onCancel,
+  onChange,
+  onValidityChange,
 }: {
-  commandOptions: ReadonlyArray<KeybindingCommandOption>;
-  allRows: ReadonlyArray<KeybindingRow>;
+  label: string;
+  expression: string;
+  value: KeybindingWhenNode | undefined;
   variables: ReadonlyArray<WhenVariableOption>;
+  onChange: (value: KeybindingWhenNode | undefined) => void;
+  onValidityChange: (valid: boolean) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            variant={expression ? "ghost" : "ghost-muted"}
+            size="micro"
+            className="min-w-0 shrink font-mono"
+          />
+        }
+        aria-label={`Edit when clause for ${label}`}
+      >
+        <span className="truncate">{expression || "Always"}</span>
+        <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={6}>
+        <WhenExpressionBuilder
+          value={value}
+          variables={variables}
+          onChange={onChange}
+          onValidityChange={onValidityChange}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function KeybindingRowMenu({
+  row,
+  isSaving,
+  onReset,
+  onRemove,
+}: {
+  row: KeybindingRow;
   isSaving: boolean;
+  onReset: (row: KeybindingRow) => void;
+  onRemove: (row: KeybindingRow) => void;
+}) {
+  const canReset = row.source === "Custom" && row.defaultKey !== null;
+  const canRemove = row.source !== "Default";
+  if (!canReset && !canRemove) return null;
+
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            disabled={isSaving}
+            aria-label={`Actions for ${commandLabel(row.command)}`}
+          />
+        }
+      >
+        <EllipsisIcon className="size-3.5" />
+      </MenuTrigger>
+      <MenuPopup align="end" className="min-w-36">
+        {canReset ? (
+          <MenuItem disabled={isSaving} onClick={() => onReset(row)}>
+            Reset to default
+          </MenuItem>
+        ) : null}
+        {canRemove ? (
+          <MenuItem variant="destructive" disabled={isSaving} onClick={() => onRemove(row)}>
+            Remove
+          </MenuItem>
+        ) : null}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function KeybindingSourceBadge({ source }: { source: KeybindingRow["source"] }) {
+  if (source === "Default") return null;
+  return (
+    <Badge variant="outline" size="sm" className="font-normal text-muted-foreground">
+      {source}
+    </Badge>
+  );
+}
+
+function KeybindingRowTitle({ row }: { row: KeybindingRow }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex items-center gap-2" />}>
+        {commandLabel(row.command)}
+        <KeybindingSourceBadge source={row.source} />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{row.command}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function KeybindingRowWhen({
+  row,
+  editor,
+  variables,
+}: {
+  row: KeybindingRow;
+  editor: KeybindingRowEditor;
+  variables: ReadonlyArray<WhenVariableOption>;
+}) {
+  return (
+    <span className="flex h-6 items-center gap-1.5">
+      <span className="text-[12px] leading-none text-muted-foreground/70">When</span>
+      <WhenClauseControl
+        label={commandLabel(row.command)}
+        expression={editor.whenDraftExpression}
+        value={editor.whenDraft}
+        variables={variables}
+        onChange={(whenDraft) => editor.setDraft({ whenDraft })}
+        onValidityChange={(isWhenDraftValid) => editor.setDraft({ isWhenDraftValid })}
+      />
+    </span>
+  );
+}
+
+/** Row actions that stay hidden until the row is hovered or holds focus. */
+function KeybindingHoverRowMenu(props: {
+  row: KeybindingRow;
+  isSaving: boolean;
+  onReset: (row: KeybindingRow) => void;
+  onRemove: (row: KeybindingRow) => void;
+}) {
+  return (
+    <span className="flex items-center opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 has-data-popup-open:opacity-100 pointer-coarse:opacity-100">
+      <KeybindingRowMenu {...props} />
+    </span>
+  );
+}
+
+/** One binding as a settings row: pills flush right, actions fading in beside them on hover. */
+function KeybindingSettingsRow(props: KeybindingRowProps) {
+  const { row, isSaving, allRows, variables, onSave, onReset, onRemove } = props;
+  const editor = useKeybindingRowEditor({ row, allRows, onSave });
+
+  return (
+    <SettingsRow
+      className="group/row rounded-none"
+      title={<KeybindingRowTitle row={row} />}
+      description={<KeybindingRowWhen row={row} editor={editor} variables={variables} />}
+      control={
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <KeybindingConflictWarning labels={editor.conflictLabels} />
+          <KeybindingHoverRowMenu
+            row={row}
+            isSaving={isSaving}
+            onReset={onReset}
+            onRemove={onRemove}
+          />
+          <KeybindingKeyControl
+            row={row}
+            editor={editor}
+            isSaving={isSaving}
+            pillClassName="-mr-1.5"
+          />
+        </div>
+      }
+    />
+  );
+}
+
+/** Draft state for a binding that does not exist yet. */
+function useNewKeybindingDraft({
+  allRows,
+  onSave,
+}: {
+  allRows: ReadonlyArray<KeybindingRow>;
   onSave: (input: ServerUpsertKeybindingInput) => void;
-  onCancel: () => void;
 }) {
   const [commandDraft, setCommandDraft] = useState<KeybindingCommand | "">("");
   const [draft, setDraft] = useReducer(keybindingRowDraftReducer, {
@@ -936,6 +1198,7 @@ function NewKeybindingTableRow({
     when: whenDraftExpression,
   });
   const commandLabelText = commandDraft ? commandLabel(commandDraft) : "new keybinding";
+  const canSave = Boolean(commandDraft) && keyDraft.trim().length > 0 && isWhenDraftValid;
 
   const save = () => {
     if (!commandDraft) return;
@@ -958,6 +1221,42 @@ function NewKeybindingTableRow({
     setDraft({ keyDraft: next, isRecording: false });
   };
 
+  return {
+    commandDraft,
+    setCommandDraft,
+    keyDraft,
+    whenDraft,
+    whenDraftExpression,
+    isRecording,
+    conflictLabels,
+    commandLabelText,
+    canSave,
+    setDraft,
+    save,
+    captureKeybinding,
+  };
+}
+
+type NewKeybindingDraft = ReturnType<typeof useNewKeybindingDraft>;
+
+interface NewKeybindingProps {
+  commandOptions: ReadonlyArray<KeybindingCommandOption>;
+  allRows: ReadonlyArray<KeybindingRow>;
+  variables: ReadonlyArray<WhenVariableOption>;
+  isSaving: boolean;
+  onSave: (input: ServerUpsertKeybindingInput) => void;
+  onCancel: () => void;
+}
+
+function NewKeybindingCommandSelect({
+  draft,
+  commandOptions,
+  className,
+}: {
+  draft: NewKeybindingDraft;
+  commandOptions: ReadonlyArray<KeybindingCommandOption>;
+  className?: string | undefined;
+}) {
   return (
     <div className="grid grid-cols-[minmax(190px,1.1fr)_minmax(220px,0.85fr)_minmax(210px,1fr)_60px] items-center px-4 py-1.5 text-sm even:bg-muted/15 hover:bg-accent/40">
       <div className="min-w-0 pr-4">
@@ -1188,12 +1487,27 @@ export function KeybindingsSettingsPanel() {
     [saveKeybinding],
   );
 
+  const cancelAdd = useCallback(() => setIsAddingBinding(false), []);
+
   const bindingsCount = (
     <span className="text-[11px] text-muted-foreground">
       {rows.length + (isAddingBinding ? 1 : 0)}{" "}
       {rows.length + (isAddingBinding ? 1 : 0) === 1 ? "binding" : "bindings"}
     </span>
   );
+
+  const listProps: KeybindingsListProps = {
+    rows,
+    allRows: rows,
+    commandOptions,
+    variables: whenVariables,
+    savingCommand,
+    isAddingBinding,
+    onCancelAdd: cancelAdd,
+    onSave: saveKeybinding,
+    onReset: resetKeybinding,
+    onRemove: removeKeybinding,
+  };
 
   return (
     <SettingsPageContainer width="wide">
@@ -1219,7 +1533,7 @@ export function KeybindingsSettingsPanel() {
                     onClick={() => setIsAddingBinding(true)}
                     aria-label="Add keybinding"
                   >
-                    <PlusIcon className="size-3" />
+                    <PlusIcon />
                   </Button>
                 }
               />
@@ -1236,7 +1550,7 @@ export function KeybindingsSettingsPanel() {
                     onClick={openKeybindingsFile}
                     aria-label="Open keybindings.json"
                   >
-                    <FileJsonIcon className="size-3" />
+                    <FileJsonIcon />
                   </Button>
                 }
               />
@@ -1255,48 +1569,7 @@ export function KeybindingsSettingsPanel() {
           </div>
         ) : null}
 
-        <ScrollArea
-          chainVerticalScroll
-          scrollFade
-          hideScrollbars
-          className="w-full max-w-full rounded-none"
-        >
-          <div className="grid min-w-[680px] grid-cols-[minmax(190px,1.1fr)_minmax(220px,0.85fr)_minmax(210px,1fr)_60px] border-b border-border/70 bg-muted/25 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
-            <div>Command</div>
-            <div>Keybinding</div>
-            <div>When</div>
-            <div>Status</div>
-          </div>
-          <div className="min-w-[680px] divide-y divide-border/60">
-            {isAddingBinding ? (
-              <NewKeybindingTableRow
-                commandOptions={commandOptions}
-                allRows={rows}
-                variables={whenVariables}
-                isSaving={savingCommand !== null}
-                onSave={saveKeybinding}
-                onCancel={() => setIsAddingBinding(false)}
-              />
-            ) : null}
-            {rows.map((row) => (
-              <KeybindingTableRow
-                key={row.id}
-                row={row}
-                allRows={rows}
-                variables={whenVariables}
-                isSaving={savingCommand === row.command}
-                onSave={saveKeybinding}
-                onReset={resetKeybinding}
-                onRemove={removeKeybinding}
-              />
-            ))}
-            {rows.length === 0 && !isAddingBinding ? (
-              <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-                No keybindings match your search.
-              </div>
-            ) : null}
-          </div>
-        </ScrollArea>
+        <KeybindingsList {...listProps} />
       </SettingsSection>
     </SettingsPageContainer>
   );

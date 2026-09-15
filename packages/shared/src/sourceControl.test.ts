@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  sourceControlRepositorySelector,
   detectSourceControlProviderFromRemoteUrl,
   getChangeRequestTerminologyForKind,
   isSshRemoteUrl,

@@ -252,7 +252,7 @@ export const PromptQueueOperationCode = Schema.Literals([
 ]);
 export type PromptQueueOperationCode = typeof PromptQueueOperationCode.Type;
 
-export class PromptQueueOperationError extends Schema.TaggedErrorClass<PromptQueueOperationError>()(
+export class PromptQueueOperationError extends Schema.TaggedError<PromptQueueOperationError>()(
   "PromptQueueOperationError",
   {
     code: PromptQueueOperationCode,

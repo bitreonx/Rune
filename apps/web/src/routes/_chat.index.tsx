@@ -35,10 +35,11 @@ import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
-  const { environments } = useEnvironments();
+  const { environments, isReady } = useEnvironments();
 
-  if (authGateState.status === "hosted-static" && environments.length === 0) {
-    return <HostedStaticOnboardingState />;
+  if (authGateState.status === "hosted-static") {
+    if (!isReady) return null;
+    if (environments.length === 0) return <HostedStaticOnboardingState />;
   }
 
   return <IndexWorkspaceLanding />;
@@ -361,8 +362,12 @@ function HostedStaticOnboardingState() {
                 <LinkIcon className="size-5" />
               </div>
               <EmptyTitle className="text-foreground text-xl">
-                Connect an environment to get started
+                Connect to a computer running RUNE Code
               </EmptyTitle>
+              <EmptyDescription className="mt-2 text-sm leading-relaxed text-muted-foreground/78">
+                This browser connects to RUNE Code running on your computer or a server. Start the RUNE
+                Code desktop app or command-line server on that machine and keep it running.
+              </EmptyDescription>
               <EmptyDescription className="mt-2 text-sm leading-relaxed text-muted-foreground/78">
                 {cloudEnabled
                   ? "Sign in to RUNE Connect to connect a linked environment through its managed tunnel, or add a reachable backend manually."
@@ -371,7 +376,7 @@ function HostedStaticOnboardingState() {
               <div className="mt-6 flex justify-center">
                 <Button render={<Link to="/settings/connections" />} size="sm">
                   <PlusIcon className="size-4" />
-                  {cloudEnabled ? "Open Connections" : "Add environment"}
+                  Open Connections
                 </Button>
               </div>
             </EmptyHeader>

@@ -1,6 +1,6 @@
 import { type TimestampFormat } from "@rune/contracts/settings";
 
-export function getTimestampFormatOptions(
+function getTimestampFormatOptions(
   timestampFormat: TimestampFormat,
   includeSeconds: boolean,
 ): Intl.DateTimeFormatOptions {
@@ -165,6 +165,28 @@ export function formatDayAwareTimestamp(
   return `${dateFormatter.format(date)} ${time}`;
 }
 
+/** Forward-looking counterpart to formatDayAwareTimestamp for usage resets. */
+export function formatUpcomingTimestamp(
+  isoDate: string,
+  timestampFormat: TimestampFormat,
+  nowMs: number = Date.now(),
+): string {
+  const date = parseTimestampDate(isoDate);
+  if (!date) return "";
+  const time = getTimestampFormatter(timestampFormat, false).format(date);
+
+  const now = new Date(nowMs);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTargetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const dayDiff = Math.round((startOfTargetDay - startOfToday) / 86_400_000);
+
+  if (dayDiff <= 0) return time;
+  if (dayDiff === 1) return `tomorrow at ${time}`;
+  const dateFormatter =
+    date.getFullYear() === now.getFullYear() ? numericDateFormatter : numericDateWithYearFormatter;
+  return `${dateFormatter.format(date)} ${time}`;
+}
+
 /**
  * Format a relative time string from an ISO date.
  * Returns `{ value: "20s", suffix: "ago" }` or `{ value: "just now", suffix: null }`
@@ -226,31 +248,6 @@ export function formatElapsedDurationLabel(isoDate: string, nowMs: number = Date
 
   const days = Math.floor(hours / 24);
   return `${days}d`;
-}
-
-/**
- * Relative time until an ISO instant (e.g. expiry). Mirrors {@link formatRelativeTime} but for future times.
- */
-export function formatRelativeTimeUntil(isoDate: string): RelativeTimeParts | null {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return null;
-  const diffMs = date.getTime() - Date.now();
-  if (diffMs <= 0) return { value: "Expired", suffix: null };
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 5) return { value: "Soon", suffix: null };
-  if (seconds < 60) return { value: `${seconds}s`, suffix: "left" };
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return { value: `${minutes}m`, suffix: "left" };
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return { value: `${hours}h`, suffix: "left" };
-  const days = Math.floor(hours / 24);
-  return { value: `${days}d`, suffix: "left" };
-}
-
-export function formatRelativeTimeUntilLabel(isoDate: string): string {
-  const relative = formatRelativeTimeUntil(isoDate);
-  if (!relative) return "";
-  return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
 }
 
 /**

@@ -15,9 +15,158 @@ import {
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
+const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+
+describe("ServerSettings usage price overrides", () => {
+  const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
+
+  it("defaults to automatic pricing and round-trips arbitrary model IDs", () => {
+    expect(decodeServerSettings({}).usagePriceOverrides).toEqual({});
+    const settings = decodeServerSettings({
+      usagePriceOverrides: { "  vendor/example-model  ": prices },
+    });
+    expect(encodeServerSettings(settings).usagePriceOverrides).toEqual({
+      "vendor/example-model": prices,
+    });
+  });
+
+  it("accepts zero rates, optional cache rates, and per-model deletion", () => {
+    const overrides = {
+      "example-model": {
+        inputCostPerMillionTokens: 0,
+        outputCostPerMillionTokens: 0,
+        cacheReadCostPerMillionTokens: 0.5,
+        cacheWriteCostPerMillionTokens: 3,
+      },
+      "removed-model": null,
+    };
+    expect(
+      decodeServerSettingsPatch({ usagePriceOverrides: overrides }).usagePriceOverrides,
+    ).toEqual(overrides);
+  });
+
+  it.each([
+    "inputCostPerMillionTokens",
+    "outputCostPerMillionTokens",
+    "cacheReadCostPerMillionTokens",
+    "cacheWriteCostPerMillionTokens",
+  ])("rejects invalid %s rates at the settings boundary", (field) => {
+    for (const value of [-1, Number.NaN, Number.POSITIVE_INFINITY, "2"]) {
+      const usagePriceOverrides = { "example-model": { ...prices, [field]: value } };
+      expect(() => decodeServerSettings({ usagePriceOverrides })).toThrow();
+      expect(() => decodeServerSettingsPatch({ usagePriceOverrides })).toThrow();
+    }
+  });
+
+  it("rejects empty model IDs and incomplete input/output pricing", () => {
+    for (const usagePriceOverrides of [
+      { " ": prices },
+      { "example-model": { inputCostPerMillionTokens: 2 } },
+      { "example-model": { outputCostPerMillionTokens: 8 } },
+    ]) {
+      expect(() => decodeServerSettingsPatch({ usagePriceOverrides })).toThrow();
+    }
+  });
+});
+
+describe("custom model settings", () => {
+  const capabilities = {
+    optionDescriptors: [
+      {
+        id: "effort",
+        label: "Reasoning",
+        type: "select",
+        options: [{ id: "high", label: "High", isDefault: true }],
+      },
+    ],
+  };
+
+  it("accepts legacy bare slugs alongside full entries", () => {
+    const decoded = decodeClaudeSettings({
+      customModels: ["bare-slug", { slug: "named", name: "Named", capabilities }],
+    });
+    expect(decoded.customModels).toEqual([
+      "bare-slug",
+      { slug: "named", name: "Named", capabilities },
+    ]);
+  });
+
+  it("accepts entries at the settings patch boundary", () => {
+    expect(
+      decodeServerSettingsPatch({
+        providers: { codex: { customModels: [{ slug: "x", capabilities }] } },
+      }).providers?.codex?.customModels,
+    ).toEqual([{ slug: "x", capabilities }]);
+    expect(() =>
+      decodeServerSettingsPatch({ providers: { codex: { customModels: [{ name: "no slug" }] } } }),
+    ).toThrow();
+  });
+});
+
+describe("ClaudeSettings auto-compaction", () => {
+  it("uses Claude's default threshold when no override is configured", () => {
+    expect(decodeClaudeSettings({}).autoCompactWindow).toBe("");
+  });
+
+  it.each(["100000", "300000", "1000000"])(
+    "accepts a supported auto-compaction threshold: %s",
+    (value) => {
+      expect(decodeClaudeSettings({ autoCompactWindow: value }).autoCompactWindow).toBe(value);
+    },
+  );
+
+  it.each(["99999", "1000001", "300k", "invalid"])(
+    "rejects an unsupported auto-compaction threshold: %s",
+    (value) => {
+      expect(() => decodeClaudeSettings({ autoCompactWindow: value })).toThrow();
+    },
+  );
+
+  it("rejects an unsupported threshold at the settings patch boundary", () => {
+    expect(() =>
+      decodeServerSettingsPatch({ providers: { claudeAgent: { autoCompactWindow: "300k" } } }),
+    ).toThrow();
+    expect(
+      decodeServerSettingsPatch({ providers: { claudeAgent: { autoCompactWindow: "300000" } } }),
+    ).toBeDefined();
+  });
+});
+
+describe("ClientSettings diff colors", () => {
+  it("keeps red and green for existing settings without a saved palette", () => {
+    expect(decodeClientSettings({}).diffColorScheme).toBe("red-green");
+  });
+
+  it.each(["red-green", "blue-orange"])("round-trips the %s palette", (diffColorScheme) => {
+    const settings = decodeClientSettings({ diffColorScheme });
+    expect(encodeClientSettings(settings).diffColorScheme).toBe(diffColorScheme);
+    expect(decodeClientSettingsPatch({ diffColorScheme }).diffColorScheme).toBe(diffColorScheme);
+  });
+
+  it("rejects unsupported palettes", () => {
+    expect(() => decodeClientSettings({ diffColorScheme: "purple-yellow" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ diffColorScheme: "purple-yellow" })).toThrow();
+  });
+});
+
+describe("ClientSettings load balancing", () => {
+  it("requires opt-in when settings are new or omit load balancing", () => {
+    expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
+    expect(decodeClientSettings({ loadBalancingWeights: {} }).loadBalancingEnabled).toBe(false);
+  });
+
+  it.each([true, false])("preserves a saved choice of %s", (loadBalancingEnabled) => {
+    const settings = decodeClientSettings({ loadBalancingEnabled });
+    expect(encodeClientSettings(settings).loadBalancingEnabled).toBe(loadBalancingEnabled);
+    expect(decodeClientSettingsPatch({ loadBalancingEnabled }).loadBalancingEnabled).toBe(
+      loadBalancingEnabled,
+    );
+  });
+});
 
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
@@ -138,10 +287,60 @@ describe("ClientSettings sidebar", () => {
     );
   });
 
-  it("allows auto-settle by inactivity to be disabled", () => {
+  it("keeps unpin confirmation opt-in and patchable", () => {
+    expect(decodeClientSettings({}).confirmThreadUnpin).toBe(false);
+    expect(decodeClientSettingsPatch({ confirmThreadUnpin: true }).confirmThreadUnpin).toBe(true);
+    expect(() => decodeClientSettingsPatch({ confirmThreadUnpin: "yes" })).toThrow();
+  });
+});
+
+describe("ClientSettings context window meter", () => {
+  it("defaults off and preserves an explicit legacy opt-in", () => {
+    expect(decodeClientSettings({}).contextWindowMeterEnabled).toBe(false);
     expect(
-      decodeClientSettings({ sidebarAutoSettleAfterDays: null }).sidebarAutoSettleAfterDays,
-    ).toBeNull();
+      decodeClientSettings({ contextWindowMeterEnabled: true }).contextWindowMeterEnabled,
+    ).toBe(true);
+    expect(
+      decodeClientSettingsPatch({ contextWindowMeterEnabled: true }).contextWindowMeterEnabled,
+    ).toBe(true);
+  });
+});
+
+describe("ClientSettings composer collapse", () => {
+  it("collapses on scroll by default and accepts opting out", () => {
+    expect(decodeClientSettings({}).composerCollapseOnScroll).toBe(true);
+    expect(
+      decodeClientSettingsPatch({ composerCollapseOnScroll: false }).composerCollapseOnScroll,
+    ).toBe(false);
+  });
+
+  it("drops the retired blur trigger key", () => {
+    const decoded = decodeClientSettings({ composerCollapseOnBlur: false });
+    expect(decoded.composerCollapseOnScroll).toBe(true);
+    expect(decoded).not.toHaveProperty("composerCollapseOnBlur");
+  });
+});
+
+describe("ServerSettings thread settlement", () => {
+  it("defaults merge settlement on and inactivity settlement to three days", () => {
+    const settings = decodeServerSettings({});
+    expect(settings.sidebarAutoSettleAfterDays).toBe(3);
+    expect(settings.sidebarAutoSettleOnMerge).toBe(true);
+  });
+
+  it("allows both automatic rules to be disabled", () => {
+    expect(
+      decodeServerSettings({
+        sidebarAutoSettleAfterDays: null,
+        sidebarAutoSettleOnMerge: false,
+      }),
+    ).toMatchObject({ sidebarAutoSettleAfterDays: null, sidebarAutoSettleOnMerge: false });
+    expect(
+      decodeServerSettingsPatch({
+        sidebarAutoSettleAfterDays: null,
+        sidebarAutoSettleOnMerge: false,
+      }),
+    ).toMatchObject({ sidebarAutoSettleAfterDays: null, sidebarAutoSettleOnMerge: false });
   });
 
   it("allows auto-settle on merge to be disabled", () => {
@@ -154,8 +353,27 @@ describe("ClientSettings sidebar", () => {
   });
 
   it.each([-1, 0, 91])("rejects an auto-settle threshold outside 1..90: %s", (value) => {
-    expect(() => decodeClientSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
-    expect(() => decodeClientSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();
+    expect(() => decodeServerSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
+    expect(() => decodeServerSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();
+  });
+});
+
+describe("ClientSettings pull request merge methods", () => {
+  it("defaults to no project overrides and accepts supported methods", () => {
+    expect(decodeClientSettings({}).pullRequestMergeMethodOverrides).toEqual({});
+    expect(
+      decodeClientSettingsPatch({
+        pullRequestMergeMethodOverrides: { project: "squash" },
+      }).pullRequestMergeMethodOverrides,
+    ).toEqual({ project: "squash" });
+  });
+
+  it("rejects unsupported project merge methods", () => {
+    expect(() =>
+      decodeClientSettingsPatch({
+        pullRequestMergeMethodOverrides: { project: "fast-forward" },
+      }),
+    ).toThrow();
   });
 });
 
@@ -393,4 +611,40 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(encoded.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(encoded.providers?.codex?.launchArgs).toBe("--strict-config");
   });
+});
+
+describe("ServerSettings environment icon", () => {
+  it("defaults to null", () => {
+    expect(decodeServerSettings({}).environmentIcon).toBeNull();
+  });
+
+  it("keeps a kind this build knows", () => {
+    expect(decodeServerSettings({ environmentIcon: "mac-mini" }).environmentIcon).toBe("mac-mini");
+    expect(decodeServerSettings({ environmentIcon: "linux" }).environmentIcon).toBe("linux");
+  });
+
+  it("decodes a kind from a newer server as null instead of failing the snapshot", () => {
+    expect(decodeServerSettings({ environmentIcon: "toaster" }).environmentIcon).toBeNull();
+  });
+
+  it("round-trips through encode", () => {
+    const settings = decodeServerSettings({ environmentIcon: "laptop" });
+    expect(encodeServerSettings(settings).environmentIcon).toBe("laptop");
+
+    const linuxSettings = decodeServerSettings({ environmentIcon: "linux" });
+    expect(encodeServerSettings(linuxSettings).environmentIcon).toBe("linux");
+  });
+});
+
+const decodeDeviceHostSettings = Schema.decodeSync(ServerSettings);
+
+it("validates remote device hosts and rejects ambiguous host ids", () => {
+  const host = { id: "mini", label: "Mac mini", target: "user@mini", port: 2222 };
+  expect(decodeDeviceHostSettings({ deviceHosts: [host] }).deviceHosts).toEqual([host]);
+  expect(() => decodeDeviceHostSettings({ deviceHosts: [host, host] })).toThrow();
+  expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, id: "local" }] })).toThrow();
+  expect(() =>
+    decodeDeviceHostSettings({ deviceHosts: [{ ...host, target: "-oProxyCommand=bad" }] }),
+  ).toThrow();
+  expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
 });

@@ -1,4 +1,5 @@
 import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@rune/contracts";
+import type { ServerUpdateState } from "@rune/client-runtime/state/server";
 import { compareSemverVersions, parseSemver } from "@rune/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -16,6 +17,14 @@ export const VERSION_MISMATCH_DISMISSALS_STORAGE_KEY = "rune:version-mismatch-di
 const VersionMismatchDismissalsSchema = Schema.Struct({
   keys: Schema.Array(Schema.String),
 });
+
+const SERVER_UPDATE_FAILURE_DISMISSALS_STORAGE_KEY = "rune:server-update-failure-dismissals:v1";
+
+const ServerUpdateFailureDismissalsSchema = Schema.Struct({
+  keys: Schema.Array(Schema.String),
+});
+
+type ServerUpdateFailureDismissals = typeof ServerUpdateFailureDismissalsSchema.Type;
 
 type VersionMismatchDismissals = typeof VersionMismatchDismissalsSchema.Type;
 
@@ -79,6 +88,22 @@ export function resolveServerSelfUpdateCapability(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): ServerSelfUpdateCapability | null {
   return serverConfig?.environment.capabilities.serverSelfUpdate ?? null;
+}
+
+/** True when the desktop app supervising this server can be told to update
+    itself over RPC. Older desktop servers only get the manual instruction. */
+export function supportsDesktopAppUpdate(
+  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
+): boolean {
+  return serverConfig?.environment.capabilities.desktopAppUpdate === true;
+}
+
+/** True when the connected server can recover opted-in running turns after
+    its self-update restart. */
+export function supportsServerUpdateThreadContinuation(
+  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
+): boolean {
+  return serverConfig?.environment.capabilities.serverUpdateThreadContinuation === true;
 }
 
 /** The command to hand users whose server cannot update itself. */
@@ -156,16 +181,49 @@ export function dismissVersionMismatch(dismissalKey: string | null | undefined):
   });
 }
 
-export function appendVersionMismatchHint(
-  message: string | null | undefined,
-  mismatch: VersionMismatch | null | undefined,
-): string | null {
-  const normalizedMessage = normalizeVersion(message);
-  if (!normalizedMessage) {
-    return mismatch?.hint ?? null;
+function serverUpdateFailureDismissalKey(
+  state: Extract<ServerUpdateState, { readonly status: "failed" }>,
+): string {
+  return JSON.stringify([state.fromVersion, state.targetVersion, state.message]);
+}
+
+function readServerUpdateFailureDismissals(): ServerUpdateFailureDismissals {
+  try {
+    return (
+      getLocalStorageItem(
+        SERVER_UPDATE_FAILURE_DISMISSALS_STORAGE_KEY,
+        ServerUpdateFailureDismissalsSchema,
+      ) ?? { keys: [] }
+    );
+  } catch (error) {
+    console.error("Could not read server-update failure dismissals.", error);
+    return { keys: [] };
   }
-  if (!mismatch) {
-    return normalizedMessage;
+}
+
+function writeServerUpdateFailureDismissals(document: ServerUpdateFailureDismissals): void {
+  try {
+    setLocalStorageItem(
+      SERVER_UPDATE_FAILURE_DISMISSALS_STORAGE_KEY,
+      document,
+      ServerUpdateFailureDismissalsSchema,
+    );
+  } catch (error) {
+    console.error("Could not persist server-update failure dismissals.", error);
   }
-  return `${normalizedMessage} Hint: ${mismatch.hint}`;
+}
+
+export function isServerUpdateFailureDismissed(state: ServerUpdateState): boolean {
+  return (
+    state.status === "failed" &&
+    readServerUpdateFailureDismissals().keys.includes(serverUpdateFailureDismissalKey(state))
+  );
+}
+
+export function dismissServerUpdateFailure(state: ServerUpdateState): void {
+  if (state.status !== "failed") return;
+  const key = serverUpdateFailureDismissalKey(state);
+  const document = readServerUpdateFailureDismissals();
+  if (document.keys.includes(key)) return;
+  writeServerUpdateFailureDismissals({ keys: [...document.keys, key] });
 }

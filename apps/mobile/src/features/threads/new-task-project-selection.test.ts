@@ -7,15 +7,25 @@ import {
   getOnlySelectableProject,
   getProjectScopeSelectionTarget,
   resolveDraftProjectSelection,
+  resolveEnvironmentProjectMatch,
 } from "./new-task-project-selection";
 
 function makeProject(id: string, environmentId = "environment"): EnvironmentProject {
   return {
     environmentId: EnvironmentId.make(environmentId),
     id: ProjectId.make(id),
-    title: id,
-    workspaceRoot: `/work/${id}`,
-    repositoryIdentity: null,
+    title: options.title ?? id,
+    workspaceRoot: options.workspaceRoot ?? `/work/${id}`,
+    repositoryIdentity: options.repositoryKey
+      ? {
+          canonicalKey: options.repositoryKey,
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: `https://${options.repositoryKey}.git`,
+          },
+        }
+      : null,
     defaultModelSelection: null,
     scripts: [],
     createdAt: "2026-07-01T00:00:00.000Z",

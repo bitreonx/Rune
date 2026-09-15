@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 
 import { playSoundEffect } from "~/sound/playback";
 
-export class ClipboardApiUnavailableError extends Schema.TaggedErrorClass<ClipboardApiUnavailableError>()(
+export class ClipboardApiUnavailableError extends Schema.TaggedError<ClipboardApiUnavailableError>()(
   "ClipboardApiUnavailableError",
   {
     target: Schema.String,
@@ -14,7 +14,7 @@ export class ClipboardApiUnavailableError extends Schema.TaggedErrorClass<Clipbo
   }
 }
 
-export class ClipboardWriteError extends Schema.TaggedErrorClass<ClipboardWriteError>()(
+export class ClipboardWriteError extends Schema.TaggedError<ClipboardWriteError>()(
   "ClipboardWriteError",
   {
     target: Schema.String,
@@ -26,7 +26,7 @@ export class ClipboardWriteError extends Schema.TaggedErrorClass<ClipboardWriteE
   }
 }
 
-export class ClipboardReadUnavailableError extends Schema.TaggedErrorClass<ClipboardReadUnavailableError>()(
+export class ClipboardReadUnavailableError extends Schema.TaggedError<ClipboardReadUnavailableError>()(
   "ClipboardReadUnavailableError",
   {
     target: Schema.String,
@@ -37,7 +37,7 @@ export class ClipboardReadUnavailableError extends Schema.TaggedErrorClass<Clipb
   }
 }
 
-export class ClipboardReadError extends Schema.TaggedErrorClass<ClipboardReadError>()(
+export class ClipboardReadError extends Schema.TaggedError<ClipboardReadError>()(
   "ClipboardReadError",
   {
     target: Schema.String,
@@ -50,17 +50,20 @@ export class ClipboardReadError extends Schema.TaggedErrorClass<ClipboardReadErr
 }
 
 export async function writeTextToClipboard(value: string, target = "text") {
-  if (
-    typeof window === "undefined" ||
-    typeof navigator === "undefined" ||
-    !navigator.clipboard?.writeText
-  ) {
+  if (typeof window === "undefined") {
     throw new ClipboardApiUnavailableError({
       target,
     });
   }
 
   if (!value) return false;
+
+  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+    if (writeTextWithExecCommand(value)) return true;
+    throw new ClipboardApiUnavailableError({
+      target,
+    });
+  }
 
   try {
     await navigator.clipboard.writeText(value);

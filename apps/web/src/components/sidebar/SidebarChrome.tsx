@@ -72,7 +72,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
       <SidebarBrand onBackdrop={backdropVariant !== null} />
       {pillLabel ? (
         <Badge
-          className="relative z-10 ml-1 rounded-full px-1.5 text-muted-foreground"
+          className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
           data-environment-identification="pill"
           size="sm"
           variant="secondary"
@@ -193,10 +193,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   }, [canGoBack, closeMobileSidebar, navigate]);
 
   return (
-    <SidebarMenu className="flex-row items-center" data-rune-sidebar-section="utility">
+    <SidebarMenu className="flex-row items-center">
       {currentFooterPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
-          <SidebarMenuButton data-rune-sidebar-row="utility" onClick={handleBackClick}>
+          <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
             <span>Back</span>
           </SidebarMenuButton>
@@ -207,16 +207,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             icon={<SettingsIcon />}
             label="Settings"
             onClick={handleSettingsClick}
-          />
-          <SidebarUtilityItem
-            icon={<SparklesIcon />}
-            label="Skills"
-            onClick={handleSkillsClick}
-          />
-          <SidebarUtilityItem
-            icon={<PuzzleIcon />}
-            label="Plugins"
-            onClick={handlePluginsClick}
           />
           {pullRequestsSupported ? (
             <SidebarUtilityItem

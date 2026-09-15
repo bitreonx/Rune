@@ -21,6 +21,10 @@ export function getDesktopUpdateReleaseUrl(version: string | null): string | nul
   return `${DESKTOP_RELEASE_TAG_URL}/v${encodeURIComponent(normalizedVersion)}`;
 }
 
+export function getDesktopUpdateReleaseHistoryUrl(): string {
+  return DESKTOP_RELEASE_HISTORY_URL;
+}
+
 export function resolveDesktopUpdateButtonAction(
   state: DesktopUpdateState,
 ): DesktopUpdateButtonAction {
@@ -41,16 +45,6 @@ export function resolveDesktopUpdateButtonAction(
     }
   }
   return "none";
-}
-
-export function shouldShowDesktopUpdateButton(state: DesktopUpdateState | null): boolean {
-  if (!state || !state.enabled) {
-    return false;
-  }
-  if (state.status === "downloading") {
-    return true;
-  }
-  return resolveDesktopUpdateButtonAction(state) !== "none";
 }
 
 export function shouldShowArm64IntelBuildWarning(state: DesktopUpdateState | null): boolean {
@@ -119,11 +113,6 @@ export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): 
 
 export function shouldToastDesktopUpdateActionResult(result: DesktopUpdateActionResult): boolean {
   return getDesktopUpdateActionError(result) !== null;
-}
-
-export function shouldHighlightDesktopUpdateError(state: DesktopUpdateState | null): boolean {
-  if (!state || state.status !== "error") return false;
-  return state.errorContext === "download" || state.errorContext === "install";
 }
 
 export function canCheckForUpdate(state: DesktopUpdateState | null): boolean {

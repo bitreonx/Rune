@@ -21,11 +21,6 @@ import { InlineFileDiff } from "./InlineFileDiff";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import {
-  changedFileName,
-  selectChangedFilePreview,
-  summarizeChangedFileScopes,
-} from "./changedFilesPresentation";
 
 const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
 
@@ -37,7 +32,6 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   showCompactPreview: boolean;
   allDirectoriesExpanded: boolean;
   resolvedTheme: "light" | "dark";
-  onExpandedChange: (expanded: boolean) => void;
   onToggleAllDirectories: () => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenChatDiff: (filePath?: string) => void;
@@ -58,7 +52,6 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
     showCompactPreview,
     allDirectoriesExpanded,
     resolvedTheme,
-    onExpandedChange,
     onToggleAllDirectories,
     onOpenTurnDiff,
     onOpenChatDiff,
@@ -208,7 +201,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
                 <Button
                   type="button"
                   size="xs"
-                  variant="outline"
+                  variant="ghost-muted"
                   aria-label="Open diff"
                   onClick={() => onOpenChatDiff(undefined)}
                 />
@@ -362,7 +355,8 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
           <button
             type="button"
             data-scroll-anchor-ignore
-            className="group flex w-full items-center gap-1.5 rounded-xl py-1 pr-3 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+            aria-expanded={isExpanded}
+            className="group flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
             style={{ paddingLeft: `${leftPadding}px` }}
             onClick={() => toggleDirectory(node.path)}
           >
@@ -388,9 +382,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
             )}
           </button>
           {isExpanded && (
-            <div className="space-y-0.5">
-              {node.children.map((childNode) => renderTreeNode(childNode, depth + 1))}
-            </div>
+            <div>{node.children.map((childNode) => renderTreeNode(childNode, depth + 1))}</div>
           )}
         </div>
       );
@@ -444,7 +436,7 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
     );
   };
 
-  return <div className="space-y-0.5">{treeNodes.map((node) => renderTreeNode(node, 0))}</div>;
+  return <div className="p-2">{treeNodes.map((node) => renderTreeNode(node, 0))}</div>;
 });
 
 function collectDirectoryPaths(nodes: ReadonlyArray<TurnDiffTreeNode>): string[] {

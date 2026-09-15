@@ -5,13 +5,13 @@ import type {
   DesktopUpdateState,
 } from "@rune/contracts";
 
-export function nextStatusAfterDownloadFailure(
+function nextStatusAfterDownloadFailure(
   currentState: DesktopUpdateState,
 ): DesktopUpdateState["status"] {
   return currentState.availableVersion ? "available" : "error";
 }
 
-export function getCanRetryAfterDownloadFailure(currentState: DesktopUpdateState): boolean {
+function getCanRetryAfterDownloadFailure(currentState: DesktopUpdateState): boolean {
   return currentState.availableVersion !== null;
 }
 
@@ -31,6 +31,7 @@ export function createInitialDesktopUpdateState(
     availableVersion: null,
     downloadedVersion: null,
     releaseNotes: [],
+    omittedReleaseCount: 0,
     downloadPercent: null,
     checkedAt: null,
     message: null,
@@ -89,6 +90,7 @@ export function reduceDesktopUpdateStateOnUpdateAvailable(
   version: string,
   checkedAt: string,
   releaseNotes: ReadonlyArray<DesktopUpdateReleaseNote> = [],
+  omittedReleaseCount = 0,
 ): DesktopUpdateState {
   const isDownloadedVersion = state.downloadedVersion === version;
   const nextReleaseNotes =
@@ -130,6 +132,7 @@ export function reduceDesktopUpdateStateOnNoUpdate(
     availableVersion: null,
     downloadedVersion: null,
     releaseNotes: [],
+    omittedReleaseCount: 0,
     downloadPercent: null,
     checkedAt,
     message: null,

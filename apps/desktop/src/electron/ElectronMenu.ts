@@ -9,11 +9,12 @@ import * as Electron from "electron";
 export interface ElectronMenuTemplateInput {
   readonly window: Electron.BrowserWindow;
   readonly template: readonly Electron.MenuItemConstructorOptions[];
+  readonly frame?: Electron.WebFrameMain;
 }
 
 const ElectronMenuOperation = Schema.Literals(["set-application-menu", "popup-template"]);
 
-export class ElectronMenuOperationError extends Schema.TaggedErrorClass<ElectronMenuOperationError>()(
+export class ElectronMenuOperationError extends Schema.TaggedError<ElectronMenuOperationError>()(
   "ElectronMenuOperationError",
   {
     operation: ElectronMenuOperation,
@@ -39,6 +40,7 @@ export class ElectronMenu extends Context.Service<
   }
 >()("@rune/desktop/electron/ElectronMenu") {}
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const platform = yield* HostProcessPlatform;
 
@@ -64,6 +66,7 @@ export const make = Effect.gen(function* () {
             try: () =>
               Electron.Menu.buildFromTemplate([...input.template]).popup({
                 window: input.window,
+                ...(input.frame ? { frame: input.frame } : {}),
               }),
             catch: (cause) =>
               new ElectronMenuOperationError({

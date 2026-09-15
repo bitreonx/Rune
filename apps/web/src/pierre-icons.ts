@@ -3,6 +3,7 @@ import {
   getBuiltInSpriteSheet,
   type FileTreeIcons,
 } from "@pierre/trees";
+import { VIDEO_FILE_EXTENSIONS } from "@rune/shared/video";
 
 export interface PierreIconResolution {
   name: string;
@@ -50,6 +51,9 @@ export const RUNE_PIERRE_ICONS = {
     "pnpm-lock.yaml": "rune-file-icon-pnpm",
     "pnpm-workspace.yaml": "rune-file-icon-pnpm",
   },
+  byFileExtension: Object.fromEntries(
+    VIDEO_FILE_EXTENSIONS.map((extension) => [extension, "rune-file-icon-video"]),
+  ),
 } satisfies FileTreeIcons;
 
 const completeIconResolver = createFileTreeIconResolver(RUNE_PIERRE_ICONS);

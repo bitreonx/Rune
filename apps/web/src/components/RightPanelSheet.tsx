@@ -4,10 +4,12 @@ import { RIGHT_PANEL_SHEET_CLASS_NAME } from "../rightPanelLayout";
 import { cn } from "../lib/utils";
 import { runePanelTransitionClass, type RunePanelMotionState } from "../runePanelMotion";
 export function RightPanelSheet(props: {
+  animationDurationMs: number;
   children: ReactNode;
   hostRef?: Ref<HTMLDivElement>;
   mode: "inline" | "sheet";
   open: boolean;
+  underFloatingPreview?: boolean;
   onClose: () => void;
   motionState?: RunePanelMotionState;
   maximized?: boolean;

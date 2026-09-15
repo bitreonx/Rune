@@ -4,7 +4,7 @@ import { useColorScheme } from "react-native";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 
-import { Uniwind } from "uniwind";
+import { ScopedTheme, ScopedVariables, Uniwind } from "uniwind";
 
 import {
   resolveAppearance,
@@ -138,6 +138,15 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [updatePreferences],
   );
 
+  const setBaseFontSize = useCallback(
+    (value: number) => {
+      const current = appliedRuntimeStateRef.current ?? runtimeState;
+      syncThemeRuntime({ ...current, baseFontSize: value });
+      updatePreferences({ baseFontSize: value });
+    },
+    [runtimeState, syncThemeRuntime, updatePreferences],
+  );
+
   const setTerminalFontSize = useCallback(
     (value: number | null) => {
       updatePreferences({ terminalFontSize: value });
@@ -194,7 +203,9 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
 
   return (
     <AppearancePreferencesContext.Provider value={value}>
-      {props.children}
+      <ScopedTheme theme={activeThemeName}>
+        <ScopedVariables variables={themeVariables}>{props.children}</ScopedVariables>
+      </ScopedTheme>
     </AppearancePreferencesContext.Provider>
   );
 }

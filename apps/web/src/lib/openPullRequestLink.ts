@@ -13,40 +13,11 @@ import type { EnvironmentProject } from "@rune/client-runtime/state/shell";
 import { useProjects, useServerConfigs } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 
-export class PullRequestLinkOpenError extends Schema.TaggedErrorClass<PullRequestLinkOpenError>()(
-  "PullRequestLinkOpenError",
-  {
-    targetOrigin: Schema.NullOr(Schema.String),
-    cause: Schema.Defect(),
-  },
-) {
-  static fromCause(targetUrl: string, cause: unknown): PullRequestLinkOpenError {
-    let targetOrigin: string | null = null;
-    try {
-      targetOrigin = new URL(targetUrl).origin;
-    } catch {
-      // Keep malformed URLs out of diagnostics while preserving the open failure below.
-    }
-    return new PullRequestLinkOpenError({ targetOrigin, cause });
-  }
-
-  override get message(): string {
-    return this.targetOrigin === null
-      ? "Unable to open pull request link."
-      : `Unable to open pull request link at ${this.targetOrigin}.`;
-  }
-}
-
-export async function openPullRequestLink(
-  shell: Pick<LocalApi["shell"], "openExternal">,
-  targetUrl: string,
-): Promise<void> {
-  try {
-    await shell.openExternal(targetUrl);
-  } catch (cause) {
-    throw PullRequestLinkOpenError.fromCause(targetUrl, cause);
-  }
-}
+export {
+  gitHubPullRequestBrowserUrl,
+  pullRequestCandidateUrlFromReferenceAutolink,
+  matchesLinkedPullRequestUrl,
+} from "@rune/shared/changeRequestUrl";
 
 /**
  * A change request the page can open, named the way the page names one: the host below which the
@@ -173,6 +144,20 @@ export function findProjectForChangeRequest(
       repository.toLowerCase() === link.repository.toLowerCase() &&
       pullRequestHostOf(identity, kind) === link.host.toLowerCase()
     );
+  });
+}
+
+/** Finds any checkout on the host for multi-link environments. Repository ownership is stored
+ * with the link itself; the host match is the only project capability this mode needs. */
+export function findProjectOnChangeRequestHost(
+  projects: ReadonlyArray<EnvironmentProject>,
+  link: ChangeRequestLink,
+): EnvironmentProject | undefined {
+  return projects.find((project) => {
+    const identity = project.repositoryIdentity;
+    if (!identity) return false;
+    const kind = identity.provider as SourceControlProviderKind | undefined;
+    return kind !== undefined && pullRequestHostOf(identity, kind) === link.host.toLowerCase();
   });
 }
 

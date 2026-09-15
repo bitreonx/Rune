@@ -1,6 +1,14 @@
 export { isTerminalLinkActivation } from "./terminalActivation";
 export { resolvePathLinkTarget, splitPathAndPosition } from "./workspacePath";
 
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+export function isAbsolutePath(value: string): boolean {
+  return value.startsWith("/") || isWindowsAbsolutePath(value);
+}
+
 export type TerminalLinkKind = "url" | "path";
 
 export interface TerminalLinkMatch {
@@ -8,16 +16,6 @@ export interface TerminalLinkMatch {
   text: string;
   start: number;
   end: number;
-}
-
-export interface TerminalLinkBufferPosition {
-  x: number;
-  y: number;
-}
-
-export interface TerminalLinkBufferRange {
-  start: TerminalLinkBufferPosition;
-  end: TerminalLinkBufferPosition;
 }
 
 export interface TerminalBufferLineLike {
@@ -37,7 +35,7 @@ export interface WrappedTerminalLinkLine {
   segments: ReadonlyArray<WrappedTerminalLinkLineSegment>;
 }
 
-const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
+const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
 const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
@@ -81,7 +79,7 @@ function collectMatches(
 
     const trimmed = trimClosingDelimiters(raw);
     if (trimmed.length === 0) continue;
-    if (kind === "path" && /^https?:\/\//i.test(trimmed)) continue;
+    if (kind === "path" && isTerminalUrl(trimmed)) continue;
 
     const candidate: TerminalLinkMatch = {
       kind,
@@ -103,6 +101,10 @@ export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
   const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
   const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, urlMatches);
   return [...urlMatches, ...pathMatches].toSorted((a, b) => a.start - b.start);
+}
+
+export function isTerminalUrl(value: string): boolean {
+  return /^https?:\/\//iu.test(value);
 }
 
 export function collectWrappedTerminalLinkLine(

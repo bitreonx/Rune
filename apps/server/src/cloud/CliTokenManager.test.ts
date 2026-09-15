@@ -88,7 +88,7 @@ const provideTestEnv = Effect.provide(
 
 const isAuthorizationError = Schema.is(CliTokenManager.CloudCliAuthorizationError);
 
-class PromptRejectedError extends Schema.TaggedErrorClass<PromptRejectedError>()(
+class PromptRejectedError extends Schema.TaggedError<PromptRejectedError>()(
   "PromptRejectedError",
   { message: Schema.String },
 ) {}

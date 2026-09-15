@@ -17,6 +17,9 @@ import type { ClaudeSettings, ServerProviderSkill } from "@rune/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
+import { HostProcessPlatform } from "@rune/shared/hostProcess";
+import { fromLenientJson } from "@rune/shared/schemaJson";
 import { parse as parseYamlDocument } from "yaml";
 
 import { expandHomePath } from "../../pathExpansion.ts";
@@ -52,17 +55,183 @@ function parseSkillFrontmatter(contents: string): SkillFrontmatter {
   }
 
   const record = parsed as Record<string, unknown>;
-  const name = typeof record.name === "string" ? record.name.trim() : "";
   const description = typeof record.description === "string" ? record.description.trim() : "";
   const repositoryValue = record.repositoryUrl ?? record.repository;
   const repositoryUrl = typeof repositoryValue === "string" ? repositoryValue.trim() : "";
   return {
     kind: "parsed",
-    ...(name ? { name } : {}),
     ...(description ? { description } : {}),
     ...(repositoryUrl ? { repositoryUrl } : {}),
   };
 }
+
+/**
+ * Where an administrator installs the policy file whose settings outrank every
+ * user and project one. Absent on almost every machine, which is why a missing
+ * file is the normal case rather than an error.
+ */
+function claudeManagedSettingsPath(
+  path: Path.Path,
+  platform: NodeJS.Platform,
+  environment: NodeJS.ProcessEnv,
+): string | undefined {
+  if (platform === "darwin") {
+    return "/Library/Application Support/ClaudeCode/managed-settings.json";
+  }
+  if (platform === "win32") {
+    const programData = environment.PROGRAMDATA?.trim();
+    return programData ? path.join(programData, "ClaudeCode", "managed-settings.json") : undefined;
+  }
+  return "/etc/claude-code/managed-settings.json";
+}
+
+/**
+ * Settings files Claude Code merges for `skillOverrides`, in increasing
+ * precedence: user, project, project-local, then the administrator's managed
+ * policy, which wins outright. When the workspace sits inside a git
+ * repository, the repository root's `settings.local.json` is read too and
+ * outranks the workspace's own local file. Verified against the CLI from a
+ * nested cwd: a root local file switching a skill off wins over a cwd one
+ * switching it on, the root's plain `settings.json` is not consulted, and
+ * without a `.git` above the cwd no root file is read. A skill the user
+ * switched off is reported disabled rather than dropped, so the picker can
+ * grey it out instead of silently losing it.
+ */
+export function skillOverrideSettingsPaths(
+  path: Path.Path,
+  configDirPath: string,
+  cwd: string | undefined,
+  platform: NodeJS.Platform,
+  environment: NodeJS.ProcessEnv,
+  repositoryRoot?: string,
+): ReadonlyArray<string> {
+  const managedPath = claudeManagedSettingsPath(path, platform, environment);
+  const root = repositoryRoot !== undefined && repositoryRoot !== cwd ? repositoryRoot : undefined;
+  return [
+    path.join(configDirPath, "settings.json"),
+    ...(cwd
+      ? [
+          path.join(cwd, ".claude", "settings.json"),
+          path.join(cwd, ".claude", "settings.local.json"),
+        ]
+      : []),
+    ...(root ? [path.join(root, ".claude", "settings.local.json")] : []),
+    ...(managedPath ? [managedPath] : []),
+  ];
+}
+
+/**
+ * Nearest ancestor of `cwd` (inclusive) holding a `.git` entry, which is the
+ * boundary Claude Code walks up to for project settings. `undefined` outside
+ * a repository.
+ */
+const findRepositoryRoot = Effect.fn("findRepositoryRoot")(function* (
+  cwd: string,
+): Effect.fn.Return<string | undefined, never, FileSystem.FileSystem | Path.Path> {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  let current = path.resolve(cwd);
+  while (true) {
+    const isRoot = yield* fileSystem
+      .exists(path.join(current, ".git"))
+      .pipe(Effect.orElseSucceed(() => false));
+    if (isRoot) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+});
+
+/**
+ * The four states Claude Code accepts. The CLI validates the whole map, not
+ * each entry: verified against it, one entry with an unknown value (or a
+ * boolean) makes it drop every override in that file, so this schema does the
+ * same rather than applying the valid siblings the CLI ignores.
+ */
+const SkillOverrideValue = Schema.Literals(["on", "name-only", "user-invocable-only", "off"]);
+
+// Lenient because these settings files are hand-edited and Claude Code itself
+// tolerates comments and trailing commas in them.
+const SkillOverrideSettings = fromLenientJson(
+  Schema.Struct({
+    skillOverrides: Schema.optional(Schema.Record(Schema.String, SkillOverrideValue)),
+  }),
+);
+const decodeSkillOverrideSettings = Schema.decodeUnknownEffect(SkillOverrideSettings);
+
+/**
+ * What a `skillOverrides` entry says about one skill. `"user-invocable-only"`
+ * hides it from the agent exactly as `disable-model-invocation` does, so it is
+ * kept apart from a plain on/off decision rather than collapsed into one.
+ */
+type SkillOverride = {
+  readonly enabled: boolean;
+  readonly userInvocationOnly: boolean;
+};
+
+function parseSkillOverride(value: typeof SkillOverrideValue.Type): SkillOverride {
+  switch (value) {
+    case "off":
+      return { enabled: false, userInvocationOnly: false };
+    case "user-invocable-only":
+      return { enabled: true, userInvocationOnly: true };
+    case "on":
+    case "name-only":
+      return { enabled: true, userInvocationOnly: false };
+  }
+}
+
+const readSkillOverrides = Effect.fn("readSkillOverrides")(function* (
+  configDirPath: string,
+  cwd: string | undefined,
+  environment: NodeJS.ProcessEnv,
+): Effect.fn.Return<ReadonlyMap<string, SkillOverride>, never, FileSystem.FileSystem | Path.Path> {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const platform = yield* HostProcessPlatform;
+  const overridesByName = new Map<string, SkillOverride>();
+  const repositoryRoot = cwd === undefined ? undefined : yield* findRepositoryRoot(cwd);
+
+  for (const settingsPath of skillOverrideSettingsPaths(
+    path,
+    configDirPath,
+    cwd,
+    platform,
+    environment,
+    repositoryRoot,
+  )) {
+    const contents = yield* fileSystem
+      .readFileString(settingsPath)
+      .pipe(Effect.orElseSucceed(() => undefined));
+    if (contents === undefined) {
+      continue;
+    }
+
+    const parsed = yield* decodeSkillOverrideSettings(contents).pipe(
+      Effect.tapError((cause) =>
+        Effect.logDebug("claude settings file is unreadable; ignoring skillOverrides", {
+          path: settingsPath,
+          cause,
+        }),
+      ),
+      Effect.orElseSucceed(() => undefined),
+    );
+    const overrides = parsed?.skillOverrides;
+    if (!overrides) {
+      continue;
+    }
+
+    for (const [name, value] of Object.entries(overrides)) {
+      overridesByName.set(name, parseSkillOverride(value));
+    }
+  }
+
+  return overridesByName;
+});
 
 /**
  * Resolve the Claude config directory the CLI would use, matching the
@@ -108,6 +277,7 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const configDirPath = yield* resolveClaudeConfigDirPath(config, environment ?? process.env, cwd);
+  const skillOverrides = yield* readSkillOverrides(configDirPath, cwd, environment ?? process.env);
 
   const roots: ReadonlyArray<{ directory: string; scope: ClaudeSkillScope }> = [
     { directory: path.join(configDirPath, "skills"), scope: "user" },
@@ -142,15 +312,31 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
         continue;
       }
 
-      const name = (frontmatter.kind === "parsed" ? frontmatter.name : undefined) ?? entry.trim();
+      // Claude Code identifies a skill by its directory, not by the
+      // frontmatter `name`: verified against the CLI, a skill in `probe-alias/`
+      // declaring `name: probe-alias-frontmatter` is published as
+      // `probe-alias`, and only `skillOverrides["probe-alias"]` switches it
+      // off. Keying off the frontmatter name would report a command that does
+      // not exist and miss the override that disables it.
+      const name = entry.trim();
       if (!name) {
         continue;
       }
 
+      // First root wins, so a later root never displaces a higher-precedence
+      // skill of the same name.
+      if (skillsByName.has(name)) {
+        continue;
+      }
+
+      const override = skillOverrides.get(name);
+      const userInvocationOnly =
+        (frontmatter.kind === "parsed" && frontmatter.userInvocationOnly === true) ||
+        override?.userInvocationOnly === true;
       skillsByName.set(name, {
         name,
         path: skillPath,
-        enabled: true,
+        enabled: override?.enabled ?? true,
         scope: root.scope,
         ...(frontmatter.kind === "parsed" && frontmatter.description
           ? { description: frontmatter.description }

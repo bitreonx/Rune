@@ -2,8 +2,6 @@ import { EnvironmentId } from "@rune/contracts";
 import { stripPairingTokenFromUrl } from "@rune/shared/remote";
 import { type EnvironmentConnectionPhase } from "@rune/client-runtime/connection";
 
-export { authClientMetadata } from "./authClientMetadata";
-
 export interface SavedRemoteConnection {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
@@ -18,15 +16,6 @@ export interface SavedRemoteConnection {
 }
 
 export type RemoteClientConnectionState = EnvironmentConnectionPhase;
-
-export function redactPairingCredential(pairingUrl: string): string {
-  const trimmed = pairingUrl.trim();
-  try {
-    return stripPairingTokenFromUrl(new URL(trimmed)).toString();
-  } catch {
-    return trimmed;
-  }
-}
 
 export function isRelayManagedConnection(
   connection: Pick<SavedRemoteConnection, "authenticationMethod" | "relayManaged">,

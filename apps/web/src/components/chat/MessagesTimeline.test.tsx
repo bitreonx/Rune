@@ -3,8 +3,11 @@ import { codexFeedbackMessage } from "@rune/client-runtime/state/threads";
 import type { TurnTrace } from "@rune/client-runtime/state/turnTrace";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
-import type { LegendListRef } from "@legendapp/list/react";
+import type { LegendListRef, MaintainScrollAtEndOptions } from "@legendapp/list/react";
+import { shouldUseRestingComposerLayout } from "../composerFooterLayout";
+import { useComposerFocusState } from "./useComposerFocusState";
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
@@ -23,16 +26,7 @@ vi.mock("@legendapp/list/react", async () => {
     };
     contentInsetEndAdjustment?: number;
     className?: string;
-    maintainScrollAtEnd?:
-      | boolean
-      | {
-          animated?: boolean;
-          on?: {
-            dataChange?: boolean;
-            itemLayout?: boolean;
-            layout?: boolean;
-          };
-        };
+    maintainScrollAtEnd?: boolean | MaintainScrollAtEndOptions;
     maintainVisibleContentPosition?:
       | boolean
       | {
@@ -63,6 +57,11 @@ vi.mock("@legendapp/list/react", async () => {
         data-maintain-scroll-at-end-data-change={
           typeof props.maintainScrollAtEnd === "object"
             ? props.maintainScrollAtEnd.on?.dataChange
+            : undefined
+        }
+        data-maintain-scroll-at-end-footer-layout={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.on?.footerLayout
             : undefined
         }
         data-maintain-scroll-at-end-item-layout={
@@ -453,31 +452,25 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                turnId,
-                checkpointTurnCount: 1,
-                checkpointRef: CheckpointRef.make("checkpoint-with-files"),
-                status: "ready",
-                files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
-                assistantMessageId,
-                completedAt: MESSAGE_CREATED_AT,
-              },
-            ],
-          ])
-        }
+        turnDiffSummaries={[
+          {
+            turnId,
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.make("checkpoint-with-files"),
+            status: "ready",
+            files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
+            assistantMessageId,
+            completedAt: MESSAGE_CREATED_AT,
+          },
+        ]}
       />,
     );
 
     expect(markup).toContain("sticky top-2 z-10");
     expect(markup).not.toContain("self-start");
     expect(markup).toContain("whitespace-nowrap");
-    expect(markup).toContain("!size-[22px]");
     expect(markup).toContain("size-3");
-    expect(markup).toContain('aria-label="Collapse all folders"');
+    expect(markup).not.toContain('aria-label="Collapse all folders"');
     expect(markup).toContain('aria-label="Open diff"');
     expect(markup).toContain("1 changed file");
   });
@@ -486,6 +479,7 @@ describe("MessagesTimeline", () => {
     const {
       resolveTimelineIsAtEnd,
       resolveTimelineMinimapHasPersistentGutter,
+      resolveTimelineMinimapCurrentIndex,
       resolveTimelineMinimapHeightStyle,
       resolveTimelineMinimapHitStripWidth,
       resolveTimelineMinimapIndexFromPointer,
@@ -513,14 +507,17 @@ describe("MessagesTimeline", () => {
         scrollLength: 800,
       }),
     ).toBe(false);
-    // The composer inset is part of contentLength and must not count as
-    // distance-to-end.
+    // LegendList's isAtEnd is true anywhere within the composer-height band
+    // (it subtracts the inset); the last row is still hidden under the
+    // composer there, so the flag must not short-circuit the geometry.
     expect(
-      resolveTimelineIsAtEnd(
-        { isAtEnd: false, contentLength: 2100, scroll: 1170, scrollLength: 800 },
-        100,
-      ),
-    ).toBe(true);
+      resolveTimelineIsAtEnd({
+        isAtEnd: true,
+        contentLength: 2000,
+        scroll: 1100,
+        scrollLength: 800,
+      }),
+    ).toBe(false);
     // Geometry missing (older state shape): fall back to the strict flag.
     expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
 
@@ -542,6 +539,35 @@ describe("MessagesTimeline", () => {
         pointerY: 999,
       }),
     ).toBe(100);
+    expect(
+      resolveTimelineMinimapCurrentIndex({
+        scrollTop: 100,
+        scrollBottom: 500,
+        itemBounds: [
+          { top: 80, height: 20 },
+          { top: 120, height: 20 },
+          { top: 220, height: 20 },
+        ],
+      }),
+    ).toBe(1);
+    expect(
+      resolveTimelineMinimapCurrentIndex({
+        scrollTop: 150,
+        scrollBottom: 200,
+        itemBounds: [
+          { top: 80, height: 20 },
+          { top: 120, height: 20 },
+          { top: 220, height: 20 },
+        ],
+      }),
+    ).toBe(1);
+    expect(
+      resolveTimelineMinimapCurrentIndex({
+        scrollTop: 0,
+        scrollBottom: 50,
+        itemBounds: [{ top: 80, height: 20 }],
+      }),
+    ).toBeNull();
     expect(resolveTimelineMinimapHasPersistentGutter(832)).toBe(false);
     expect(resolveTimelineMinimapHasPersistentGutter(863)).toBe(false);
     expect(resolveTimelineMinimapHasPersistentGutter(864)).toBe(true);
@@ -608,6 +634,11 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');
     expect(markup).toContain('data-maintain-visible-content-position-size="true"');
     expect(markup).toContain('data-maintain-visible-content-position-restore="true"');
+    expect(markup).toContain("Terminal");
+    expect(markup).toContain("t3code — Tests");
+    expect(markup).toContain('src="data:image/png;base64,aWNvbg=="');
+    expect(markup).toContain("h-28 w-52 max-w-full");
+    expect(markup).not.toContain("col-span-2");
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
   });
@@ -742,6 +773,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-maintain-scroll-at-end-animated="false"');
     expect(markup).toContain('data-maintain-scroll-at-end-data-change="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-footer-layout="false"');
     expect(markup).toContain('data-maintain-scroll-at-end-item-layout="true"');
     expect(markup).toContain('data-maintain-scroll-at-end-layout="true"');
     expect(markup).toContain('data-user-message-collapsed="true"');
@@ -975,7 +1007,7 @@ describe("MessagesTimeline", () => {
             entry: {
               id: "work-1",
               createdAt: "2026-03-17T19:12:28.000Z",
-              label: "Context compacted",
+              label: "Compacted context 899K → 19K tokens",
               tone: "info",
             },
           },
@@ -983,8 +1015,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Context compacted");
-    expect(markup).toContain("Work Log");
+    expect(markup).toContain("Compacted context 899K → 19K tokens");
   });
 
   it("summarizes changed files in one line", () => {
@@ -1296,6 +1327,353 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("working-spin");
   });
 
+  it("keeps mixed-success tool groups neutral", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-failed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-failed",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Run search",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "failed",
+            },
+          },
+          {
+            id: "entry-completed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            entry: {
+              id: "work-completed",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              label: "Run tests",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Ran 2 commands");
+    expect(markup).not.toContain('aria-label="Tool call failed"');
+  });
+
+  it("keeps the collapsed summary icon neutral when the group ends in a failure", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-completed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-completed",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Run tests",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            },
+          },
+          {
+            id: "entry-failed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            entry: {
+              id: "work-failed",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              label: "Run lint",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "failed",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Ran 2 commands");
+    expect(markup).toContain("lucide-terminal");
+    expect(markup).not.toContain("lucide-x");
+    expect(markup).not.toContain("text-destructive");
+    // The failure stays discoverable for screen readers.
+    expect(markup).toContain("tool call failed");
+  });
+
+  it("renders trailing tool calls as part of the terminal assistant block", () => {
+    const turnId = TurnId.make("turn-trailing-tools");
+    const assistantMessageId = MessageId.make("assistant-trailing-tools");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        latestTurn={{
+          turnId,
+          state: "error",
+          startedAt: "2026-03-17T19:12:20.000Z",
+          completedAt: "2026-03-17T19:12:30.000Z",
+        }}
+        timelineEntries={[
+          {
+            id: "assistant-entry",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "I’ll search for it now.",
+              turnId,
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: "2026-03-17T19:12:29.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "trailing-work-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            entry: {
+              id: "trailing-work",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              turnId,
+              label: "Ran command",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "failed",
+            },
+          },
+        ]}
+      />,
+    );
+
+    const messageIndex = markup.indexOf('data-timeline-row-id="assistant-entry"');
+    const toolIndex = markup.indexOf('data-timeline-row-id="trailing-work-entry"');
+    const metaIndex = markup.indexOf(
+      'data-timeline-row-id="assistant-meta:assistant-trailing-tools"',
+    );
+    expect(messageIndex).toBeGreaterThanOrEqual(0);
+    expect(toolIndex).toBeGreaterThan(messageIndex);
+    expect(metaIndex).toBeGreaterThan(toolIndex);
+    expect(markup.match(/I’ll search for it now\./gu)).toHaveLength(1);
+  });
+
+  it("keeps mixed work logs neutral after a later tool call succeeds", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-failed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-failed",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Run search",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "failed",
+            },
+          },
+          {
+            id: "entry-info",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            entry: {
+              id: "work-info",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              label: "Status updated",
+              tone: "info",
+            },
+          },
+          {
+            id: "entry-completed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            entry: {
+              id: "work-completed",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              label: "Run tests",
+              tone: "tool",
+              itemType: "command_execution",
+              toolLifecycleStatus: "completed",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Ran 2 commands and received 1 update");
+    expect(markup).not.toContain('aria-label="Hidden work includes a failure"');
+  });
+
+  it("shows the one-line label for a live tool group", () => {
+    const turnId = TurnId.make("turn-live");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        latestTurn={{
+          turnId,
+          state: "running",
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: null,
+        }}
+        runningTurnId={turnId}
+        timelineEntries={[
+          {
+            id: "entry-live",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-live",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              toolCallId: "call-live",
+              label: "Run tests",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "pnpm test",
+              toolLifecycleStatus: "inProgress",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Working for");
+    expect(markup).toContain("Running pnpm");
+  });
+
+  it("scopes a live row failure to the tool named by the row", () => {
+    const turnId = TurnId.make("turn-live");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        latestTurn={{
+          turnId,
+          state: "running",
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: null,
+        }}
+        runningTurnId={turnId}
+        timelineEntries={[
+          {
+            id: "entry-failed",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-failed",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              toolCallId: "call-failed",
+              label: "Run lint",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "pnpm lint",
+              toolLifecycleStatus: "failed",
+            },
+          },
+          {
+            id: "entry-running",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-running",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              toolCallId: "call-running",
+              label: "Run tests",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "pnpm test",
+              toolLifecycleStatus: "inProgress",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Running pnpm");
+    expect(markup).not.toContain("tool call failed");
+  });
+
+  it("renders initial thinking as the shared live activity row", () => {
+    const turnId = TurnId.make("turn-live");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        latestTurn={{
+          turnId,
+          state: "running",
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: null,
+        }}
+        runningTurnId={turnId}
+        timelineEntries={[]}
+      />,
+    );
+
+    expect(markup).toContain("Thinking");
+    expect(markup).toContain("lucide-brain");
+    expect(markup).toContain('data-timeline-row-id="live-activity-row"');
+  });
+
+  it("keeps the completed command in the shared activity row with a present-tense label", () => {
+    const turnId = TurnId.make("turn-live");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        latestTurn={{
+          turnId,
+          state: "running",
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: null,
+        }}
+        runningTurnId={turnId}
+        timelineEntries={[
+          {
+            id: "entry-completed",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-completed",
+              createdAt: MESSAGE_CREATED_AT,
+              turnId,
+              toolCallId: "call-completed",
+              label: "Run lint",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "pnpm lint",
+              toolLifecycleStatus: "completed",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Running pnpm");
+    expect(markup).toContain("lucide-terminal");
+    expect(markup).not.toContain("Ran pnpm");
+    expect(markup).not.toContain("Thinking");
+    expect(markup).not.toContain('data-timeline-row-kind="thinking"');
+  });
+
   it("renders review comment contexts as structured cards instead of raw tags", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1373,11 +1751,22 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-testid="file-diff"');
   });
 
-  it("renders a failure marker for failed tool lifecycle entries", () => {
+  it("keeps failed lifecycle entries discoverable in mixed activity summaries", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
         timelineEntries={[
+          {
+            id: "entry-info",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:27.000Z",
+            entry: {
+              id: "work-info",
+              createdAt: "2026-03-17T19:12:27.000Z",
+              label: "Status updated",
+              tone: "info",
+            },
+          },
           {
             id: "entry-1",
             kind: "work",
@@ -1395,7 +1784,93 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("lucide-x");
-    expect(markup).toContain('aria-label="Tool call failed"');
+    expect(markup).toContain('aria-label="Received 1 update and used 1 tool, tool call failed"');
+    // Ordinary tool failures do not use destructive row styling.
+    expect(markup).not.toContain("text-destructive");
+  });
+
+  it("keeps the red treatment for severe orchestration failures", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-info",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:27.000Z",
+            entry: {
+              id: "work-info",
+              createdAt: "2026-03-17T19:12:27.000Z",
+              label: "Status updated",
+              tone: "info",
+            },
+          },
+          {
+            id: "entry-turn-failed",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "work-turn-failed",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Provider turn start failed",
+              tone: "error",
+              sourceActivityKind: "provider.turn.start.failed",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("lucide-circle-alert");
+    expect(markup).toContain("text-destructive");
+  });
+
+  it("only withholds an expanded tool-call label click while text is selected", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await act(() => {
+        renderer = create(
+          <MessagesTimeline
+            {...buildProps()}
+            timelineEntries={[
+              {
+                id: "entry-standalone",
+                kind: "work",
+                createdAt: MESSAGE_CREATED_AT,
+                entry: {
+                  id: "work-standalone",
+                  createdAt: MESSAGE_CREATED_AT,
+                  toolCallId: "call-standalone",
+                  label: "Run lint",
+                  tone: "tool",
+                  itemType: "command_execution",
+                  command: "pnpm lint",
+                  toolLifecycleStatus: "completed",
+                },
+              },
+            ]}
+          />,
+        );
+      });
+      await act(() => renderer!.root.findByProps({ "aria-expanded": false }).props.onClick());
+      const label = renderer!.root.findAll(
+        (node) => node.type === "span" && String(node.props.className).includes("select-text"),
+      )[0];
+      const stopPropagation = vi.fn();
+      // Only the click that ends a selection may be withheld from the row
+      // toggle; the plain click has to reach it so the label can collapse.
+      for (const isCollapsed of [false, true]) {
+        label!.props.onClick({
+          currentTarget: { ownerDocument: { getSelection: () => ({ isCollapsed }) } },
+          stopPropagation,
+        });
+      }
+      expect(stopPropagation).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(() => renderer?.unmount());
+    }
   });
 });

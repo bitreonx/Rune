@@ -7,6 +7,7 @@ import type {
   PullRequestCommit,
   PullRequestDetailView,
   PullRequestMergeability,
+  PullRequestMergeMethod,
   PullRequestReaction,
   PullRequestReviewThread,
   PullRequestState,
@@ -15,6 +16,12 @@ import type {
 } from "@rune/contracts";
 
 import { inferReviewCommentFenceLanguage, type ReviewCommentContext } from "~/reviewCommentContext";
+
+export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, string> = {
+  merge: "Merge",
+  squash: "Squash",
+  rebase: "Rebase",
+};
 
 /** Activity changes only when the same host resource reports a newer revision. */
 export function shouldRefreshPullRequestActivity(

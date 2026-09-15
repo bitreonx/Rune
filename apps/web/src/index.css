@@ -156,6 +156,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
   --color-error-foreground: var(--error-foreground);
+  --color-tool-error-icon: var(--tool-error-icon);
   --color-error: var(--error);
   --color-error-surface: var(--error-surface);
   --color-update-foreground: var(--update-foreground);
@@ -163,6 +164,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --color-update-surface: var(--update-surface);
   --color-success-foreground: var(--success-foreground);
   --color-success: var(--success);
+  --color-diff-addition: var(--diff-addition);
+  --color-diff-deletion: var(--diff-deletion);
+  --color-diff-addition-foreground: var(--diff-addition-foreground);
+  --color-diff-deletion-foreground: var(--diff-deletion-foreground);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -207,7 +212,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
   @keyframes skeleton {
     /* Transform-only so the highlight sweep stays on the compositor, then a
        long hold with the band parked off-screen instead of a constant shimmer. */
@@ -1784,6 +1788,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
   --accent-foreground: var(--color-zinc-900);
   --error: var(--color-red-500);
   --error-foreground: var(--color-red-700);
+  --tool-error-icon: var(--error);
   --error-surface: color-mix(in srgb, var(--error) 8%, transparent);
   --destructive: var(--error);
   --border: var(--color-zinc-200);
@@ -1820,14 +1825,14 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
 
   @variant dark {
     color-scheme: dark;
-    /* Keep the workspace in the same neutral-black family as sidebar v2.
-       Surfaces lift from this base instead of starting from a milky gray. */
+    /* Keep controls and floating surfaces close to the neutral-black canvas.
+       Borders and hover states provide separation without milky gray fills. */
     --background: var(--color-neutral-950);
     --surface-raised: var(--secondary);
     --foreground: var(--color-neutral-100);
     --card: color-mix(in srgb, var(--background) 97%, var(--color-white));
     --card-foreground: var(--color-neutral-100);
-    --popover: color-mix(in srgb, var(--background) 94%, var(--color-white));
+    --popover: color-mix(in srgb, var(--background) 97%, var(--color-white));
     --popover-foreground: var(--color-neutral-100);
     --primary: oklch(0.708969 0.159168 293.541);
     --rune-violet-strong: var(--primary);
@@ -1842,12 +1847,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(rune-mob
     --rune-motion-slow: 240ms;
     --secondary: --alpha(var(--color-white) / 4%);
     --secondary-foreground: var(--color-neutral-100);
-    --muted: --alpha(var(--color-white) / 4%);
+    --muted: --alpha(var(--color-white) / 3%);
     --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--color-neutral-100);
     --error: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
     --error-foreground: var(--color-red-400);
+    --tool-error-icon: #fca5a5;
     --error-surface: color-mix(in srgb, var(--error) 16%, transparent);
     --border: --alpha(var(--color-white) / 6%);
     --input: --alpha(var(--color-white) / 8%);
@@ -3000,6 +3006,7 @@ html[data-theme-id]:not([data-theme-id=""]) {
   --message-action-hover: var(--app-theme-message-action-hover);
   --error: var(--app-theme-error);
   --error-foreground: var(--app-theme-error-foreground);
+  --tool-error-icon: var(--error-foreground);
   --error-surface: var(--app-theme-error-surface);
   --destructive: var(--error);
   --destructive-foreground: var(--error-foreground);
@@ -3490,6 +3497,16 @@ code {
   -webkit-app-region: drag;
 }
 
+/* Electron 44 inherits app-region. Reset children to the initial value so they
+   do not add drag rectangles over fixed controls. Explicit `none` is treated
+   as `no-drag` and breaks titlebar dragging; `initial` emits no rectangle.
+   The base layer lets explicit drag/no-drag utilities take precedence. */
+@layer base {
+  .drag-region > * {
+    -webkit-app-region: initial;
+  }
+}
+
 .drag-region button,
 .drag-region input,
 .drag-region textarea,
@@ -3854,24 +3871,6 @@ code {
   color: var(--code-foreground) !important;
 }
 
-@keyframes ultrathink-rainbow {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
-  }
-}
-
-@keyframes ultrathink-chroma-shift {
-  0% {
-    filter: hue-rotate(0deg) saturate(1.2);
-  }
-  100% {
-    filter: hue-rotate(360deg) saturate(1.2);
-  }
-}
-
 .ultrathink-frame {
   --ultrathink-spectrum: linear-gradient(
     120deg,
@@ -3894,6 +3893,7 @@ code {
   padding: 2px;
   background-image: var(--ultrathink-spectrum);
   background-size: 220% 220%;
+  background-position: 0% 50%;
   pointer-events: none;
   filter: saturate(0.82) brightness(0.92);
   -webkit-mask:
@@ -3904,7 +3904,6 @@ code {
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: ultrathink-rainbow 10s linear infinite;
 }
 
 .ultrathink-frame > * {
@@ -3912,7 +3911,7 @@ code {
 }
 
 .ultrathink-chroma {
-  animation: ultrathink-chroma-shift 10s linear infinite;
+  filter: saturate(1.2);
 }
 
 @keyframes preview-loading-progress {

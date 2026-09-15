@@ -63,7 +63,7 @@ export const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
     ? undefined
     : __RUNE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
 );
-export const buildTimeRelayClientTracing = {
+const buildTimeRelayClientTracing = {
   tracesUrl: readBuildTimeValue(
     typeof __RUNE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__ === "undefined"
       ? undefined

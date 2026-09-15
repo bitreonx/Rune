@@ -2,8 +2,11 @@ import { useAtomValue } from "@effect/atom-react";
 import { createPullRequestEnvironmentAtoms } from "@rune/client-runtime/state/pull-requests";
 import type {
   EnvironmentId,
+  PullRequestDetail,
   PullRequestListInput,
   PullRequestListStatsInput,
+  PullRequestRef,
+  VcsStatusResult,
 } from "@rune/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
@@ -19,6 +22,37 @@ import {
 import { formatEnvironmentQueryError } from "./query";
 
 export const pullRequestEnvironment = createPullRequestEnvironmentAtoms(connectionAtomRuntime);
+
+export const linkedPullRequestDetailAtom = pullRequestEnvironment.detail;
+
+type PullRequestSummaryLike = Pick<NonNullable<VcsStatusResult["pr"]>, "updatedAt">;
+
+/** Keeps a newer host observation from being overwritten by a slower, older response. */
+export function newestPullRequestSummary<T extends PullRequestSummaryLike>(current: T, next: T): T {
+  const currentAt = current.updatedAt ? Date.parse(current.updatedAt) : Number.NEGATIVE_INFINITY;
+  const nextAt = next.updatedAt ? Date.parse(next.updatedAt) : Number.NEGATIVE_INFINITY;
+  return Number.isFinite(nextAt) && (!Number.isFinite(currentAt) || nextAt >= currentAt)
+    ? next
+    : current;
+}
+
+/** Shares the detail query's latest value while preventing an older host response from regressing
+ * a badge during rapid refreshes. */
+const sharedPullRequestSummaries = new Map<string, PullRequestDetail>();
+
+export function useSharedPullRequestSummary(
+  environmentId: EnvironmentId | null,
+  reference: PullRequestRef | null,
+  query: { readonly data: PullRequestDetail | null },
+): PullRequestDetail | null {
+  if (environmentId === null || reference === null) return query.data;
+  const key = JSON.stringify([environmentId, reference.projectId, reference.repository, reference.number]);
+  const previous = sharedPullRequestSummaries.get(key);
+  if (query.data === null) return previous ?? null;
+  const latest = previous === undefined ? query.data : newestPullRequestSummary(previous, query.data);
+  if (latest !== previous) sharedPullRequestSummaries.set(key, latest);
+  return latest;
+}
 
 export interface EnvironmentQueryTarget<Input> {
   readonly environmentId: EnvironmentId;

@@ -201,6 +201,7 @@ describe("updateMachine", () => {
       {
         version: "1.1.0",
         items: ["feat: add update release notes"],
+        totalItems: 1,
       },
     ];
     const available = reduceDesktopUpdateStateOnUpdateAvailable(
@@ -212,6 +213,7 @@ describe("updateMachine", () => {
       "1.1.0",
       "2026-03-04T00:00:00.000Z",
       releaseNotes,
+      2,
     );
     const downloading = reduceDesktopUpdateStateOnDownloadStart(available);
     const progress = reduceDesktopUpdateStateOnDownloadProgress(downloading, 55.5);
@@ -219,6 +221,7 @@ describe("updateMachine", () => {
     expect(available.status).toBe("available");
     expect(available.channel).toBe("latest");
     expect(available.releaseNotes).toBe(releaseNotes);
+    expect(available.omittedReleaseCount).toBe(2);
     expect(downloading.releaseNotes).toBe(releaseNotes);
     expect(downloading.status).toBe("downloading");
     expect(downloading.downloadPercent).toBe(0);
@@ -233,11 +236,13 @@ describe("updateMachine", () => {
         enabled: true,
         status: "available",
         availableVersion: "1.1.0-nightly.1",
-        releaseNotes: [{ version: "1.1.0-nightly.1", items: ["feat: old note"] }],
+        releaseNotes: [{ version: "1.1.0-nightly.1", items: ["feat: old note"], totalItems: 1 }],
+        omittedReleaseCount: 2,
       },
       "2026-03-04T00:00:00.000Z",
     );
 
     expect(state.releaseNotes).toEqual([]);
+    expect(state.omittedReleaseCount).toBe(0);
   });
 });

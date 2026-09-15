@@ -1,5 +1,7 @@
 import { TriangleAlertIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
+import { flushSync } from "react-dom";
+import type { DesktopUpdateState } from "@rune/contracts";
 import { isElectron } from "../../env";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { cn } from "../../lib/utils";
@@ -22,6 +24,7 @@ import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Separator } from "../ui/separator";
 import { SidebarMenuItem } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Popover, PopoverCreateHandle } from "../ui/popover";
 import {
   DesktopUpdateStatusIcon,
   shouldContinueDesktopUpdateCheckAnimation,
@@ -53,6 +56,36 @@ function resolveSidebarUpdatePresentation({
     showUpdateDetails,
     showUpdateIconState: showUpdateDetails && !showCheckIcon,
   } as const;
+}
+
+type SidebarUpdatePopoverChangeDetails = Parameters<
+  NonNullable<ComponentProps<typeof Popover>["onOpenChange"]>
+>[1];
+type SidebarUpdatePopoverHandle = ReturnType<typeof PopoverCreateHandle>;
+
+export function shouldUseSidebarUpdateReleaseNotesPopover(
+  showUpdateDetails: boolean,
+  state: DesktopUpdateState | null,
+): boolean {
+  return showUpdateDetails && state?.channel === "nightly" && state.releaseNotes.length > 0;
+}
+
+export function handleSidebarUpdateReleaseNotesPopoverOpenChange(
+  _open: boolean,
+  details: Pick<SidebarUpdatePopoverChangeDetails, "reason" | "cancel">,
+): void {
+  // The trigger is the update action, so its presses must not also toggle the Popover.
+  if (details.reason === "trigger-press") details.cancel();
+}
+
+export function openSidebarUpdateReleaseNotesPopoverOnForwardTab(
+  event: { readonly key: string; readonly shiftKey: boolean },
+  handle: Pick<SidebarUpdatePopoverHandle, "open">,
+  triggerId: string,
+): void {
+  if (event.key !== "Tab" || event.shiftKey) return;
+  // Hover-open popovers do not manage focus. Promote this one before native Tab runs.
+  flushSync(() => handle.open(triggerId));
 }
 
 function keyReleaseNoteItems(items: ReadonlyArray<string>) {

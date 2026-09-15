@@ -1,3 +1,4 @@
+import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import "culori/css";
 import { converter, parse } from "culori/fn";
@@ -23,11 +24,8 @@ export const CORE_THEME_LABEL = "RUNE Core";
 export const GROVE_THEME_ID = "grove" as const;
 export const GROVE_THEME_LABEL = "Grove";
 export const OCEAN_THEME_ID = "ocean" as const;
-export const OCEAN_THEME_LABEL = "Ocean";
-export const EMBER_THEME_ID = "ember" as const;
-export const EMBER_THEME_LABEL = "Ember";
-export const IRIS_THEME_ID = "iris" as const;
-export const IRIS_THEME_LABEL = "Iris";
+const EMBER_THEME_ID = "ember" as const;
+const IRIS_THEME_ID = "iris" as const;
 export const THEME_FILE_VERSION = 1 as const;
 export const CUSTOM_THEMES_STORAGE_KEY = "rune:themes:v1";
 export const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "rune:theme-follow-system";
@@ -133,21 +131,22 @@ function parseThemeCollection(value: unknown): ThemeCollection | undefined {
     : undefined;
 }
 
-function parseStoredThemeColors(value: unknown, appearance: ThemeAppearance): ThemeColors | null {
-  if (!isRecord(value)) return null;
-
-  const colors: Partial<Record<ThemeColorRole, string>> = {
-    ...getDefaultThemeColors(appearance),
-  };
-  // Tolerate unknown roles and malformed values so themes saved by other
-  // builds (for example one that adds a new role) keep their remaining colors.
+export function lenientThemeColorOverrides(
+  value: Readonly<Record<string, unknown>>,
+): Partial<Record<ThemeColorRole, string>> {
+  const overrides: Partial<Record<ThemeColorRole, string>> = {};
   for (const [role, color] of Object.entries(value)) {
     const normalized = toCanonicalThemeColor(color);
     if (THEME_COLOR_ROLE_SET.has(role) && normalized) {
-      colors[role as ThemeColorRole] = normalized;
+      overrides[role as ThemeColorRole] = normalized;
     }
   }
-  return colors as ThemeColors;
+  return overrides;
+}
+
+function parseStoredThemeColors(value: unknown, appearance: ThemeAppearance): ThemeColors | null {
+  if (!isRecord(value)) return null;
+  return { ...getDefaultThemeColors(appearance), ...lenientThemeColorOverrides(value) };
 }
 
 function parseStoredThemeVariants(
@@ -381,12 +380,12 @@ const RUNE_STANDARD_DARK_THEME_COLORS: ThemeColors = {
   toolbar: "#0a0a0a",
   toolbarForeground: "#f5f5f5",
   toolbarBorder: "#191919",
-  toolbarControl: "#191919",
+  toolbarControl: "#111111",
   toolbarControlForeground: "#f5f5f5",
   toolbarControlHover: "#141414",
   surface: "#111111",
-  surfaceRaised: "#141414",
-  surfaceOverlay: "#191919",
+  surfaceRaised: "#111111",
+  surfaceOverlay: "#111111",
   text: "#f5f5f5",
   textMuted: "#818181",
   border: "#191919",
@@ -394,9 +393,9 @@ const RUNE_STANDARD_DARK_THEME_COLORS: ThemeColors = {
   focus: "#a78bfa",
   accent: "#a78bfa",
   accentForeground: "#ffffff",
-  secondary: "#141414",
+  secondary: "#111111",
   secondaryForeground: "#f5f5f5",
-  muted: "#141414",
+  muted: "#111111",
   mutedForeground: "#818181",
   placeholder: "#818181",
   secondaryLabel: "#818181",
@@ -598,28 +597,6 @@ function themeRgbToHsl(color: ThemeRgbColor): ThemeHslColor {
   else hue = (red - green) / delta + 4;
 
   return { h: (hue * 60 + 360) % 360, s: saturation, l: lightness };
-}
-
-function themeHslToRgb(color: ThemeHslColor): ThemeRgbColor {
-  const hue = ((color.h % 360) + 360) % 360;
-  const chroma = (1 - Math.abs(2 * color.l - 1)) * color.s;
-  const hueSector = hue / 60;
-  const secondary = chroma * (1 - Math.abs((hueSector % 2) - 1));
-  const match = color.l - chroma / 2;
-  const [red, green, blue] =
-    hueSector < 1
-      ? [chroma, secondary, 0]
-      : hueSector < 2
-        ? [secondary, chroma, 0]
-        : hueSector < 3
-          ? [0, chroma, secondary]
-          : hueSector < 4
-            ? [0, secondary, chroma]
-            : hueSector < 5
-              ? [secondary, 0, chroma]
-              : [chroma, 0, secondary];
-
-  return { r: (red + match) * 255, g: (green + match) * 255, b: (blue + match) * 255 };
 }
 
 function mixThemeRgbColors(
@@ -1463,6 +1440,9 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
   return (
     BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId) ??
     getCustomThemes().find((definition) => definition.id === themeId) ??
+    // Resolved last so a theme the user saved always wins over one the
+    // machine happens to publish under the same id.
+    environmentThemeDefinitions.find((definition) => definition.id === themeId) ??
     null
   );
 }
@@ -1506,7 +1486,7 @@ export function themeIdFromName(name: string): string {
   return normalized || "custom-theme";
 }
 
-export class ThemeLibraryStorageError extends Schema.TaggedErrorClass<ThemeLibraryStorageError>()(
+export class ThemeLibraryStorageError extends Schema.TaggedError<ThemeLibraryStorageError>()(
   "ThemeLibraryStorageError",
   {
     storageKey: Schema.String,

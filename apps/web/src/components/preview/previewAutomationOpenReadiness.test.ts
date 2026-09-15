@@ -3,8 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   DEFAULT_PREVIEW_AUTOMATION_VIEWPORT,
+  explicitlySuppressesPreviewMiniPlayer,
   previewAutomationDefaultViewport,
   previewAutomationOpenNeedsOverlay,
+  shouldAutoShowPreviewForAutomationUse,
   shouldOpenPreviewMiniPlayer,
 } from "./previewAutomationOpenReadiness";
 

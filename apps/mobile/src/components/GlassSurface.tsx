@@ -1,5 +1,5 @@
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref, RefObject } from "react";
 import {
   Platform,
   View,
@@ -15,12 +15,14 @@ interface GlassSurfaceProps extends Omit<ViewProps, "className"> {
   readonly children: ReactNode;
   readonly glassEffectStyle?: "clear" | "regular" | "none";
   readonly tintColor?: ColorValue;
+  readonly tintColorClassName?: string;
   readonly chrome?: "default" | "none";
   /** Styling used only when native Liquid Glass is unavailable. */
   readonly fallbackStyle?: StyleProp<ViewStyle>;
 }
 
 export function GlassSurface({
+  ref,
   children,
   glassEffectStyle = "regular",
   chrome = "default",
@@ -38,9 +40,6 @@ export function GlassSurface({
   const surfaceStyle: ViewStyle = {
     borderRadius: 32,
     overflow: "hidden",
-    borderWidth: chrome === "none" ? 0 : 1,
-    borderColor: chrome === "none" ? "transparent" : borderColor,
-    backgroundColor: chrome === "none" ? "transparent" : glassSurface,
     shadowColor: chrome === "none" ? "transparent" : "#000000",
     shadowOpacity: chrome === "none" ? 0 : isDarkMode ? 0.22 : 0.08,
     shadowRadius: chrome === "none" ? 0 : 28,
@@ -59,15 +58,25 @@ export function GlassSurface({
 
   if (supportsGlass) {
     return (
-      <GlassView
+      <ThemedGlassView
         {...props}
+        ref={ref}
+        className={cn(
+          chrome === "none"
+            ? "border-0 border-transparent bg-transparent"
+            : "border border-border bg-glass-surface",
+          className,
+        )}
         glassEffectStyle={glassEffectStyle}
-        tintColor={String(tintColor ?? glassTint)}
+        tintColor={tintColor === undefined ? undefined : String(tintColor)}
+        tintColorClassName={
+          tintColorClassName ?? (tintColor === undefined ? "accent-glass-tint" : undefined)
+        }
         colorScheme={isDarkMode ? "dark" : "light"}
         style={[surfaceStyle, style]}
       >
         {children}
-      </GlassView>
+      </ThemedGlassView>
     );
   }
 

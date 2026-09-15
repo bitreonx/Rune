@@ -5,6 +5,10 @@ import {
   getProviderSkillIdentity,
 } from "@rune/client-runtime/providerSkills";
 import {
+  dedupeProviderSkillsByName,
+  isProviderSkillUserInvocable,
+} from "@rune/client-runtime/providerSkills";
+import {
   insertRankedSearchResult,
   normalizeSearchQuery,
   scoreQueryMatch,

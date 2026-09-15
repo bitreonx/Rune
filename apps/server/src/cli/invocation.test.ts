@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 
-import { detectCliRunner, formatCliCommand, suggestedPackageSpec } from "./invocation.ts";
+import { formatCliCommand } from "./invocation.ts";
 
 it("detects package runners from their cache entry paths", () => {
   assert.equal(detectCliRunner("/home/theo/.npm/_npx/abc123/node_modules/rune/dist/bin.mjs"), "npx");

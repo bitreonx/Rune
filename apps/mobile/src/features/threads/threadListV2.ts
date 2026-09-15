@@ -1,5 +1,5 @@
+import { threadPullRequestSearchTerms } from "@rune/shared/threadPullRequests";
 import {
-  effectiveSettled,
   effectiveSnoozed,
   hasQueuedTurnStart,
   QUEUED_TURN_START_GRACE_MS,
@@ -16,6 +16,12 @@ import { sortPinnedThreadsByOrderKey } from "@rune/client-runtime/state/thread-s
 import type { EnvironmentId, ProjectId } from "@rune/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
+
+import {
+  applyPendingThreadOrder,
+  reconcilePendingThreadOrder,
+  type PendingThreadOrder,
+} from "./threadOrder";
 
 export { snoozeWakeLabel };
 
@@ -150,33 +156,56 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** First VALID timestamp wins: a present-yet-malformed string falls through
-    to the next candidate rather than sinking the row to the epoch. */
-function firstValidTimestampMs(...candidates: ReadonlyArray<string | null | undefined>): number {
-  for (const candidate of candidates) {
-    if (candidate == null) continue;
-    const parsed = Date.parse(candidate);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 0;
+/** The active order shared by web and native: new/reopened rows, then the
+    saved arrangement. Activity does not move a thread. */
+export function sortThreadsForListV2<
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly unsettledAt?: string | null | undefined;
+    readonly activeOrderKey?: string | null | undefined;
+    readonly environmentId?: string | undefined;
+  },
+>(threads: readonly T[]): T[] {
+  return sortActiveThreadsByOrderKey(threads);
 }
 
-/**
- * v2 sort: static creation order, newest thread on top. Activity NEVER
- * reorders the list — a row holds its position from open until settled, so
- * the screen only moves at lifecycle transitions. Mirrors web's
- * sortThreadsForSidebarV2.
- */
-export function sortThreadsForListV2<T extends { readonly id: string; readonly createdAt: string }>(
-  threads: readonly T[],
-): T[] {
-  // .sort() on a copy, not .toSorted(): Hermes doesn't ship the ES2023
-  // change-by-copy array methods.
-  return [...threads].sort(
-    (left, right) =>
-      parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
-      left.id.localeCompare(right.id),
-  );
+/** Canonical card section for Move up/down, independent of search or scope. */
+export function getThreadListV2OrderedSection(input: {
+  readonly threads: readonly EnvironmentThreadShell[];
+  readonly section: "pinned" | "active";
+  readonly pendingOrder?: PendingThreadOrder | null;
+  readonly now: string;
+  readonly settlementEnvironmentIds?: ReadonlySet<EnvironmentId>;
+  readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId>;
+  readonly queuedThreadKeys?: ReadonlySet<string>;
+}): EnvironmentThreadShell[] {
+  const threads = input.threads.filter((thread) => {
+    if (thread.archivedAt !== null) return false;
+    if (
+      (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
+      thread.settledOverride === "settled" &&
+      input.queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
+    ) {
+      return false;
+    }
+    if (
+      (input.snoozeEnvironmentIds?.has(thread.environmentId) ?? true) &&
+      effectiveSnoozed(thread, { now: input.now })
+    ) {
+      return false;
+    }
+    return (thread.pinnedAt != null) === (input.section === "pinned");
+  });
+  const ordered =
+    input.section === "pinned"
+      ? sortPinnedThreadsByOrderKey(threads)
+      : sortActiveThreadsByOrderKey(threads);
+  const pending =
+    input.pendingOrder?.section === input.section
+      ? reconcilePendingThreadOrder(input.pendingOrder, ordered)
+      : null;
+  return applyPendingThreadOrder(ordered, input.section, pending);
 }
 
 export interface ThreadListV2Item {
@@ -260,25 +289,21 @@ export function buildThreadListV2ListItems(input: {
   readonly settledShelfHeaderIndex?: number | null;
   readonly snoozeLabelNow?: string;
 }): ThreadListV2ListItem[] {
-  const threadItems = input.items.map(
-    (item): ThreadListV2ListItem => ({
-      type: "v2-thread",
-      key: `v2-thread:${item.thread.environmentId}:${item.thread.id}`,
-      item,
-      snoozeWakeLabelText:
-        item.snoozed && item.thread.snoozedUntil != null && input.snoozeLabelNow !== undefined
-          ? snoozeWakeLabel(item.thread.snoozedUntil, { now: input.snoozeLabelNow })
-          : undefined,
-    }),
-  );
-  const pendingItems = input.pendingTasks.map(
-    (pendingTask, index): ThreadListV2ListItem => ({
-      type: "v2-pending",
-      key: `v2-pending:${pendingTask.message.messageId}`,
-      pendingTask,
-      showPendingDivider: index === 0,
-    }),
-  );
+  const threadItems = input.items.map((item): ThreadListV2ListItem => ({
+    type: "v2-thread",
+    key: `v2-thread:${item.thread.environmentId}:${item.thread.id}`,
+    item,
+    snoozeWakeLabelText:
+      item.snoozed && item.thread.snoozedUntil != null && input.snoozeLabelNow !== undefined
+        ? snoozeWakeLabel(item.thread.snoozedUntil, { now: input.snoozeLabelNow })
+        : undefined,
+  }));
+  const pendingItems = input.pendingTasks.map((pendingTask, index): ThreadListV2ListItem => ({
+    type: "v2-pending",
+    key: `v2-${pendingTask.key}`,
+    pendingTask,
+    showPendingDivider: index === 0,
+  }));
   const snoozedCount = input.snoozedCount ?? 0;
   const snoozedShelfHeaderIndex = input.snoozedShelfHeaderIndex ?? null;
   const settledCount = input.settledCount ?? 0;
@@ -313,6 +338,7 @@ export function buildThreadListV2ListItems(input: {
  * auto-settle preferences per device.
  */
 export function buildThreadListV2Items(input: {
+  readonly pendingOrder?: PendingThreadOrder | null;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: EnvironmentId | null;
   readonly projectRefs?: ReadonlyArray<{
@@ -334,13 +360,8 @@ export function buildThreadListV2Items(input: {
   readonly autoSettleOnMerge?: boolean;
   /** Max settled rows to render; the rest are counted, not built. */
   readonly settledLimit?: number;
-  /** Injectable for tests; defaults to now. */
-  readonly now?: string;
-  /** Second-precise clock for snooze classification. Callers pass a
-      minute-quantized `now` for memoization; snooze wake times are
-      second-precise, so classifying with the floored minute would hold a
-      woken thread hidden for up to a minute. Defaults to `now`. */
-  readonly snoozeNow?: string;
+  /** Second-precise clock used for time-based classification. */
+  readonly now: string;
   /** Expands the snoozed shelf into rows. Collapsed is the default. */
   readonly snoozedShelfExpanded?: boolean;
   /** Expands the settled shelf into rows. Expanded is the default. */
@@ -348,6 +369,10 @@ export function buildThreadListV2Items(input: {
   /** The selected thread remains visible on an otherwise collapsed shelf so
       a split-view detail can never lose its navigation row. */
   readonly selectedThreadKey?: string | null;
+  /** Thread keys (`environmentId:threadId`) with a message waiting in the
+      outbox. Such a thread has work the user is waiting on, so it stays in
+      the active block even when the server has settled it. */
+  readonly queuedThreadKeys?: ReadonlySet<string>;
 }): ThreadListV2Layout {
   const now = input.now ?? new Date().toISOString();
   const snoozeNow = input.snoozeNow ?? now;
@@ -364,8 +389,7 @@ export function buildThreadListV2Items(input: {
   const snoozed: EnvironmentThreadShell[] = [];
   let nextSnoozeWakeAt: string | null = null;
   for (const thread of input.threads) {
-    // Callers pass live (unarchived) shells; settled threads are among them
-    // and partition into the tail via effectiveSettled.
+    // Callers pass live shells. The server stamps settledOverride for the tail.
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) continue;
     if (projectKeys !== null && !projectKeys.has(`${thread.environmentId}:${thread.projectId}`)) {
       continue;
@@ -373,6 +397,9 @@ export function buildThreadListV2Items(input: {
     if (
       query.length > 0 &&
       !thread.title.toLocaleLowerCase().includes(query) &&
+      !threadPullRequestSearchTerms(thread).some((term) =>
+        term.toLocaleLowerCase().includes(query),
+      ) &&
       input.matchedThreadKeys?.has(
         threadSearchMatchKey({
           environmentId: thread.environmentId,
@@ -415,7 +442,7 @@ export function buildThreadListV2Items(input: {
     }
   }
 
-  const orderedActive = sortThreadsForListV2(active);
+  const orderedActive = applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
       parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
@@ -429,8 +456,8 @@ export function buildThreadListV2Items(input: {
         );
   const orderedSettled = [...settled].sort(
     (left, right) =>
-      firstValidTimestampMs(right.latestUserMessageAt, right.updatedAt) -
-      firstValidTimestampMs(left.latestUserMessageAt, left.updatedAt),
+      parseTimestampMs(resolveSettledThreadTimestamp(right) ?? "") -
+      parseTimestampMs(resolveSettledThreadTimestamp(left) ?? ""),
   );
   const settledLimit = input.settledLimit ?? Number.POSITIVE_INFINITY;
   const pagedSettled =
@@ -447,7 +474,11 @@ export function buildThreadListV2Items(input: {
         );
 
   const items: ThreadListV2Item[] = [];
-  for (const thread of sortPinnedThreadsByOrderKey(pinned)) {
+  for (const thread of applyPendingThreadOrder(
+    sortPinnedThreadsByOrderKey(pinned),
+    "pinned",
+    pending,
+  )) {
     items.push({
       thread,
       variant: "card",

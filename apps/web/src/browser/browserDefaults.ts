@@ -14,10 +14,12 @@
  * @module browserDefaults
  */
 import type {
+  BrowserProfile,
   DesktopPreviewTabDefaults,
   PreviewAppearancePreference,
   PreviewViewportSetting,
 } from "@rune/contracts";
+import { DEFAULT_BROWSER_PROFILE_ID, resolveBrowserProfiles } from "@rune/contracts";
 
 import {
   ensureClientSettingsHydrated,
@@ -32,6 +34,8 @@ export interface BrowserDefaults {
   readonly zoomFactor: number;
   readonly appearance: PreviewAppearancePreference;
   readonly autoShowFloatingPreview: boolean;
+  readonly profiles: ReadonlyArray<BrowserProfile>;
+  readonly profileId: string;
 }
 
 const toBrowserDefaults = (settings: {
@@ -39,12 +43,23 @@ const toBrowserDefaults = (settings: {
   readonly browserDefaultZoomFactor: number;
   readonly browserDefaultAppearance: PreviewAppearancePreference;
   readonly browserAutoShowFloatingPreview: boolean;
-}): BrowserDefaults => ({
-  viewport: settings.browserDefaultViewport,
-  zoomFactor: settings.browserDefaultZoomFactor,
-  appearance: settings.browserDefaultAppearance,
-  autoShowFloatingPreview: settings.browserAutoShowFloatingPreview,
-});
+  readonly browserProfiles: ReadonlyArray<BrowserProfile>;
+  readonly browserDefaultProfileId: string;
+}): BrowserDefaults => {
+  const profiles = resolveBrowserProfiles(settings.browserProfiles);
+  return {
+    viewport: settings.browserDefaultViewport,
+    zoomFactor: settings.browserDefaultZoomFactor,
+    appearance: settings.browserDefaultAppearance,
+    autoShowFloatingPreview: settings.browserAutoShowFloatingPreview,
+    profiles,
+    profileId:
+      profiles.find(
+        (profile) =>
+          profile.id === settings.browserDefaultProfileId && profile.kind !== "incognito",
+      )?.id ?? DEFAULT_BROWSER_PROFILE_ID,
+  };
+};
 
 /** Non-hook accessor for imperative open paths (menu actions, automation hosts). */
 export function getBrowserDefaults(): BrowserDefaults {
@@ -87,6 +102,13 @@ export function browserDefaultOpenViewport(
   defaults: BrowserDefaults = getBrowserDefaults(),
 ): PreviewViewportSetting {
   return defaults.viewport;
+}
+
+/** Profile a newly opened tab uses when the caller does not provide one. */
+export function browserDefaultOpenProfileId(
+  defaults: BrowserDefaults = getBrowserDefaults(),
+): string {
+  return defaults.profileId;
 }
 
 /**

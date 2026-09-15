@@ -11,6 +11,20 @@ For browser work, first call \`preview_status\`. If no automation-capable previe
 Do not switch to global browser skills, Chrome, Node REPL browser automation, standalone Playwright, or agent-browser merely because the preview is initially closed or a first call fails. Use an alternative browser system only when the RUNE preview tools are absent, the user explicitly requests another browser, or \`preview_open\` returns an explicit unsupported/unavailable error. A failed RUNE preview tool call should be inspected and retried with corrected arguments when the error is actionable.
 `;
 
+const RUNE_CODE_DEVICE_TOOL_INSTRUCTIONS = `
+
+## RUNE devices
+
+The \`rune\` MCP server also exposes \`device_*\` tools for iOS Simulators and Android Emulators on this environment. For mobile verification, call \`device_list\`, then \`device_open\` so the user can watch the device in their Device panel; its result explains how to drive the device. Keep the host config and session flags returned by \`device_open\` on every command so concurrent devices stay independent: prefer \`agent-device snapshot -i\` refs over coordinates, and use \`device_screenshot\` when you need to see the screen. Do not call simctl, adb, xcrun, or serve-sim directly while these tools are present. If \`device_list\` reports a platform as unavailable, say so instead of trying another route.
+`;
+
+export interface RUNECodeToolAvailability {
+  readonly browser: boolean;
+  readonly device: boolean;
+}
+
+type ToolAvailability = boolean | RUNECodeToolAvailability;
+
 /**
  * The browser block is omitted entirely when the preview tools aren't attached.
  * Describing `preview_*` tools that aren't in the turn's tool list would be
@@ -18,11 +32,18 @@ Do not switch to global browser skills, Chrome, Node REPL browser automation, st
  * from Playwright and agent-browser, so leaving them in would talk it out of
  * the only browser automation it still has.
  */
-const browserToolInstructions = (browserToolsAvailable: boolean): string =>
-  browserToolsAvailable ? RUNE_CODE_BROWSER_TOOL_INSTRUCTIONS : "";
+const browserToolInstructions = (availability: ToolAvailability): string =>
+  (typeof availability === "boolean" ? availability : availability.browser)
+    ? RUNE_CODE_BROWSER_TOOL_INSTRUCTIONS
+    : "";
+
+const deviceToolInstructions = (availability: ToolAvailability): string =>
+  typeof availability !== "boolean" && availability.device
+    ? RUNE_CODE_DEVICE_TOOL_INSTRUCTIONS
+    : "";
 
 export const codexPlanModeDeveloperInstructions = (
-  browserToolsAvailable: boolean,
+  browserToolsAvailable: ToolAvailability,
 ): string => `<collaboration_mode># Plan Mode (Conversational)
 
 You work in 3 phases, and you should *chat your way* to a great plan before finalizing it. A great plan is very detailed-intent- and implementation-wise-so that it can be handed to another engineer or agent to be implemented right away. It must be **decision complete**, where the implementer does not need to make any decisions.
@@ -151,11 +172,11 @@ Do not ask "should I proceed?" in the final output. The user can easily switch o
 Only produce at most one \`<proposed_plan>\` block per turn, and only when you are presenting a complete spec.
 
 If the user stays in Plan mode and asks for revisions after a prior \`<proposed_plan>\`, any new \`<proposed_plan>\` must be a complete replacement. If the user indicates that the prior plan is not acceptable but does not provide enough information to produce a complete replacement, address the concern and continue planning without producing a \`<proposed_plan>\` block. If the follow-up neither requires changes nor calls the plan into question (e.g. clarifying question), answer it before the block, then reproduce the prior \`<proposed_plan>\` unchanged.
-${browserToolInstructions(browserToolsAvailable)}
+${browserToolInstructions(browserToolsAvailable)}${deviceToolInstructions(browserToolsAvailable)}
 </collaboration_mode>`;
 
 export const codexDefaultModeDeveloperInstructions = (
-  browserToolsAvailable: boolean,
+  browserToolsAvailable: ToolAvailability,
 ): string => `<collaboration_mode># Collaboration Mode: Default
 
 You are now in Default mode. Any previous instructions for other modes (e.g. Plan mode) are no longer active.
@@ -169,17 +190,12 @@ Use the \`request_user_input\` tool only when it is listed in the available tool
 When a structured asker is available, use it for clarification instead of writing a numbered question list in assistant text. In RUNE this is Codex's \`request_user_input\` protocol (and \`ask_user\` for the native API harness). If no structured asker is listed, make a safe assumption and continue unless the task is impossible without user input.
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If the task is impossible without user input and no structured asker is available, state the blocker briefly; never emulate the native asker with a numbered or multiple-choice question list in assistant text.
-${browserToolInstructions(browserToolsAvailable)}
+${browserToolInstructions(browserToolsAvailable)}${deviceToolInstructions(browserToolsAvailable)}
 </collaboration_mode>`;
 
 export interface CodexRuntimeInfo {
   readonly model: string;
   readonly reasoningEffort: string;
-}
-
-// Values come from trusted config, but keep the block single-line regardless.
-function toSingleLine(value: string): string {
-  return value.replaceAll(/\s+/g, " ").trim();
 }
 
 export function buildCodexDeveloperInstructions(
@@ -190,7 +206,7 @@ export function buildCodexDeveloperInstructions(
    * it from the session's actual MCP configuration rather than re-reading the
    * setting, so the prompt cannot claim tools the turn doesn't have.
    */
-  browserToolsAvailable = true,
+  browserToolsAvailable: ToolAvailability = true,
 ): string {
   const base =
     interactionMode === "plan"

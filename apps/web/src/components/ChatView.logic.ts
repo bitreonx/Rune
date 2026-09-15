@@ -1,17 +1,28 @@
 import {
+  ANTIGRAVITY_DEFAULT_MODEL,
+  type AssetCreateUrlInput,
+  type AssetCreateUrlResult,
+  type ChatFileAttachment,
   type EnvironmentId,
   isProviderDriverKind,
   ProjectId,
   type MessageId,
   type ModelSelection,
-  type ProviderDriverKind,
+  type ProviderInteractionMode,
+  ProviderDriverKind,
+  type ProviderInstanceId,
   type ServerProvider,
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
+  type ThreadLinkedPullRequest,
   type TurnId,
 } from "@rune/contracts";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
+import {
+  codexArtifactTemplateUsePrompt,
+  type CodexArtifactTemplate,
+} from "@rune/client-runtime/codex-artifact-templates";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -29,6 +40,71 @@ export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "rune:last-invoked-script-by-p
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
+
+/** Returns only the insertion text; a template already present at the end is a no-op. */
+export function codexArtifactTemplatePromptToAppend(
+  draft: string,
+  template: CodexArtifactTemplate,
+): string | null {
+  const prompt = codexArtifactTemplateUsePrompt(template);
+  const trimmedDraft = draft.trimEnd();
+  const promptStart = trimmedDraft.length - prompt.length;
+  const alreadyEndsWithPrompt =
+    promptStart >= 0 &&
+    trimmedDraft.slice(promptStart) === prompt &&
+    (promptStart === 0 || /\s/.test(trimmedDraft[promptStart - 1] ?? ""));
+  return alreadyEndsWithPrompt ? null : prompt;
+}
+
+/** Whether an upward wheel/key event should be consumed by a scrollable tool result. */
+export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): boolean {
+  if (typeof Element === "undefined" || !(target instanceof Element)) {
+    return false;
+  }
+
+  const group = target.closest("[data-tool-group-scroll]");
+  if (group === null) {
+    return false;
+  }
+
+  let current: Element | null = target;
+  while (current !== null) {
+    const style = getComputedStyle(current);
+    const scrollable = style.overflowY === "auto" || style.overflowY === "scroll";
+    if (scrollable && current.scrollHeight > current.clientHeight && current.scrollTop > 0) {
+      return true;
+    }
+    if (current === group) {
+      break;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+export function agentControlledBrowserCloseConfirmation(
+  surfaces: ReadonlyArray<{ readonly kind: string; readonly resourceId?: string | null }>,
+  desktopByTabId: Readonly<Record<string, { readonly controller?: string }>>,
+): string | null {
+  const controlledCount = surfaces.filter(
+    (surface) =>
+      surface.kind === "preview" &&
+      surface.resourceId !== undefined &&
+      surface.resourceId !== null &&
+      desktopByTabId[surface.resourceId]?.controller === "agent",
+  ).length;
+  if (controlledCount === 0) return null;
+  if (controlledCount === 1) {
+    return [
+      "Close browser while the agent is using it?",
+      "The agent is actively controlling this browser. Closing it may interrupt the current browser action.",
+    ].join("\n");
+  }
+  return [
+    `Close ${controlledCount} browsers while the agent is using them?`,
+    `The agent is actively controlling these ${controlledCount} browsers. Closing them may interrupt the current browser action.`,
+  ].join("\n");
+}
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -173,6 +249,7 @@ export function buildLocalDraftThread(
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
     checkpoints: [],
+    pullRequests: [],
     activities: [],
     proposedPlans: [],
     chatDiff: { files: [], computedAt: draftThread.createdAt, throughTurnCount: 0 },
@@ -313,12 +390,40 @@ export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
   URL.revokeObjectURL(previewUrl);
 }
 
+/** Signs an attachment URL without reading its bytes, so video playback can request byte ranges. */
+export async function resolveFileAttachmentUrl(input: {
+  attachment: ChatFileAttachment;
+  environmentId: EnvironmentId;
+  httpBaseUrl: string;
+  createAssetUrl: (input: {
+    environmentId: EnvironmentId;
+    input: AssetCreateUrlInput;
+  }) => Promise<AtomCommandResult<AssetCreateUrlResult, unknown>>;
+}): Promise<string> {
+  const { attachment } = input;
+  const result = await input.createAssetUrl({
+    environmentId: input.environmentId,
+    input: {
+      resource: {
+        _tag: "attachment",
+        attachmentId: attachment.id,
+        fileName: attachment.name,
+        mimeType: videoMimeType(attachment) ?? attachment.mimeType,
+      },
+    },
+  });
+  if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+  const url = resolveAssetUrl(input.httpBaseUrl, result.value.relativeUrl);
+  if (url === null) throw new Error("The environment returned an invalid attachment URL.");
+  return url;
+}
+
 export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
   if (message.role !== "user" || !message.attachments) {
     return;
   }
   for (const attachment of message.attachments) {
-    if (attachment.type !== "image") {
+    if (!isImageAttachment(attachment)) {
       continue;
     }
     revokeBlobPreviewUrl(attachment.previewUrl);
@@ -331,7 +436,7 @@ export function collectUserMessageBlobPreviewUrls(message: ChatMessage): string[
   }
   const previewUrls: string[] = [];
   for (const attachment of message.attachments) {
-    if (attachment.type !== "image") continue;
+    if (!isImageAttachment(attachment)) continue;
     if (!attachment.previewUrl || !attachment.previewUrl.startsWith("blob:")) continue;
     previewUrls.push(attachment.previewUrl);
   }
@@ -540,6 +645,22 @@ export function shouldShowBranchMismatchBanner(input: {
   return input.composerHasContent || input.wasShownForCurrentMismatch;
 }
 
+export function shouldShowPlanFollowUpPrompt(input: {
+  pendingUserInputCount: number;
+  interactionMode: ProviderInteractionMode;
+  latestTurnSettled: boolean;
+  hasActionableProposedPlan: boolean;
+  hasComposerAttachments: boolean;
+}): boolean {
+  return (
+    input.pendingUserInputCount === 0 &&
+    input.interactionMode === "plan" &&
+    input.latestTurnSettled &&
+    input.hasActionableProposedPlan &&
+    !input.hasComposerAttachments
+  );
+}
+
 // Session-scoped (module-level so it survives ChatView remounts, e.g. route
 // changes). Durable cross-device dismissal is planned as a server-side ack.
 const sessionDismissedBranchMismatchKeys = new Set<string>();
@@ -552,28 +673,62 @@ export function isBranchMismatchDismissedForSession(key: string | null): boolean
   return key !== null && sessionDismissedBranchMismatchKeys.has(key);
 }
 
+// Git status for a checkout arrives after the composer paints, and the branch
+// strip mounts on the assumption that a project is a Git repo. Without a
+// memory, a non-Git project would mount the strip and drop it on every visit.
+// Keyed by environment and checkout for the session; never persisted.
+const sessionCheckoutIsRepo = new Map<string, boolean>();
+
+function checkoutIsRepoKey(environmentId: EnvironmentId, cwd: string): string {
+  return JSON.stringify([environmentId, cwd]);
+}
+
+export function rememberCheckoutIsRepo(
+  environmentId: EnvironmentId,
+  cwd: string,
+  isRepo: boolean,
+): void {
+  sessionCheckoutIsRepo.set(checkoutIsRepoKey(environmentId, cwd), isRepo);
+}
+
+export function recallCheckoutIsRepo(
+  environmentId: EnvironmentId,
+  cwd: string | null,
+): boolean | undefined {
+  return cwd === null
+    ? undefined
+    : sessionCheckoutIsRepo.get(checkoutIsRepoKey(environmentId, cwd));
+}
+
 export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(
     thread && (thread.latestTurn !== null || thread.messages.length > 0 || thread.session !== null),
   );
 }
 
-// `threadProvider` is the open branded driver kind carried by the session.
-// Unknown driver kinds degrade to `null` (i.e. "unlocked"), which is the safe
-// rollback / fork behavior — the routing layer is the right place to surface
-// "driver not installed" errors, not the lock state.
-//
-// `selectedProvider` takes the same open-string shape because the composer
-// now tracks the picker selection as a `ProviderInstanceId` (e.g.
-// `codex_personal`). Custom instance ids that don't directly match a
-// registered driver resolve to `null` here, which matches the existing
-// "unknown driver -> unlocked" semantics. Callers that want the lock to track
-// a custom instance's underlying driver kind should resolve the instance id
-// upstream and pass the correlated kind.
+/**
+ * Whether a thread ran at least one turn, judged from its shell alone.
+ *
+ * `threadHasStarted` needs the detail: a thread whose latest turn was cleared
+ * still has messages, and the loading shell carries none. The shell records
+ * when the last user message landed, which every started thread has.
+ */
+export function threadShellHasStarted(
+  shell: Pick<ThreadShell, "latestTurn" | "latestUserMessageAt" | "session"> | null | undefined,
+): boolean {
+  return Boolean(
+    shell &&
+    (shell.latestTurn !== null || shell.latestUserMessageAt !== null || shell.session !== null),
+  );
+}
+
+// Imported history has no session until its first prompt. Resolve its instance
+// through the environment's provider catalog before locking to a driver.
 export function deriveLockedProvider(input: {
   thread: Thread | null | undefined;
   selectedProvider: string | null;
   threadProvider: string | null;
+  providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "driver">>;
 }): ProviderDriverKind | null {
   if (!threadHasStarted(input.thread)) {
     return null;
@@ -582,14 +737,18 @@ export function deriveLockedProvider(input: {
   if (sessionProvider && isProviderDriverKind(sessionProvider)) {
     return sessionProvider;
   }
+  // Preserve the existing lock while an instance is missing from the catalog;
+  // a started thread must not silently fall back to a different driver.
+  const threadProvider =
+    input.providers.find((provider) => provider.instanceId === input.threadProvider)?.driver ??
+    input.threadProvider;
+  const selectedProvider =
+    input.providers.find((provider) => provider.instanceId === input.selectedProvider)?.driver ??
+    input.selectedProvider;
   const narrowedThreadProvider =
-    input.threadProvider && isProviderDriverKind(input.threadProvider)
-      ? input.threadProvider
-      : null;
+    threadProvider && isProviderDriverKind(threadProvider) ? threadProvider : null;
   const narrowedSelectedProvider =
-    input.selectedProvider && isProviderDriverKind(input.selectedProvider)
-      ? input.selectedProvider
-      : null;
+    selectedProvider && isProviderDriverKind(selectedProvider) ? selectedProvider : null;
   return narrowedThreadProvider ?? narrowedSelectedProvider ?? null;
 }
 
@@ -687,6 +846,24 @@ export interface LocalDispatchSnapshot {
   latestTurnCompletedAt: string | null;
   sessionStatus: NonNullable<Thread["session"]>["status"] | null;
   sessionUpdatedAt: string | null;
+  latestTurnStartFailureId: string | null;
+}
+
+export function latestTurnStartFailureId(
+  activeThread: Thread | undefined,
+  latestUserMessageId: ChatMessage["id"] | null,
+): string | null {
+  if (latestUserMessageId === null) return null;
+  return (
+    activeThread?.activities.findLast((activity) => {
+      if (activity.kind !== "provider.turn.start.failed") return false;
+      const payload =
+        typeof activity.payload === "object" && activity.payload !== null
+          ? (activity.payload as { readonly requestId?: unknown })
+          : null;
+      return payload?.requestId === latestUserMessageId;
+    })?.id ?? null
+  );
 }
 
 export function createLocalDispatchSnapshot(
@@ -710,6 +887,7 @@ export function createLocalDispatchSnapshot(
     latestTurnCompletedAt: latestTurn?.completedAt ?? null,
     sessionStatus: session?.status ?? null,
     sessionUpdatedAt: session?.updatedAt ?? null,
+    latestTurnStartFailureId: latestTurnStartFailureId(activeThread, latestUserMessage?.id ?? null),
   };
 }
 
@@ -721,6 +899,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   session: Thread["session"] | null;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
+  latestTurnStartFailureId?: string | null;
   threadError: string | null | undefined;
 }): boolean {
   if (!input.localDispatch) {
@@ -771,5 +950,31 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     latestTurnChanged ||
     input.localDispatch.sessionStatus !== (session?.status ?? null) ||
     input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
+  );
+}
+
+// Returning to the window should land the caret in the composer, so the reader can type right
+// away. The exceptions are places where focus is deliberate: another text field, a terminal in
+// the drawer or the right panel, or an open dialog or popup. A focused button outside those is
+// not one of them, so it yields to the composer.
+export function shouldRefocusComposerOnWindowFocus(
+  activeElement:
+    | (Pick<Element, "tagName" | "closest" | "getAttribute"> & { isContentEditable?: boolean })
+    | null,
+): boolean {
+  if (activeElement === null || activeElement.tagName === "BODY") return true;
+  if (
+    activeElement.tagName === "INPUT" ||
+    activeElement.tagName === "TEXTAREA" ||
+    activeElement.tagName === "SELECT" ||
+    activeElement.isContentEditable === true ||
+    activeElement.getAttribute("role") === "textbox"
+  ) {
+    return false;
+  }
+  return (
+    activeElement.closest(
+      '[role="dialog"], [role="alertdialog"], [data-slot$="-popup"], [data-terminal-owner]',
+    ) === null
   );
 }

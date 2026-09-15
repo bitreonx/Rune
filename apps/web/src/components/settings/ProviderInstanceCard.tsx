@@ -1,19 +1,22 @@
 "use client";
 
+import { Spinner } from "~/components/ui/spinner";
+
 import {
   ArrowUpCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
-  LoaderIcon,
+  LockIcon,
+  LockOpenIcon,
   PlusIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   isProviderDriverKind,
   resolveProviderInstanceEnabled,
@@ -26,19 +29,20 @@ import {
   type ServerProviderModel,
 } from "@rune/contracts";
 
+import {
+  type CustomModelDefinition,
+  readCustomModelEntries,
+  toCustomModelSetting,
+} from "@rune/shared/model";
 import { cn } from "../../lib/utils";
 import { OPENROUTER_LOGO_URL, resolveClaudeInstanceService } from "../../claudeServices";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { normalizeProviderAccentColor } from "../../providerInstances";
+import { normalizeProviderAccentColor, providerInstanceInitials } from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
-import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { DraftInput } from "../ui/draft-input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { ScrollArea } from "../ui/scroll-area";
 import { Switch } from "../ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { DriverOption } from "./providerDriverMeta";
@@ -53,6 +57,7 @@ import {
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -65,16 +70,13 @@ import {
 } from "./providerStatus";
 
 /**
- * Read a string[] at `key` from the opaque config blob, filtering out
- * non-string entries. Used for `customModels`, which is always typed as
- * `string[]` by the concrete driver schemas but arrives here as
- * `Schema.Unknown`.
+ * Read `customModels` from the opaque config blob. The concrete driver
+ * schemas type it as `CustomModelSetting[]`, but it arrives here as
+ * `Schema.Unknown`, so the shared reader does the shape checking.
  */
 export function readConfigStringArray(config: unknown, key: string): ReadonlyArray<string> {
   if (config === null || typeof config !== "object") return [];
-  const value = (config as Record<string, unknown>)[key];
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === "string");
+  return readCustomModelEntries((config as Record<string, unknown>).customModels);
 }
 
 /**
@@ -96,9 +98,14 @@ export function nextConfigBlobWithValue(
   return base;
 }
 
+/**
+ * Custom rows come from current settings so name/descriptor edits show
+ * instantly; a bare entry falls back to the live row's driver-default
+ * capabilities (the server fills those in on its next probe).
+ */
 export function deriveProviderModelsForDisplay(input: {
   readonly liveModels: ReadonlyArray<ServerProviderModel> | undefined;
-  readonly customModels: ReadonlyArray<string>;
+  readonly customModels: ReadonlyArray<CustomModelDefinition>;
 }): ReadonlyArray<ServerProviderModel> {
   const liveCustomModelsBySlug = new Map(
     Arr.filterMap(input.liveModels ?? [], (model) =>
@@ -106,37 +113,28 @@ export function deriveProviderModelsForDisplay(input: {
     ),
   );
   const serverModels = input.liveModels?.filter((model) => !model.isCustom) ?? [];
-  const customModels = input.customModels.map(
-    (slug) =>
-      liveCustomModelsBySlug.get(slug) ?? {
-        slug,
-        name: slug,
-        isCustom: true,
-        capabilities: null,
-      },
-  );
+  const customModels = input.customModels.map((entry) => ({
+    slug: entry.slug,
+    name: entry.name,
+    isCustom: true,
+    capabilities:
+      entry.capabilities ?? liveCustomModelsBySlug.get(entry.slug)?.capabilities ?? null,
+  }));
   return [...serverModels, ...customModels];
 }
 
-function ProviderAuthEmail(props: {
-  readonly email: string | undefined;
-  readonly prefix?: string;
-  readonly separator?: boolean;
-}) {
-  const trimmed = props.email?.trim();
-  if (!trimmed) return null;
+function ProviderAuthEmail(props: { readonly email: string | undefined }) {
+  const email = props.email?.trim();
+  if (!email) return null;
 
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
-      {props.separator ? <span aria-hidden>·</span> : null}
-      {props.prefix ? <span className="text-muted-foreground/80">{props.prefix}</span> : null}
-      <RedactedSensitiveText
-        value={trimmed}
-        ariaLabel="Toggle account email visibility"
-        revealTooltip="Click to reveal email"
-        hideTooltip="Click to hide email"
-      />
-    </span>
+    <RedactedSensitiveText
+      value={email}
+      ariaLabel="Toggle account email visibility"
+      revealTooltip="Click to reveal email"
+      hideTooltip="Click to hide email"
+      className="max-w-full truncate"
+    />
   );
 }
 
@@ -152,7 +150,7 @@ interface ProviderInstanceCardProps {
   readonly onOpen?: (() => void) | undefined;
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   /**
-   * Pass `undefined` to hide the delete button entirely. Built-in default
+   * Pass `undefined` to hide the delete footer entirely. Built-in default
    * instance slots use `undefined` — they can't be deleted without losing
    * the slot, and their "reset to defaults" affordance lives on an outer
    * reset button instead. Explicit `| undefined` in the type accommodates
@@ -166,6 +164,7 @@ interface ProviderInstanceCardProps {
    * omit it.
    */
   readonly headerAction?: ReactNode | undefined;
+  readonly setup?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
@@ -177,12 +176,9 @@ interface ProviderInstanceCardProps {
 }
 
 /**
- * A single configured provider-instance row in the Providers settings
- * section. Used for every row — both the built-in default instance for a
- * driver (rendered with `onDelete` omitted) and user-authored custom
- * instances (`onDelete` supplied). The only UI difference between the two
- * is whether the trash button is visible; every other field (display
- * name, config fields, models) behaves identically.
+ * Renders one provider instance as either a compact selectable list row or
+ * the full editor shown beside that list. Both modes use the same enabled
+ * state and provider metadata.
  *
  * Behavior notes:
  *   - `liveProvider` is matched by the caller via `instanceId`; when no
@@ -209,6 +205,7 @@ export function ProviderInstanceCard({
   onUpdate,
   onDelete,
   headerAction,
+  setup,
   hiddenModels,
   favoriteModels,
   modelOrder,
@@ -251,6 +248,7 @@ export function ProviderInstanceCard({
   const FallbackIconComponent = driverOption?.icon;
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
+  const readOnly = driverOption === undefined;
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
   const serviceBadge = resolveClaudeInstanceService(instance);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
@@ -279,8 +277,8 @@ export function ProviderInstanceCard({
   const driverKind: ProviderDriverKind | null = isProviderDriverKind(instance.driver)
     ? instance.driver
     : null;
-
-  const customModels = readConfigStringArray(instance.config, "customModels");
+  const customModels =
+    instance.driver === "antigravity" ? [] : readConfigCustomModels(instance.config);
   // Server-returned models may lag behind settings writes. Treat probe
   // models as the source for built-ins only; custom rows come directly
   // from the current instance config so add/remove reflects immediately.
@@ -288,7 +286,6 @@ export function ProviderInstanceCard({
     liveModels: liveProvider?.models,
     customModels,
   });
-
   const updateDisplayName = (value: string) => {
     const trimmed = value.trim();
     const { displayName: _omit, ...rest } = instance;
@@ -322,8 +319,12 @@ export function ProviderInstanceCard({
     );
   };
 
-  const updateCustomModels = (next: ReadonlyArray<string>) => {
-    const nextConfig = nextConfigBlobWithValue(instance.config, "customModels", [...next]);
+  const updateCustomModels = (next: ReadonlyArray<CustomModelDefinition>) => {
+    const nextConfig = nextConfigBlobWithValue(
+      instance.config,
+      "customModels",
+      next.map(toCustomModelSetting),
+    );
     const { config: _omit, ...rest } = instance;
     onUpdate({ ...rest, config: nextConfig } as ProviderInstanceConfig);
   };
@@ -355,18 +356,16 @@ export function ProviderInstanceCard({
       badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-[7px]"
     />
   ) : FallbackIconComponent ? (
-    <span className="relative inline-flex size-5 shrink-0 items-center justify-center">
+    <span className="inline-flex size-5 shrink-0 items-center justify-center">
       <FallbackIconComponent className="size-4 text-foreground/80" aria-hidden />
-      <span
-        className={cn(
-          "pointer-events-none absolute -left-0.5 -top-0.5 size-2 rounded-full ring-2 ring-card",
-          statusStyle.dot,
-        )}
-        aria-hidden
-      />
     </span>
   ) : (
-    <span className={cn("size-2 shrink-0 rounded-full", statusStyle.dot)} />
+    <span
+      className="inline-flex size-5 shrink-0 items-center justify-center text-[10px] font-semibold leading-none text-foreground/80"
+      aria-hidden
+    >
+      {providerInstanceInitials(displayName)}
+    </span>
   );
 
   const titleHeadNode = (
@@ -442,8 +441,16 @@ export function ProviderInstanceCard({
   const versionCodeNode = versionLabel ? (
     <code className="text-xs text-muted-foreground">{versionLabel}</code>
   ) : null;
+  const editorStatusNode = (
+    <>
+      <StatusBadge statusKey={statusKey} />
+      {versionCodeNode}
+    </>
+  );
+  const editorHeaderAction = setup ?? null;
 
-  return (
+  if (onOpen) {
+    return (
     <div className="h-full rounded-2xl border border-border/60 bg-card transition-colors hover:border-border hover:bg-muted/20">
       <div
         className="cursor-pointer px-3 py-3 sm:px-4"
@@ -512,24 +519,15 @@ export function ProviderInstanceCard({
                           disabled={isUpdating}
                           onClick={onRunUpdate}
                         >
-                          {isUpdating ? <LoaderIcon className="animate-spin" /> : <DownloadIcon />}
+                          {isUpdating ? <Spinner className="size-3.5" /> : <DownloadIcon />}
                           {isUpdating ? "Updating" : "Update now"}
                         </Button>
                       ) : null}
-                      {onRunUpdate && updateCommand ? (
-                        <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                          <span aria-hidden className="h-px flex-1 bg-border" />
-                          or, update manually using
-                          <span aria-hidden className="h-px flex-1 bg-border" />
-                        </div>
-                      ) : null}
                       {updateCommand ? (
                         <div className="flex min-w-0 items-center gap-1 rounded-md border border-border/70 bg-muted/40 py-0.5 pr-0.5 pl-2">
-                          <ScrollArea scrollFade className="h-8 min-w-0 flex-1 rounded-none">
-                            <code className="flex h-full w-max items-center whitespace-nowrap pr-3 font-mono text-[11px] text-foreground">
-                              {updateCommand}
-                            </code>
-                          </ScrollArea>
+                          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[11px] text-foreground">
+                            {updateCommand}
+                          </code>
                           <Tooltip>
                             <TooltipTrigger
                               render={
@@ -539,16 +537,14 @@ export function ProviderInstanceCard({
                                   variant="ghost"
                                   className="size-6 shrink-0 rounded-sm p-0 text-muted-foreground hover:text-foreground"
                                   onClick={() =>
-                                    copyToClipboard(updateCommand, {
-                                      providerName: displayName,
-                                    })
+                                    copyToClipboard(updateCommand, { providerName: displayName })
                                   }
                                   aria-label="Copy update command"
-                                >
-                                  <CopyIcon className="size-3" />
-                                </Button>
+                                />
                               }
-                            />
+                            >
+                              <CopyIcon className="size-3" />
+                            </TooltipTrigger>
                             <TooltipPopup side="top">Copy command</TooltipPopup>
                           </Tooltip>
                         </div>
@@ -596,40 +592,47 @@ export function ProviderInstanceCard({
           </div>
         </div>
       </div>
+      </div>
+    );
+  }
 
-      <Collapsible open={isExpanded} onOpenChange={onExpandedChange}>
-        <CollapsibleContent>
-          <div className="space-y-5 px-3 pb-4 pt-2 sm:px-4">
-            <div>
-              <label htmlFor={`provider-instance-${instanceId}-display-name`} className="block">
-                <span className="text-xs font-medium text-foreground">Display name</span>
-                <DraftInput
-                  id={`provider-instance-${instanceId}-display-name`}
-                  className="mt-1.5"
-                  value={instance.displayName ?? ""}
-                  onCommit={updateDisplayName}
-                  placeholder={driverOption?.label ?? "Instance label"}
-                  spellCheck={false}
-                  aria-describedby={`provider-instance-${instanceId}-display-name-help`}
-                />
-                <span
-                  id={`provider-instance-${instanceId}-display-name-help`}
-                  className="mt-1 block text-xs text-muted-foreground"
-                >
-                  Optional label shown in the provider list.
-                </span>
-              </label>
-            </div>
-
-            <div>
+  return (
+    <>
+      <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
+        <SettingsRow
+          title="Display name"
+          status={
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5">{editorStatusNode}</div>
+          }
+          control={
+            <div
+              inert={readOnly}
+              aria-disabled={readOnly || undefined}
+              className={cn(
+                "flex w-full items-center justify-end gap-2 sm:w-auto",
+                readOnly && "opacity-50 select-none",
+              )}
+            >
               <ProviderAccentColorPicker
+                layout="inline"
                 displayName={displayName}
                 value={accentColor}
                 onCommit={updateAccentColor}
                 commitDelayMs={120}
-                description="Used to distinguish this instance in picker rails and model lists."
+              />
+              <DraftInput
+                id={`provider-instance-${instanceId}-display-name`}
+                size="sm"
+                className="min-w-0 flex-1 sm:w-56 sm:flex-none"
+                value={instance.displayName ?? ""}
+                onCommit={updateDisplayName}
+                placeholder={driverOption?.label ?? "Instance label"}
+                spellCheck={false}
               />
             </div>
+          }
+        />
+      </SettingsSection>
 
             {isClaudeProvider ? (
               <ClaudeServiceSettings
@@ -654,43 +657,75 @@ export function ProviderInstanceCard({
               />
             </div>
 
-            {driverOption ? (
-              <ProviderSettingsForm
-                definition={driverOption}
-                value={instance.config}
-                idPrefix={`provider-instance-${instanceId}`}
-                variant="card"
-                onChange={updateConfig}
-              />
-            ) : null}
+      <SettingsSection
+        title="Runtime"
+        inert={readOnly}
+        aria-disabled={readOnly || undefined}
+        className={readOnly ? "opacity-50 select-none" : undefined}
+      >
+        {driverOption ? (
+          <ProviderSettingsForm
+            definition={driverOption}
+            value={instance.config}
+            idPrefix={`provider-instance-${instanceId}`}
+            variant="settings"
+            onChange={updateConfig}
+          />
+        ) : (
+          <SettingsRow
+            title="Driver"
+            description={
+              <span>
+                This instance uses{" "}
+                <code className="text-foreground">{String(instance.driver)}</code>, which is not
+                available in this build. Its configuration is preserved.
+              </span>
+            }
+          />
+        )}
+      </SettingsSection>
 
-            {driverOption !== undefined ? (
-              <ProviderModelsSection
-                instanceId={instanceId}
-                driverKind={driverKind}
-                models={modelsForDisplay}
-                customModels={customModels}
-                hiddenModels={hiddenModels}
-                favoriteModels={favoriteModels}
-                modelOrder={modelOrder}
-                onChange={updateCustomModels}
-                onHiddenModelsChange={onHiddenModelsChange}
-                onFavoriteModelsChange={onFavoriteModelsChange}
-                onModelOrderChange={onModelOrderChange}
-              />
-            ) : (
-              <div>
-                <p className="text-xs text-muted-foreground">
-                  This instance uses a driver (
-                  <code className="text-foreground">{String(instance.driver)}</code>) that is not
-                  shipped with the current build. Configuration values are preserved but cannot be
-                  edited from this surface.
-                </p>
-              </div>
-            )}
+      <SettingsSection
+        title="Environment"
+        inert={readOnly}
+        aria-disabled={readOnly || undefined}
+        className={readOnly ? "opacity-50 select-none" : undefined}
+      >
+        <SettingsRow
+          title="Variables"
+          description="API keys, base URLs, and other per-instance CLI settings."
+        >
+          <ProviderEnvironmentSection
+            environment={instance.environment ?? []}
+            onChange={updateEnvironment}
+          />
+        </SettingsRow>
+      </SettingsSection>
+
+      {driverOption !== undefined ? (
+        <SettingsSection
+          title="Models"
+          inert={readOnly}
+          aria-disabled={readOnly || undefined}
+          className={readOnly ? "opacity-50 select-none" : undefined}
+        >
+          <div className="px-3 py-3 sm:px-4">
+            <ProviderModelsSection
+              instanceId={instanceId}
+              driverKind={driverKind}
+              models={modelsForDisplay}
+              customModels={customModels}
+              hiddenModels={hiddenModels}
+              favoriteModels={favoriteModels}
+              modelOrder={modelOrder}
+              onChange={updateCustomModels}
+              onHiddenModelsChange={onHiddenModelsChange}
+              onFavoriteModelsChange={onFavoriteModelsChange}
+              onModelOrderChange={onModelOrderChange}
+            />
           </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
+        </SettingsSection>
+      ) : null}
+    </>
   );
 }

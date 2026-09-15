@@ -1,10 +1,10 @@
 {
   "name": "rune",
-  "version": "0.5.1.1",
+  "version": "0.6.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/rune",
+    "url": "https://github.com/bitreonx/rune",
     "directory": "apps/server"
   },
   "bin": {
@@ -18,31 +18,34 @@
     "dev": "node --watch src/bin.ts",
     "build:bundle": "vp pack && vp pack src/service-launcher.ts --out-dir dist --no-clean",
     "start": "node dist/bin.mjs",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vp test run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.170",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.260",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
-    "@effect/platform-node-shared": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
     "@ff-labs/fff-node": "0.9.4",
     "@opencode-ai/sdk": "^1.3.15",
-    "@pierre/diffs": "catalog:",
     "effect": "catalog:",
     "msgpackr-extract": "3.0.4",
     "node-pty": "^1.1.0",
-    "yaml": "catalog:"
+    "stream-chain": "^4.2.5",
+    "stream-json": "3.6.0",
+    "yaml": "catalog:",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@rune/contracts": "workspace:*",
+    "@rune/ssh": "workspace:*",
     "@rune/shared": "workspace:*",
     "@rune/tailscale": "workspace:*",
     "@rune/web": "workspace:*",
     "@types/bun": "1.3.14",
     "@types/node": "catalog:",
+    "@types/yauzl": "^3.4.0",
     "effect-acp": "workspace:*",
     "effect-codex-app-server": "workspace:*",
     "vite-plus": "catalog:"

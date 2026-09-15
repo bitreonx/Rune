@@ -82,22 +82,69 @@ export function PreviewPanelShell(props: {
     maxWidth,
     edge: "left",
   });
-
+  // Derive suppression before the layout commits so the browser never creates
+  // a width transition for resize or maximize changes.
+  const [layoutTransition, setLayoutTransition] = useState(() => ({
+    open,
+    width,
+    maximized,
+    suppressed: false,
+  }));
+  if (
+    layoutTransition.open !== open ||
+    layoutTransition.width !== width ||
+    layoutTransition.maximized !== maximized
+  ) {
+    setLayoutTransition({
+      open,
+      width,
+      maximized,
+      suppressed:
+        collapsible &&
+        layoutTransition.open === open &&
+        (layoutTransition.width !== width || layoutTransition.maximized !== maximized),
+    });
+  }
+  const suppressWidthTransition = layoutTransition.suppressed;
+  useLayoutEffect(() => {
+    if (!suppressWidthTransition) return;
+    let restoreFrame = 0;
+    const paintFrame = window.requestAnimationFrame(() => {
+      restoreFrame = window.requestAnimationFrame(() => {
+        setLayoutTransition((current) => ({ ...current, suppressed: false }));
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(paintFrame);
+      window.cancelAnimationFrame(restoreFrame);
+    };
+  }, [suppressWidthTransition]);
   return (
     <div
       ref={hostRef}
       className={cn(
         "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-background",
         isInline
-          ? props.maximized
+          ? maximized
             ? "flex-1 border-l border-border"
             : // Non-maximized host chrome (inset, border) is
               // owned by the rune-right-panel-host wrapper so its width
               // animation and clipping stay in one place.
               "shrink-0"
           : "w-full",
+        collapsible &&
+          "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+        collapsible && open && "[[data-panel-animations=true]_&]:starting:w-0!",
+        collapsible && !open && "pointer-events-none",
       )}
-      style={isInline && !props.maximized ? { width: `${width}px` } : undefined}
+      style={
+        isInline
+          ? {
+              width: maximized ? "100%" : collapsible && !open ? "0px" : `${width}px`,
+              transitionDuration: suppressWidthTransition ? "0ms" : undefined,
+            }
+          : undefined
+      }
       data-preview-panel-mode={props.mode}
       data-preview-panel-maximized={props.maximized ? "true" : "false"}
       data-rune-preview-panel-host

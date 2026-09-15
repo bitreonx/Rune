@@ -8,6 +8,7 @@ import {
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
+import { ComposerBanner } from "./ComposerBanner";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];

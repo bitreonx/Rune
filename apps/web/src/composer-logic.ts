@@ -1,4 +1,12 @@
-import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
+import type { AssistantCitation } from "@rune/contracts";
+import {
+  serializeAssistantCitation,
+  withAssistantCitationComment,
+} from "@rune/shared/assistantCitations";
+import {
+  splitPromptIntoComposerSegments,
+  type ComposerPromptSegment,
+} from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 import { findRuneCommand, type RuneCommandId } from "@rune/shared/commandRegistry";
 import { detectComposerTrigger as detectSharedComposerTrigger } from "@rune/shared/composerTrigger";
@@ -14,6 +22,10 @@ export interface ComposerTrigger {
   rangeEnd: number;
 }
 
+export function formatAssistantCitationForComposer(citation: AssistantCitation, comment = "") {
+  return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))} `;
+}
+
 export function composerSubmissionIntentForEnter(input: {
   isMobileViewport: boolean;
   shiftKey: boolean;
@@ -26,13 +38,7 @@ export function composerSubmissionIntentForEnter(input: {
   return input.modifierKey && input.isDraftThread ? "background" : "foreground";
 }
 
-const isInlineTokenSegment = (
-  segment:
-    | { type: "text"; text: string }
-    | { type: "mention" }
-    | { type: "skill" }
-    | { type: "terminal-context" },
-): boolean => segment.type !== "text";
+const isInlineTokenSegment = (segment: ComposerPromptSegment): boolean => segment.type !== "text";
 
 function clampCursor(text: string, cursor: number): number {
   if (!Number.isFinite(cursor)) return text.length;
@@ -60,7 +66,7 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   let expandedCursor = 0;
 
   for (const segment of segments) {
-    if (segment.type === "mention") {
+    if (segment.type === "mention" || segment.type === "citation") {
       const expandedLength = segment.source.length;
       if (remaining <= 1) {
         return expandedCursor + (remaining === 0 ? 0 : expandedLength);
@@ -98,13 +104,7 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   return expandedCursor;
 }
 
-function collapsedSegmentLength(
-  segment:
-    | { type: "text"; text: string }
-    | { type: "mention" }
-    | { type: "skill" }
-    | { type: "terminal-context" },
-): number {
+function collapsedSegmentLength(segment: ComposerPromptSegment): number {
   if (segment.type === "text") {
     return segment.text.length;
   }
@@ -112,12 +112,7 @@ function collapsedSegmentLength(
 }
 
 function clampCollapsedComposerCursorForSegments(
-  segments: ReadonlyArray<
-    | { type: "text"; text: string }
-    | { type: "mention" }
-    | { type: "skill" }
-    | { type: "terminal-context" }
-  >,
+  segments: ReadonlyArray<ComposerPromptSegment>,
   cursorInput: number,
 ): number {
   const collapsedLength = segments.reduce(
@@ -148,7 +143,7 @@ export function collapseExpandedComposerCursor(text: string, cursorInput: number
   let collapsedCursor = 0;
 
   for (const segment of segments) {
-    if (segment.type === "mention") {
+    if (segment.type === "mention" || segment.type === "citation") {
       const expandedLength = segment.source.length;
       if (remaining === 0) {
         return collapsedCursor;
@@ -219,8 +214,6 @@ export function isCollapsedCursorAdjacentToInlineToken(
 
   return false;
 }
-
-export const isCollapsedCursorAdjacentToMention = isCollapsedCursorAdjacentToInlineToken;
 
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
   const sharedTrigger = detectSharedComposerTrigger(text, cursorInput, isWhitespace);

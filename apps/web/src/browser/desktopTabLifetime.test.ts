@@ -31,6 +31,7 @@ import { previewRuntimeTabId } from "./previewRuntimeTabId";
 
 describe("desktopTabLifetime", () => {
   beforeEach(() => {
+    __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
     closeTab.mockClear();
     createTab.mockClear();
     stopBrowserRecording.mockClear();
@@ -40,6 +41,35 @@ describe("desktopTabLifetime", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("does not create a desktop tab after a failed settings read and permits a later retry", async () => {
+    vi.useFakeTimers();
+    const failure = new Error("Settings read failed");
+    vi.spyOn(browserDefaults, "resolveBrowserDefaults").mockRejectedValueOnce(failure);
+    const failed = acquireDesktopTab("tab_settings_retry");
+
+    await expect(failed.ready).rejects.toBe(failure);
+    expect(createTab).not.toHaveBeenCalled();
+    failed.release();
+    await vi.advanceTimersByTimeAsync(0);
+
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      browserDefaultZoomFactor: 1.25,
+      browserDefaultAppearance: "dark",
+    });
+    createTab.mockResolvedValueOnce(undefined);
+    const retry = acquireDesktopTab("tab_settings_retry");
+    await retry.ready;
+
+    expect(createTab).toHaveBeenCalledExactlyOnceWith("tab_settings_retry", {
+      zoomFactor: 1.25,
+      colorScheme: "dark",
+    });
+    retry.release();
+    await vi.advanceTimersByTimeAsync(0);
   });
 
   it("shares tab creation readiness across concurrent leases", async () => {

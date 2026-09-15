@@ -29,12 +29,13 @@ import {
   reconcilePreviewServerSessions,
   updatePreviewServerSnapshot,
 } from "~/previewStateStore";
-import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
+import { selectThreadPreviewMiniPlayer, usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 import { resolveBrowserNavigationTarget } from "~/browser/browserTargetResolver";
 import {
   readActiveBrowserRecordingTargets,
   startBrowserRecording,
   stopBrowserRecording,
+  stopBrowserRecordingForUpload,
 } from "~/browser/browserRecording";
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
@@ -56,8 +57,10 @@ import {
   PreviewAutomationViewportTimeoutError,
 } from "./previewAutomationErrors";
 import {
+  explicitlySuppressesPreviewMiniPlayer,
   previewAutomationDefaultViewport,
   previewAutomationOpenNeedsOverlay,
+  shouldAutoShowPreviewForAutomationUse,
   shouldOpenPreviewMiniPlayer,
 } from "./previewAutomationOpenReadiness";
 import {
@@ -71,6 +74,7 @@ import {
   resolvePreviewAutomationOpenTab,
   resolvePreviewAutomationTarget,
 } from "./previewAutomationTarget";
+import { resolveHostWaitBudgetMs, waitForHostReadiness } from "./previewAutomationHostBudget";
 import { isPreviewViewportReady } from "./previewViewportReadiness";
 import { shouldRollbackPreviewViewport } from "./previewViewportRollback";
 
@@ -90,25 +94,26 @@ const waitForDesktopOverlay = async (
   tabId: string,
   runtimeTabId: string,
   operation: PreviewAutomationRequest["operation"],
-  timeoutMs: number,
+  deadlineMs: number,
 ): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
+  const waitBudgetMs = Math.max(0, deadlineMs - Date.now());
+  const ready = await waitForHostReadiness(deadlineMs, async () => {
     const state = assertPreviewRuntimeCurrent(threadRef, tabId, runtimeTabId, {
       operation,
       requestId,
     });
-    if (state.desktopByTabId[tabId] && previewBridge) {
+    if (state.desktopByTabId[tabId] && previewBridge && isPreviewWebviewRendering(runtimeTabId)) {
       const status = await previewBridge.automation.status(runtimeTabId);
-      if (status.available) return;
+      return status.available;
     }
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
-  }
+    return false;
+  });
+  if (ready) return;
   throw new PreviewAutomationOverlayTimeoutError({
     requestId,
     environmentId: threadRef.environmentId,
     threadId: threadRef.threadId,
-    timeoutMs,
+    timeoutMs: waitBudgetMs,
   });
 };
 
@@ -120,6 +125,11 @@ const findPreviewWebview = (tabId: string): ExecutablePreviewWebview | null =>
   Array.from(document.querySelectorAll<ExecutablePreviewWebview>("webview[data-preview-tab]")).find(
     (candidate) => candidate.getAttribute("data-preview-tab") === tabId,
   ) ?? null;
+
+const isPreviewWebviewRendering = (runtimeTabId: string): boolean => {
+  const wrapper = findPreviewWebview(runtimeTabId)?.closest<HTMLElement>("[data-preview-viewport]");
+  return wrapper?.getAttribute("data-preview-rendering") === "active";
+};
 
 const readWebviewViewport = async (
   webview: ExecutablePreviewWebview,
@@ -212,8 +222,12 @@ const currentStatus = async (
   const visible = runtimeTabId
     ? (useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible ?? false)
     : false;
+  const renderingActive = runtimeTabId ? isPreviewWebviewRendering(runtimeTabId) : false;
   const viewportSetting = snapshot ? (snapshot.viewport ?? FILL_PREVIEW_VIEWPORT) : undefined;
-  const viewport = runtimeTabId ? await readRenderedViewport(runtimeTabId).catch(() => null) : null;
+  const viewport =
+    runtimeTabId && renderingActive
+      ? await readRenderedViewport(runtimeTabId).catch(() => null)
+      : null;
   const viewportStatus = {
     ...(viewportSetting === undefined ? {} : { viewportSetting }),
     ...(viewport === null ? {} : { viewport }),
@@ -299,14 +313,18 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
   );
   const [automationConnectionAtom] = useState(() => Atom.make<string | null>(null));
   const automationConnectionId = useAtomValue(automationConnectionAtom);
+  const presentationSuppressedRuntimeTabsRef = useRef(new Map<string, Set<string>>());
 
   const handleRequest = useCallback(
     async (request: PreviewAutomationRequest): Promise<unknown> => {
+      // Session sync and tab creation consume the same budget as overlay registration.
+      const hostDeadlineMs = Date.now() + resolveHostWaitBudgetMs(request.timeoutMs);
       const threadRef: ScopedThreadRef = {
         environmentId,
         threadId: request.threadId,
       };
       let tabId = request.tabId ?? null;
+      const browserActivity = { release: null as (() => void) | null };
       try {
         let state = readThreadPreviewState(threadRef);
         const needsSessionSync = needsPreviewAutomationSessionSync(state, request.tabId);
@@ -340,13 +358,29 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           }
           const readyState = readThreadPreviewState(threadRef);
           const runtimeTabId = previewRuntimeTabId(threadRef, readyState.serverEpoch, readyTabId);
+          if (request.operation !== "open") {
+            const { autoShowFloatingPreview } = await resolveBrowserDefaults();
+            if (
+              shouldAutoShowPreviewForAutomationUse({
+                operation: request.operation,
+                autoShowFloatingPreview,
+                presentationSuppressed:
+                  presentationSuppressedRuntimeTabsRef.current
+                    .get(request.threadId)
+                    ?.has(runtimeTabId) ?? false,
+              })
+            ) {
+              usePreviewMiniPlayerStore.getState().open(threadRef, readyTabId);
+            }
+          }
+          browserActivity.release ??= acquireBrowserSurfaceActivity(runtimeTabId);
           await waitForDesktopOverlay(
             threadRef,
             request.requestId,
             readyTabId,
             runtimeTabId,
             request.operation,
-            request.timeoutMs,
+            hostDeadlineMs,
           );
           return {
             bridge,
@@ -376,6 +410,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             const reusedExistingTab = activeTabId !== null;
             tabId = activeTabId;
             if (!activeTabId) {
+              const defaults = await resolveBrowserDefaults();
               const result = await open({
                 environmentId,
                 input: {
@@ -440,14 +475,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               usePreviewMiniPlayerStore.getState().open(threadRef, activeTabId);
             }
             if (activeSnapshot && previewAutomationOpenNeedsOverlay(input, activeSnapshot)) {
-              await waitForDesktopOverlay(
-                threadRef,
-                request.requestId,
-                activeTabId,
-                activeRuntimeTabId,
-                request.operation,
-                request.timeoutMs,
-              );
+              await requireReadyTab();
             }
             if (shouldPresentPreview) {
               // React commits the thread-bound surface asynchronously. Settle
@@ -655,7 +683,18 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             const stopRuntimeTabId =
               activeRecordings.find((recording) => recording.serverTabId === stopTabId)
                 ?.runtimeTabId ?? null;
-            const artifact = stopRuntimeTabId ? await stopBrowserRecording(stopRuntimeTabId) : null;
+            const transferToEnvironment =
+              typeof request.input === "object" &&
+              request.input !== null &&
+              "transferToEnvironment" in request.input &&
+              request.input.transferToEnvironment === true;
+            const artifact = stopRuntimeTabId
+              ? transferToEnvironment
+                ? await stopBrowserRecordingForUpload(stopRuntimeTabId, (saved, blob) =>
+                    uploadBrowserRecording(threadRef, saved, blob, hostDeadlineMs),
+                  )
+                : await stopBrowserRecording(stopRuntimeTabId)
+              : null;
             if (!artifact || !stopTabId) {
               return raisePreviewAutomationHostError(
                 new PreviewAutomationRecordingNotActiveError({
@@ -666,7 +705,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 }),
               );
             }
-            return { ...artifact, tabId: stopTabId };
+            return {
+              ...artifact,
+              tabId: stopTabId,
+            };
           }
         }
       } catch (cause) {
@@ -678,6 +720,8 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           tabId,
           cause,
         });
+      } finally {
+        browserActivity.release?.();
       }
     },
     [environmentId, listPreviews, open, registry, resize],

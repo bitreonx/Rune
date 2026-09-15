@@ -14,6 +14,11 @@ import { Command } from "effect/unstable/cli";
 
 import { cli } from "../bin.ts";
 import {
+  SERVICE_LAUNCHER_CONTEXT_ENV,
+  SERVICE_LAUNCHER_PROTOCOL,
+} from "../cloud/serviceProtocol.ts";
+import * as ServiceLauncherClient from "../cloud/serviceLauncherClient.ts";
+import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
   type PersistedServerRuntimeState,
@@ -23,6 +28,8 @@ import {
   resolveDirectPairingBaseUrl,
   resolveTailscaleLocalTarget,
 } from "./pair.ts";
+
+import packageJson from "../../package.json" with { type: "json" };
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -170,7 +177,22 @@ describe("rune pair", () => {
         assert.equal(credentials.length, 1);
         assert.equal(credentials[0]?.label, "rune pair");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.provideService(HostProcessEnvironment, {
+        ...process.env,
+        [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify({
+          protocol: SERVICE_LAUNCHER_PROTOCOL,
+          childVersion: packageJson.version,
+        }),
+      }),
+      Effect.provideService(ServiceLauncherClient.ServiceLauncherHostProcess, {
+        connected: false,
+        send: () => false,
+        on: () => undefined,
+        off: () => undefined,
+      }),
+    ),
   );
 
   it.effect("pairs through the recorded dev web URL for dev servers", () =>

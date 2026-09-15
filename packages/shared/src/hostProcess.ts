@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as NodeDns from "node:dns";
 import * as NodeOS from "node:os";
 
 export const HostProcessPlatform = Context.Reference<NodeJS.Platform>(

@@ -6,8 +6,9 @@ import { useAppearanceCodeSurface } from "../settings/appearance/useAppearanceCo
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useNativeReviewDiffHighlighting } from "./useNativeReviewDiffHighlighting";
 import { buildNativeReviewTokensResetKey } from "./reviewDiffBridgeKeys";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 
-export { buildNativeReviewTokensResetKey, hashReviewDiffKey } from "./reviewDiffBridgeKeys";
+export { buildNativeReviewTokensResetKey } from "./reviewDiffBridgeKeys";
 
 export function useNativeReviewDiffBridge(input: {
   readonly threadKey: string | null;

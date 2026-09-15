@@ -52,6 +52,10 @@ const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
+// Patches the clients render are parsed against git's default a/ and b/ path
+// prefixes. A repository or global diff.noprefix or diff.mnemonicPrefix would
+// otherwise leak into the patch and leave every parsed file unnamed.
+export const PATCH_RENDER_PREFIX_ARGS = ["--src-prefix=a/", "--dst-prefix=b/"] as const;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
@@ -464,6 +468,7 @@ function trace2ChildKey(record: Record<string, unknown>): string | null {
 }
 
 const Trace2Record = Schema.Record(Schema.String, Schema.Unknown);
+const decodeTrace2Record = decodeJsonResult(Trace2Record);
 
 const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
   input: Pick<GitVcsDriver.ExecuteGitInput, "operation" | "cwd" | "args">,
@@ -498,7 +503,7 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
       return;
     }
 
-    const traceRecord = decodeJsonResult(Trace2Record)(trimmedLine);
+    const traceRecord = decodeTrace2Record(trimmedLine);
     if (Result.isFailure(traceRecord)) {
       yield* Effect.logDebug(
         `GitVcsDriver.trace2: failed to parse trace line for ${input.operation} in ${input.cwd} (${input.args.length} arguments)`,
@@ -1280,15 +1285,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     );
 
-  const remoteBranchExists = (
-    cwd: string,
-    remoteName: string,
-    refName: string,
-  ): Effect.Effect<boolean, GitCommandError> =>
+  const remoteBranchExists: GitVcsDriver.GitVcsDriver["Service"]["remoteBranchExists"] = (input) =>
     executeGit(
       "GitVcsDriver.remoteBranchExists",
-      cwd,
-      ["show-ref", "--verify", "--quiet", `refs/remotes/${remoteName}/${refName}`],
+      input.cwd,
+      ["show-ref", "--verify", "--quiet", `refs/remotes/${input.remoteName}/${input.refName}`],
       {
         allowNonZeroExit: true,
       },
@@ -1435,7 +1436,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
       if (
         primaryRemoteName &&
-        (yield* remoteBranchExists(cwd, primaryRemoteName, normalizedCandidate))
+        (yield* remoteBranchExists({
+          cwd,
+          remoteName: primaryRemoteName,
+          refName: normalizedCandidate,
+        }))
       ) {
         return `${primaryRemoteName}/${normalizedCandidate}`;
       }
@@ -1567,6 +1572,42 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   });
 
   const readStatusDetailsLocal = Effect.fn("readStatusDetailsLocal")(function* (cwd: string) {
+    const indexResult = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.statusDetails.indexPath",
+      cwd,
+      ["rev-parse", "--git-path", "index"],
+      { allowNonZeroExit: true },
+    ).pipe(
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+      }),
+    );
+    if (indexResult === null) return NON_REPOSITORY_STATUS_DETAILS;
+    if (indexResult.exitCode === 0) {
+      const lockPath = `${path.resolve(cwd, indexResult.stdout.trim())}.lock`;
+      const lockError = new GitCommandError({
+        operation: "GitVcsDriver.statusDetails.indexPath",
+        command: "git",
+        cwd,
+        detail: "Git index is locked. Status will resume when the index lock is removed.",
+      });
+      // Status can succeed while locked, repeatedly running LFS clean filters without caching.
+      if (
+        yield* fileSystem.exists(lockPath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new GitCommandError({
+                ...lockError,
+                detail: "Failed to check the Git index lock.",
+                cause,
+              }),
+          ),
+        )
+      ) {
+        return yield* lockError;
+      }
+    }
     const statusResult = yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.statusDetails.status",
       cwd,
@@ -1953,9 +1994,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           };
         }
 
-        const hasRemoteBranch = yield* remoteBranchExists(cwd, publishRemoteName, branch).pipe(
-          Effect.orElseSucceed(() => false),
-        );
+        const hasRemoteBranch = yield* remoteBranchExists({
+          cwd,
+          remoteName: publishRemoteName,
+          refName: branch,
+        }).pipe(Effect.orElseSucceed(() => false));
         if (hasRemoteBranch) {
           return {
             status: "skipped_up_to_date" as const,
@@ -2142,6 +2185,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             "--no-ext-diff",
             "--no-textconv",
             "--minimal",
+            ...PATCH_RENDER_PREFIX_ARGS,
             "--",
             "/dev/null",
             relativePath,
@@ -2194,6 +2238,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         "--no-ext-diff",
         "--no-textconv",
         "--minimal",
+        ...PATCH_RENDER_PREFIX_ARGS,
         ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
         "HEAD",
         "--",
@@ -2230,6 +2275,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               "--no-ext-diff",
               "--no-textconv",
               "--minimal",
+              ...PATCH_RENDER_PREFIX_ARGS,
               ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
               `${baseRef}...HEAD`,
             ],
@@ -3011,9 +3057,53 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       args.push("--force");
     }
     args.push(input.path);
-    yield* executeGit("GitVcsDriver.removeWorktree", input.cwd, args, {
+    const result = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.removeWorktree",
+      input.cwd,
+      args,
+      {
+        // Removing dependency-heavy worktrees is filesystem-bound and can take
+        // minutes, especially on Windows. Keep it bounded without interrupting
+        // git midway through cleanup.
+        timeoutMs: WORKTREE_REMOVE_TIMEOUT_MS,
+        allowNonZeroExit: true,
+      },
+    );
+    if (result.exitCode === 0) {
+      return;
+    }
+    // Threads can share a worktree path, and worktrees get removed or pruned
+    // outside the app, so a worktree that is already gone is a no-op rather
+    // than an error. Prune so no stale registration lingers to block a later
+    // `worktree add` at the same path.
+    const alreadyGone =
+      isMissingWorktreeStderr(result.stderr) &&
+      !(yield* fileSystem.exists(input.path).pipe(Effect.orElseSucceed(() => false)));
+    if (alreadyGone) {
+      yield* pruneWorktrees({ cwd: input.cwd });
+      return;
+    }
+    // Raw stderr stays out of both the wire error and the log (it can carry
+    // secrets); log bounded diagnostics so a genuine failure is visible
+    // server-side.
+    yield* Effect.logWarning(
+      `GitVcsDriver.removeWorktree: git worktree remove exited with code ${result.exitCode} for ${input.path} (stderr length ${result.stderr.length}).`,
+    );
+    return yield* new GitCommandError({
+      ...gitCommandContext({ operation: "GitVcsDriver.removeWorktree", cwd: input.cwd, args }),
+      detail: "git worktree remove failed",
+      ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+      stdoutLength: result.stdout.length,
+      stderrLength: result.stderr.length,
+    });
+  });
+
+  const pruneWorktrees: GitVcsDriver.GitVcsDriver["Service"]["pruneWorktrees"] = Effect.fn(
+    "pruneWorktrees",
+  )(function* (input) {
+    yield* executeGit("GitVcsDriver.pruneWorktrees", input.cwd, ["worktree", "prune"], {
       timeoutMs: 15_000,
-      fallbackErrorDetail: "git worktree remove failed",
+      fallbackErrorDetail: "git worktree prune failed",
     });
   });
 
@@ -3216,12 +3306,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     resolveDefaultBranchName,
     fetchRemote: (input) => withListRefsInvalidation(input.cwd, fetchRemote(input)),
     remoteExists,
+    remoteBranchExists,
     resolveRemoteTrackingCommit,
     fetchRemoteBranch: (input) => withListRefsInvalidation(input.cwd, fetchRemoteBranch(input)),
     fetchRemoteTrackingBranch: (input) =>
       withListRefsInvalidation(input.cwd, fetchRemoteTrackingBranch(input)),
     setBranchUpstream: (input) => withListRefsInvalidation(input.cwd, setBranchUpstream(input)),
     removeWorktree: (input) => withListRefsInvalidation(input.cwd, removeWorktree(input)),
+    pruneWorktrees: (input) => withListRefsInvalidation(input.cwd, pruneWorktrees(input)),
     renameBranch: (input) => withListRefsInvalidation(input.cwd, renameBranch(input)),
     createRef: (input) => withListRefsInvalidation(input.cwd, createRef(input)),
     switchRef: (input) => withListRefsInvalidation(input.cwd, switchRef(input)),

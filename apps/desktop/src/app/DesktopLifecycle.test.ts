@@ -123,6 +123,7 @@ describe("DesktopLifecycle", () => {
           yield* lifecycle.register;
 
           appListeners.get("before-quit-for-update")?.();
+          yield* Effect.yieldNow;
 
           let prevented = false;
           const event = {
@@ -136,6 +137,7 @@ describe("DesktopLifecycle", () => {
             prevented,
             "cancelling this event prevents the updater from completing its relaunch",
           );
+          assert.isTrue(windowsDestroyed);
 
           const state = yield* DesktopState.DesktopState;
           assert.isTrue(yield* Ref.get(state.quitting));

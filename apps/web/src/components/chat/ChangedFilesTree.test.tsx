@@ -116,7 +116,6 @@ describe("ChangedFilesCard", () => {
         showCompactPreview={false}
         allDirectoriesExpanded
         resolvedTheme="light"
-        onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
         onOpenChatDiff={() => {}}
@@ -143,7 +142,7 @@ describe("ChangedFilesCard", () => {
     expect(markup).not.toContain("1 changed files");
   });
 
-  it("renders a scope and representative-file preview for a large latest change", () => {
+  it("shows collapsed folders and root files together", () => {
     const markup = renderToStaticMarkup(
       <ChangedFilesCard
         environmentId={environmentId}
@@ -166,23 +165,20 @@ describe("ChangedFilesCard", () => {
         showCompactPreview
         allDirectoriesExpanded={false}
         resolvedTheme="light"
-        onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
         onOpenChatDiff={() => {}}
       />,
     );
 
-    expect(markup).toContain('data-changed-files-state="preview"');
+    expect(markup).toContain('data-changed-files-state="tree"');
     expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain("apps");
-    expect(markup).toContain("2 files");
-    expect(markup).toContain("packages");
-    expect(markup).toContain("root");
-    expect(markup).toContain("App.tsx");
-    expect(markup).toContain("git.ts");
+    expect(markup).toContain("apps/web/src");
+    expect(markup).not.toContain("App.tsx");
+    expect(markup).toContain("packages/shared/src");
+    expect(markup).not.toContain("git.ts");
     expect(markup).toContain("README.md");
-    expect(markup).toContain("Show all 4 files");
+    expect(markup).not.toContain("Show all");
     expect(markup).not.toContain("App.test.tsx");
   });
 
@@ -226,15 +222,15 @@ describe("ChangedFilesCard", () => {
         showCompactPreview={false}
         allDirectoriesExpanded={false}
         resolvedTheme="light"
-        onExpandedChange={() => {}}
         onToggleAllDirectories={() => {}}
         onOpenTurnDiff={() => {}}
         onOpenChatDiff={() => {}}
       />,
     );
 
-    expect(markup).toContain('data-changed-files-state="collapsed"');
+    expect(markup).toContain('data-changed-files-state="tree"');
     expect(markup).toContain("1 changed file");
+    expect(markup).toContain("apps/web/src");
     expect(markup).not.toContain("Show all");
     expect(markup).not.toContain("App.tsx");
   });

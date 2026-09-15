@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import threadSidebarMarkup from "../Sidebar.tsx?raw";
 
 import {
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuSubButton,
   SidebarProvider,
@@ -131,17 +130,6 @@ describe("sidebar interactive cursors", () => {
 
     expect(html).toContain("cursor-grab");
     expect(html).not.toContain("cursor-pointer");
-  });
-
-  it("uses a pointer cursor for menu actions", () => {
-    const html = renderToStaticMarkup(
-      <SidebarMenuAction aria-label="Create thread">
-        <span>+</span>
-      </SidebarMenuAction>,
-    );
-
-    expect(html).toContain('data-slot="sidebar-menu-action"');
-    expect(html).toContain("cursor-pointer");
   });
 
   it("uses a pointer cursor for submenu buttons", () => {

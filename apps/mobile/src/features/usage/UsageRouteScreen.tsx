@@ -1,3 +1,4 @@
+import { EnvironmentId, USAGE_CONTRACT_VERSION } from "@rune/contracts";
 import { useNavigation } from "@react-navigation/native";
 import type { DailyTotals, MergedUsage } from "@rune/shared/usageMerge";
 import {
@@ -13,17 +14,32 @@ import {
 } from "@rune/shared/usageFormat";
 import { useMemo, useState } from "react";
 import { Platform, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import Animated, { Easing, FadeIn, LinearTransition, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { AppText as Text } from "../../components/AppText";
+import { cn } from "../../lib/cn";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { UsageDailyChart } from "./UsageDailyChart";
+import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
+import { useRefreshLimits } from "./UsageLimitsSection";
+import { UsageLimitsSection } from "./UsageLimitsPooled";
+import { ControlPillMenu } from "../../components/ControlPill";
+import { SymbolView } from "../../components/AppSymbol";
 import type { UsageChartMetric } from "./usageChartData";
 import { PROVIDER_LABEL, useProviderColors } from "./usageProviders";
 
+type UsageTab = "usage" | "limits";
+const TAB_OPTIONS = [
+  { value: "usage", label: "Usage" },
+  { value: "limits", label: "Limits" },
+] as const satisfies readonly { value: UsageTab; label: string }[];
+
+// Labels are abbreviated to share a row with the metric toggle; screen
+// readers get the full phrase.
 const WINDOW_OPTIONS = [
   { days: 1, label: "Past 24h" },
   { days: 7, label: "7 days" },
@@ -31,8 +47,18 @@ const WINDOW_OPTIONS = [
   { days: 90, label: "90 days" },
 ] as const;
 
+const METRIC_OPTIONS = [
+  { value: "cost", label: "Cost" },
+  { value: "tokens", label: "Tokens" },
+] as const satisfies readonly { value: UsageChartMetric; label: string }[];
+
 const CHART_HEIGHT = 180;
 
+/**
+ * Two tabs over one screen. Usage is the transcript-derived spend for a
+ * period; Limits is the live subscription quota, which has no period. Both
+ * pull to refresh, each refreshing its own data.
+ */
 export function UsageRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -98,7 +124,11 @@ export function UsageRouteScreen() {
       {Platform.OS === "android" ? (
         <>
           <NativeStackScreenOptions options={{ headerShown: false }} />
-          <AndroidScreenHeader title="Usage" onBack={() => navigation.goBack()} />
+          <AndroidScreenHeader
+            title="Usage"
+            onBack={() => navigation.goBack()}
+            trailing={environmentFilter}
+          />
         </>
       ) : null}
       <ScrollView
@@ -149,25 +179,59 @@ export function UsageRouteScreen() {
 }
 
 function SegmentedControl<Value extends number | string>(props: {
-  readonly options: readonly { readonly value: Value; readonly label: string }[];
+  readonly options: readonly {
+    readonly value: Value;
+    readonly label: string;
+    readonly accessibilityLabel?: string;
+  }[];
   readonly selected: Value;
   readonly onSelect: (value: Value) => void;
+  /** The tab bar is full height; filters under it are shorter so it stays primary. */
+  readonly size?: "default" | "compact";
+  /** "tab" for the view switcher; filters stay plain buttons. */
+  readonly role?: "tab" | "button";
+  readonly className?: string;
 }) {
+  const compact = props.size === "compact";
   return (
-    <View className="flex-row overflow-hidden rounded-full border-continuous bg-card">
+    <View
+      accessible={false}
+      className={cn(
+        "flex-row overflow-hidden rounded-full border-continuous bg-card",
+        props.className,
+      )}
+    >
+      <Animated.View
+        pointerEvents="none"
+        layout={LinearTransition.duration(200)
+          .easing(Easing.out(Easing.cubic))
+          .reduceMotion(ReduceMotion.System)}
+        className="absolute bottom-0 top-0 rounded-full bg-subtle-strong"
+        style={{
+          width: `${100 / props.options.length}%`,
+          start: `${
+            (Math.max(
+              0,
+              props.options.findIndex((option) => option.value === props.selected),
+            ) *
+              100) /
+            props.options.length
+          }%`,
+        }}
+      />
       {props.options.map((option) => {
         const active = option.value === props.selected;
         return (
           <Pressable
             key={String(option.value)}
-            accessibilityRole="button"
+            accessibilityRole={Platform.OS === "ios" ? "button" : (props.role ?? "button")}
+            accessibilityLabel={option.accessibilityLabel ?? option.label}
             accessibilityState={{ selected: active }}
             onPress={() => props.onSelect(option.value)}
-            className={
-              active
-                ? "flex-1 items-center rounded-full bg-subtle-strong py-2"
-                : "flex-1 items-center py-2"
-            }
+            className={cn(
+              "flex-1 items-center justify-center rounded-full",
+              compact ? "h-9" : "h-11",
+            )}
           >
             <Text
               className={
@@ -189,7 +253,6 @@ function ChartCard(props: {
   readonly days: readonly string[];
   readonly daily: readonly DailyTotals[];
   readonly metric: UsageChartMetric;
-  readonly onMetricChange: (metric: UsageChartMetric) => void;
   readonly sinceDay: string;
   readonly untilDay: string;
   readonly isPast24Hours: boolean;
@@ -438,10 +501,14 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
               {model.model}
             </Text>
             <Text className="text-sm text-foreground-muted">
-              {formatPercent(model.costShare)} of cost · {formatTokens(model.totalTokens)} tokens
+              {isModelCostUnknown(model)
+                ? `no known rates · ${formatTokens(model.totalTokens)} tokens`
+                : `${formatPercent(model.costShare)} of cost · ${formatTokens(model.totalTokens)} tokens`}
             </Text>
           </View>
-          <Text className="text-base tabular-nums text-foreground">{formatUsd(model.costUsd)}</Text>
+          <Text className="text-base tabular-nums text-foreground">
+            {isModelCostUnknown(model) ? "Unpriced" : formatUsd(model.costUsd)}
+          </Text>
         </View>
       ))}
     </SettingsSection>
@@ -453,48 +520,22 @@ function ModelsSection(props: { readonly merged: MergedUsage }) {
  * one that failed, or one whose transcripts another environment already
  * reported.
  */
-function UsageCoverageNotice(props: {
-  readonly environments: readonly EnvironmentUsageStatus[];
-  readonly merged: MergedUsage;
-  readonly isPartial: boolean;
-}) {
-  const failed = props.environments.filter((environment) => environment.error !== null);
-  const stale = props.environments.filter((environment) =>
-    props.merged.staleEnvironments.includes(environment.environmentId),
-  );
-  const duplicateSources = props.merged.duplicateSources;
-  if (
-    failed.length === 0 &&
-    stale.length === 0 &&
-    duplicateSources.length === 0 &&
-    !props.isPartial
-  ) {
-    return null;
-  }
+function isUsageLoading(environment: EnvironmentUsageStatus) {
+  return environment.isPending || (environment.summary === null && environment.error === null);
+}
 
-  return (
-    <View className="gap-1 rounded-[16px] border-continuous bg-card px-4 py-3">
-      {props.isPartial ? (
-        <Text className="text-sm text-foreground-muted">
-          Some environments are still reporting. Totals are partial.
-        </Text>
-      ) : null}
-      {failed.map((environment) => (
-        <Text key={environment.environmentId} className="text-sm text-foreground-muted">
-          {environment.label} could not report usage.
-        </Text>
-      ))}
-      {stale.map((environment) => (
-        <Text key={environment.environmentId} className="text-sm text-foreground-muted">
-          {environment.label} runs an older server version and is excluded from totals.
-        </Text>
-      ))}
-      {duplicateSources.length > 0 ? (
-        <Text className="text-sm text-foreground-muted">
-          Counted once across environments sharing a transcript directory:{" "}
-          {duplicateSources.join(", ")}
-        </Text>
-      ) : null}
-    </View>
-  );
+function usageEnvironmentStatus(environment: EnvironmentUsageStatus): string {
+  if (
+    environment.summary &&
+    !isCompatibleUsageContractVersion(environment.summary.contractVersion, USAGE_CONTRACT_VERSION)
+  ) {
+    return "Older server · excluded from usage totals";
+  }
+  if (!environment.isConnected)
+    return environment.summary ? "Disconnected · showing saved usage" : "Waiting for connection…";
+  if (environment.error)
+    return environment.summary ? "Usage unavailable · showing saved totals" : "Usage unavailable";
+  if (isUsageLoading(environment))
+    return environment.summary ? "Updating usage…" : "Loading usage…";
+  return "Usage up to date";
 }

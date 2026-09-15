@@ -81,7 +81,9 @@ describe("DesktopEarlyElectronStartup", () => {
     });
 
     assert.deepEqual(options, {
+      isDevelopment: true,
       linuxWmClass: "rune-dev",
+      linuxDesktopEntryName: "rune-dev.desktop",
       passwordStore: "gnome-libsecret",
     });
   });

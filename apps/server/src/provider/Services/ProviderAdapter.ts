@@ -44,6 +44,11 @@ export interface ProviderAdapterCapabilities extends Partial<ProviderAdapterCapa
    * Declares whether changing the model on an existing session is supported.
    */
   readonly sessionModelSwitch: ProviderSessionModelSwitchMode;
+  /** Starts a resumed turn with no synthetic user prompt. Omitted means the
+      adapter needs an explicit continuation instruction. */
+  readonly promptlessTurnContinuation?: boolean;
+  /** False when native conversation history cannot be rewound. */
+  readonly supportsConversationRollback?: boolean;
 }
 
 /** Legacy adapters fail closed until they advertise each capability. */
@@ -107,6 +112,9 @@ export interface ProviderAdapterShape<TError> {
   readonly sendTurn: (
     input: ProviderSendTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, TError>;
+
+  /** Omitted when this adapter does not support manual context compaction. */
+  readonly compaction?: ProviderCompaction<TError>;
 
   /**
    * Interrupt an active turn.

@@ -1,661 +1,1294 @@
-import { it } from "@effect/vitest";
-import * as Deferred from "effect/Deferred";
-import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Queue from "effect/Queue";
-import * as Ref from "effect/Ref";
-import * as Sink from "effect/Sink";
-import * as Stream from "effect/Stream";
-import { ChildProcessSpawner } from "effect/unstable/process";
-import * as NodeAssert from "node:assert/strict";
-import { expect } from "vite-plus/test";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as PlatformError from "effect/PlatformError";
+import { expect, it } from "@effect/vitest";
 import {
   AntigravitySettings,
-  ProviderDriverKind,
+  ApprovalRequestId,
   ProviderInstanceId,
-  type ProviderRuntimeEvent,
   ThreadId,
+  type ProviderRuntimeEvent,
 } from "@rune/contracts";
+import * as Deferred from "effect/Deferred";
+import * as Crypto from "effect/Crypto";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as AcpErrors from "effect-acp/errors";
+import type * as AcpSchema from "effect-acp/schema";
 
-import { makeAntigravityAdapter } from "./AntigravityAdapter.ts";
+import { ServerConfig } from "../../config.ts";
+import { ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE } from "../antigravityAuthSupport.ts";
+import type { AcpSessionRuntimeEvent } from "../acp/AcpSessionRuntime.ts";
+import { makeAntigravityAcpRuntime } from "../acp/AntigravityAcpSupport.ts";
+import {
+  mergeToolCallState,
+  parseSessionUpdateEvent,
+  type AcpToolCallState,
+} from "../acp/AcpRuntimeModel.ts";
+import { makeAntigravityAdapter, type AntigravityAdapterOptions } from "./AntigravityAdapter.ts";
 
+const instanceId = ProviderInstanceId.make("antigravity-test");
+const threadId = ThreadId.make("antigravity-thread");
+const nativeSessionId = "b75db7e9-cd99-40e5-aa63-ac2b4674a6a9";
+const nativeDefault = "gemini-test-low";
+const nativeAlternative = "gemini-test-high";
 const decodeSettings = Schema.decodeSync(AntigravitySettings);
+const decodeRequestLog = Schema.decodeEffect(
+  Schema.Array(
+    Schema.fromJsonString(
+      Schema.Struct({ method: Schema.String, params: Schema.optional(Schema.Unknown) }),
+    ),
+  ),
+);
 
-it.layer(NodeServices.layer)("AntigravityAdapter", (it) => {
-  it.effect("runs a persistent agy stream and maps init, text, and result events", () =>
+interface NativePrompt {
+  readonly index: number;
+  readonly content: ReadonlyArray<AcpSchema.ContentBlock>;
+  readonly result: Deferred.Deferred<AcpSchema.PromptResponse, AcpErrors.AcpError>;
+}
+
+type Runtime = Effect.Success<ReturnType<AntigravityAdapterOptions["makeRuntime"]>>;
+
+function nativeToolUpdate(
+  update: Extract<
+    AcpSchema.SessionNotification["update"],
+    { sessionUpdate: "tool_call" | "tool_call_update" }
+  >,
+  previous?: AcpToolCallState,
+) {
+  const event = parseSessionUpdateEvent({ sessionId: nativeSessionId, update }).events.find(
+    (event) => event._tag === "ToolCallUpdated",
+  );
+  if (!event) throw new Error("Expected a native tool update");
+  return { ...event, toolCall: mergeToolCallState(previous, event.toolCall) };
+}
+
+const makeHarness = Effect.fn("makeAntigravityAdapterHarness")(function* (options?: {
+  readonly enabled?: boolean;
+  readonly holdCancel?: boolean;
+  readonly holdClose?: boolean;
+  readonly holdDispatch?: boolean;
+}) {
+  const runtimeEvents = yield* Queue.unbounded<AcpSessionRuntimeEvent>();
+  const canonicalEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const prompts = yield* Queue.unbounded<NativePrompt>();
+  const cancellations = yield* Queue.unbounded<number>();
+  const cancelRelease = yield* Deferred.make<void>();
+  const closeStarted = yield* Deferred.make<void>();
+  const closeRelease = yield* Deferred.make<void>();
+  const dispatchStarted = yield* Deferred.make<void>();
+  const dispatchRelease = yield* Deferred.make<void>();
+  const seen: ProviderRuntimeEvent[] = [];
+  const calls: string[] = [];
+  const launches: Array<Parameters<AntigravityAdapterOptions["makeRuntime"]>[0]> = [];
+  const stops: Array<Effect.Effect<void>> = [];
+  const controls = { failModel: false, failAuth: false, authInvalidations: 0, closed: 0 };
+  let currentModel = nativeDefault;
+  let promptIndex = 0;
+  let active: NativePrompt | undefined;
+  const fileHandlers: {
+    read?: Parameters<Runtime["handleReadTextFile"]>[0];
+    write?: Parameters<Runtime["handleWriteTextFile"]>[0];
+  } = {};
+  let permissionHandler:
+    | ((
+        request: AcpSchema.RequestPermissionRequest,
+      ) => Effect.Effect<AcpSchema.RequestPermissionResponse, AcpErrors.AcpError>)
+    | undefined;
+
+  const configOptions = (): ReadonlyArray<AcpSchema.SessionConfigOption> => [
+    {
+      id: "model",
+      name: "Model",
+      type: "select",
+      category: "model",
+      currentValue: currentModel,
+      options: [
+        { value: nativeDefault, name: "Gemini test low" },
+        { value: nativeAlternative, name: "Gemini test high" },
+      ],
+    },
+  ];
+  const drainEvents = Effect.gen(function* () {
+    const acknowledge = yield* Deferred.make<void>();
+    yield* Queue.offer(runtimeEvents, { _tag: "EventStreamBarrier", acknowledge });
+    yield* Deferred.await(acknowledge);
+  });
+  const emitNative = (event: AcpSessionRuntimeEvent) =>
+    Queue.offer(runtimeEvents, event).pipe(Effect.asVoid);
+  const runtime: Effect.Success<ReturnType<AntigravityAdapterOptions["makeRuntime"]>> = {
+    handleRequestPermission: (handler) =>
+      Effect.sync(() => {
+        permissionHandler = handler;
+      }),
+    handleReadTextFile: (handler) =>
+      Effect.sync(() => {
+        fileHandlers.read = handler;
+      }),
+    handleWriteTextFile: (handler) =>
+      Effect.sync(() => {
+        fileHandlers.write = handler;
+      }),
+    start: () =>
+      Effect.gen(function* () {
+        if (controls.failAuth) {
+          return yield* new AcpErrors.AcpTransportError({
+            detail: ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE,
+            cause: undefined,
+          });
+        }
+        currentModel = nativeDefault;
+        calls.push("start");
+        yield* emitNative({
+          _tag: "AvailableCommandsUpdated",
+          availableCommands: [
+            { name: "plan", description: "Create a plan" },
+            { name: "logout", description: "Sign out" },
+          ],
+          rawPayload: {},
+        });
+        return {
+          sessionId: nativeSessionId,
+          initializeResult: {
+            protocolVersion: 1,
+            agentCapabilities: { sessionCapabilities: { resume: {} } },
+          },
+          sessionSetupResult: { sessionId: nativeSessionId, configOptions: configOptions() },
+          modelConfigId: "model",
+        };
+      }),
+    getConfigOptions: Effect.sync(configOptions),
+    setModel: (model) =>
+      Effect.gen(function* () {
+        calls.push(`model:${model}`);
+        if (controls.failModel) {
+          controls.failModel = false;
+          return yield* AcpErrors.AcpRequestError.invalidParams("Native model selection failed.");
+        }
+        currentModel = model;
+      }),
+    setMode: (mode) =>
+      Effect.sync(() => {
+        calls.push(`mode:${mode}`);
+        return {};
+      }),
+    getEvents: () => Stream.fromQueue(runtimeEvents),
+    drainEvents,
+    prompt: (payload, promptOptions) =>
+      Effect.gen(function* () {
+        yield* Deferred.succeed(dispatchStarted, undefined);
+        if (options?.holdDispatch) yield* Deferred.await(dispatchRelease);
+        const prompt: NativePrompt = {
+          index: ++promptIndex,
+          content: payload.prompt,
+          result: yield* Deferred.make<AcpSchema.PromptResponse, AcpErrors.AcpError>(),
+        };
+        active = prompt;
+        calls.push(`prompt:${prompt.index}`);
+        if (promptOptions?.dispatched) yield* Deferred.succeed(promptOptions.dispatched, undefined);
+        yield* Queue.offer(prompts, prompt);
+        return yield* Deferred.await(prompt.result).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (active === prompt) active = undefined;
+            }),
+          ),
+        );
+      }),
+    cancel: Effect.gen(function* () {
+      const prompt = active;
+      if (!prompt) return;
+      calls.push(`cancel:${prompt.index}`);
+      yield* Queue.offer(cancellations, prompt.index);
+      if (options?.holdCancel) yield* Deferred.await(cancelRelease);
+      yield* Deferred.succeed(prompt.result, { stopReason: "cancelled" });
+      yield* Deferred.await(prompt.result);
+      yield* drainEvents;
+      calls.push(`drained:${prompt.index}`);
+    }),
+  };
+  const commandUpdates: Array<ReadonlyArray<AcpSchema.AvailableCommand>> = [];
+  const adapter = yield* makeAntigravityAdapter(
+    decodeSettings({ enabled: options?.enabled ?? true }),
+    {
+      instanceId,
+      makeRuntime: (input) =>
+        Effect.gen(function* () {
+          launches.push(input);
+          yield* Effect.addFinalizer(() =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(closeStarted, undefined);
+              if (options?.holdClose) yield* Deferred.await(closeRelease);
+              controls.closed += 1;
+            }),
+          );
+          return runtime;
+        }),
+      withProcess: (stop, task) =>
+        Effect.suspend(() => {
+          stops.push(stop);
+          return task;
+        }),
+      onAvailableCommands: (commands) =>
+        Effect.sync(() => {
+          commandUpdates.push(commands);
+        }),
+      onAuthRequired: Effect.sync(() => {
+        controls.authInvalidations += 1;
+      }),
+    },
+  );
+  yield* adapter.streamEvents.pipe(
+    Stream.runForEach((event) =>
+      Effect.sync(() => {
+        seen.push(event);
+      }).pipe(Effect.andThen(Queue.offer(canonicalEvents, event))),
+    ),
+    Effect.forkScoped({ startImmediately: true }),
+  );
+  yield* Effect.addFinalizer(() =>
+    Effect.all([
+      Deferred.succeed(cancelRelease, undefined),
+      Deferred.succeed(closeRelease, undefined),
+      Deferred.succeed(dispatchRelease, undefined),
+    ]).pipe(Effect.asVoid),
+  );
+  const waitForEvent = Effect.fn("AntigravityAdapterTest.waitForEvent")(function* <
+    T extends ProviderRuntimeEvent,
+  >(predicate: (event: ProviderRuntimeEvent) => event is T) {
+    while (true) {
+      const event = yield* Queue.take(canonicalEvents);
+      if (predicate(event)) return event;
+    }
+  });
+  const invokePermission = (request: AcpSchema.RequestPermissionRequest) =>
+    Effect.suspend(() =>
+      permissionHandler
+        ? permissionHandler(request)
+        : Effect.die("Missing native permission handler"),
+    );
+  return {
+    fileHandlers,
+    adapter,
+    calls,
+    launches,
+    commandUpdates,
+    controls,
+    seen,
+    stops,
+    waitForEvent,
+    emitNative,
+    invokePermission,
+    closeStarted,
+    closeRelease,
+    cancelRelease,
+    dispatchStarted,
+    dispatchRelease,
+    nextPrompt: Queue.take(prompts),
+    nextCancellation: Queue.take(cancellations),
+    drainEvents,
+    hasActivePrompt: () => active !== undefined,
+  };
+});
+const layer = ServerConfig.layerTest(process.cwd(), {
+  prefix: "rune-antigravity-adapter-test-",
+}).pipe(Layer.provideMerge(NodeServices.layer));
+
+it.layer(layer)("AntigravityAdapter", (it) => {
+  it.effect(
+    "runs native auth, resume, models, commands, and streaming through the ACP transport",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const crypto = yield* Crypto.Crypto;
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "rune-antigravity-transport-",
+        });
+        const mockAgentPath = yield* path.fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const requestLog = path.join(cwd, "requests.ndjson");
+        const commands: string[] = [];
+        const modelSelections: string[] = [];
+        const observed: ProviderRuntimeEvent[] = [];
+        const completed = yield* Deferred.make<void>();
+        const adapter = yield* makeAntigravityAdapter(decodeSettings({ enabled: true }), {
+          instanceId,
+          withProcess: (_stop, task) => task,
+          makeRuntime: (input) =>
+            makeAntigravityAcpRuntime({
+              ...input,
+              childProcessSpawner,
+              spawn: {
+                command: process.execPath,
+                args: [mockAgentPath],
+                cwd: input.cwd,
+                env: {
+                  ...process.env,
+                  RUNE_ACP_ANTIGRAVITY: "1",
+                  RUNE_ACP_REQUEST_LOG_PATH: requestLog,
+                },
+                extendEnv: false,
+              },
+            }).pipe(Effect.provideService(Crypto.Crypto, crypto)),
+          onAvailableCommands: (available) =>
+            Effect.sync(() => {
+              commands.push(...available.map((command) => command.name));
+            }),
+          onConfigOptionsUpdated: (configOptions) =>
+            Effect.sync(() => {
+              const model = configOptions.find((option) => option.category === "model");
+              if (model?.type === "select") modelSelections.push(model.currentValue);
+            }),
+        });
+        yield* adapter.streamEvents.pipe(
+          Stream.runForEach((event) =>
+            Effect.gen(function* () {
+              observed.push(event);
+              if (event.type === "turn.completed") yield* Deferred.succeed(completed, undefined);
+            }),
+          ),
+          Effect.forkScoped({ startImmediately: true }),
+        );
+        const original = yield* adapter.startSession({
+          threadId,
+          cwd,
+          runtimeMode: "auto-accept-edits",
+          modelSelection: { instanceId, model: nativeAlternative },
+        });
+        yield* adapter.stopSession(threadId);
+        const resumed = yield* adapter.startSession({
+          threadId,
+          cwd,
+          runtimeMode: "auto-accept-edits",
+          modelSelection: { instanceId, model: nativeAlternative },
+          resumeCursor: original.resumeCursor,
+        });
+        expect(resumed.model).toBe(nativeAlternative);
+        yield* adapter.sendTurn({ threadId, input: "Reply with one short line." });
+        yield* Deferred.await(completed);
+        expect(commands).toEqual(["plan", "logout", "plan", "logout"]);
+        expect(modelSelections.length).toBeGreaterThan(0);
+        expect(modelSelections.every((model) => model === nativeAlternative)).toBe(true);
+        expect(
+          observed
+            .filter((event) => event.type === "content.delta")
+            .map((event) => event.payload.delta)
+            .join(""),
+        ).toBe("hello from mock");
+        const lines = (yield* fileSystem.readFileString(requestLog)).trim().split("\n");
+        const requests = yield* decodeRequestLog(lines);
+        expect(
+          requests
+            .filter((request) => request.method === "authenticate")
+            .map((request) => request.params),
+        ).toEqual([{ methodId: "oauth-personal" }, { methodId: "oauth-personal" }]);
+        expect(requests.some((request) => request.method === "session/resume")).toBe(true);
+        expect(requests.some((request) => request.method === "session/load")).toBe(false);
+        expect(
+          requests
+            .filter((request) => request.method === "session/set_config_option")
+            .map((request) => request.params),
+        ).toContainEqual({ sessionId: "mock-session-1", configId: "mode", value: "auto_edit" });
+      }),
+  );
+
+  it.effect("reapplies the exact saved model and mode after a native resume", () =>
     Effect.gen(function* () {
-      const output = yield* Queue.unbounded<Uint8Array>();
-      const killCalls = yield* Ref.make(0);
-      const commands: ReadonlyArray<string>[] = [];
-      const spawner = ChildProcessSpawner.make((command) => {
-        const childCommand = command as unknown as { readonly args: ReadonlyArray<string> };
-        commands.push([...childCommand.args]);
-        return Effect.succeed(
-          ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(1),
-            exitCode: Effect.never,
-            isRunning: Effect.succeed(true),
-            kill: () => Ref.update(killCalls, (calls) => calls + 1),
-            unref: Effect.succeed(Effect.void),
-            stdin: Sink.drain,
-            stdout: Stream.fromQueue(output),
-            stderr: Stream.never,
-            all: Stream.empty,
-            getInputFd: () => Sink.drain,
-            getOutputFd: () => Stream.empty,
+      const h = yield* makeHarness();
+      const first = yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "auto-accept-edits",
+        modelSelection: { instanceId, model: nativeAlternative },
+      });
+      expect(first.model).toBe(nativeAlternative);
+      yield* h.adapter.stopSession(threadId);
+      const second = yield* h.adapter.startSession({
+        threadId,
+        cwd: "/tmp",
+        runtimeMode: "auto-accept-edits",
+        resumeCursor: first.resumeCursor,
+        modelSelection: { instanceId, model: nativeAlternative },
+      });
+      expect(second.model).toBe(nativeAlternative);
+      // The adapter resolves the cwd it was given through the host Path.
+      expect(second.cwd).toBe((yield* Path.Path).resolve("/tmp"));
+      expect(h.launches[1]?.resumeSessionId).toBe(nativeSessionId);
+      expect(h.calls).toEqual([
+        "start",
+        `model:${nativeAlternative}`,
+        "mode:auto_edit",
+        "start",
+        `model:${nativeAlternative}`,
+        "mode:auto_edit",
+      ]);
+      expect(h.commandUpdates.at(-1)?.map((command) => command.name)).toEqual(["plan", "logout"]);
+      expect(h.adapter.capabilities.supportsConversationRollback).toBe(false);
+      const rollback = yield* h.adapter.rollbackThread(threadId, 1).pipe(Effect.exit);
+      expect(Exit.isFailure(rollback)).toBe(true);
+    }),
+  );
+
+  it.effect("keeps thoughts, native command results, and replies on the active turn", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Read the file" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      yield* h.emitNative({ _tag: "ThoughtDelta", text: "I will read it.", rawPayload: {} });
+      yield* h.emitNative({
+        _tag: "ToolCallUpdated",
+        toolCall: {
+          toolCallId: "command-1",
+          kind: "execute",
+          status: "completed",
+          data: {
+            rawInput: { CommandLine: "cat probe.txt", Cwd: "/tmp" },
+            rawOutput: { combinedOutput: "after\n", exitCode: 0 },
+          },
+        },
+        rawPayload: {},
+      });
+      yield* h.emitNative({ _tag: "ContentDelta", text: "The file says after.", rawPayload: {} });
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      const result = yield* Fiber.join(sending);
+      yield* h.waitForEvent((event) => event.type === "turn.completed");
+      const deltas = h.seen.filter((event) => event.type === "content.delta");
+      expect(deltas.map((event) => event.payload.streamKind)).toEqual([
+        "reasoning_text",
+        "assistant_text",
+      ]);
+      expect(deltas.every((event) => event.turnId === result.turnId)).toBe(true);
+      const tool = h.seen.find(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "command_execution",
+      );
+      expect(tool?.type === "item.completed" ? tool.payload.data : undefined).toMatchObject({
+        command: "cat probe.txt",
+        cwd: "/tmp",
+        item: { aggregatedOutput: "after\n", exitCode: 0 },
+      });
+    }),
+  );
+
+  it.effect("does not auto-approve a remaining native request in full access", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({ threadId, cwd: process.cwd(), runtimeMode: "full-access" });
+      const permission = yield* h
+        .invokePermission({
+          sessionId: nativeSessionId,
+          toolCall: { toolCallId: "write-1", kind: "edit", title: "Write probe.txt" },
+          options: [
+            { optionId: "native:allow", name: "Allow", kind: "allow_once" },
+            { optionId: "native:deny", name: "Deny", kind: "reject_once" },
+          ],
+        })
+        .pipe(Effect.forkChild);
+      const opened = yield* h.waitForEvent((event) => event.type === "request.opened");
+      expect(h.calls).toContain("mode:yolo");
+      expect(opened.payload.options).toEqual([
+        { decision: "accept", label: "Allow once" },
+        { decision: "decline", label: "Deny" },
+        { decision: "cancel", label: "Cancel" },
+      ]);
+      expect(permission.pollUnsafe()).toBeUndefined();
+      const always = yield* h.adapter
+        .respondToRequest(threadId, ApprovalRequestId.make(opened.requestId!), "acceptAlways")
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(always)).toBe(true);
+      yield* h.adapter.respondToRequest(
+        threadId,
+        ApprovalRequestId.make(opened.requestId!),
+        "decline",
+      );
+      expect(yield* Fiber.join(permission)).toEqual({
+        outcome: { outcome: "selected", optionId: "native:deny" },
+      });
+    }),
+  );
+
+  it.effect("returns opaque native question choices and rejects ambiguous labels", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({ threadId, cwd: process.cwd(), runtimeMode: "full-access" });
+      const question = yield* h
+        .invokePermission({
+          sessionId: nativeSessionId,
+          toolCall: { toolCallId: "interaction_opaque", title: "Which target?" },
+          options: [
+            { optionId: "choice:a", name: "Same label", kind: "allow_once" },
+            { optionId: "choice:b", name: "Same label", kind: "allow_once" },
+          ],
+        })
+        .pipe(Effect.forkChild);
+      const opened = yield* h.waitForEvent((event) => event.type === "user-input.requested");
+      expect(opened.payload.questions[0]?.allowCustomAnswer).toBe(false);
+      expect(opened.payload.questions[0]?.options.map((option) => option.value)).toEqual([
+        "choice:a",
+        "choice:b",
+      ]);
+      const invalid = yield* h.adapter
+        .respondToUserInput(threadId, ApprovalRequestId.make(opened.requestId!), {
+          interaction_opaque: "Same label",
+        })
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(invalid)).toBe(true);
+      expect(question.pollUnsafe()).toBeUndefined();
+      yield* h.adapter.respondToUserInput(threadId, ApprovalRequestId.make(opened.requestId!), {
+        interaction_opaque: "choice:b",
+      });
+      expect(yield* Fiber.join(question)).toEqual({
+        outcome: { outcome: "selected", optionId: "choice:b" },
+      });
+    }),
+  );
+
+  it.effect("cancels native questions before waiting for the prompt to end", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Ask a question" })
+        .pipe(Effect.forkChild);
+      yield* h.nextPrompt;
+      const question = yield* h
+        .invokePermission({
+          sessionId: nativeSessionId,
+          toolCall: { toolCallId: "interaction_cancel", title: "Continue?" },
+          options: [{ optionId: "yes", name: "Yes", kind: "allow_once" }],
+        })
+        .pipe(Effect.forkChild);
+      yield* h.waitForEvent((event) => event.type === "user-input.requested");
+      yield* h.adapter.interruptTurn(threadId);
+      expect(yield* Fiber.join(question)).toEqual({ outcome: { outcome: "cancelled" } });
+      yield* Fiber.join(sending);
+      const ended = yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(ended.payload.state).toBe("cancelled");
+      expect(h.seen.some((event) => event.type === "user-input.resolved")).toBe(true);
+    }),
+  );
+
+  it.effect("waits for native cancellation before a steer changes the model", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ holdCancel: true });
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const first = yield* h.adapter
+        .sendTurn({ threadId, input: "First prompt" })
+        .pipe(Effect.forkChild);
+      const initialPrompt = yield* h.nextPrompt;
+      expect(initialPrompt.content).toEqual([
+        { type: "text", text: "First prompt" },
+        { type: "text", text: expect.stringContaining(`Antigravity harness, as ${nativeDefault}`) },
+      ]);
+      const marker = h.calls.length;
+      const second = yield* h.adapter
+        .sendTurn({
+          threadId,
+          input: "Steer the turn",
+          modelSelection: { instanceId, model: nativeAlternative },
+        })
+        .pipe(Effect.forkChild);
+      expect(yield* h.nextCancellation).toBe(1);
+      expect(h.calls.slice(marker)).toEqual(["cancel:1"]);
+      yield* h.emitNative({
+        _tag: "ContentDelta",
+        text: "The first prompt stopped.",
+        rawPayload: {},
+      });
+      yield* Deferred.succeed(h.cancelRelease, undefined);
+      const replacement = yield* h.nextPrompt;
+      expect(replacement.content).toEqual([
+        { type: "text", text: "Steer the turn" },
+        {
+          type: "text",
+          text: expect.stringContaining(`Antigravity harness, as ${nativeAlternative}`),
+        },
+      ]);
+      expect(h.calls.slice(marker)).toEqual([
+        "cancel:1",
+        "drained:1",
+        `model:${nativeAlternative}`,
+        "mode:default",
+        "prompt:2",
+      ]);
+      yield* Deferred.succeed(replacement.result, { stopReason: "end_turn" });
+      const [oldResult, newResult] = yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
+      expect(oldResult.turnId).toBe(newResult.turnId);
+      yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(h.seen.filter((event) => event.type === "turn.completed")).toHaveLength(1);
+      expect((yield* h.adapter.listSessions())[0]).toMatchObject({
+        status: "ready",
+        activeTurnId: undefined,
+        model: nativeAlternative,
+      });
+    }),
+  );
+
+  it.effect("rejects an unavailable steer model without cancelling current work", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const first = yield* h.adapter
+        .sendTurn({ threadId, input: "Keep working" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      const invalid = yield* h.adapter
+        .sendTurn({
+          threadId,
+          input: "Change model",
+          modelSelection: { instanceId, model: "not-in-this-account" },
+        })
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(invalid)).toBe(true);
+      expect(h.calls.some((call) => call.startsWith("cancel:"))).toBe(false);
+      expect(h.hasActivePrompt()).toBe(true);
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      yield* Fiber.join(first);
+    }),
+  );
+
+  it.effect("settles a failed steer configuration and allows a later turn", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const first = yield* h.adapter.sendTurn({ threadId, input: "First" }).pipe(Effect.forkChild);
+      yield* h.nextPrompt;
+      h.controls.failModel = true;
+      const failed = yield* h.adapter
+        .sendTurn({
+          threadId,
+          input: "Replacement",
+          modelSelection: { instanceId, model: nativeAlternative },
+        })
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(failed)).toBe(true);
+      yield* Fiber.join(first);
+      const ended = yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(ended.payload.state).toBe("failed");
+      expect((yield* h.adapter.listSessions())[0]).toMatchObject({
+        status: "error",
+        activeTurnId: undefined,
+      });
+      const later = yield* h.adapter
+        .sendTurn({ threadId, input: "Try again" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      const recovered = yield* Fiber.join(later);
+      expect(recovered.turnId).not.toBe(ended.turnId);
+      expect((yield* h.adapter.listSessions())[0]?.status).toBe("ready");
+    }),
+  );
+
+  it.effect("cancels the native prompt if its send caller is interrupted", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Keep working" })
+        .pipe(Effect.forkChild);
+      yield* h.nextPrompt;
+      yield* Fiber.interrupt(sending);
+      const ended = yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(ended.payload.state).toBe("cancelled");
+      expect(h.hasActivePrompt()).toBe(false);
+      expect((yield* h.adapter.listSessions())[0]).toMatchObject({
+        status: "ready",
+        activeTurnId: undefined,
+      });
+    }),
+  );
+
+  it.effect("tracks native commands that survive a turn and clears terminal tasks", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Start a watcher" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      yield* h.emitNative({
+        _tag: "ToolCallUpdated",
+        toolCall: {
+          toolCallId: "watcher-1",
+          kind: "execute",
+          status: "inProgress",
+          command: "watch files",
+          data: {},
+        },
+        rawPayload: {},
+      });
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      const turn = yield* Fiber.join(sending);
+      const started = yield* h.waitForEvent((event) => event.type === "task.started");
+      expect(started.payload.taskType).toBe("local_bash");
+      expect(started.turnId).toBe(turn.turnId);
+      yield* h.emitNative({
+        _tag: "ToolCallUpdated",
+        toolCall: { toolCallId: "watcher-1", kind: "execute", status: "completed", data: {} },
+        rawPayload: {},
+      });
+      const ended = yield* h.waitForEvent((event) => event.type === "task.completed");
+      expect(ended.payload.taskId).toBe(started.payload.taskId);
+      expect(ended.payload.status).toBe("completed");
+    }),
+  );
+
+  it.effect("keeps a launched batch active while child tools continue", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({ threadId, cwd: process.cwd(), runtimeMode: "full-access" });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Run two readers in one batch" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      // ACP 1.1.1 capture: one launch call covers both children and returns
+      // only its description before either child finishes.
+      const started = nativeToolUpdate({
+        sessionUpdate: "tool_call",
+        toolCallId: `${nativeSessionId}:2`,
+        title: "Running start_subagent",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {},
+      });
+      yield* h.emitNative(started);
+      yield* h.waitForEvent((event) => event.type === "task.progress");
+      yield* h.emitNative(
+        nativeToolUpdate(
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: started.toolCall.toolCallId,
+            status: "completed",
+            rawOutput: "Launch subagents",
+          },
+          started.toolCall,
+        ),
+      );
+      const launched = yield* h.waitForEvent((event) => event.type === "task.progress");
+      expect(launched.payload).toMatchObject({
+        taskId: started.toolCall.toolCallId,
+        title: "Antigravity subagent batch",
+        taskType: "subagent_batch",
+        description: "Launch subagents",
+        status: "running",
+      });
+      for (const child of ["alpha", "beta"]) {
+        yield* h.emitNative(
+          nativeToolUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${child}:1`,
+            title: "Read file",
+            kind: "read",
+            status: "completed",
+            rawOutput: "File contents",
           }),
         );
+      }
+      yield* h.drainEvents;
+      expect(h.seen.filter((event) => event.type === "task.completed")).toHaveLength(0);
+      expect(h.seen.filter((event) => event.type === "task.updated")).toHaveLength(0);
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      yield* Fiber.join(sending);
+      yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(h.seen.filter((event) => event.type === "task.completed")).toHaveLength(0);
+      expect(h.seen.find((event) => event.type === "task.updated")?.payload).toMatchObject({
+        taskId: started.toolCall.toolCallId,
+        status: "idle",
+        description: "Turn ended. Individual agent status is unavailable.",
+        timelineBypass: true,
       });
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+    }),
+  );
 
-      const threadId = ThreadId.make("antigravity-stream-thread");
-      const events: ProviderRuntimeEvent[] = [];
-      const ready = yield* Deferred.make<void>();
-      const turnCompleted = yield* Deferred.make<void>();
-      const eventFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => events.push(event)).pipe(
-          Effect.andThen(
-            event.type === "session.state.changed" && event.payload.state === "ready"
-              ? Deferred.succeed(ready, undefined)
-              : event.type === "turn.completed"
-                ? Deferred.succeed(turnCompleted, undefined)
-                : Effect.void,
-          ),
-        ),
-      ).pipe(Effect.forkChild);
-
-      yield* adapter.startSession({
+  it.effect("waits for a replayed subagent's final status and result", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
         threadId,
-        provider: ProviderDriverKind.make("antigravity"),
         cwd: process.cwd(),
-        runtimeMode: "full-access",
-        modelSelection: {
-          instanceId: ProviderInstanceId.make("antigravity"),
-          model: "gemini-3.7-flash-high",
-          options: [{ id: "effort", value: "high" }],
+        runtimeMode: "approval-required",
+      });
+      // ACP history announces a completed tool first, even when its result failed.
+      yield* h.emitNative(
+        nativeToolUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "replayed:4",
+          title: "Running start_subagent",
+          kind: "other",
+          status: "completed",
+          rawInput: "{}",
+        }),
+      );
+      yield* h.emitNative(
+        nativeToolUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "replayed:4",
+          status: "failed",
+          rawOutput: "Review failed.",
+        }),
+      );
+      const completed = yield* h.waitForEvent((event) => event.type === "task.completed");
+      expect(completed.payload).toEqual({
+        taskId: "replayed:4",
+        taskType: "subagent_batch",
+        toolUseId: "replayed:4",
+        title: "Antigravity subagent batch",
+        status: "failed",
+        summary: "Review failed.",
+      });
+      expect(h.seen.filter((event) => event.type.startsWith("task."))).toHaveLength(1);
+    }),
+  );
+
+  it.effect("keeps one-message launches active and ignores late updates after settlement", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({ threadId, cwd: process.cwd(), runtimeMode: "full-access" });
+      const first = yield* h.adapter
+        .sendTurn({ threadId, input: "Start readers" })
+        .pipe(Effect.forkChild);
+      const firstPrompt = yield* h.nextPrompt;
+      const launches = ["Launch readers", undefined].map((rawOutput, index) =>
+        nativeToolUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: `old:${index}`,
+          title: "Running start_subagent",
+          kind: "other",
+          status: "completed",
+          rawInput: {},
+          ...(rawOutput ? { rawOutput } : {}),
+        }),
+      );
+      for (const launch of launches) yield* h.emitNative(launch);
+      yield* h.drainEvents;
+      expect(h.seen.filter((event) => event.type === "task.progress")).toHaveLength(2);
+      expect(h.seen.filter((event) => event.type === "task.completed")).toHaveLength(0);
+      yield* Deferred.succeed(firstPrompt.result, { stopReason: "end_turn" });
+      yield* Fiber.join(first);
+      yield* h.waitForEvent((event) => event.type === "turn.completed");
+      const second = yield* h.adapter
+        .sendTurn({ threadId, input: "Next task" })
+        .pipe(Effect.forkChild);
+      const secondPrompt = yield* h.nextPrompt;
+      for (const launch of launches) {
+        for (const status of ["in_progress", "completed", "failed"] as const) {
+          yield* h.emitNative(
+            nativeToolUpdate(
+              {
+                sessionUpdate: "tool_call_update",
+                toolCallId: launch.toolCall.toolCallId,
+                status,
+                rawOutput: "Late update",
+              },
+              launch.toolCall,
+            ),
+          );
+        }
+      }
+      yield* h.drainEvents;
+      expect(h.seen.filter((event) => event.type === "task.progress")).toHaveLength(2);
+      expect(h.seen.filter((event) => event.type === "task.updated")).toHaveLength(2);
+      expect(h.seen.filter((event) => event.type === "task.completed")).toHaveLength(0);
+      yield* Deferred.succeed(secondPrompt.result, { stopReason: "end_turn" });
+      yield* Fiber.join(second);
+    }),
+  );
+
+  it.effect("does not report a historical launch as running or completed work", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({ threadId, cwd: process.cwd(), runtimeMode: "full-access" });
+      const launch = nativeToolUpdate({
+        sessionUpdate: "tool_call",
+        toolCallId: "history:2",
+        title: "Running start_subagent",
+        kind: "other",
+        status: "completed",
+        rawInput: {},
+      });
+      yield* h.emitNative(launch);
+      yield* h.emitNative(
+        nativeToolUpdate(
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: launch.toolCall.toolCallId,
+            status: "completed",
+            rawOutput: "Launch readers",
+          },
+          launch.toolCall,
+        ),
+      );
+      yield* h.drainEvents;
+      expect(h.seen.filter((event) => event.type.startsWith("task."))).toMatchObject([
+        {
+          type: "task.updated",
+          payload: { status: "idle", timelineBypass: true },
         },
-      });
-
-      const publishLine = (event: Record<string, unknown>) =>
-        Queue.offer(output, new TextEncoder().encode(`${JSON.stringify(event)}\n`));
-
-      yield* publishLine({
-        event: "init",
-        conversation_id: "agy-conversation-1",
-        init: { model: "gemini-3.7-flash-high" },
-      });
-      yield* Deferred.await(ready);
-
-      expect(commands[0]).toEqual([
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--model",
-        "gemini-3.7-flash-high",
-        "--effort",
-        "high",
-        "--dangerously-skip-permissions",
       ]);
-
-      const turn = yield* adapter.sendTurn({
-        threadId,
-        input: "hello Antigravity",
-        attachments: [],
-        modelSelection: {
-          instanceId: ProviderInstanceId.make("antigravity"),
-          model: "gemini-3.7-flash-high",
-          options: [{ id: "effort", value: "high" }],
-        },
-      });
-      expect(turn.threadId).toBe(threadId);
-
-      yield* publishLine({
-        event: "step_update",
-        step_update: {
-          step_type: "agent_response",
-          text_delta: "hello from Antigravity",
-        },
-      });
-      yield* publishLine({
-        event: "result",
-        result: {
-          status: "SUCCESS",
-          response: "hello from Antigravity",
-          usage: { input_tokens: 3, output_tokens: 4 },
-        },
-      });
-      yield* Deferred.await(turnCompleted);
-
-      const delta = events.find((event) => event.type === "content.delta");
-      expect(delta?.type).toBe("content.delta");
-      if (delta?.type === "content.delta") {
-        expect(delta.payload.delta).toBe("hello from Antigravity");
-      }
-      const completed = events.find((event) => event.type === "turn.completed");
-      expect(completed?.type).toBe("turn.completed");
-      if (completed?.type === "turn.completed") {
-        expect(completed.payload.state).toBe("completed");
-      }
-
-      yield* adapter.stopSession(threadId);
-      expect(yield* Ref.get(killCalls)).toBeGreaterThan(0);
-      yield* Fiber.interrupt(eventFiber);
     }),
   );
 
-  it.effect("persists the CLI conversation id and resumes it in a replacement process", () =>
+  it.effect("keeps MCP identity when later updates omit metadata", () =>
     Effect.gen(function* () {
-      const outputQueues: Queue.Queue<Uint8Array>[] = [];
-      const commands: ReadonlyArray<string>[] = [];
-      const spawner = ChildProcessSpawner.make((command) =>
-        Effect.gen(function* () {
-          const output = yield* Queue.unbounded<Uint8Array>();
-          outputQueues.push(output);
-          const childCommand = command as unknown as { readonly args: ReadonlyArray<string> };
-          commands.push([...childCommand.args]);
-          return ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(2 + outputQueues.length),
-            exitCode: Effect.never,
-            isRunning: Effect.succeed(true),
-            kill: () => Effect.void,
-            unref: Effect.succeed(Effect.void),
-            stdin: Sink.drain,
-            stdout: Stream.fromQueue(output),
-            stderr: Stream.never,
-            all: Stream.empty,
-            getInputFd: () => Sink.drain,
-            getOutputFd: () => Stream.empty,
-          });
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Run an MCP tool" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      const started = nativeToolUpdate({
+        sessionUpdate: "tool_call",
+        toolCallId: "mcp-4",
+        title: "Running start_subagent",
+        kind: "other",
+        status: "in_progress",
+        rawInput: { arguments: {} },
+        _meta: { is_mcp_tool_call: true },
+      });
+      yield* h.emitNative(started);
+      for (const status of ["in_progress", "completed"] as const) {
+        yield* h.emitNative(
+          nativeToolUpdate(
+            {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "mcp-4",
+              status,
+              rawOutput: "MCP output.",
+            },
+            started.toolCall,
+          ),
+        );
+      }
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      yield* Fiber.join(sending);
+      yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(h.seen.filter((event) => event.type.startsWith("task."))).toHaveLength(0);
+      expect(h.seen.filter((event) => event.type === "item.updated")).toHaveLength(2);
+      expect(h.seen.filter((event) => event.type === "item.completed")).toHaveLength(1);
+    }),
+  );
+
+  it.effect("shows pending subagents and closes a denied invocation", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      yield* h.emitNative(
+        nativeToolUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "permission-1",
+          title: "Run start_subagent?",
+          kind: "other",
+          status: "pending",
+          rawInput: {},
         }),
       );
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      const threadId = ThreadId.make("antigravity-resume-thread");
-      const ready = yield* Deferred.make<void>();
-      const replacementReady = yield* Deferred.make<void>();
-      let readySignal = ready;
-      const eventFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        event.type === "session.state.changed" && event.payload.state === "ready"
-          ? Deferred.succeed(readySignal, undefined)
-          : Effect.void,
-      ).pipe(Effect.forkChild);
-
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        resumeCursor: { schemaVersion: 1, conversationId: "agy-conversation-previous" },
-        runtimeMode: "full-access",
-      });
-      yield* Queue.offer(
-        outputQueues[0]!,
-        new TextEncoder().encode(
-          '{"event":"init","conversation_id":"agy-conversation-previous","model":"gemini-3.7-flash-high"}\n',
-        ),
-      );
-      yield* Deferred.await(ready);
-
-      expect(commands[0]).toContain("--conversation");
-      expect(commands[0]).toContain("agy-conversation-previous");
-      const session = (yield* adapter.listSessions())[0];
-      expect(session?.resumeCursor).toEqual({
-        schemaVersion: 1,
-        conversationId: "agy-conversation-previous",
-      });
-
-      const turn = yield* adapter.sendTurn({
-        threadId,
-        input: "continue after the restart",
-        attachments: [],
-      });
-      expect(turn.resumeCursor).toEqual(session?.resumeCursor);
-
-      yield* adapter.stopSession(threadId);
-      readySignal = replacementReady;
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        resumeCursor: turn.resumeCursor,
-        runtimeMode: "full-access",
-      });
-      yield* Queue.offer(
-        outputQueues[1]!,
-        new TextEncoder().encode(
-          '{"event":"init","conversation_id":"agy-conversation-previous","model":"gemini-3.7-flash-high"}\n',
-        ),
-      );
-      yield* Deferred.await(replacementReady);
-      expect(commands[1]).toContain("--conversation");
-      expect(commands[1]).toContain("agy-conversation-previous");
-      yield* adapter.stopSession(threadId);
-      yield* Fiber.interrupt(eventFiber);
-    }),
-  );
-
-  it.effect("ignores stale output from a replaced session generation", () =>
-    Effect.gen(function* () {
-      const outputQueues: Queue.Queue<Uint8Array>[] = [];
-      const spawner = ChildProcessSpawner.make(() =>
-        Effect.gen(function* () {
-          const output = yield* Queue.unbounded<Uint8Array>();
-          outputQueues.push(output);
-          return ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(10 + outputQueues.length),
-            exitCode: Effect.never,
-            isRunning: Effect.succeed(true),
-            kill: () => Effect.void,
-            unref: Effect.succeed(Effect.void),
-            stdin: Sink.drain,
-            stdout: Stream.fromQueue(output),
-            stderr: Stream.never,
-            all: Stream.empty,
-            getInputFd: () => Sink.drain,
-            getOutputFd: () => Stream.empty,
-          });
+      const pending = yield* h.waitForEvent((event) => event.type === "task.progress");
+      expect(pending.payload.status).toBe("pending");
+      yield* h.emitNative(
+        nativeToolUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "permission-1",
+          status: "failed",
         }),
       );
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      const threadId = ThreadId.make("antigravity-stale-generation");
-      const events: ProviderRuntimeEvent[] = [];
-      const replacementReady = yield* Deferred.make<void>();
-      const eventFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => events.push(event)).pipe(
-          Effect.andThen(
-            event.type === "thread.started" &&
-              event.payload.providerThreadId === "fresh-conversation"
-              ? Deferred.succeed(replacementReady, undefined)
-              : Effect.void,
-          ),
-        ),
-      ).pipe(Effect.forkChild);
-
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        resumeCursor: { schemaVersion: 1, conversationId: "fresh-conversation" },
-        runtimeMode: "full-access",
-      });
-
-      yield* Queue.offer(
-        outputQueues[0]!,
-        new TextEncoder().encode(
-          '{"event":"init","conversation_id":"stale-conversation","model":"stale-model"}\n',
-        ),
-      );
-      yield* Effect.yieldNow;
-      NodeAssert.equal(
-        events.some(
-          (event) =>
-            event.type === "thread.started" &&
-            event.payload.providerThreadId === "stale-conversation",
-        ),
-        false,
-      );
-
-      yield* Queue.offer(
-        outputQueues[1]!,
-        new TextEncoder().encode(
-          '{"event":"init","conversation_id":"fresh-conversation","model":"fresh-model"}\n',
-        ),
-      );
-      yield* Deferred.await(replacementReady);
-      const current = (yield* adapter.listSessions())[0];
-      NodeAssert.equal(current?.resumeCursor?.conversationId, "fresh-conversation");
-      NodeAssert.equal(
-        events.filter((event) => event.type === "thread.started").length,
-        1,
-      );
-
-      yield* adapter.stopSession(threadId);
-      yield* Fiber.interrupt(eventFiber);
+      const completed = yield* h.waitForEvent((event) => event.type === "task.completed");
+      expect(completed.payload.status).toBe("failed");
     }),
   );
 
-  it.effect("projects readiness timeout as a recoverable staged diagnostic", () =>
-    Effect.gen(function* () {
-      const spawner = ChildProcessSpawner.make(() =>
-        Effect.succeed(
-          ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(20),
-            exitCode: Effect.never,
-            isRunning: Effect.succeed(true),
-            kill: () => Effect.void,
-            unref: Effect.succeed(Effect.void),
-            stdin: Sink.drain,
-            stdout: Stream.never,
-            stderr: Stream.never,
-            all: Stream.empty,
-            getInputFd: () => Sink.drain,
-            getOutputFd: () => Stream.empty,
-          }),
-        ),
-      );
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-        sessionReadyTimeoutMs: 10,
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      const threadId = ThreadId.make("antigravity-readiness-timeout");
-      const events: ProviderRuntimeEvent[] = [];
-      const exited = yield* Deferred.make<void>();
-      const eventFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => events.push(event)).pipe(
-          Effect.andThen(
-            event.type === "session.exited"
-              ? Deferred.succeed(exited, undefined)
-              : Effect.void,
-          ),
-        ),
-      ).pipe(Effect.forkChild);
-
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
-      const result = yield* adapter
-        .sendTurn({ threadId, input: "hello", attachments: [] })
-        .pipe(Effect.result);
-      NodeAssert.equal(result._tag, "Failure");
-      if (result._tag === "Failure") {
-        NodeAssert.equal(result.failure._tag, "ProviderAdapterProcessError");
-        if (result.failure._tag === "ProviderAdapterProcessError") {
-          NodeAssert.equal(result.failure.stage, "process-initialization");
-          NodeAssert.equal(result.failure.providerInstanceId, "antigravity");
-          NodeAssert.equal(result.failure.generation, 1);
-          NodeAssert.equal(result.failure.recoverable, true);
-          NodeAssert.equal(result.failure.safeMessage, result.failure.detail);
-          NodeAssert.match(result.failure.detail, /did not initialize within 0\.01 seconds/);
-          NodeAssert.equal(typeof result.failure.occurredAt, "string");
-          NodeAssert.ok(Number.isFinite(Date.parse(result.failure.occurredAt ?? "")));
-        }
-      }
-
-      yield* Deferred.await(exited);
-      const stateChanged = events.find(
-        (event) => event.type === "session.state.changed" && event.payload.state === "error",
-      );
-      NodeAssert.equal(stateChanged?.type, "session.state.changed");
-      if (stateChanged?.type === "session.state.changed") {
-        NodeAssert.match(stateChanged.payload.reason ?? "", /did not initialize/);
-        const diagnostic = stateChanged.payload.detail as
-          | { readonly stage?: unknown; readonly recoverable?: unknown; readonly generation?: unknown }
-          | undefined;
-        NodeAssert.equal(diagnostic?.stage, "process-initialization");
-        NodeAssert.equal(diagnostic?.recoverable, true);
-        NodeAssert.equal(diagnostic?.generation, 1);
-      }
-      const sessionExited = events.find((event) => event.type === "session.exited");
-      NodeAssert.equal(sessionExited?.type, "session.exited");
-      if (sessionExited?.type === "session.exited") {
-        NodeAssert.equal(sessionExited.payload.exitKind, "error");
-        NodeAssert.equal(sessionExited.payload.recoverable, true);
-        NodeAssert.match(sessionExited.payload.reason ?? "", /did not initialize/);
-      }
-
-      yield* Fiber.interrupt(eventFiber);
-    }),
-  );
-
-  it.effect("classifies recoverable authentication and model stream failures", () =>
-    Effect.gen(function* () {
-      const output = yield* Queue.unbounded<Uint8Array>();
-      const spawner = ChildProcessSpawner.make(() =>
-        Effect.succeed(
-          ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(30),
-            exitCode: Effect.never,
-            isRunning: Effect.succeed(true),
-            kill: () => Effect.void,
-            unref: Effect.succeed(Effect.void),
-            stdin: Sink.drain,
-            stdout: Stream.fromQueue(output),
-            stderr: Stream.never,
-            all: Stream.empty,
-            getInputFd: () => Sink.drain,
-            getOutputFd: () => Stream.empty,
-          }),
-        ),
-      );
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      const threadId = ThreadId.make("antigravity-stream-failures");
-      const eventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
-      const ready = yield* Deferred.make<void>();
-      const eventFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Queue.offer(eventQueue, event).pipe(
-          Effect.andThen(
-            event.type === "session.state.changed" && event.payload.state === "ready"
-              ? Deferred.succeed(ready, undefined)
-              : Effect.void,
-          ),
-        ),
-      ).pipe(Effect.forkChild);
-      const awaitRuntimeError = (turnId: TurnId) =>
-        Effect.gen(function* () {
-          while (true) {
-            const event = yield* Queue.take(eventQueue);
-            if (event.type === "runtime.error" && event.turnId === turnId) return event;
-          }
+  for (const stop of ["cancel", "steer", "disconnect", "end_turn"] as const) {
+    it.effect(`settles open subagent calls on ${stop}`, () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness();
+        yield* h.adapter.startSession({
+          threadId,
+          cwd: process.cwd(),
+          runtimeMode: "approval-required",
         });
-
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
-      yield* Queue.offer(
-        output,
-        new TextEncoder().encode(
-          '{"event":"init","conversation_id":"failure-conversation","model":"gemini-3.7-flash-high"}\n',
-        ),
-      );
-      yield* Deferred.await(ready);
-
-      const authTurn = yield* adapter.sendTurn({ threadId, input: "auth", attachments: [] });
-      yield* Queue.offer(
-        output,
-        new TextEncoder().encode(
-          '{"event":"result","result":{"status":"ERROR","error":"authentication required for this account"}}\n',
-        ),
-      );
-      const authError = yield* awaitRuntimeError(authTurn.turnId);
-      NodeAssert.equal(authError.payload.message, "authentication required for this account");
-      const authDetail = authError.payload.detail as
-        | { readonly stage?: unknown; readonly recoverable?: unknown; readonly generation?: unknown; readonly safeMessage?: unknown; readonly providerInstanceId?: unknown }
-        | undefined;
-      NodeAssert.equal(authDetail?.stage, "authentication");
-      NodeAssert.equal(authDetail?.recoverable, true);
-      NodeAssert.equal(authDetail?.generation, 1);
-      NodeAssert.equal(authDetail?.providerInstanceId, "antigravity");
-      NodeAssert.equal(authDetail?.safeMessage, "authentication required for this account");
-
-      const modelTurn = yield* adapter.sendTurn({ threadId, input: "model", attachments: [] });
-      yield* Queue.offer(
-        output,
-        new TextEncoder().encode(
-          '{"event":"result","result":{"status":"ERROR","error":"model gemini-missing is not found"}}\n',
-        ),
-      );
-      const modelError = yield* awaitRuntimeError(modelTurn.turnId);
-      const modelDetail = modelError.payload.detail as
-        | { readonly stage?: unknown; readonly recoverable?: unknown; readonly safeMessage?: unknown }
-        | undefined;
-      NodeAssert.equal(modelDetail?.stage, "model-discovery");
-      NodeAssert.equal(modelDetail?.recoverable, true);
-      NodeAssert.equal(modelDetail?.safeMessage, "model gemini-missing is not found");
-
-      yield* adapter.stopSession(threadId);
-      yield* Fiber.interrupt(eventFiber);
-    }),
-  );
-
-  it.effect("preserves a pre-init process failure and distinguishes unknown threads", () =>
-    Effect.gen(function* () {
-      const output = yield* Queue.unbounded<Uint8Array>();
-      const stderr = yield* Queue.unbounded<Uint8Array>();
-      const exitCode = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
-      const spawner = ChildProcessSpawner.make(() =>
-        Effect.succeed(
-          ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(3),
-            exitCode: Deferred.await(exitCode),
-            isRunning: Effect.succeed(true),
-            kill: () => Effect.void,
-            unref: Effect.succeed(Effect.void),
-            stdin: Sink.drain,
-            stdout: Stream.fromQueue(output),
-            stderr: Stream.fromQueue(stderr),
-            all: Stream.empty,
-            getInputFd: () => Sink.drain,
-            getOutputFd: () => Stream.empty,
+        const sending = yield* h.adapter
+          .sendTurn({ threadId, input: "Start a subagent" })
+          .pipe(Effect.forkChild);
+        const prompt = yield* h.nextPrompt;
+        yield* h.emitNative(
+          nativeToolUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: "trajectory:4",
+            title: "Running start_subagent",
+            kind: "other",
+            status: "in_progress",
+            rawInput: {},
           }),
-        ),
-      );
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-
-      const threadId = ThreadId.make("antigravity-startup-failure");
-      const events: ProviderRuntimeEvent[] = [];
-      const exited = yield* Deferred.make<void>();
-      const eventFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.sync(() => events.push(event)).pipe(
-          Effect.andThen(
-            event.type === "session.exited" ? Deferred.succeed(exited, undefined) : Effect.void,
-          ),
-        ),
-      ).pipe(Effect.forkChild);
-
-      const session = yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("antigravity"),
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
-      expect(session.status).toBe("connecting");
-
-      yield* Queue.offer(
-        stderr,
-        new TextEncoder().encode("authentication token: secret-value\naccount is not signed in\n"),
-      );
-      yield* Effect.yieldNow;
-      const pendingSend = yield* adapter
-        .sendTurn({ threadId, input: "hello", attachments: [] })
-        .pipe(Effect.result, Effect.forkChild);
-      yield* Deferred.succeed(exitCode, ChildProcessSpawner.ExitCode(1));
-      yield* Deferred.await(exited);
-
-      const failedSend = yield* Fiber.join(pendingSend);
-      NodeAssert.equal(failedSend._tag, "Failure");
-      if (failedSend._tag === "Failure") {
-        NodeAssert.equal(failedSend.failure._tag, "ProviderAdapterProcessError");
-        if (failedSend.failure._tag === "ProviderAdapterProcessError") {
-          NodeAssert.match(failedSend.failure.detail, /account is not signed in/);
-          NodeAssert.match(failedSend.failure.detail, /token: \[redacted\]/);
-          NodeAssert.doesNotMatch(failedSend.failure.detail, /secret-value/);
-          NodeAssert.equal(failedSend.failure.stage, "authentication");
-          NodeAssert.equal(failedSend.failure.providerInstanceId, "antigravity");
-          NodeAssert.equal(failedSend.failure.generation, 1);
-          NodeAssert.equal(failedSend.failure.recoverable, true);
-          NodeAssert.match(failedSend.failure.stderrTail ?? "", /account is not signed in/);
+        );
+        yield* h.waitForEvent((event) => event.type === "task.progress");
+        yield* h.emitNative(
+          nativeToolUpdate({
+            sessionUpdate: "tool_call_update",
+            toolCallId: "trajectory:4",
+            status: "completed",
+            rawOutput: "Launch subagents",
+          }),
+        );
+        yield* h.waitForEvent((event) => event.type === "task.progress");
+        if (stop === "disconnect") {
+          yield* h.emitNative({
+            _tag: "ConnectionTerminated",
+            error: new AcpErrors.AcpTransportError({ detail: "Process exited.", cause: undefined }),
+          });
+        } else if (stop === "cancel") {
+          yield* h.adapter.interruptTurn(threadId);
+        } else if (stop === "steer") {
+          const steering = yield* h.adapter
+            .sendTurn({ threadId, input: "Change direction" })
+            .pipe(Effect.forkChild);
+          const replacement = yield* h.nextPrompt;
+          yield* Deferred.succeed(replacement.result, { stopReason: "end_turn" });
+          yield* Fiber.join(steering);
+        } else {
+          yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
         }
-      }
+        const settled = yield* h.waitForEvent((event) => event.type === "task.updated");
+        expect(settled.payload).toMatchObject({
+          taskId: "trajectory:4",
+          title: "Antigravity subagent batch",
+          taskType: "subagent_batch",
+          status:
+            stop === "disconnect"
+              ? "failed"
+              : stop === "cancel" || stop === "steer"
+                ? "cancelled"
+                : "idle",
+        });
+        if (stop === "disconnect")
+          yield* h.waitForEvent((event) => event.type === "session.exited");
+        else yield* Fiber.join(sending);
+      }),
+    );
+  }
 
-      const stateChanged = events.find(
-        (event) => event.type === "session.state.changed" && event.payload.state === "error",
-      );
-      NodeAssert.equal(stateChanged?.type, "session.state.changed");
-      if (stateChanged?.type === "session.state.changed") {
-        NodeAssert.match(stateChanged.payload.reason ?? "", /account is not signed in/);
-      }
-      const sessionExited = events.find((event) => event.type === "session.exited");
-      NodeAssert.equal(sessionExited?.type, "session.exited");
-      if (sessionExited?.type === "session.exited") {
-        NodeAssert.match(sessionExited.payload.reason ?? "", /account is not signed in/);
-      }
-
-      const unknownThread = yield* adapter
-        .sendTurn({
-          threadId: ThreadId.make("antigravity-never-started"),
-          input: "hello",
-          attachments: [],
-        })
-        .pipe(Effect.result);
-      NodeAssert.equal(unknownThread._tag, "Failure");
-      if (unknownThread._tag === "Failure") {
-        NodeAssert.equal(unknownThread.failure._tag, "ProviderAdapterSessionNotFoundError");
-        NodeAssert.match(unknownThread.failure.message, /Unknown antigravity adapter thread/);
-      }
-
-      yield* Fiber.interrupt(eventFiber);
+  it.effect("retires a prompt cancelled before native dispatch", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ holdDispatch: true });
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Do not dispatch this prompt" })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(h.dispatchStarted);
+      yield* Fiber.interrupt(sending);
+      yield* Deferred.succeed(h.dispatchRelease, undefined);
+      const cancelled = yield* h.waitForEvent((event) => event.type === "turn.completed");
+      expect(cancelled.payload.state).toBe("cancelled");
+      expect(h.calls.some((call) => call.startsWith("prompt:"))).toBe(false);
+      expect(h.hasActivePrompt()).toBe(false);
+      const later = yield* h.adapter
+        .sendTurn({ threadId, input: "This prompt can run" })
+        .pipe(Effect.forkChild);
+      const prompt = yield* h.nextPrompt;
+      yield* Deferred.succeed(prompt.result, { stopReason: "end_turn" });
+      const result = yield* Fiber.join(later);
+      expect(result.turnId).not.toBe(cancelled.turnId);
+      expect(h.calls.filter((call) => call.startsWith("prompt:"))).toEqual(["prompt:1"]);
     }),
   );
 
-  it.effect("retains a spawn failure for the next turn instead of reporting an unknown thread", () =>
+  it.effect("awaits full process cleanup for concurrent stop requests", () =>
     Effect.gen(function* () {
-      const spawner = ChildProcessSpawner.make(() =>
-        Effect.fail(
-          PlatformError.systemError({
-            _tag: "PermissionDenied",
-            module: "ChildProcess",
-            method: "spawn",
-            description: "spawn denied by test host",
-          }),
-        ),
-      );
-      const adapter = yield* makeAntigravityAdapter(decodeSettings({ binaryPath: "agy" }), {
-        instanceId: ProviderInstanceId.make("antigravity"),
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      const threadId = ThreadId.make("antigravity-spawn-failure");
-      const start = yield* adapter
+      const h = yield* makeHarness({ holdClose: true });
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const stopping = yield* h.adapter.stopSession(threadId).pipe(Effect.forkChild);
+      yield* Deferred.await(h.closeStarted);
+      const registeredStop = h.stops[0];
+      if (!registeredStop) return yield* Effect.die("Missing process cleanup registration");
+      const signOutStop = yield* registeredStop.pipe(Effect.forkChild({ startImmediately: true }));
+      expect(signOutStop.pollUnsafe()).toBeUndefined();
+      yield* Deferred.succeed(h.closeRelease, undefined);
+      yield* Effect.all([Fiber.join(stopping), Fiber.join(signOutStop)]);
+      yield* h.waitForEvent((event) => event.type === "session.exited");
+      expect(h.controls.closed).toBe(1);
+      expect(h.seen.filter((event) => event.type === "session.exited")).toHaveLength(1);
+      expect(yield* h.adapter.hasSession(threadId)).toBe(false);
+    }),
+  );
+
+  it.effect("stops a session while its prompt is waiting to dispatch", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ holdDispatch: true });
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      const sending = yield* h.adapter
+        .sendTurn({ threadId, input: "Do not dispatch after stop" })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(h.dispatchStarted);
+      yield* h.adapter.stopSession(threadId);
+      yield* Fiber.await(sending);
+      yield* Deferred.succeed(h.dispatchRelease, undefined);
+      expect(h.calls.some((call) => call.startsWith("prompt:"))).toBe(false);
+      expect(h.controls.closed).toBe(1);
+      expect(yield* h.adapter.hasSession(threadId)).toBe(false);
+    }),
+  );
+
+  it.effect("propagates idle process exits and rejects stale session use", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      yield* h.adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "approval-required",
+      });
+      yield* h.emitNative({
+        _tag: "ConnectionTerminated",
+        error: new AcpErrors.AcpTransportError({ detail: "Process exited.", cause: undefined }),
+      });
+      const exited = yield* h.waitForEvent((event) => event.type === "session.exited");
+      expect(exited.payload.exitKind).toBe("error");
+      expect(yield* h.adapter.hasSession(threadId)).toBe(false);
+      expect(
+        Exit.isFailure(yield* h.adapter.sendTurn({ threadId, input: "Hello" }).pipe(Effect.exit)),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("reports hidden login requests as sign-in required and clears account metadata", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.controls.failAuth = true;
+      const started = yield* h.adapter
+        .startSession({ threadId, cwd: process.cwd(), runtimeMode: "approval-required" })
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(started)).toBe(true);
+      expect(h.controls.authInvalidations).toBe(1);
+      expect(h.controls.closed).toBe(1);
+      expect(yield* h.adapter.hasSession(threadId)).toBe(false);
+    }),
+  );
+
+  it.effect("serves client file reads and writes only inside the session roots", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const h = yield* makeHarness();
+      const { attachmentsDir } = yield* ServerConfig;
+      const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-fs-" });
+      const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-outside-" });
+      yield* fs.writeFileString(path.join(cwd, "notes.txt"), "one\ntwo\nthree\n");
+      yield* h.adapter.startSession({ threadId, cwd, runtimeMode: "approval-required" });
+      expect(h.launches[0]?.clientFileSystem).toBe(true);
+      expect(h.launches[0]?.additionalDirectories).toEqual([attachmentsDir]);
+      const read = h.fileHandlers.read;
+      const write = h.fileHandlers.write;
+      if (!read || !write) return yield* Effect.die("File handlers were not registered.");
+
+      const full = yield* read({ sessionId: nativeSessionId, path: path.join(cwd, "notes.txt") });
+      expect(full.content).toBe("one\ntwo\nthree\n");
+      const window = yield* read({
+        sessionId: nativeSessionId,
+        path: path.join(cwd, "notes.txt"),
+        line: 2,
+        limit: 1,
+      });
+      expect(window.content).toBe("two");
+
+      yield* write({
+        sessionId: nativeSessionId,
+        path: path.join(cwd, "nested", "new.txt"),
+        content: "created",
+      });
+      expect(yield* fs.readFileString(path.join(cwd, "nested", "new.txt"))).toBe("created");
+
+      const escape = yield* write({
+        sessionId: nativeSessionId,
+        path: path.join(outside, "escape.txt"),
+        content: "nope",
+      }).pipe(Effect.flip);
+      expect(escape._tag).toBe("AcpRequestError");
+      expect(yield* fs.exists(path.join(outside, "escape.txt"))).toBe(false);
+      const missing = yield* read({
+        sessionId: nativeSessionId,
+        path: path.join(cwd, "missing.txt"),
+      }).pipe(Effect.flip);
+      expect(missing._tag).toBe("AcpRequestError");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("does not launch a process for a disabled instance or invalid resume cursor", () =>
+    Effect.gen(function* () {
+      const disabled = yield* makeHarness({ enabled: false });
+      const rejected = yield* disabled.adapter
+        .startSession({ threadId, cwd: process.cwd(), runtimeMode: "approval-required" })
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(rejected)).toBe(true);
+      expect(disabled.launches).toHaveLength(0);
+      const active = yield* makeHarness();
+      const stale = yield* active.adapter
         .startSession({
           threadId,
-          provider: ProviderDriverKind.make("antigravity"),
           cwd: process.cwd(),
-          runtimeMode: "full-access",
+          runtimeMode: "approval-required",
+          resumeCursor: { sessionId: nativeSessionId },
         })
-        .pipe(Effect.result);
-      NodeAssert.equal(start._tag, "Failure");
-      if (start._tag === "Failure") {
-        NodeAssert.equal(start.failure._tag, "ProviderAdapterProcessError");
-        if (start.failure._tag === "ProviderAdapterProcessError") {
-          NodeAssert.equal(start.failure.stage, "process-spawn");
-          NodeAssert.match(start.failure.cause?.toString() ?? "", /spawn denied/);
-        }
-      }
-
-      const send = yield* adapter
-        .sendTurn({ threadId, input: "hello", attachments: [] })
-        .pipe(Effect.result);
-      NodeAssert.equal(send._tag, "Failure");
-      if (send._tag === "Failure") {
-        NodeAssert.equal(send.failure._tag, "ProviderAdapterProcessError");
-        if (send.failure._tag === "ProviderAdapterProcessError") {
-          NodeAssert.equal(send.failure.stage, "process-spawn");
-          NodeAssert.match(send.failure.detail, /Failed to start Antigravity CLI/);
-        }
-      }
+        .pipe(Effect.exit);
+      expect(Exit.isFailure(stale)).toBe(true);
+      expect(active.launches).toHaveLength(0);
     }),
   );
 });

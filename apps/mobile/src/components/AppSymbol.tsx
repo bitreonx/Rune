@@ -89,10 +89,12 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   "arrow.right.circle": IconArrowRightCircle,
   "arrow.triangle.branch": IconGitBranch,
   "arrow.triangle.pull": IconGitPullRequest,
+  "square.3.layers.3d": IconStack2,
   "arrow.turn.left.up": IconArrowBackUp,
   "arrow.up": IconArrowUp,
   "arrow.up.circle": IconArrowUpCircle,
   "arrow.up.left.and.arrow.down.right": IconArrowsMaximize,
+  "arrow.down.right.and.arrow.up.left": IconArrowsMinimize,
   "arrow.up.right": IconArrowUpRight,
   "arrow.up.right.circle": IconArrowUpRightCircle,
   "arrow.uturn.backward": IconArrowBackUp,
@@ -101,6 +103,7 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   "bell.badge": IconBellRinging,
   "bolt.circle": IconBolt,
   "bolt.horizontal.circle": IconBolt,
+  brain: IconBrain,
   camera: IconCamera,
   "chart.bar.xaxis": IconChartBar,
   checkmark: IconCheck,
@@ -125,12 +128,19 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   "folder.fill": IconFolder,
   gearshape: IconSettings,
   "info.circle": IconInfoCircle,
+  laptopcomputer: IconDeviceLaptop,
   link: IconLink,
+  "line.3.horizontal": IconMenu2,
+  "line.3.horizontal.decrease": IconFilter,
   "line.3.horizontal.decrease.circle": IconFilter,
-  "line.3.horizontal.decrease.circle.fill": IconFilter,
+  "line.3.horizontal.decrease.circle.fill": IconFilterFilled,
+  // Tabler has no Apple desktops; the closest silhouettes stand in on Android.
+  macmini: IconServer,
+  macstudio: IconDeviceDesktop,
   magnifyingglass: IconSearch,
   paintbrush: IconPalette,
   "person.crop.circle": IconUserCircle,
+  photo: IconPhoto,
   pin: IconPin,
   "pin.slash": IconPinnedOff,
   play: IconPlayerPlay,
@@ -154,6 +164,7 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   "textformat.size": IconTypography,
   "textformat.size.larger": IconTextIncrease,
   "textformat.size.smaller": IconTextDecrease,
+  "tray.and.arrow.up": IconUpload,
   trash: IconTrash,
   "wifi.slash": IconWifiOff,
   xmark: IconX,
@@ -173,6 +184,7 @@ const ANDROID_ICON_BY_MATERIAL_NAME: Record<string, Icon> = {
   close: IconX,
   construction: IconHammer,
   content_copy: IconCopy,
+  desktop_windows: IconDeviceDesktop,
   edit: IconEdit,
   error: IconAlertCircle,
   folder: IconFolder,
@@ -190,11 +202,7 @@ const ANDROID_ICON_BY_MATERIAL_NAME: Record<string, Icon> = {
 export type { SFSymbol } from "expo-symbols";
 export type AppSymbolName = SymbolViewProps["name"];
 
-export function SymbolView(props: SymbolViewProps) {
-  if (Platform.OS !== "android") {
-    return <ExpoSymbolView {...props} />;
-  }
-
+function AppSymbolView(props: SymbolViewProps) {
   const materialName = typeof props.name === "string" ? undefined : props.name.android;
   const sfSymbol = typeof props.name === "string" ? props.name : props.name.ios;
   const AndroidIcon =
@@ -216,3 +224,11 @@ export function SymbolView(props: SymbolViewProps) {
     />
   );
 }
+
+/**
+ * expo-symbols and the Android Tabler fallback both expose tint as a native
+ * prop rather than a React Native style. Keep that third-party boundary here
+ * so callers can use Uniwind's `tintColorClassName` instead of subscribing to
+ * theme variables in every parent component.
+ */
+export const SymbolView = withUniwind(AppSymbolView);

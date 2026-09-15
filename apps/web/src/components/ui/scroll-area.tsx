@@ -25,12 +25,16 @@ function ScrollArea({
   className,
   children,
   scrollFade = false,
+  scrollFadePadding = true,
   scrollbarGutter = false,
   hideScrollbars = false,
   chainVerticalScroll = false,
   ...props
 }: ScrollAreaPrimitive.Root.Props & {
   scrollFade?: boolean;
+  /** Keep focused and highlighted items clear of the fade. Off for lists
+   * whose rows take focus on click, where the scroll would nudge the list. */
+  scrollFadePadding?: boolean;
   scrollbarGutter?: boolean;
   hideScrollbars?: boolean;
   chainVerticalScroll?: boolean;

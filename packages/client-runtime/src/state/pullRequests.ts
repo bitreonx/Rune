@@ -1,4 +1,9 @@
-import { WS_METHODS, type PullRequestDiffInput } from "@rune/contracts";
+import {
+  WS_METHODS,
+  type PullRequestDetail,
+  type PullRequestDiffInput,
+  type VcsStatusResult,
+} from "@rune/contracts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -16,6 +21,25 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 
 export { PullRequestDiffLoader, pullRequestDiffLoaderLayer } from "./pullRequestDiffHttp.ts";
+
+/** Adapts the richer pull-request query to the compact status shape used by thread badges. */
+export function pullRequestDetailToVcsStatus(
+  detail: Pick<
+    PullRequestDetail,
+    "number" | "title" | "url" | "baseBranch" | "headBranch" | "state" | "isDraft" | "updatedAt"
+  >,
+): NonNullable<VcsStatusResult["pr"]> {
+  return {
+    number: detail.number,
+    title: detail.title,
+    url: detail.url,
+    baseRef: detail.baseBranch,
+    headRef: detail.headBranch,
+    state: detail.state,
+    isDraft: detail.isDraft,
+    updatedAt: detail.updatedAt,
+  };
+}
 
 export class EnvironmentHttpConnectionNotReadyError extends Data.TaggedError(
   "EnvironmentHttpConnectionNotReadyError",

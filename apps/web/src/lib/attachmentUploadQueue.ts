@@ -387,3 +387,12 @@ export function releaseAttachmentUploads(images: ReadonlyArray<ComposerImageAtta
     releaseAttachmentUpload(image.id);
   }
 }
+
+/** Releases every attachment currently owned by a draft, including non-image files. */
+export function releaseDraftAttachments(
+  attachments: ReadonlyArray<{ readonly id: string }>,
+): void {
+  for (const attachment of attachments) {
+    releaseAttachmentUpload(attachment.id);
+  }
+}

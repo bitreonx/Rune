@@ -33,13 +33,13 @@ import {
   OCEAN_THEME,
   updateCustomTheme,
   CUSTOM_THEMES_STORAGE_KEY,
-  createManagedThemeColors,
   createVividThemeColors,
   getDefaultThemeColors,
   getStandardThemeColors,
   themeColorToHex,
   toCanonicalThemeColor,
   THEME_FILE_VERSION,
+  singleAppearanceOf,
 } from "./themePalette";
 
 function asHex(value: string): string {
@@ -149,6 +149,12 @@ describe("theme files", () => {
       ["light", "#111827", "#8ab4f8"],
       ["dark", "#f5ecf5", "#a84370"],
     ];
+    const channels = (value: string) =>
+      [1, 3, 5].map((index) => Number.parseInt(asHex(value).slice(index, index + 2), 16)) as [
+        number,
+        number,
+        number,
+      ];
     for (const [appearance, canvas, accent] of seeds) {
       const colors = createVividThemeColors(appearance, canvas, accent);
       // Exact seeds are honored.
@@ -187,8 +193,8 @@ describe("theme files", () => {
     const inverted = [
       createVividThemeColors("light", "#111827", "#8ab4f8"),
       createVividThemeColors("dark", "#f5ecf5", "#a84370"),
-      createManagedThemeColors("light", "#0d1117", "#69b1ff", { exactSeeds: true }),
-      createManagedThemeColors("dark", "#fdfdfd", "#c2571b", { exactSeeds: true }),
+      createVividThemeColors("light", "#0d1117", "#69b1ff"),
+      createVividThemeColors("dark", "#fdfdfd", "#c2571b"),
     ];
     for (const colors of inverted) {
       expect(contrastRatio(colors.errorForeground, colors.errorSurface)).toBeGreaterThanOrEqual(
@@ -1077,5 +1083,13 @@ describe("stored theme preferences", () => {
 
     vi.unstubAllGlobals();
     invalidateCustomThemes();
+  });
+});
+
+describe("singleAppearanceOf", () => {
+  it("reports the only half a theme can claim, and null for a pair", () => {
+    const { variants: _pair, ...base } = T3_CHAT_THEME;
+    expect(singleAppearanceOf({ ...base, id: "x", appearance: "dark" })).toBe("dark");
+    expect(singleAppearanceOf(T3_CHAT_THEME)).toBe(null);
   });
 });

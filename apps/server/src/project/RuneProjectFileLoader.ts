@@ -21,7 +21,7 @@ import { RUNEProjectFileFromJson } from "@rune/shared/runeProjectFile";
 
 const decodeRUNEProjectFileJson = Schema.decodeEffect(RUNEProjectFileFromJson);
 
-export class RUNEProjectFileLoadError extends Schema.TaggedErrorClass<RUNEProjectFileLoadError>()(
+export class RUNEProjectFileLoadError extends Schema.TaggedError<RUNEProjectFileLoadError>()(
   "RUNEProjectFileLoadError",
   {
     operation: Schema.Literals(["read", "decode"]),

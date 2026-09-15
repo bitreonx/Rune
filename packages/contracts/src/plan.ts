@@ -376,7 +376,7 @@ export const PlanSessionErrorCode = Schema.Literals([
 ]);
 export type PlanSessionErrorCode = typeof PlanSessionErrorCode.Type;
 
-export class PlanSessionError extends Schema.TaggedErrorClass<PlanSessionError>()(
+export class PlanSessionError extends Schema.TaggedError<PlanSessionError>()(
   "PlanSessionError",
   {
     code: PlanSessionErrorCode,

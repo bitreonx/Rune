@@ -130,6 +130,37 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("uses the packaged Windows server sidecar as the backend root", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        platform: "win32",
+        isPackaged: true,
+        appPath: "/install/resources/app.asar",
+        resourcesPath: "/install/resources",
+      });
+
+      assert.equal(environment.appRoot, "/install/resources/app.asar");
+      assert.equal(environment.serverRoot, "/install/resources/server.asar");
+      assert.equal(
+        environment.backendEntryPath,
+        "/install/resources/server.asar/apps/server/dist/bin.mjs",
+      );
+    }),
+  );
+
+  it.effect("uses the stable desktop entry as the packaged Linux portal identity", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        platform: "linux",
+        isPackaged: true,
+        appPath: "/tmp/.mount_rune/resources/app.asar",
+        resourcesPath: "/tmp/.mount_rune/resources",
+      });
+
+      assert.equal(environment.linuxDesktopEntryName, "rune.desktop");
+    }),
+  );
+
   it.effect("keeps implicit development state separate from production state", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(

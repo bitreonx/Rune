@@ -1,3 +1,4 @@
+import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
@@ -25,7 +26,8 @@ export default defineConfig({
         cache: false,
       },
       "dev:bundle": {
-        command: "node scripts/build-preview-annotation-css.mjs && vp pack --watch",
+        command:
+          "node scripts/build-browser-secret.mjs && node scripts/build-preview-annotation-css.mjs && vp pack --watch",
         cache: false,
       },
       "dev:electron": {
@@ -39,10 +41,17 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
+      dts: false,
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       define: publicConfigDefine,
-      entry: ["src/main.ts"],
+      entry: [
+        "src/main.ts",
+        "src/electron/WindowsForegroundFocusWorker.ts",
+        "src/snapShot/GlobalShiftShortcutWorker.ts",
+        "src/snapShot/RegionSnapShotWorker.ts",
+        "src/snapShot/SnapShotAccessibilityWorker.ts",
+      ],
       clean: true,
       deps: {
         alwaysBundle: (id) => id.startsWith("@rune/"),
@@ -52,6 +61,7 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
+      dts: false,
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       define: publicConfigDefine,
@@ -66,6 +76,7 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
+      dts: false,
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/preview-pick-preload.ts"],
@@ -76,6 +87,7 @@ export default defineConfig({
     {
       format: "cjs",
       outDir: "dist-electron",
+      dts: false,
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/preview-pip-preload.ts"],
@@ -88,4 +100,10 @@ export default defineConfig({
       entry: ["src/window/startupSplash.preload.ts"],
     },
   ],
+  test: {
+    // The Windows lane runs workspace suites concurrently; filesystem-heavy
+    // desktop integration tests can exceed Vitest's 5 second default there.
+    testTimeout: 15_000,
+    setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+  },
 });

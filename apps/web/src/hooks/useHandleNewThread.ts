@@ -51,12 +51,7 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
 }
 
 export function useNewThreadHandler() {
-  const projects = useProjects();
-  // New-thread defaults are a user preference, and the settings UI only ever
-  // edits the primary environment's settings.json. Reading the target
-  // environment's own settings here would silently reset remote projects to
-  // the decoded defaults ("local" mode, current branch), since nothing can
-  // set those values on a remote server.
+  const environmentServerConfigs = useAtomValue(environmentServerConfigsAtom);
   const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const router = useRouter();
@@ -98,12 +93,13 @@ export function useNewThreadHandler() {
         setLogicalProjectDraftThreadId,
         setModelSelection,
       } = useComposerDraftStore.getState();
+      const requestingRouteHref = router.state.location.href;
+      const routeChangedSinceRequest = () => router.state.location.href !== requestingRouteHref;
       const currentRouteTarget = getCurrentRouteTarget();
-      // A new thread carries the user's *working mode* from the thread being
-      // viewed: model (including options like reasoning effort and context
-      // window), permission mode, and interaction mode. Branch, worktree, and
-      // env mode never carry implicitly — those come from the configured
-      // defaults unless the caller passes them explicitly.
+      // A new thread carries the user's working mode from the thread being
+      // viewed. The target project's configured model still wins; runtime and
+      // interaction modes carry independently. Branch, worktree, and env mode
+      // come from configured defaults unless the caller passes them explicitly.
       const carrySourceShell =
         currentRouteTarget?.kind === "server"
           ? readThreadShell(currentRouteTarget.threadRef)
@@ -174,7 +170,7 @@ export function useNewThreadHandler() {
                 project.workspaceRoot,
               )
             : null,
-          globalDefault: primaryServerSettings.defaultThreadEnvMode,
+          globalDefault: targetServerSettings.defaultThreadEnvMode,
         });
       };
       const logicalProjectKey = project
@@ -229,13 +225,18 @@ export function useNewThreadHandler() {
           // env context resets to the configured defaults so drafts seeded
           // before a defaults change (or by the old carry-over behavior) stop
           // landing on "current checkout" branches forever. When the draft is
-          // already open and no options were passed, leave it alone entirely —
-          // the user may have just picked a branch in the composer.
+          // already open and no options were passed, leave its workspace
+          // context alone entirely — the user may have just picked a branch
+          // in the composer. Model selection has its own explicit-pick rule
+          // below and does not follow this guard.
           let workspaceContext: NewThreadWorkspaceOptions | null = null;
           if (hasExplicitWorkspaceOption) {
             workspaceContext = pickExplicitWorkspaceOptions(options);
           } else if (!isDraftAlreadyOpen) {
             const defaultEnvMode = await resolveDefaultEnvMode();
+            if (routeChangedSinceRequest()) {
+              return null;
+            }
             // The await yields. If the draft was opened (a concurrent
             // invocation's navigation landed), promoted to a real thread,
             // remapped away (a concurrent invocation registered a fresh
@@ -276,11 +277,25 @@ export function useNewThreadHandler() {
               ...(carryRuntimeMode ? { runtimeMode: carryRuntimeMode } : {}),
               ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
             });
-            if (carryModelSelection) {
-              // The carried selection is a complete snapshot of the viewed
-              // thread's model state: absent options mean "no options", not
-              // "keep the stale draft's options".
-              setModelSelection(emptyStoredDraftThread.draftId, carryModelSelection, {
+          }
+          // Model intent: an explicit human pick always stands. Seeds and
+          // legacy entries alike re-resolve here — sticky first, mirroring
+          // the mint-fresh path, then the project default or carried
+          // selection on top. This runs even when the draft is already open:
+          // without it, a changed pin could never reach the draft the user
+          // is looking at, because explicit picks are the only thing the
+          // flag protects.
+          const storedDraft = getComposerDraft(emptyStoredDraftThread.draftId);
+          const storedDraftHasExplicitModelPick = hasExplicitComposerModelSelection(storedDraft);
+          if (!storedDraftHasExplicitModelPick) {
+            applyStickyState(emptyStoredDraftThread.draftId);
+            const modelSelectionOverride = resolveModelSelectionOverride(
+              emptyStoredDraftThread.draftId,
+            );
+            if (modelSelectionOverride) {
+              // This is a complete snapshot: absent options mean "no options",
+              // not "keep the stale draft's options".
+              setModelSelection(emptyStoredDraftThread.draftId, modelSelectionOverride, {
                 replaceOptions: true,
               });
             }
@@ -359,6 +374,9 @@ export function useNewThreadHandler() {
       const createdAt = new Date().toISOString();
       return (async () => {
         const initialEnvMode = options?.envMode ?? (await resolveDefaultEnvMode());
+        if (routeChangedSinceRequest()) {
+          return null;
+        }
         // The await yields, so a concurrent invocation may have registered a
         // draft for this logical project in the meantime. Registering ours
         // too would evict that draft while its navigation is in flight —
@@ -412,13 +430,11 @@ export function useNewThreadHandler() {
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
         });
         applyStickyState(draftId);
-        if (carryModelSelection) {
-          // After sticky state so the viewed thread's exact selection
-          // (model + options like effort and context window) wins over the
-          // globally sticky one. replaceOptions: the carried selection is a
-          // complete snapshot — absent options mean "no options", not "keep
-          // whatever sticky state just wrote".
-          setModelSelection(draftId, carryModelSelection, { replaceOptions: true });
+        const modelSelectionOverride = resolveModelSelectionOverride(draftId);
+        if (modelSelectionOverride) {
+          // Project defaults and carried selections both outrank global sticky
+          // state. The project default wins when both are present.
+          setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });
         }
         carryComposerContentTo(draftId);
 
@@ -430,7 +446,13 @@ export function useNewThreadHandler() {
         return { draftId, threadId };
       })();
     },
-    [getCurrentRouteTarget, primaryServerSettings, projectGroupingSettings, projects, router],
+    [
+      environmentServerConfigs,
+      getCurrentRouteTarget,
+      primaryServerSettings.newWorktreesStartFromOrigin,
+      projectGroupingSettings,
+      router,
+    ],
   );
 }
 
@@ -441,6 +463,7 @@ export function useHandleNewThread() {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const routeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
+  const routeDraftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
   const activeThread = useThread(routeThreadRef);
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const activeDraftThread = useComposerDraftStore(() =>
@@ -471,6 +494,7 @@ export function useHandleNewThread() {
       ? scopeProjectRef(orderedProjects[0].environmentId, orderedProjects[0].id)
       : null,
     handleNewThread,
+    routeDraftId,
     routeThreadRef,
   };
 }

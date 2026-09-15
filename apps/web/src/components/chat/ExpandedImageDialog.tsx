@@ -11,11 +11,61 @@ import {
 } from "lucide-react";
 
 import { Button } from "../ui/button";
-import type { ExpandedImagePreview } from "./ExpandedImagePreview";
+import type { ExpandedImageItem, ExpandedImagePreview } from "./ExpandedImagePreview";
+import { resolveExternalWebLinkHost } from "./externalLinkContextMenu";
+import { useAssetUrlRefresh, useAssetUrlState } from "../../assets/assetUrls";
+import { OpenMediaLink } from "../media/OpenMediaLink";
+import { MediaActions, type MediaActionSource } from "../media/MediaActions";
+import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
+import { isContextMenuOpen } from "../../contextMenuFallback";
+import {
+  SnapShotAccessibilityData,
+  SnapShotContentsButton,
+  snapShotAccessibilityDetails,
+} from "./SnapShotAttachmentDetails";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { composerFloatingLayerProps } from "./composerEventScope";
+import { ZoomableImage, type ZoomableImageHandle } from "./ZoomableImage";
 
 interface ExpandedImageDialogProps {
   preview: ExpandedImagePreview;
   onClose: () => void;
+}
+
+const EXPANDED_MEDIA_STATE_CLASS_NAME =
+  "flex aspect-auto h-48 min-h-0 w-[min(92vw,32rem)] flex-col items-center justify-center gap-3 rounded-lg border border-border/70 bg-black p-6 text-center text-sm text-white shadow-2xl";
+
+function ExpandedMediaFailure({ children }: { children: ReactNode }) {
+  return (
+    <div role="alert" className={EXPANDED_MEDIA_STATE_CLASS_NAME}>
+      {children}
+    </div>
+  );
+}
+
+function ExpandedVideo({ item }: { readonly item: ExpandedImageItem }) {
+  const asset = item.actionsSource?.asset;
+  const assetUrl = useAssetUrlState(asset?.environmentId ?? null, asset?.resource ?? null);
+  const refreshAssetUrl = useAssetUrlRefresh(asset?.environmentId ?? null, asset?.resource ?? null);
+  const src = asset
+    ? assetUrl._tag === "Success"
+      ? assetUrl.url + (item.srcFragment ?? "")
+      : null
+    : item.src;
+  return (
+    <MediaVideoPlayer
+      src={src}
+      label={item.name}
+      sourceFailed={assetUrl._tag === "Failure"}
+      originalUrl={item.originalUrl}
+      preload="metadata"
+      autoPlay={item.autoPlay ?? true}
+      className="block max-h-[86vh] max-w-[92vw] text-center"
+      videoClassName="aspect-auto max-h-[86vh] w-auto max-w-[92vw] rounded-lg border border-border/70 shadow-2xl"
+      stateClassName={EXPANDED_MEDIA_STATE_CLASS_NAME}
+      onRetry={asset ? refreshAssetUrl : undefined}
+    />
+  );
 }
 
 export const ExpandedImageDialog = memo(function ExpandedImageDialog({
@@ -28,6 +78,22 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const touchStartXRef = useRef<number | null>(null);
   const index = (preview.index + imageOffset + preview.images.length) % preview.images.length;
+  const item = preview.images[index];
+  const source: MediaActionSource = item?.actionsSource ?? {
+    kind: item?.type === "video" ? "video" : "image",
+    name: item?.name ?? "Media",
+    src: item?.src ?? null,
+  };
+  const openFile = source.onOpenFile;
+  const actionsSource: MediaActionSource = openFile
+    ? {
+        ...source,
+        onOpenFile: () => {
+          openFile();
+          onClose();
+        },
+      }
+    : source;
 
   const navigateImage = useCallback((direction: -1 | 1) => {
     setImageOffset((current) => current + direction);
@@ -43,10 +109,18 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || isContextMenuOpen()) {
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
         onClose();
+        return;
+      }
+      if (zoomableImageRef.current?.pan(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
       if (preview.images.length <= 1) return;
@@ -66,13 +140,12 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [navigateImage, onClose, preview.images.length]);
 
-  const item = preview.images[index];
   if (!item) return null;
   const kind = item.kind ?? "image";
   const canZoom = kind === "image";
   const downloadUrl = item.downloadUrl ?? item.src;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-3 py-4 [-webkit-app-region:no-drag] sm:px-6 sm:py-6"
       role="dialog"
@@ -106,7 +179,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           aria-label="Previous preview"
           onClick={() => navigateImage(-1)}
         >
-          <ChevronLeftIcon className="size-5" />
+          <ChevronLeftIcon className="size-7" />
         </Button>
       ) : null}
       <div className="relative isolate z-10 max-h-[92vh] max-w-[92vw]">
@@ -229,7 +302,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
           aria-label="Next preview"
           onClick={() => navigateImage(1)}
         >
-          <ChevronRightIcon className="size-5" />
+          <ChevronRightIcon className="size-7" />
         </Button>
       ) : null}
     </div>

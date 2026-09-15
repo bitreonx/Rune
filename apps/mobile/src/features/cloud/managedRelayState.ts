@@ -26,10 +26,6 @@ const EMPTY_ENVIRONMENTS_ATOM = Atom.make(
   AsyncResult.success<ReadonlyArray<RelayClientEnvironmentRecord>>([]),
 ).pipe(Atom.keepAlive, Atom.withLabel("managed-relay:mobile:environments:null"));
 
-const EMPTY_ENVIRONMENT_STATUS_ATOM = Atom.make(
-  AsyncResult.initial<RelayEnvironmentStatusResponse, never>(false),
-).pipe(Atom.keepAlive, Atom.withLabel("managed-relay:mobile:environment-status:null"));
-
 export function useManagedRelayEnvironments() {
   const session = useAtomValue(managedRelaySessionAtom);
   const accountId = session?.accountId ?? null;

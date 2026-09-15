@@ -1,1222 +1,1277 @@
 import {
+  ApprovalRequestId,
   EventId,
   ProviderDriverKind,
   ProviderInstanceId,
+  RuntimeRequestId,
+  RuntimeTaskId,
+  TurnId,
+  type AntigravitySettings,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
-  type ProviderSendTurnInput,
   type ProviderSession,
-  type ProviderSessionStartInput,
+  type ProviderSetupError,
   type ProviderUserInputAnswers,
+  type RuntimeTaskStatus,
   type ThreadId,
-  TurnId,
+  type TurnCompletedPayload,
 } from "@rune/contracts";
-import { getModelSelectionStringOptionValue } from "@rune/shared/model";
-import { resolveSpawnCommand } from "@rune/shared/shell";
+import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { ChildProcess } from "effect/unstable/process";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as SynchronizedRef from "effect/SynchronizedRef";
+import * as EffectAcpErrors from "effect-acp/errors";
+import type * as EffectAcpSchema from "effect-acp/schema";
 
+import { ServerConfig } from "../../config.ts";
+import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import type { AntigravityAuth } from "../AntigravityAuth.ts";
 import {
-  ProviderAdapterProcessError,
   ProviderAdapterRequestError,
   ProviderAdapterSessionClosedError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
-  type ProviderAdapterErrorStage,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import type {
-  ProviderAdapterShape,
-  ProviderThreadSnapshot,
-  ProviderThreadTurnSnapshot,
-} from "../Services/ProviderAdapter.ts";
-import type { AntigravitySettings } from "@rune/contracts";
 import {
-  buildAntigravityCliArgs,
-  makeAntigravityResumeCursor,
-  parseAntigravityStreamLine,
-  readAntigravityConversationId,
-  serializeAntigravityUserMessage,
-} from "../antigravityProtocol.ts";
+  ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE,
+  isAntigravitySignInRequiredError,
+} from "../antigravityAuthSupport.ts";
+import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import {
+  makeAcpAssistantItemEvent,
+  makeAcpContentDeltaEvent,
+  makeAcpPlanUpdatedEvent,
+  makeAcpRequestOpenedEvent,
+  makeAcpRequestResolvedEvent,
+  makeAcpToolCallEvent,
+} from "../acp/AcpCoreRuntimeEvents.ts";
+import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
+import { parsePermissionRequest, type AcpToolCallState } from "../acp/AcpRuntimeModel.ts";
+import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
+import {
+  antigravityPermissionMode,
+  antigravityModelOptions,
+  applyAntigravityAcpModelSelection,
+  buildAntigravityPrompt,
+  type AntigravityAcpRuntimeInput,
+  resolveAntigravityModel,
+} from "../acp/AntigravityAcpSupport.ts";
+import {
+  antigravityApprovalOptions,
+  antigravitySubagentOutput,
+  classifyAntigravitySubagentToolCall,
+  extractAntigravityUserInputQuestion,
+  isAntigravityOpenCommand,
+  isAntigravitySubagentReplayStart,
+  isAntigravityUserInputRequest,
+  makeAntigravityUserInputResponse,
+  normalizeAntigravityToolCall,
+  sanitizeAntigravityToolPayload,
+  selectAntigravityPermissionOptionId,
+} from "../acp/AntigravityProtocol.ts";
+import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = ProviderDriverKind.make("antigravity");
-const MAX_STDERR_TAIL_CHARS = 8_000;
-const MAX_FAILURE_TOMBSTONES = 256;
-const SESSION_READY_TIMEOUT_MS = 30_000;
+const ResumeCursor = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  sessionId: Schema.NonEmptyString,
+});
+const decodeResumeCursor = Schema.decodeUnknownOption(ResumeCursor);
+const isAcpError = Schema.is(EffectAcpErrors.AcpError);
 
-type AntigravityEffort = "low" | "medium" | "high";
+type Adapter = ProviderAdapterShape<ProviderAdapterError>;
+type Runtime = Pick<
+  AcpSessionRuntime.AcpSessionRuntime["Service"],
+  | "handleRequestPermission"
+  | "handleReadTextFile"
+  | "handleWriteTextFile"
+  | "start"
+  | "setMode"
+  | "setModel"
+  | "getConfigOptions"
+  | "getEvents"
+  | "drainEvents"
+  | "prompt"
+  | "cancel"
+>;
+type NativePermission = EffectAcpSchema.RequestPermissionRequest;
+type NativePermissionResponse = EffectAcpSchema.RequestPermissionResponse;
 
-export interface AntigravityAdapterLiveOptions {
-  readonly environment?: NodeJS.ProcessEnv;
-  readonly instanceId?: ProviderInstanceId;
-  /** Testable bound for the provider init handshake; production defaults to 30s. */
-  readonly sessionReadyTimeoutMs?: number;
+function mapAntigravityError(threadId: ThreadId, method: string, cause: EffectAcpErrors.AcpError) {
+  return isAntigravitySignInRequiredError(cause)
+    ? new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method,
+        detail: ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE,
+        cause,
+      })
+    : mapAcpToAdapterError(PROVIDER, threadId, method, cause);
 }
 
-interface AntigravitySessionContext {
-  readonly threadId: ThreadId;
+export interface AntigravityAdapterOptions {
+  readonly instanceId: ProviderInstanceId;
+  readonly makeRuntime: (
+    input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner" | "onAuthorizationUrl">,
+  ) => Effect.Effect<Runtime, EffectAcpErrors.AcpError | ProviderSetupError, Scope.Scope>;
+  readonly withProcess: AntigravityAuth["withProcess"];
+  readonly onSessionStarted?: (
+    started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
+    cwd: string,
+  ) => Effect.Effect<void>;
+  readonly onAvailableCommands?: (
+    commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
+    cwd: string,
+  ) => Effect.Effect<void>;
+  readonly onConfigOptionsUpdated?: (
+    configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
+  ) => Effect.Effect<void>;
+  readonly onAuthRequired?: Effect.Effect<void>;
+  /** Model the provider default alias selects, when the account offers it. */
+  readonly defaultModel?: Effect.Effect<string | undefined>;
+  readonly nativeEventLogger?: EventNdjsonLogger;
+}
+
+interface PendingApproval {
+  readonly request: NativePermission;
+  readonly response: Deferred.Deferred<{
+    readonly decision: ProviderApprovalDecision;
+    readonly result: NativePermissionResponse;
+  }>;
+}
+
+interface PendingQuestion {
+  readonly request: NativePermission;
+  readonly response: Deferred.Deferred<{
+    readonly answers: ProviderUserInputAnswers;
+    readonly result: NativePermissionResponse;
+  }>;
+}
+
+interface OpenCommand {
+  readonly toolCall: AcpToolCallState;
+  readonly turnId: TurnId | undefined;
+  readonly promoted: boolean;
+}
+
+interface OpenSubagent {
+  readonly turnId: TurnId | undefined;
+  readonly status: "pending" | "running" | undefined;
+  readonly description?: string;
+}
+
+function subagentLinkage(toolCallId: string) {
+  return {
+    taskId: RuntimeTaskId.make(toolCallId),
+    taskType: "subagent_batch",
+    toolUseId: toolCallId,
+    title: "Antigravity subagent batch",
+  };
+}
+
+interface TurnIntent {
+  readonly turnId: TurnId;
   readonly generation: number;
-  readonly scope: Scope.Closeable;
-  readonly child: ChildProcessSpawner.ChildProcessHandle;
-  readonly turns: ProviderThreadTurnSnapshot[];
-  session: ProviderSession;
-  currentModel: string | undefined;
-  currentEffort: AntigravityEffort | undefined;
-  readonly ready: Deferred.Deferred<void, ProviderAdapterProcessError>;
-  readonly expectedConversationId: string | undefined;
-  stderrTail: string;
-  failure: ProviderAdapterProcessError | undefined;
-  activeTurnId: TurnId | undefined;
-  responseTextSeen: boolean;
-  stopped: boolean;
-  outputFiber: Fiber.Fiber<void, never> | undefined;
-  stderrFiber: Fiber.Fiber<void, never> | undefined;
-  exitFiber: Fiber.Fiber<void, never> | undefined;
+  settled: boolean;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-const SENSITIVE_DIAGNOSTIC_KEY =
-  /^(?:authorization|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret|credential)s?$/i;
-
-function redactSensitiveText(value: string): string {
-  return value
-    .replace(
-      /((?:authorization|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret|credential)s?\s*[:=]\s*)(?:Bearer\s+)?[^\s"',}]+/gi,
-      "$1[redacted]",
-    )
-    .replace(
-      /((?:["'])(?:authorization|access[_-]?token|refresh[_-]?token|token|api[_-]?key|password|secret|credential)s?(?:["'])\s*:\s*["'])[^"']*(["'])/gi,
-      "$1[redacted]$2",
-    );
-}
-
-function sanitizeDiagnosticValue(value: unknown, depth = 0): unknown {
-  if (depth > 6) return "[truncated]";
-  if (typeof value === "string") return redactSensitiveText(value).slice(0, MAX_STDERR_TAIL_CHARS);
-  if (Array.isArray(value)) {
-    return value.slice(0, 64).map((entry) => sanitizeDiagnosticValue(entry, depth + 1));
-  }
-  if (!isRecord(value)) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .slice(0, 128)
-      .map(([key, entry]) => [
-        key,
-        SENSITIVE_DIAGNOSTIC_KEY.test(key)
-          ? "[redacted]"
-          : sanitizeDiagnosticValue(entry, depth + 1),
-      ]),
-  );
-}
-
-function serializeDiagnostic(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const redacted = redactSensitiveText(value).trim();
-    return redacted.slice(0, MAX_STDERR_TAIL_CHARS) || undefined;
-  }
-  try {
-    const serialized = JSON.stringify(sanitizeDiagnosticValue(value));
-    return serialized === undefined ? undefined : serialized;
-  } catch {
-    return undefined;
-  }
-}
-
-function redactStderrTail(value: string): string {
-  return redactSensitiveText(value).replace(/\r/g, "").slice(-MAX_STDERR_TAIL_CHARS).trim();
-}
-
-function causeClass(cause: unknown): string | undefined {
-  if (cause instanceof Error && cause.name.trim()) return cause.name.trim();
-  if (cause === undefined || cause === null) return undefined;
-  return typeof cause;
-}
-
-function makeProcessFailure(input: {
+interface SessionContext {
   readonly threadId: ThreadId;
-  readonly providerInstanceId?: ProviderInstanceId;
-  readonly generation?: number;
-  readonly stage: ProviderAdapterErrorStage;
-  readonly detail: string;
-  readonly recoverable?: boolean;
-  readonly cause?: unknown;
-  readonly stderrTail?: string;
-  readonly exitCode?: number;
-}): ProviderAdapterProcessError {
-  const detail = redactSensitiveText(input.detail).trim();
-  return new ProviderAdapterProcessError({
-    provider: PROVIDER,
-    threadId: input.threadId,
-    detail,
-    ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
-    ...(input.generation !== undefined ? { generation: input.generation } : {}),
-    stage: input.stage,
-    ...(input.recoverable !== undefined ? { recoverable: input.recoverable } : {}),
-    ...(causeClass(input.cause) ? { causeClass: causeClass(input.cause) } : {}),
-    safeMessage: detail,
-    ...(input.stderrTail ? { stderrTail: redactStderrTail(input.stderrTail) } : {}),
-    ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
-    occurredAt: DateTime.formatIso(DateTime.nowUnsafe()),
-    ...(input.cause !== undefined ? { cause: input.cause } : {}),
-  });
+  readonly cwd: string;
+  readonly nativeSessionId: string;
+  readonly scope: Scope.Closeable;
+  readonly runtime: Runtime;
+  readonly promptLock: Semaphore.Semaphore;
+  readonly stopLock: Semaphore.Semaphore;
+  readonly commandLock: Semaphore.Semaphore;
+  readonly approvals: Map<ApprovalRequestId, PendingApproval>;
+  readonly questions: Map<ApprovalRequestId, PendingQuestion>;
+  readonly commands: Map<string, OpenCommand>;
+  /** Keep only IDs after settlement or MCP exclusion so merged late updates cannot change identity. */
+  readonly subagents: Map<string, OpenSubagent | "finished" | "mcp">;
+  readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
+  session: ProviderSession;
+  activeTurnId: TurnId | undefined;
+  promptFiber: Fiber.Fiber<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError> | undefined;
+  generation: number;
+  stopped: boolean;
+  closed: boolean;
+  disconnected: boolean;
 }
 
-function classifyFailureStage(
-  detail: string,
-  fallback: ProviderAdapterErrorStage,
-): ProviderAdapterErrorStage {
-  if (
-    /\b(?:auth(?:entication|enticated)?|sign(?:ed)?[- ]?in|log[- ]?in|credential|unauthori[sz]ed|forbidden)\b/i.test(
-      detail,
-    )
-  ) {
-    return "authentication";
+const CLIENT_FILE_MAX_BYTES = 8 * 1024 * 1024;
+
+function isInsideRoot(path: Path.Path, root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/** Resolves an agent-supplied path and rejects anything outside the session roots. */
+const resolveClientFilePath = Effect.fn("AntigravityAdapter.resolveClientFilePath")(
+  function* (input: {
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly path: Path.Path;
+    readonly allowedRoots: ReadonlyArray<string>;
+    readonly requestPath: string;
+  }) {
+    const { path } = input;
+    const resolved = path.resolve(input.requestPath);
+    // Follow symlinks on the parent so a link out of the workspace cannot escape it.
+    const parent = yield* input.fileSystem
+      .realPath(path.dirname(resolved))
+      .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
+    const real = path.join(parent, path.basename(resolved));
+    const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
+      input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
+    );
+    if (!roots.some((root) => isInsideRoot(path, root, real))) {
+      return yield* EffectAcpErrors.AcpRequestError.invalidParams(
+        `Path '${input.requestPath}' is outside the session workspace.`,
+      );
+    }
+    return real;
+  },
+);
+
+const readClientTextFile = Effect.fn("AntigravityAdapter.readClientTextFile")(function* (input: {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
+  readonly allowedRoots: ReadonlyArray<string>;
+  readonly request: EffectAcpSchema.ReadTextFileRequest;
+}): Effect.fn.Return<EffectAcpSchema.ReadTextFileResponse, EffectAcpErrors.AcpError> {
+  const filePath = yield* resolveClientFilePath({ ...input, requestPath: input.request.path });
+  const info = yield* input.fileSystem
+    .stat(filePath)
+    .pipe(
+      Effect.mapError(() =>
+        EffectAcpErrors.AcpRequestError.resourceNotFound(`File '${input.request.path}' not found.`),
+      ),
+    );
+  if (info.type !== "File" || Number(info.size) > CLIENT_FILE_MAX_BYTES) {
+    return yield* EffectAcpErrors.AcpRequestError.invalidParams(
+      `File '${input.request.path}' is not a readable text file under ${CLIENT_FILE_MAX_BYTES} bytes.`,
+    );
   }
-  if (
-    /(?:\b(?:model|engine)\b.{0,80}\b(?:not found|unavailable|invalid|unsupported|does not exist)\b|\b(?:not found|unavailable|invalid|unsupported|does not exist)\b.{0,80}\b(?:model|engine)\b)/i.test(
-      detail,
-    )
-  ) {
-    return "model-discovery";
+  const text = yield* input.fileSystem
+    .readFileString(filePath)
+    .pipe(
+      Effect.mapError(() =>
+        EffectAcpErrors.AcpRequestError.internalError(`Could not read '${input.request.path}'.`),
+      ),
+    );
+  const line = input.request.line ?? undefined;
+  const limit = input.request.limit ?? undefined;
+  if (line === undefined && limit === undefined) {
+    return { content: text };
   }
-  return fallback;
-}
-
-function appendStderrTail(ctx: AntigravitySessionContext, chunk: string): void {
-  const next = redactStderrTail(`${ctx.stderrTail}${chunk}`);
-  ctx.stderrTail = next;
-}
-
-function stderrDetail(ctx: AntigravitySessionContext): string {
-  const stderr = redactStderrTail(ctx.stderrTail);
-  return stderr ? ` Provider output:\n${stderr}` : "";
-}
-
-function readEffort(
-  selection: ProviderSendTurnInput["modelSelection"] | ProviderSessionStartInput["modelSelection"],
-): { readonly value: AntigravityEffort | undefined; readonly invalid: string | undefined } {
-  if (!selection) return { value: undefined, invalid: undefined };
-  const raw = getModelSelectionStringOptionValue(selection, "effort");
-  if (raw === undefined) return { value: undefined, invalid: undefined };
-  if (raw === "low" || raw === "medium" || raw === "high") {
-    return { value: raw, invalid: undefined };
-  }
-  return { value: undefined, invalid: raw };
-}
-
-function turnStateFromResultStatus(
-  status: string | undefined,
-): "completed" | "failed" | "interrupted" | "cancelled" {
-  switch (status?.toUpperCase()) {
-    case "SUCCESS":
-    case "COMPLETED":
-      return "completed";
-    case "CANCELLED":
-      return "cancelled";
-    case "INTERRUPTED":
-      return "interrupted";
-    default:
-      return "failed";
-  }
-}
-
-export function makeAntigravityAdapter(
-  antigravitySettings: AntigravitySettings,
-  options: AntigravityAdapterLiveOptions = {},
+  // ACP lines are 1-indexed. `limit` is a line count.
+  const lines = text.split("\n");
+  const start = Math.max(0, (line ?? 1) - 1);
+  const end = limit === undefined ? lines.length : Math.min(lines.length, start + limit);
+  return { content: lines.slice(start, end).join("\n") };
+});
+const writeClientTextFile = Effect.fn("AntigravityAdapter.writeClientTextFile")(function* (input: {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
+  readonly allowedRoots: ReadonlyArray<string>;
+  readonly request: EffectAcpSchema.WriteTextFileRequest;
+}): Effect.fn.Return<EffectAcpSchema.WriteTextFileResponse, EffectAcpErrors.AcpError> {
+  const filePath = yield* resolveClientFilePath({ ...input, requestPath: input.request.path });
+  yield* input.fileSystem.makeDirectory(input.path.dirname(filePath), { recursive: true }).pipe(
+    Effect.andThen(input.fileSystem.writeFileString(filePath, input.request.content)),
+    Effect.mapError(() =>
+      EffectAcpErrors.AcpRequestError.internalError(`Could not write '${input.request.path}'.`),
+    ),
+  );
+  return {};
+});
+/** Keeps one official ACP process per thread and drains a cancelled prompt before steering. */
+export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(function* (
+  settings: AntigravitySettings,
+  options: AntigravityAdapterOptions,
 ) {
-  return Effect.gen(function* () {
-    const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const crypto = yield* Crypto.Crypto;
-    const sessions = new Map<ThreadId, AntigravitySessionContext>();
-    const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
-    const boundInstanceId = options.instanceId;
-    const sessionReadyTimeoutMs = Math.max(
-      0,
-      options.sessionReadyTimeoutMs ?? SESSION_READY_TIMEOUT_MS,
-    );
-    const generationByThread = new Map<ThreadId, number>();
-    const failureByThread = new Map<ThreadId, ProviderAdapterProcessError>();
-    const rememberFailure = (threadId: ThreadId, failure: ProviderAdapterProcessError): void => {
-      if (!failureByThread.has(threadId) && failureByThread.size >= MAX_FAILURE_TOMBSTONES) {
-        const oldestThreadId = failureByThread.keys().next().value;
-        if (oldestThreadId !== undefined) failureByThread.delete(oldestThreadId);
-      }
-      failureByThread.set(threadId, failure);
-    };
-
-    const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-    const randomUUID = (method: string) =>
-      crypto.randomUUIDv4.pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method,
-              detail: "Failed to allocate an Antigravity runtime identifier.",
-              cause,
-            }),
-        ),
-      );
-    const nextEventId = randomUUID("crypto/randomUUIDv4").pipe(
-      Effect.map((value) => EventId.make(value)),
-    );
-    const nextTurnId = randomUUID("crypto/randomUUIDv4").pipe(
-      Effect.map((value) => TurnId.make(value)),
-    );
-    const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
-
-    const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
-      PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
-
-    const rawFor = (event: Record<string, unknown>) => {
-      const messageType = stringValue(event.event);
-      return {
-        source: "antigravity.cli" as const,
-        ...(messageType ? { messageType } : {}),
-        payload: sanitizeDiagnosticValue(event) as Record<string, unknown>,
-      };
-    };
-
-    const requireSession = (
-      threadId: ThreadId,
-    ): Effect.Effect<
-      AntigravitySessionContext,
-      | ProviderAdapterProcessError
-      | ProviderAdapterSessionClosedError
-      | ProviderAdapterSessionNotFoundError
-    > => {
-      const failure = failureByThread.get(threadId);
-      if (failure) {
-        return Effect.fail(failure);
-      }
-      const ctx = sessions.get(threadId);
-      if (ctx && ctx.stopped) {
-        return Effect.fail(new ProviderAdapterSessionClosedError({ provider: PROVIDER, threadId }));
-      }
-      if (!ctx) {
-        return Effect.fail(
-          new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId }),
-        );
-      }
-      return Effect.succeed(ctx);
-    };
-
-    const isCurrentContext = (ctx: AntigravitySessionContext): boolean =>
-      sessions.get(ctx.threadId) === ctx &&
-      generationByThread.get(ctx.threadId) === ctx.generation &&
-      !ctx.stopped;
-
-    const appendTurnItem = (ctx: AntigravitySessionContext, turnId: TurnId, item: unknown) => {
-      const index = ctx.turns.findIndex((entry) => entry.id === turnId);
-      if (index < 0) return;
-      const turn = ctx.turns[index];
-      if (!turn) return;
-      ctx.turns[index] = { ...turn, items: [...turn.items, item] };
-    };
-
-    const emitTurnCompleted = (
-      ctx: AntigravitySessionContext,
-      turnId: TurnId,
-      state: "completed" | "failed" | "interrupted" | "cancelled",
-      options?: {
-        readonly errorMessage?: string;
-        readonly usage?: unknown;
-        readonly raw?: unknown;
-      },
-    ) =>
-      Effect.gen(function* () {
-        const stamp = yield* makeEventStamp();
-        yield* offerRuntimeEvent({
-          type: "turn.completed",
-          ...stamp,
+  const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const serverConfig = yield* ServerConfig;
+  const ownerScope = yield* Effect.scope;
+  const makeNativeLoggers = yield* makeAcpNativeLoggerFactory();
+  const sessions = new Map<ThreadId, SessionContext>();
+  const locks = yield* SynchronizedRef.make(new Map<ThreadId, Semaphore.Semaphore>());
+  const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+  const randomId = crypto.randomUUIDv4.pipe(
+    Effect.mapError(
+      (cause) =>
+        new ProviderAdapterRequestError({
           provider: PROVIDER,
-          threadId: ctx.threadId,
-          turnId,
-          ...(isRecord(options?.raw) ? { raw: rawFor(options.raw) } : {}),
-          payload: {
-            state,
-            ...(options?.usage !== undefined ? { usage: options.usage } : {}),
-            ...(options?.errorMessage ? { errorMessage: options.errorMessage } : {}),
-          },
-        });
-      });
+          method: "crypto/randomUUIDv4",
+          detail: "Could not create an Antigravity event ID.",
+          cause,
+        }),
+    ),
+  );
+  const stamp = Effect.all({
+    eventId: Effect.map(randomId, EventId.make),
+    createdAt: nowIso,
+  });
+  const emit = (event: ProviderRuntimeEvent) => PubSub.publish(events, event).pipe(Effect.asVoid);
 
-    const processStreamEvent = (ctx: AntigravitySessionContext, event: Record<string, unknown>) =>
-      Effect.gen(function* () {
-        if (!isCurrentContext(ctx)) return;
-        switch (event.event) {
-          case "init": {
-            const conversationId = stringValue(event.conversation_id);
-            const model = stringValue(event.model);
-            if (
-              ctx.expectedConversationId !== undefined &&
-              ctx.expectedConversationId !== conversationId
-            ) {
-              const resumeError = makeProcessFailure({
-                threadId: ctx.threadId,
-                ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-                generation: ctx.generation,
-                stage: "resume",
-                recoverable: true,
-                detail:
-                  "Antigravity CLI initialized a different conversation than the persisted resume cursor.",
-                stderrTail: ctx.stderrTail,
-              });
-              ctx.failure = resumeError;
-              ctx.stopped = true;
-              rememberFailure(ctx.threadId, resumeError);
-              sessions.delete(ctx.threadId);
-              ctx.session = {
-                ...ctx.session,
-                status: "error",
-                lastError: resumeError.message,
-                updatedAt: yield* nowIso,
-              };
-              yield* Deferred.fail(ctx.ready, resumeError).pipe(Effect.ignore);
-              yield* offerRuntimeEvent({
-                type: "session.state.changed",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                raw: rawFor(event),
-                payload: { state: "error", reason: resumeError.message },
-              });
-              yield* offerRuntimeEvent({
-                type: "session.exited",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                payload: { exitKind: "error", recoverable: true, reason: resumeError.detail },
-              });
-              yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
-              return;
-            }
-            ctx.currentModel = model ?? ctx.currentModel;
-            const resumeCursor = conversationId
-              ? makeAntigravityResumeCursor(conversationId)
-              : undefined;
-            ctx.session = {
-              ...ctx.session,
-              status: "ready",
-              ...(ctx.currentModel ? { model: ctx.currentModel } : {}),
-              ...(resumeCursor ? { resumeCursor } : {}),
-              updatedAt: yield* nowIso,
-            };
-            yield* Deferred.succeed(ctx.ready, undefined).pipe(Effect.ignore);
-            const stamp = yield* makeEventStamp();
-            const raw = rawFor(event);
-            yield* offerRuntimeEvent({
-              type: "session.state.changed",
-              ...stamp,
-              provider: PROVIDER,
-              threadId: ctx.threadId,
-              raw,
-              payload: { state: "ready", reason: "Antigravity CLI session initialized" },
-            });
-            if (conversationId) {
-              yield* offerRuntimeEvent({
-                type: "thread.started",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                raw,
-                payload: { providerThreadId: conversationId },
-              });
-            }
-            return;
-          }
-          case "step_update": {
-            const turnId = ctx.activeTurnId;
-            if (!turnId) return;
-            const stepType = stringValue(event.step_type);
-            const raw = rawFor(event);
-            const textDelta = stringValue(event.text_delta);
-            if (stepType === "agent_response" && textDelta) {
-              ctx.responseTextSeen = true;
-              appendTurnItem(ctx, turnId, { type: "assistant_message", text: textDelta });
-              yield* offerRuntimeEvent({
-                type: "content.delta",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                turnId,
-                raw,
-                payload: { streamKind: "assistant_text", delta: textDelta },
-              });
-              return;
-            }
-
-            if (stepType === "tool") {
-              const toolName = stringValue(event.tool_name);
-              const toolInfo = serializeDiagnostic(event.tool_info);
-              yield* offerRuntimeEvent({
-                type: "tool.progress",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                turnId,
-                raw,
-                payload: {
-                  ...(toolName ? { toolName } : {}),
-                  ...(toolInfo ? { summary: toolInfo } : {}),
-                },
-              });
-            }
-            return;
-          }
-          case "result": {
-            const turnId = ctx.activeTurnId;
-            if (!turnId) return;
-            const response = stringValue(event.response);
-            if (response && !ctx.responseTextSeen) {
-              ctx.responseTextSeen = true;
-              appendTurnItem(ctx, turnId, { type: "assistant_message", text: response });
-              yield* offerRuntimeEvent({
-                type: "content.delta",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                turnId,
-                raw: rawFor(event),
-                payload: { streamKind: "assistant_text", delta: response },
-              });
-            }
-
-            const status = stringValue(event.status);
-            const state = turnStateFromResultStatus(status);
-            const errorMessage = serializeDiagnostic(event.error);
-            const usage = event.usage;
-            appendTurnItem(ctx, turnId, { type: "result", status, response, usage });
-            yield* emitTurnCompleted(ctx, turnId, state, {
-              ...(errorMessage ? { errorMessage } : {}),
-              ...(usage !== undefined ? { usage } : {}),
-              raw: event,
-            });
-            if (state === "failed" && errorMessage) {
-              const safeMessage = redactSensitiveText(errorMessage).trim();
-              yield* offerRuntimeEvent({
-                type: "runtime.error",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: ctx.threadId,
-                turnId,
-                raw: rawFor(event),
-                payload: {
-                  message: safeMessage,
-                  class: "provider_error",
-                  detail: {
-                    provider: PROVIDER,
-                    ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-                    generation: ctx.generation,
-                    stage: classifyFailureStage(errorMessage, "provider-stream"),
-                    recoverable: true,
-                    safeMessage,
-                    ...(ctx.stderrTail ? { stderrTail: redactStderrTail(ctx.stderrTail) } : {}),
-                  },
-                },
-              });
-            }
-            ctx.activeTurnId = undefined;
-            ctx.responseTextSeen = false;
-            ctx.session = {
-              ...ctx.session,
-              status: state === "failed" ? "error" : "ready",
-              activeTurnId: undefined,
-              ...(errorMessage ? { lastError: errorMessage } : { lastError: undefined }),
-              updatedAt: yield* nowIso,
-            };
-            return;
-          }
-        }
-      });
-
-    const handleOutputLine = (ctx: AntigravitySessionContext, line: string) => {
-      const parsed = parseAntigravityStreamLine(line);
-      if (!parsed) return Effect.void;
-      return processStreamEvent(ctx, parsed).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Failed to process Antigravity CLI stream event.", {
-            threadId: ctx.threadId,
-            cause,
-          }),
-        ),
+  const withThreadLock = <A, E, R>(threadId: ThreadId, task: Effect.Effect<A, E, R>) =>
+    SynchronizedRef.modifyEffect(locks, (current) => {
+      const existing = current.get(threadId);
+      if (existing) return Effect.succeed([existing, current] as const);
+      return Semaphore.make(1).pipe(
+        Effect.map((lock) => [lock, new Map(current).set(threadId, lock)] as const),
       );
-    };
+    }).pipe(Effect.flatMap((lock) => lock.withPermit(task)));
 
-    const handleProcessExit = (
-      ctx: AntigravitySessionContext,
-      exitCode: number | undefined,
-    ): Effect.Effect<void, never> =>
-      Effect.gen(function* () {
-        if (
-          sessions.get(ctx.threadId) !== ctx ||
-          generationByThread.get(ctx.threadId) !== ctx.generation
-        ) {
-          return;
-        }
-        if (ctx.stopped) return;
-        ctx.stopped = true;
-        // The stderr reader continuously appends to a bounded tail. Do not
-        // wait for stderr EOF here: a provider can close its exit signal before
-        // closing stderr, and lifecycle failure reporting must never stall on
-        // an unclosed diagnostic stream.
-        const stderr = redactStderrTail(ctx.stderrTail);
-        const detail = `Antigravity CLI exited before completing the current lifecycle${exitCode === undefined ? "" : ` (code ${exitCode})`}.${stderr ? ` Provider output:\n${stderr}` : ""}`;
-        const failure = makeProcessFailure({
-          threadId: ctx.threadId,
-          ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-          generation: ctx.generation,
-          stage: classifyFailureStage(
-            `${detail}\n${stderr}`,
-            ctx.activeTurnId ? "provider-stream" : "process-initialization",
-          ),
-          recoverable: exitCode !== 0,
-          detail,
-          stderrTail: ctx.stderrTail,
-          ...(exitCode !== undefined ? { exitCode } : {}),
-        });
-        ctx.failure = failure;
-        rememberFailure(ctx.threadId, failure);
-        sessions.delete(ctx.threadId);
-        yield* Deferred.fail(ctx.ready, failure).pipe(Effect.ignore);
-        const activeTurnId = ctx.activeTurnId;
-        if (activeTurnId) {
-          yield* emitTurnCompleted(ctx, activeTurnId, "failed", {
-            errorMessage: detail,
-          });
-          ctx.activeTurnId = undefined;
-        }
-        ctx.session = {
-          ...ctx.session,
-          status: "error",
-          activeTurnId: undefined,
-          lastError: detail,
-          updatedAt: yield* nowIso,
-        };
-        yield* offerRuntimeEvent({
-          type: "session.state.changed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          payload: { state: "error", reason: detail },
-        });
-        yield* offerRuntimeEvent({
-          type: "session.exited",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          payload: {
-            exitKind: exitCode === 0 ? "graceful" : "error",
-            recoverable: exitCode !== 0,
-            reason: detail,
-          },
-        });
-        yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Antigravity CLI exit handling failed.", {
-            threadId: ctx.threadId,
-            cause,
-          }),
-        ),
-      );
+  const requireSession = (threadId: ThreadId) => {
+    const context = sessions.get(threadId);
+    return context && !context.stopped
+      ? Effect.succeed(context)
+      : Effect.fail(new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId }));
+  };
 
-    const startOutputReaders = (ctx: AntigravitySessionContext): Effect.Effect<void, never> =>
-      Effect.gen(function* () {
-        ctx.outputFiber = yield* ctx.child.stdout.pipe(
-          Stream.decodeText(),
-          Stream.splitLines,
-          Stream.runForEach((line) => handleOutputLine(ctx, line)),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Antigravity CLI stdout reader stopped.", {
-              threadId: ctx.threadId,
-              cause,
-            }),
-          ),
-          Effect.forkIn(ctx.scope),
-        );
-        ctx.stderrFiber = yield* ctx.child.stderr.pipe(
-          Stream.decodeText(),
-          Stream.runForEach((chunk) => Effect.sync(() => appendStderrTail(ctx, chunk))),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Antigravity CLI stderr reader stopped.", {
-              threadId: ctx.threadId,
-              cause,
-            }),
-          ),
-          Effect.forkIn(ctx.scope),
-        );
-        ctx.exitFiber = yield* ctx.child.exitCode.pipe(
-          Effect.map(Number),
-          Effect.flatMap((exitCode) => handleProcessExit(ctx, exitCode)),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Antigravity CLI exit watcher stopped.", {
-              threadId: ctx.threadId,
-              cause,
-            }),
-          ),
-          Effect.forkIn(ctx.scope),
-        );
+  const cancelRequests = Effect.fn("AntigravityAdapter.cancelRequests")(function* (
+    context: SessionContext,
+  ) {
+    for (const pending of context.approvals.values()) {
+      yield* Deferred.succeed(pending.response, {
+        decision: "cancel",
+        result: { outcome: { outcome: "cancelled" } },
       });
+    }
+    for (const pending of context.questions.values()) {
+      yield* Deferred.succeed(pending.response, {
+        answers: {},
+        result: { outcome: { outcome: "cancelled" } },
+      });
+    }
+  });
 
-    const stopSessionInternal = (
-      ctx: AntigravitySessionContext,
-      options?: {
-        readonly turnState?: "interrupted" | "cancelled";
-        readonly exitKind?: "graceful" | "error";
-        readonly reason?: string;
-        readonly diagnostic?: Readonly<Record<string, unknown>>;
-      },
-    ): Effect.Effect<void, ProviderAdapterRequestError> =>
+  const finishBackgroundCommands = (context: SessionContext) =>
+    context.commandLock.withPermit(
       Effect.gen(function* () {
-        if (ctx.stopped) return;
-        ctx.stopped = true;
-        sessions.delete(ctx.threadId);
-        const activeTurnId = ctx.activeTurnId;
-        if (activeTurnId && options?.turnState) {
-          yield* offerRuntimeEvent({
-            type: "turn.aborted",
-            ...(yield* makeEventStamp()),
+        for (const [id, command] of context.commands) {
+          if (!command.promoted) continue;
+          yield* emit({
+            type: "task.completed",
+            ...(yield* stamp),
             provider: PROVIDER,
-            threadId: ctx.threadId,
-            turnId: activeTurnId,
+            threadId: context.threadId,
+            turnId: command.turnId,
             payload: {
-              reason:
-                options.reason ??
-                (options.turnState === "interrupted"
-                  ? "Antigravity turn interrupted by the user."
-                  : "Antigravity session stopped before the turn completed."),
+              taskId: RuntimeTaskId.make(id),
+              taskType: "local_bash",
+              toolUseId: id,
+              status: "stopped",
             },
           });
-          yield* emitTurnCompleted(
-            ctx,
-            activeTurnId,
-            options.turnState,
-            options.reason ? { errorMessage: options.reason } : undefined,
+        }
+        context.commands.clear();
+      }),
+    );
+
+  const finishSubagents = (
+    context: SessionContext,
+    status: Extract<RuntimeTaskStatus, "cancelled" | "failed" | "idle">,
+    error?: string,
+  ) =>
+    context.commandLock.withPermit(
+      Effect.gen(function* () {
+        for (const [id, subagent] of context.subagents) {
+          if (subagent === "finished" || subagent === "mcp") continue;
+          yield* emit({
+            type: "task.updated",
+            ...(yield* stamp),
+            provider: PROVIDER,
+            threadId: context.threadId,
+            turnId: subagent.turnId,
+            payload: {
+              ...subagentLinkage(id),
+              status,
+              ...(status === "idle"
+                ? {
+                    description: "Turn ended. Individual agent status is unavailable.",
+                    timelineBypass: true,
+                  }
+                : {}),
+              ...(error ? { error } : {}),
+            },
+          });
+          context.subagents.set(id, "finished");
+        }
+      }),
+    );
+
+  const stopContext = (context: SessionContext) =>
+    context.stopLock
+      .withPermit(
+        Effect.gen(function* () {
+          if (context.closed) return;
+          context.stopped = true;
+          yield* Effect.gen(function* () {
+            yield* cancelRequests(context);
+            if (context.promptFiber && !context.disconnected) {
+              yield* Effect.ignore(context.runtime.cancel);
+            }
+          }).pipe(Effect.ensuring(Scope.close(context.scope, Exit.void)));
+          context.closed = true;
+          if (sessions.get(context.threadId) === context) sessions.delete(context.threadId);
+          yield* finishBackgroundCommands(context);
+          yield* finishSubagents(
+            context,
+            context.disconnected ? "failed" : "cancelled",
+            context.disconnected ? "Antigravity process stopped." : undefined,
           );
-          ctx.activeTurnId = undefined;
-        }
-        yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
-        const exitKind = options?.exitKind ?? "graceful";
-        if (exitKind === "error") {
-          yield* offerRuntimeEvent({
-            type: "session.state.changed",
-            ...(yield* makeEventStamp()),
+          context.subagents.clear();
+          yield* emit({
+            type: "session.exited",
+            ...(yield* stamp),
             provider: PROVIDER,
-            threadId: ctx.threadId,
+            threadId: context.threadId,
             payload: {
-              state: "error",
-              ...(options?.reason ? { reason: options.reason } : {}),
-              ...(options?.diagnostic ? { detail: options.diagnostic } : {}),
+              exitKind: context.disconnected ? "error" : "graceful",
+              ...(context.disconnected ? { reason: "Antigravity process stopped." } : {}),
             },
           });
-        }
-        yield* offerRuntimeEvent({
-          type: "session.exited",
-          ...(yield* makeEventStamp()),
+        }),
+      )
+      .pipe(Effect.uninterruptible);
+
+  const handlePermission = Effect.fn("AntigravityAdapter.handlePermission")(function* (
+    context: SessionContext,
+    request: NativePermission,
+  ): Effect.fn.Return<NativePermissionResponse, ProviderAdapterError> {
+    if (context.stopped || request.sessionId !== context.nativeSessionId) {
+      return { outcome: { outcome: "cancelled" } };
+    }
+    const requestId = ApprovalRequestId.make(yield* randomId);
+    const runtimeRequestId = RuntimeRequestId.make(requestId);
+    const turnId = context.activeTurnId;
+    const rawPayload = sanitizeAntigravityToolPayload(request);
+
+    if (isAntigravityUserInputRequest(request)) {
+      const question = extractAntigravityUserInputQuestion(request);
+      if (!question) return { outcome: { outcome: "cancelled" } };
+      const response = yield* Deferred.make<{
+        answers: ProviderUserInputAnswers;
+        result: NativePermissionResponse;
+      }>();
+      context.questions.set(requestId, { request, response });
+      return yield* Effect.gen(function* () {
+        yield* emit({
+          type: "user-input.requested",
+          ...(yield* stamp),
           provider: PROVIDER,
-          threadId: ctx.threadId,
-          payload: {
-            exitKind,
-            ...(exitKind === "error" ? { recoverable: true } : {}),
-            ...(options?.reason ? { reason: options.reason } : {}),
-          },
+          threadId: context.threadId,
+          turnId,
+          requestId: runtimeRequestId,
+          payload: { questions: [question] },
+          raw: { source: "acp.jsonrpc", method: "session/request_permission", payload: rawPayload },
         });
-      });
+        const answer = yield* Deferred.await(response);
+        yield* emit({
+          type: "user-input.resolved",
+          ...(yield* stamp),
+          provider: PROVIDER,
+          threadId: context.threadId,
+          turnId,
+          requestId: runtimeRequestId,
+          payload: { answers: answer.answers },
+        });
+        return answer.result;
+      }).pipe(Effect.ensuring(Effect.sync(() => context.questions.delete(requestId))));
+    }
 
-    const writeUserMessage = (ctx: AntigravitySessionContext, content: string) =>
-      Stream.run(
-        Stream.encodeText(Stream.make(serializeAntigravityUserMessage(content))),
-        ctx.child.stdin,
-      ).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "stream/user",
-              detail: `Failed to write a user turn to the Antigravity CLI process.${stderrDetail(ctx)}`,
-              cause,
-            }),
-        ),
+    const response = yield* Deferred.make<{
+      decision: ProviderApprovalDecision;
+      result: NativePermissionResponse;
+    }>();
+    context.approvals.set(requestId, { request, response });
+    const parsed = parsePermissionRequest(request);
+    const toolCall = parsed.toolCall ? normalizeAntigravityToolCall(parsed.toolCall) : undefined;
+    const permissionRequest = {
+      ...parsed,
+      ...(toolCall ? { toolCall } : {}),
+      detail:
+        toolCall?.command ??
+        toolCall?.detail ??
+        toolCall?.title ??
+        "Antigravity requests permission.",
+    };
+    return yield* Effect.gen(function* () {
+      yield* emit(
+        makeAcpRequestOpenedEvent({
+          stamp: yield* stamp,
+          provider: PROVIDER,
+          threadId: context.threadId,
+          turnId,
+          requestId: runtimeRequestId,
+          permissionRequest,
+          approvalOptions: antigravityApprovalOptions(request),
+          detail: permissionRequest.detail ?? "Antigravity requests permission.",
+          args: rawPayload,
+          source: "acp.jsonrpc",
+          method: "session/request_permission",
+          rawPayload,
+        }),
       );
+      const answer = yield* Deferred.await(response);
+      yield* emit(
+        makeAcpRequestResolvedEvent({
+          stamp: yield* stamp,
+          provider: PROVIDER,
+          threadId: context.threadId,
+          turnId,
+          requestId: runtimeRequestId,
+          permissionRequest,
+          decision: answer.decision,
+        }),
+      );
+      return answer.result;
+    }).pipe(Effect.ensuring(Effect.sync(() => context.approvals.delete(requestId))));
+  });
 
-    const startSession: ProviderAdapterShape<ProviderAdapterError>["startSession"] = (input) =>
+  const handleEvent = Effect.fn("AntigravityAdapter.handleEvent")(function* (
+    context: SessionContext,
+    event: AcpSessionRuntime.AcpSessionRuntimeEvent,
+  ) {
+    if (event._tag === "EventStreamBarrier") {
+      yield* Deferred.succeed(event.acknowledge, undefined);
+      return;
+    }
+    if (context.stopped) return;
+    switch (event._tag) {
+      case "ModeChanged":
+        return;
+      case "AvailableCommandsUpdated":
+        yield* options.onAvailableCommands?.(event.availableCommands, context.cwd) ?? Effect.void;
+        return;
+      case "ConfigOptionsUpdated":
+        yield* options.onConfigOptionsUpdated?.(event.configOptions) ?? Effect.void;
+        return;
+      case "ConnectionTerminated":
+        context.stopped = true;
+        context.disconnected = true;
+        yield* stopContext(context).pipe(Effect.forkIn(ownerScope));
+        return;
+      case "AssistantItemStarted":
+      case "AssistantItemCompleted":
+        yield* emit(
+          makeAcpAssistantItemEvent({
+            stamp: yield* stamp,
+            provider: PROVIDER,
+            threadId: context.threadId,
+            turnId: context.activeTurnId,
+            itemId: event.itemId,
+            lifecycle: event._tag === "AssistantItemStarted" ? "item.started" : "item.completed",
+          }),
+        );
+        return;
+      case "ThoughtDelta":
+      case "ContentDelta":
+        yield* emit(
+          makeAcpContentDeltaEvent({
+            stamp: yield* stamp,
+            provider: PROVIDER,
+            threadId: context.threadId,
+            turnId: context.activeTurnId,
+            ...(event._tag === "ContentDelta" && event.itemId ? { itemId: event.itemId } : {}),
+            ...(event._tag === "ThoughtDelta" ? { streamKind: "reasoning_text" } : {}),
+            text: event.text,
+            rawPayload: sanitizeAntigravityToolPayload(event.rawPayload),
+          }),
+        );
+        return;
+      case "PlanUpdated":
+        yield* emit(
+          makeAcpPlanUpdatedEvent({
+            stamp: yield* stamp,
+            provider: PROVIDER,
+            threadId: context.threadId,
+            turnId: context.activeTurnId,
+            payload: event.payload,
+            source: "acp.jsonrpc",
+            method: "session/update",
+            rawPayload: sanitizeAntigravityToolPayload(event.rawPayload),
+          }),
+        );
+        return;
+      case "ToolCallUpdated":
+        yield* context.commandLock.withPermit(
+          Effect.gen(function* () {
+            const toolCall = normalizeAntigravityToolCall(event.toolCall);
+            const tracked = context.subagents.get(toolCall.toolCallId);
+            if (tracked === "finished") return;
+            const kind = classifyAntigravitySubagentToolCall(toolCall, event.rawPayload);
+            const isMcp = tracked === "mcp" || kind === "mcp";
+            if (isMcp) context.subagents.set(toolCall.toolCallId, "mcp");
+            const subagent = tracked === "mcp" ? undefined : tracked;
+            if (!isMcp && (subagent || kind === "subagent")) {
+              const turnId = subagent?.turnId ?? context.activeTurnId;
+              const linkage = subagentLinkage(toolCall.toolCallId);
+              // Replay starts claim completion before the result says whether the call failed.
+              if (
+                context.activeTurnId === undefined &&
+                isAntigravitySubagentReplayStart(event.rawPayload)
+              ) {
+                context.subagents.set(toolCall.toolCallId, { turnId, status: undefined });
+                return;
+              }
+              if (toolCall.status === "failed") {
+                const summary = antigravitySubagentOutput(toolCall);
+                yield* emit({
+                  type: "task.completed",
+                  ...(yield* stamp),
+                  provider: PROVIDER,
+                  threadId: context.threadId,
+                  turnId,
+                  payload: {
+                    ...linkage,
+                    status: toolCall.status,
+                    ...(summary ? { summary } : {}),
+                  },
+                });
+                context.subagents.set(toolCall.toolCallId, "finished");
+              } else if (context.activeTurnId === undefined && toolCall.status === "completed") {
+                yield* emit({
+                  type: "task.updated",
+                  ...(yield* stamp),
+                  provider: PROVIDER,
+                  threadId: context.threadId,
+                  turnId,
+                  payload: {
+                    ...linkage,
+                    status: "idle",
+                    description: "Individual agent status is unavailable for this earlier batch.",
+                    timelineBypass: true,
+                  },
+                });
+                context.subagents.set(toolCall.toolCallId, "finished");
+              } else {
+                // start_subagent returns after launching a batch. Its output is
+                // the launch description, not a child result or completion.
+                const status = toolCall.status === "pending" ? "pending" : "running";
+                const description =
+                  antigravitySubagentOutput(toolCall) ?? subagent?.description ?? linkage.title;
+                if (subagent?.status !== status || subagent?.description !== description) {
+                  yield* emit({
+                    type: "task.progress",
+                    ...(yield* stamp),
+                    provider: PROVIDER,
+                    threadId: context.threadId,
+                    turnId,
+                    payload: { ...linkage, description, summary: description, status },
+                  });
+                }
+                context.subagents.set(toolCall.toolCallId, { turnId, status, description });
+              }
+              return;
+            }
+            const existing = context.commands.get(toolCall.toolCallId);
+            yield* emit(
+              makeAcpToolCallEvent({
+                stamp: yield* stamp,
+                provider: PROVIDER,
+                threadId: context.threadId,
+                turnId: existing?.turnId ?? context.activeTurnId,
+                toolCall,
+                rawPayload: sanitizeAntigravityToolPayload(event.rawPayload),
+              }),
+            );
+            if (isAntigravityOpenCommand(toolCall)) {
+              context.commands.set(toolCall.toolCallId, {
+                toolCall,
+                turnId: existing?.turnId ?? context.activeTurnId,
+                promoted: existing?.promoted ?? false,
+              });
+            } else if (toolCall.status === "completed" || toolCall.status === "failed") {
+              context.commands.delete(toolCall.toolCallId);
+              if (existing?.promoted) {
+                yield* emit({
+                  type: "task.completed",
+                  ...(yield* stamp),
+                  provider: PROVIDER,
+                  threadId: context.threadId,
+                  turnId: existing.turnId,
+                  payload: {
+                    taskId: RuntimeTaskId.make(toolCall.toolCallId),
+                    taskType: "local_bash",
+                    toolUseId: toolCall.toolCallId,
+                    status: toolCall.status === "failed" ? "failed" : "completed",
+                  },
+                });
+              }
+            }
+          }),
+        );
+        return;
+    }
+  });
+
+  const startSession: Adapter["startSession"] = (input) =>
+    withThreadLock(
+      input.threadId,
       Effect.gen(function* () {
-        if (input.provider !== undefined && input.provider !== PROVIDER) {
+        if (!settings.enabled) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "startSession",
-            issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
+            issue: "Enable Antigravity in provider settings before starting a thread.",
+          });
+        }
+        if (
+          (input.provider !== undefined && input.provider !== PROVIDER) ||
+          (input.providerInstanceId !== undefined &&
+            input.providerInstanceId !== options.instanceId) ||
+          (input.modelSelection !== undefined &&
+            input.modelSelection.instanceId !== options.instanceId)
+        ) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "startSession",
+            issue: "The Antigravity provider instance does not match the requested session.",
           });
         }
         if (!input.cwd?.trim()) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "startSession",
-            issue: "cwd is required and must be non-empty.",
+            issue: "The session requires a workspace directory.",
           });
         }
-
-        const modelSelection =
-          input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
-        const resumeConversationId = readAntigravityConversationId(input.resumeCursor);
-        const resumeCursor = resumeConversationId
-          ? makeAntigravityResumeCursor(resumeConversationId)
-          : undefined;
-        const effort = readEffort(modelSelection);
-        if (effort.invalid) {
+        const cursor = decodeResumeCursor(input.resumeCursor);
+        if (input.resumeCursor !== undefined && Option.isNone(cursor)) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "startSession",
-            issue: `Unsupported Antigravity effort '${effort.invalid}'. Use low, medium, or high.`,
+            issue: "The saved Antigravity session is invalid. Start a new thread.",
           });
         }
-
-        const existing = sessions.get(input.threadId);
-        if (existing) yield* stopSessionInternal(existing);
-        failureByThread.delete(input.threadId);
-        const generation = (generationByThread.get(input.threadId) ?? 0) + 1;
-        generationByThread.set(input.threadId, generation);
-
+        const previous = sessions.get(input.threadId);
+        if (previous) yield* stopContext(previous);
+        const cwd = path.resolve(input.cwd);
         const sessionScope = yield* Scope.make("sequential");
-        let sessionScopeTransferred = false;
-        yield* Effect.addFinalizer(() =>
-          sessionScopeTransferred ? Effect.void : Scope.close(sessionScope, Exit.void),
+        let transferred = false;
+        let context: SessionContext | undefined;
+        yield* Effect.addFinalizer(() => {
+          if (transferred) return Effect.void;
+          sessions.delete(input.threadId);
+          return Scope.close(sessionScope, Exit.void);
+        });
+        const stopOwned = Effect.suspend(() =>
+          context ? stopContext(context).pipe(Effect.ignore) : Scope.close(sessionScope, Exit.void),
         );
 
-        const binary = antigravitySettings.binaryPath || "agy";
-        const cliArgs = buildAntigravityCliArgs({
-          ...(modelSelection?.model ? { model: modelSelection.model } : {}),
-          ...(effort.value ? { effort: effort.value } : {}),
-          ...(resumeConversationId ? { conversationId: resumeConversationId } : {}),
-          dangerouslySkipPermissions: input.runtimeMode === "full-access",
-        });
-        const spawnCommand = yield* resolveSpawnCommand(
-          binary,
-          cliArgs,
-          options.environment ? { env: options.environment } : {},
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
-              makeProcessFailure({
+        return yield* options
+          .withProcess(
+            stopOwned,
+            Effect.gen(function* () {
+              const mcp = McpProviderSession.readMcpProviderSession(input.threadId);
+              // The attachments dir grant lets the agent read pasted files at
+              // the paths ProviderService injects into the turn text. It is a
+              // leaf directory holding only uploads.
+              const runtime = yield* options.makeRuntime({
+                cwd,
+                clientInfo: { name: "rune", version: "0.0.0" },
+                clientFileSystem: true,
+                ...(mcp?.agentDeviceEnvironment
+                  ? { agentDeviceEnvironment: mcp.agentDeviceEnvironment }
+                  : {}),
+                additionalDirectories: [serverConfig.attachmentsDir],
+                ...(Option.isSome(cursor) ? { resumeSessionId: cursor.value.sessionId } : {}),
+                mcpServers: mcp
+                  ? [
+                      {
+                        type: "http",
+                        name: "rune",
+                        url: mcp.endpoint,
+                        headers: [{ name: "Authorization", value: mcp.authorizationHeader }],
+                      },
+                    ]
+                  : [],
+                ...makeNativeLoggers({
+                  nativeEventLogger: options.nativeEventLogger,
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                }),
+              });
+              // Workspace file access requested through the client fs
+              // capability. The agent gates each write behind
+              // `session/request_permission`, so only path containment is
+              // checked here.
+              const allowedRoots = [cwd, serverConfig.attachmentsDir];
+              yield* runtime.handleReadTextFile((request) =>
+                readClientTextFile({ fileSystem, path, allowedRoots, request }),
+              );
+              yield* runtime.handleWriteTextFile((request) =>
+                writeClientTextFile({ fileSystem, path, allowedRoots, request }),
+              );
+              yield* runtime.handleRequestPermission((request) =>
+                context
+                  ? handlePermission(context, request).pipe(
+                      Effect.mapError((cause) =>
+                        EffectAcpErrors.AcpRequestError.internalError(
+                          "Could not process an Antigravity permission request.",
+                          undefined,
+                          { cause },
+                        ),
+                      ),
+                    )
+                  : Effect.succeed({
+                      outcome: { outcome: "cancelled" },
+                    } satisfies NativePermissionResponse),
+              );
+              const started = yield* runtime.start();
+              const model = yield* applyAntigravityAcpModelSelection({
+                runtime,
+                model: input.modelSelection?.model,
+                defaultModel: yield* options.defaultModel ?? Effect.succeed(undefined),
+                mapError: (cause) => cause,
+              });
+              yield* runtime.setMode(antigravityPermissionMode(input.runtimeMode));
+              yield* options.onSessionStarted?.(started, cwd) ?? Effect.void;
+              const createdAt = yield* nowIso;
+              const session: ProviderSession = {
+                provider: PROVIDER,
+                providerInstanceId: options.instanceId,
                 threadId: input.threadId,
-                ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-                generation,
-                stage: "binary-discovery",
-                recoverable: true,
-                detail: "Failed to resolve the Antigravity CLI command.",
-                cause,
-              }),
-          ),
-          Effect.tapError((failure) =>
-            Effect.sync(() => rememberFailure(input.threadId, failure)),
-          ),
-        );
-        const child = yield* childProcessSpawner
-          .spawn(
-            ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-              cwd: input.cwd.trim(),
-              env: options.environment,
-              shell: spawnCommand.shell,
+                cwd,
+                status: "ready",
+                runtimeMode: input.runtimeMode,
+                ...(model ? { model } : {}),
+                resumeCursor: { schemaVersion: 1, sessionId: started.sessionId },
+                createdAt,
+                updatedAt: createdAt,
+              };
+              context = {
+                threadId: input.threadId,
+                cwd,
+                nativeSessionId: started.sessionId,
+                scope: sessionScope,
+                runtime,
+                promptLock: yield* Semaphore.make(1),
+                stopLock: yield* Semaphore.make(1),
+                commandLock: yield* Semaphore.make(1),
+                approvals: new Map(),
+                questions: new Map(),
+                commands: new Map(),
+                subagents: new Map(),
+                turns: [],
+                session,
+                activeTurnId: undefined,
+                promptFiber: undefined,
+                generation: 0,
+                stopped: false,
+                closed: false,
+                disconnected: false,
+              };
+              const running = context;
+              sessions.set(input.threadId, running);
+              yield* Stream.runForEach(runtime.getEvents(), (event) =>
+                handleEvent(running, event),
+              ).pipe(
+                Effect.catchCause(() =>
+                  Effect.logError("Could not process an Antigravity runtime event."),
+                ),
+                Effect.forkIn(sessionScope),
+              );
+              yield* emit({
+                type: "session.started",
+                ...(yield* stamp),
+                provider: PROVIDER,
+                threadId: input.threadId,
+                payload: { resume: started.initializeResult },
+              });
+              yield* emit({
+                type: "session.state.changed",
+                ...(yield* stamp),
+                provider: PROVIDER,
+                threadId: input.threadId,
+                payload: { state: "ready", reason: "Antigravity ACP session ready" },
+              });
+              yield* emit({
+                type: "thread.started",
+                ...(yield* stamp),
+                provider: PROVIDER,
+                threadId: input.threadId,
+                payload: { providerThreadId: started.sessionId },
+              });
+              yield* runtime.drainEvents;
+              if (running.stopped) {
+                return yield* new ProviderAdapterSessionClosedError({
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                });
+              }
+              transferred = true;
+              return session;
             }),
           )
           .pipe(
-            Effect.mapError(
-              (cause) =>
-                makeProcessFailure({
-                  threadId: input.threadId,
-                  ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-                  generation,
-                  stage: "process-spawn",
-                  recoverable: true,
-                  detail: `Failed to start Antigravity CLI '${binary}'.`,
-                  cause,
-                }),
+            Effect.provideService(Scope.Scope, sessionScope),
+            Effect.tapError((cause) =>
+              isAntigravitySignInRequiredError(cause)
+                ? (options.onAuthRequired ?? Effect.void)
+                : Effect.void,
             ),
-            Effect.tapError((failure) =>
-              Effect.sync(() => rememberFailure(input.threadId, failure)),
+            Effect.mapError((cause) =>
+              isAcpError(cause)
+                ? mapAntigravityError(input.threadId, "session/start", cause)
+                : new ProviderAdapterRequestError({
+                    provider: PROVIDER,
+                    method: "session/start",
+                    detail: "Could not start Antigravity. Check the provider setup status.",
+                    cause,
+                  }),
             ),
           );
-
-        yield* Scope.addFinalizer(
-          sessionScope,
-          child.kill({ killSignal: "SIGTERM" }).pipe(Effect.catch(() => Effect.void)),
-        );
-
-        const createdAt = yield* nowIso;
-        const ready = yield* Deferred.make<void, ProviderAdapterProcessError>();
-        const session: ProviderSession = {
-          provider: PROVIDER,
-          ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-          status: "connecting",
-          runtimeMode: input.runtimeMode,
-          cwd: input.cwd.trim(),
-          ...(modelSelection?.model ? { model: modelSelection.model } : {}),
-          threadId: input.threadId,
-          ...(resumeCursor ? { resumeCursor } : {}),
-          createdAt,
-          updatedAt: createdAt,
-        };
-        const ctx: AntigravitySessionContext = {
-          threadId: input.threadId,
-          generation,
-          scope: sessionScope,
-          child,
-          turns: [],
-          session,
-          currentModel: modelSelection?.model,
-          currentEffort: effort.value,
-          ready,
-          expectedConversationId: resumeConversationId,
-          stderrTail: "",
-          failure: undefined,
-          activeTurnId: undefined,
-          responseTextSeen: false,
-          stopped: false,
-          outputFiber: undefined,
-          stderrFiber: undefined,
-          exitFiber: undefined,
-        };
-        sessions.set(input.threadId, ctx);
-        sessionScopeTransferred = true;
-        yield* startOutputReaders(ctx);
-
-        yield* offerRuntimeEvent({
-          type: "session.started",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: input.threadId,
-          payload: {
-            message: "Antigravity CLI session starting.",
-            ...(resumeCursor ? { resume: resumeCursor } : {}),
-          },
-        });
-        yield* offerRuntimeEvent({
-          type: "session.state.changed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: input.threadId,
-          payload: { state: "starting", reason: "Waiting for Antigravity CLI initialization." },
-        });
-        yield* offerRuntimeEvent({
-          type: "runtime.warning",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: input.threadId,
-          payload: {
-            message:
-              "Antigravity headless mode does not expose RUNE's approval control channel; agy's own permission policy remains authoritative. Provider conversations resume by their persisted conversation id.",
-          },
-        });
-
-        return session;
-      }).pipe(Effect.scoped);
-
-    const sendTurn: ProviderAdapterShape<ProviderAdapterError>["sendTurn"] = (input) =>
-      Effect.gen(function* () {
-        const ctx = yield* requireSession(input.threadId);
-        const text = input.input?.trim();
-        if (!text) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: "Antigravity requires non-empty text input.",
-          });
-        }
-        if (ctx.activeTurnId) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue:
-              "Antigravity does not support steering an active turn; interrupt it or wait for completion.",
-          });
-        }
-
-        // The CLI documents that the first stream prompt can be lost while it
-        // is still initializing. Waiting on the init event also guarantees
-        // that the durable conversation id is available before RUNE persists
-        // the turn start.
-        const ready = yield* Deferred.await(ctx.ready).pipe(
-          Effect.timeoutOption(Duration.millis(sessionReadyTimeoutMs)),
-        );
-        if (Option.isNone(ready)) {
-          const failure = makeProcessFailure({
-            threadId: input.threadId,
-            ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-            generation: ctx.generation,
-            stage: "process-initialization",
-            recoverable: true,
-            detail:
-              `Antigravity CLI did not initialize within ${sessionReadyTimeoutMs / 1000} seconds.${stderrDetail(ctx)}`,
-            stderrTail: ctx.stderrTail,
-          });
-          ctx.failure = failure;
-          ctx.session = {
-            ...ctx.session,
-            status: "error",
-            lastError: failure.detail,
-            updatedAt: yield* nowIso,
-          };
-          rememberFailure(input.threadId, failure);
-          yield* stopSessionInternal(ctx, {
-            exitKind: "error",
-            reason: failure.detail,
-            diagnostic: {
-              provider: PROVIDER,
-              ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-              generation: failure.generation,
-              stage: failure.stage,
-              recoverable: failure.recoverable,
-              safeMessage: failure.safeMessage,
-              ...(failure.stderrTail ? { stderrTail: failure.stderrTail } : {}),
-              ...(failure.occurredAt ? { occurredAt: failure.occurredAt } : {}),
-            },
-          }).pipe(Effect.ignore);
-          return yield* failure;
-        }
-
-        const modelSelection =
-          input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
-        if (
-          modelSelection?.model &&
-          ctx.currentModel &&
-          modelSelection.model !== ctx.currentModel
-        ) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: "Changing the Antigravity model requires starting a new session.",
-          });
-        }
-        const effort = readEffort(modelSelection);
-        if (effort.invalid) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: `Unsupported Antigravity effort '${effort.invalid}'. Use low, medium, or high.`,
-          });
-        }
-        if (effort.value && ctx.currentEffort && effort.value !== ctx.currentEffort) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: "Changing Antigravity effort requires starting a new session.",
-          });
-        }
-
-        const turnId = yield* nextTurnId;
-        ctx.activeTurnId = turnId;
-        ctx.responseTextSeen = false;
-        ctx.session = {
-          ...ctx.session,
-          status: "running",
-          activeTurnId: turnId,
-          updatedAt: yield* nowIso,
-        };
-        ctx.turns.push({ id: turnId, items: [] });
-        yield* offerRuntimeEvent({
-          type: "turn.started",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: input.threadId,
-          turnId,
-          payload: {
-            ...(ctx.currentModel ? { model: ctx.currentModel } : {}),
-            ...(ctx.currentEffort ? { effort: ctx.currentEffort } : {}),
-          },
-        });
-
-        const writeResult = yield* writeUserMessage(ctx, text).pipe(Effect.result);
-        if (writeResult._tag === "Failure") {
-          const failure = makeProcessFailure({
-            threadId: input.threadId,
-            ...(boundInstanceId ? { providerInstanceId: boundInstanceId } : {}),
-            generation: ctx.generation,
-            stage: "turn-dispatch",
-            recoverable: true,
-            detail: writeResult.failure.detail,
-            cause: writeResult.failure,
-            stderrTail: ctx.stderrTail,
-          });
-          ctx.failure = failure;
-          rememberFailure(input.threadId, failure);
-          ctx.stopped = true;
-          sessions.delete(input.threadId);
-          const failedTurnId = ctx.activeTurnId;
-          ctx.activeTurnId = undefined;
-          ctx.session = {
-            ...ctx.session,
-            status: "error",
-            activeTurnId: undefined,
-            lastError: failure.message,
-            updatedAt: yield* nowIso,
-          };
-          if (failedTurnId) {
-            yield* emitTurnCompleted(ctx, failedTurnId, "failed", {
-              errorMessage: failure.detail,
-            });
-          }
-          yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignoreCause({ log: false }));
-          yield* offerRuntimeEvent({
-            type: "session.exited",
-            ...(yield* makeEventStamp()),
-            provider: PROVIDER,
-            threadId: input.threadId,
-            payload: { exitKind: "error", recoverable: true, reason: failure.detail },
-          });
-          return yield* failure;
-        }
-
-        return {
-          threadId: input.threadId,
-          turnId,
-          ...(ctx.session.resumeCursor !== undefined
-            ? { resumeCursor: ctx.session.resumeCursor }
-            : {}),
-        };
-      });
-
-    const unsupportedControl = (
-      method: string,
-      detail: string,
-    ): Effect.Effect<never, ProviderAdapterRequestError> =>
-      Effect.fail(new ProviderAdapterRequestError({ provider: PROVIDER, method, detail }));
-
-    const interruptTurn: ProviderAdapterShape<ProviderAdapterError>["interruptTurn"] = (
-      threadId,
-      turnId,
-    ) =>
-      Effect.gen(function* () {
-        const ctx = yield* requireSession(threadId);
-        if (turnId !== undefined && ctx.activeTurnId !== turnId) return;
-        if (!ctx.activeTurnId) return;
-        yield* stopSessionInternal(ctx, {
-          turnState: "interrupted",
-          reason:
-            "Antigravity headless mode has no turn-cancel control channel, so the session was terminated.",
-        });
-      });
-
-    const respondToRequest: ProviderAdapterShape<ProviderAdapterError>["respondToRequest"] = (
-      threadId,
-      _requestId,
-      _decision: ProviderApprovalDecision,
-    ) =>
-      requireSession(threadId).pipe(
-        Effect.andThen(
-          unsupportedControl(
-            "control_response",
-            "Antigravity stream-json does not support interactive approval responses.",
-          ),
-        ),
-      );
-
-    const respondToUserInput: ProviderAdapterShape<ProviderAdapterError>["respondToUserInput"] = (
-      threadId,
-      _requestId,
-      _answers: ProviderUserInputAnswers,
-    ) =>
-      requireSession(threadId).pipe(
-        Effect.andThen(
-          unsupportedControl(
-            "control_response",
-            "Antigravity stream-json does not support interactive user-input responses.",
-          ),
-        ),
-      );
-
-    const stopSession: ProviderAdapterShape<ProviderAdapterError>["stopSession"] = (threadId) =>
-      Effect.gen(function* () {
-        const ctx = yield* requireSession(threadId);
-        yield* stopSessionInternal(ctx, { turnState: "cancelled" });
-      });
-
-    const listSessions: ProviderAdapterShape<ProviderAdapterError>["listSessions"] = () =>
-      Effect.sync(() => Array.from(sessions.values(), (ctx) => ({ ...ctx.session })));
-
-    const hasSession: ProviderAdapterShape<ProviderAdapterError>["hasSession"] = (threadId) =>
-      Effect.sync(() => {
-        const ctx = sessions.get(threadId);
-        return ctx !== undefined && !ctx.stopped;
-      });
-
-    const readThread: ProviderAdapterShape<ProviderAdapterError>["readThread"] = (threadId) =>
-      Effect.gen(function* () {
-        const ctx = yield* requireSession(threadId);
-        return { threadId, turns: ctx.turns } satisfies ProviderThreadSnapshot;
-      });
-
-    const rollbackThread: ProviderAdapterShape<ProviderAdapterError>["rollbackThread"] = (
-      threadId,
-      numTurns,
-    ) =>
-      Effect.gen(function* () {
-        yield* requireSession(threadId);
-        if (!Number.isInteger(numTurns) || numTurns < 1) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "rollbackThread",
-            issue: "numTurns must be an integer >= 1.",
-          });
-        }
-        return yield* new ProviderAdapterRequestError({
-          provider: PROVIDER,
-          method: "thread/rollback",
-          detail: "Antigravity sessions do not support provider-side rollback.",
-        });
-      });
-
-    const stopAll: ProviderAdapterShape<ProviderAdapterError>["stopAll"] = () =>
-      Effect.forEach(Array.from(sessions.values()), (ctx) => stopSessionInternal(ctx), {
-        discard: true,
-      });
-
-    yield* Effect.addFinalizer(() =>
-      Effect.ignore(stopAll()).pipe(Effect.tap(() => PubSub.shutdown(runtimeEventPubSub))),
+      }).pipe(Effect.scoped),
     );
 
-    return {
-      provider: PROVIDER,
-      capabilities: {
-        sessionModelSwitch: "unsupported",
-        supportsResume: true,
-        supportsSteering: false,
-        supportsApprovals: false,
-        supportsToolStream: true,
-        supportsUsage: true,
-        supportsNativeSubagents: false,
-        supportsPlanEvents: false,
-      },
-      startSession,
-      sendTurn,
-      interruptTurn,
-      respondToRequest,
-      respondToUserInput,
-      stopSession,
-      listSessions,
-      hasSession,
-      readThread,
-      rollbackThread,
-      stopAll,
-      streamEvents: Stream.fromPubSub(runtimeEventPubSub),
-    } satisfies ProviderAdapterShape<ProviderAdapterError>;
+  const promoteBackgroundCommands = (context: SessionContext) =>
+    context.commandLock.withPermit(
+      Effect.gen(function* () {
+        for (const [id, command] of context.commands) {
+          if (command.promoted) continue;
+          yield* emit({
+            type: "task.started",
+            ...(yield* stamp),
+            provider: PROVIDER,
+            threadId: context.threadId,
+            turnId: command.turnId,
+            payload: {
+              taskId: RuntimeTaskId.make(id),
+              taskType: "local_bash",
+              toolUseId: id,
+              description:
+                command.toolCall.command ?? command.toolCall.title ?? "Antigravity command",
+            },
+          });
+          context.commands.set(id, { ...command, promoted: true });
+        }
+      }),
+    );
+
+  const sendTurn: Adapter["sendTurn"] = Effect.fn("AntigravityAdapter.sendTurn")(function* (input) {
+    const context = yield* requireSession(input.threadId);
+    if (input.modelSelection && input.modelSelection.instanceId !== options.instanceId) {
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "sendTurn",
+        issue: "The selected model belongs to another provider instance.",
+      });
+    }
+    const prompt = yield* buildAntigravityPrompt({
+      input: input.input,
+      attachments: input.attachments,
+      attachmentsDir: serverConfig.attachmentsDir,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.mapError((cause) => mapAntigravityError(input.threadId, "session/prompt", cause)),
+    );
+    let intent: TurnIntent | undefined;
+    // The caller holds promptLock while it changes or settles the active turn.
+    const finishTurn = (turn: TurnIntent, payload: TurnCompletedPayload) =>
+      Effect.gen(function* () {
+        if (turn.settled || context.stopped || context.generation !== turn.generation) return;
+        turn.settled = true;
+        yield* promoteBackgroundCommands(context);
+        yield* finishSubagents(
+          context,
+          payload.state === "cancelled"
+            ? "cancelled"
+            : payload.state === "failed"
+              ? "failed"
+              : "idle",
+          payload.errorMessage,
+        );
+        context.activeTurnId = undefined;
+        context.promptFiber = undefined;
+        context.session = {
+          ...context.session,
+          status: payload.state === "failed" ? "error" : "ready",
+          activeTurnId: undefined,
+          updatedAt: yield* nowIso,
+          ...(payload.errorMessage
+            ? { lastError: payload.errorMessage }
+            : { lastError: undefined }),
+        };
+        yield* emit({
+          type: "turn.completed",
+          ...(yield* stamp),
+          provider: PROVIDER,
+          threadId: input.threadId,
+          turnId: turn.turnId,
+          payload,
+        });
+      }).pipe(Effect.uninterruptible);
+
+    return yield* Effect.gen(function* () {
+      const launch = yield* context.promptLock.withPermit(
+        Effect.gen(function* () {
+          yield* requireSession(input.threadId);
+          const requestedModel = input.modelSelection?.model ?? context.session.model;
+          const configOptions = yield* context.runtime.getConfigOptions;
+          const model = resolveAntigravityModel({
+            configOptions,
+            model: requestedModel,
+            defaultModel: yield* options.defaultModel ?? Effect.succeed(undefined),
+          });
+          const availableModels = antigravityModelOptions(configOptions);
+          if (model && !availableModels.some((option) => option.value === model)) {
+            return yield* EffectAcpErrors.AcpRequestError.invalidParams(
+              `Antigravity model '${model}' is unavailable for this Google account. Select an available model.`,
+            );
+          }
+          const turnId = context.activeTurnId ?? TurnId.make(yield* randomId);
+          const steering = context.activeTurnId !== undefined;
+          const turn: TurnIntent = { turnId, generation: ++context.generation, settled: false };
+          intent = turn;
+          context.activeTurnId = turnId;
+          if (!steering) {
+            yield* emit({
+              type: "turn.started",
+              ...(yield* stamp),
+              provider: PROVIDER,
+              threadId: input.threadId,
+              turnId,
+              payload: model ? { model } : {},
+            });
+          }
+          if (context.promptFiber) {
+            yield* cancelRequests(context);
+            yield* context.runtime.cancel;
+            yield* Fiber.await(context.promptFiber);
+            yield* finishSubagents(context, "cancelled");
+          }
+          yield* applyAntigravityAcpModelSelection({
+            runtime: context.runtime,
+            model,
+            mapError: (cause) => cause,
+          });
+          yield* context.runtime.setMode(antigravityPermissionMode(context.session.runtimeMode));
+          context.session = {
+            ...context.session,
+            status: "running",
+            activeTurnId: turnId,
+            ...(model ? { model } : {}),
+            updatedAt: yield* nowIso,
+          };
+          const dispatched = yield* Deferred.make<void>();
+          const fiber = yield* context.runtime
+            .prompt(
+              {
+                prompt: [
+                  ...prompt,
+                  {
+                    type: "text",
+                    text: buildRuntimeInstructions({ harness: "Antigravity", model }),
+                  },
+                ],
+              },
+              { dispatched },
+            )
+            .pipe(Effect.forkIn(context.scope));
+          context.promptFiber = fiber;
+          // Fiber.join can skip a scope-close waiter when the child is interrupted.
+          // Unwrap the Exit after Fiber.await returns.
+          yield* Effect.raceFirst(
+            Deferred.await(dispatched),
+            Fiber.await(fiber).pipe(
+              Effect.flatMap((exit) => exit),
+              Effect.asVoid,
+            ),
+          );
+          return { turn, fiber };
+        }),
+      );
+      const result = yield* Fiber.await(launch.fiber).pipe(Effect.flatMap((exit) => exit));
+      yield* context.runtime.drainEvents;
+      if (context.stopped) {
+        return yield* new ProviderAdapterSessionClosedError({
+          provider: PROVIDER,
+          threadId: input.threadId,
+        });
+      }
+      const record = context.turns.find((turn) => turn.id === launch.turn.turnId);
+      if (record) record.items.push(result);
+      else context.turns.push({ id: launch.turn.turnId, items: [result] });
+      yield* context.promptLock.withPermit(
+        finishTurn(launch.turn, {
+          state: result.stopReason === "cancelled" ? "cancelled" : "completed",
+          stopReason: result.stopReason,
+        }),
+      );
+      return {
+        threadId: input.threadId,
+        turnId: launch.turn.turnId,
+        resumeCursor: context.session.resumeCursor,
+      };
+    }).pipe(
+      Effect.tapError((cause) =>
+        isAntigravitySignInRequiredError(cause)
+          ? (options.onAuthRequired ?? Effect.void)
+          : Effect.void,
+      ),
+      Effect.mapError((cause) =>
+        isAcpError(cause) ? mapAntigravityError(input.threadId, "session/prompt", cause) : cause,
+      ),
+      Effect.tapError((cause) =>
+        Effect.suspend(() =>
+          intent
+            ? context.promptLock.withPermit(
+                finishTurn(intent, { state: "failed", errorMessage: cause.message }),
+              )
+            : Effect.void,
+        ),
+      ),
+      Effect.onInterrupt(() =>
+        context.promptLock.withPermit(
+          Effect.gen(function* () {
+            const turn = intent;
+            if (!turn || turn.settled || context.stopped || context.generation !== turn.generation)
+              return;
+            const promptFiber = context.promptFiber;
+            yield* cancelRequests(context);
+            yield* Effect.ignore(context.runtime.cancel);
+            if (promptFiber) yield* Fiber.interrupt(promptFiber);
+            yield* finishTurn(turn, { state: "cancelled", stopReason: "cancelled" });
+          }),
+        ),
+      ),
+    );
   });
-}
+
+  const interruptTurn: Adapter["interruptTurn"] = (threadId) =>
+    Effect.gen(function* () {
+      const context = yield* requireSession(threadId);
+      yield* context.promptLock
+        .withPermit(
+          Effect.gen(function* () {
+            yield* cancelRequests(context);
+            yield* context.runtime.cancel;
+          }),
+        )
+        .pipe(Effect.mapError((cause) => mapAntigravityError(threadId, "session/cancel", cause)));
+    });
+
+  const respondToRequest: Adapter["respondToRequest"] = (threadId, requestId, decision) =>
+    Effect.gen(function* () {
+      const context = yield* requireSession(threadId);
+      const pending = context.approvals.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/request_permission",
+          detail: "This approval request is no longer pending.",
+        });
+      }
+      const optionId =
+        decision === "cancel"
+          ? undefined
+          : selectAntigravityPermissionOptionId(pending.request, decision);
+      if (decision !== "cancel" && optionId === undefined) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "respondToRequest",
+          issue:
+            "Antigravity did not offer this permission choice. Select one of the available choices.",
+        });
+      }
+      yield* Deferred.succeed(pending.response, {
+        decision,
+        result: {
+          outcome:
+            optionId === undefined ? { outcome: "cancelled" } : { outcome: "selected", optionId },
+        },
+      });
+    });
+
+  const respondToUserInput: Adapter["respondToUserInput"] = (threadId, requestId, answers) =>
+    Effect.gen(function* () {
+      const context = yield* requireSession(threadId);
+      const pending = context.questions.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/request_permission",
+          detail: "This question is no longer pending.",
+        });
+      }
+      const result = makeAntigravityUserInputResponse(pending.request, answers);
+      if (!result) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "respondToUserInput",
+          issue:
+            "Select one of Antigravity's offered answers. Custom answers are not supported for this question.",
+        });
+      }
+      yield* Deferred.succeed(pending.response, { answers, result });
+    });
+
+  const stopSession: Adapter["stopSession"] = (threadId) =>
+    withThreadLock(threadId, Effect.flatMap(requireSession(threadId), stopContext));
+  const stopAll: Adapter["stopAll"] = () =>
+    Effect.forEach([...sessions.values()], stopContext, { discard: true });
+  yield* Effect.addFinalizer(() =>
+    stopAll().pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterrupts(cause)
+          ? Effect.void
+          : Effect.logError("Could not stop an Antigravity session."),
+      ),
+      Effect.ensuring(PubSub.shutdown(events)),
+    ),
+  );
+
+  return {
+    provider: PROVIDER,
+    capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+    compaction: { type: "slash-command", command: "/compact" },
+    startSession,
+    sendTurn,
+    interruptTurn,
+    respondToRequest,
+    respondToUserInput,
+    stopSession,
+    stopAll,
+    listSessions: () =>
+      Effect.sync(() =>
+        [...sessions.values()]
+          .filter((context) => !context.stopped)
+          .map((context) => ({ ...context.session })),
+      ),
+    hasSession: (threadId) =>
+      Effect.sync(() => sessions.has(threadId) && !sessions.get(threadId)?.stopped),
+    readThread: (threadId) =>
+      Effect.map(requireSession(threadId), (context) => ({ threadId, turns: context.turns })),
+    rollbackThread: (_threadId: ThreadId, _numTurns: number) =>
+      Effect.fail(
+        new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "Antigravity does not support conversation rewind. Start a new thread instead.",
+        }),
+      ),
+    streamEvents: Stream.fromPubSub(events),
+  } satisfies Adapter;
+});

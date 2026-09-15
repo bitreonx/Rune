@@ -150,7 +150,7 @@ export const ChatMutationLedgerErrorCode = Schema.Literals([
 ]);
 export type ChatMutationLedgerErrorCode = typeof ChatMutationLedgerErrorCode.Type;
 
-export class ChatMutationLedgerError extends Schema.TaggedErrorClass<ChatMutationLedgerError>()(
+export class ChatMutationLedgerError extends Schema.TaggedError<ChatMutationLedgerError>()(
   "ChatMutationLedgerError",
   {
     code: ChatMutationLedgerErrorCode,

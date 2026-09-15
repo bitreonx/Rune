@@ -11,7 +11,7 @@ export const CheckpointDiffOperation = Schema.Literals([
 export type CheckpointDiffOperation = typeof CheckpointDiffOperation.Type;
 
 /** The computed result does not satisfy the checkpoint RPC contract. */
-export class CheckpointDiffResultInvalidError extends Schema.TaggedErrorClass<CheckpointDiffResultInvalidError>()(
+export class CheckpointDiffResultInvalidError extends Schema.TaggedError<CheckpointDiffResultInvalidError>()(
   "CheckpointDiffResultInvalidError",
   {
     operation: CheckpointDiffOperation,
@@ -30,7 +30,7 @@ export class CheckpointDiffResultInvalidError extends Schema.TaggedErrorClass<Ch
 }
 
 /** Projection state no longer contains the requested checkpoint thread. */
-export class CheckpointThreadNotFoundError extends Schema.TaggedErrorClass<CheckpointThreadNotFoundError>()(
+export class CheckpointThreadNotFoundError extends Schema.TaggedError<CheckpointThreadNotFoundError>()(
   "CheckpointThreadNotFoundError",
   {
     operation: CheckpointDiffOperation,
@@ -43,7 +43,7 @@ export class CheckpointThreadNotFoundError extends Schema.TaggedErrorClass<Check
 }
 
 /** The checkpoint thread has no workspace path from which to compute a diff. */
-export class CheckpointWorkspacePathMissingError extends Schema.TaggedErrorClass<CheckpointWorkspacePathMissingError>()(
+export class CheckpointWorkspacePathMissingError extends Schema.TaggedError<CheckpointWorkspacePathMissingError>()(
   "CheckpointWorkspacePathMissingError",
   {
     operation: CheckpointDiffOperation,
@@ -62,7 +62,7 @@ export class CheckpointWorkspacePathMissingError extends Schema.TaggedErrorClass
 }
 
 /** The requested turn lies beyond the latest available checkpoint. */
-export class CheckpointTurnRangeUnavailableError extends Schema.TaggedErrorClass<CheckpointTurnRangeUnavailableError>()(
+export class CheckpointTurnRangeUnavailableError extends Schema.TaggedError<CheckpointTurnRangeUnavailableError>()(
   "CheckpointTurnRangeUnavailableError",
   {
     operation: CheckpointDiffOperation,
@@ -77,7 +77,7 @@ export class CheckpointTurnRangeUnavailableError extends Schema.TaggedErrorClass
 }
 
 /** Expected checkpoint metadata does not contain the requested Git ref. */
-export class CheckpointRefUnavailableError extends Schema.TaggedErrorClass<CheckpointRefUnavailableError>()(
+export class CheckpointRefUnavailableError extends Schema.TaggedError<CheckpointRefUnavailableError>()(
   "CheckpointRefUnavailableError",
   {
     operation: CheckpointDiffOperation,
@@ -92,7 +92,7 @@ export class CheckpointRefUnavailableError extends Schema.TaggedErrorClass<Check
 }
 
 /** The thread has no `turn/0` baseline; diff computation cannot fall back to HEAD. */
-export class CheckpointBaselineMissingError extends Schema.TaggedErrorClass<CheckpointBaselineMissingError>()(
+export class CheckpointBaselineMissingError extends Schema.TaggedError<CheckpointBaselineMissingError>()(
   "CheckpointBaselineMissingError",
   {
     operation: CheckpointDiffOperation,

@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - expectations mirror the host path joins the script under test performs.
+import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 import { PNG } from "pngjs";
 

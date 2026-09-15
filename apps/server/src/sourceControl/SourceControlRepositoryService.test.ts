@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -153,6 +154,7 @@ it.effect("preserves provider failures without deriving the repository message f
 it.effect("clones a looked-up repository into the requested destination", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const parent = yield* fs.makeTempDirectoryScoped({
       prefix: "rune-source-control-clone-parent-",
     });

@@ -4,7 +4,9 @@ import {
   type ProviderApprovalOption,
 } from "@rune/contracts";
 import { memo } from "react";
+import { TriangleAlertIcon } from "lucide-react";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;

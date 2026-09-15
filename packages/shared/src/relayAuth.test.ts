@@ -5,7 +5,6 @@ import {
   ClerkPublishableKeyFrontendApiError,
   clerkFrontendApiHostnameFromPublishableKey,
   clerkFrontendApiUrlFromPublishableKey,
-  isAllowedClerkFrontendApiHostname,
 } from "./relayAuth.ts";
 
 const clerkPublishableKey = (hostname: string): string => `pk_test_${btoa(`${hostname}$`)}`;

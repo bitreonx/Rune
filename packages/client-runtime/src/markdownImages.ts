@@ -1,3 +1,8 @@
+import {
+  normalizeMarkdownLinkDestination,
+  splitMarkdownLinkSearchAndHash,
+} from "./markdownLinks.ts";
+
 const DIRECT_IMAGE_SOURCE_PATTERN = /^(?:https?:|data:|blob:|\/\/)/i;
 const URI_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
@@ -6,6 +11,10 @@ export type MarkdownImageSource =
   | { readonly _tag: "Direct"; readonly uri: string }
   | { readonly _tag: "WorkspaceFile"; readonly path: string }
   | { readonly _tag: "Blocked" };
+
+export function markdownImageSourceFragment(source: string): string {
+  return splitMarkdownLinkSearchAndHash(normalizeMarkdownLinkDestination(source)).hash;
+}
 
 function safeDecode(value: string): string {
   try {

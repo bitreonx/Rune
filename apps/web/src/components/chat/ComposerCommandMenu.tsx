@@ -26,6 +26,7 @@ import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { PierreEntryIcon } from "./PierreEntryIcon";
+import { ComposerBanner } from "./ComposerBanner";
 
 export type ComposerCommandItem =
   | {
@@ -97,7 +98,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         );
       }}
     >
-      <div
+      <ComposerBanner.Surface
         ref={listRef}
         className="chat-composer-drawer-surface chat-composer-drawer-attached relative w-full overflow-hidden **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
         data-composer-command-drawer="true"
@@ -138,7 +139,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             </p>
           </div>
         )}
-      </div>
+      </ComposerBanner.Surface>
     </Command>
   );
 });

@@ -52,15 +52,31 @@ describe("clientPersistenceStorage", () => {
     expect(readBrowserClientSettings()).toEqual(settings);
   });
 
-  it("reports structured decode failures while preserving the fallback", async () => {
+  it.each(["not-json", '{"wordWrap":"invalid"}'])(
+    "does not treat invalid saved settings as absent: %s",
+    async (value) => {
+      const testWindow = getTestWindow();
+      testWindow.localStorage.setItem("rune:client-settings:v1", value);
+      const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
+
+      expect(() => readBrowserClientSettings()).toThrow(
+        expect.objectContaining({
+          _tag: "LocalStorageOperationError",
+          operation: "decode",
+          storageKey: "rune:client-settings:v1",
+        }),
+      );
+      expect(testWindow.localStorage.getItem("rune:client-settings:v1")).toBe(value);
+    },
+  );
+
+  it("preserves saved settings across a transient read failure", async () => {
     const testWindow = getTestWindow();
     testWindow.localStorage.setItem("rune:client-settings:v1", "not-json");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
 
-    expect(readBrowserClientSettings()).toBeNull();
-    expect(consoleError).toHaveBeenCalledWith(
-      "Could not read persisted client settings.",
+    expect(() => readBrowserClientSettings()).toThrow(
       expect.objectContaining({
         _tag: "LocalStorageOperationError",
         operation: "decode",
@@ -68,6 +84,8 @@ describe("clientPersistenceStorage", () => {
         cause: expect.anything(),
       }),
     );
+    expect(readBrowserClientSettings()).toEqual(settings);
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("defaults word wrap on and discards obsolete wrapping preferences", async () => {
@@ -89,5 +107,18 @@ describe("clientPersistenceStorage", () => {
     );
     expect(settings).not.toHaveProperty("chatWordWrap");
     expect(settings).not.toHaveProperty("diffWordWrap");
+  });
+
+  it("keeps the diff layout across reloads and defaults it to stacked", async () => {
+    const testWindow = getTestWindow();
+    const { readBrowserClientSettings, writeBrowserClientSettings } =
+      await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()).toBeNull();
+    testWindow.localStorage.setItem("rune:client-settings:v1", JSON.stringify({}));
+    expect(readBrowserClientSettings()?.diffLayout).toBe("stacked");
+
+    writeBrowserClientSettings({ ...DEFAULT_CLIENT_SETTINGS, diffLayout: "split" });
+    expect(readBrowserClientSettings()?.diffLayout).toBe("split");
   });
 });

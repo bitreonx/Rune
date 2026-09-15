@@ -4,7 +4,10 @@ import type { Thread } from "../types";
 import {
   browseInputEndPaddingClass,
   buildBrowseGroups,
+  buildCommandPaletteProjectMetadata,
+  buildProjectActionItems,
   buildThreadActionItems,
+  buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
@@ -76,6 +79,32 @@ describe("reduceCommandPaletteUiState", () => {
     );
   });
 
+  it("opens PR search from another overlay and replaces an earlier search", () => {
+    const first = reduceCommandPaletteUiState(
+      { open: true, mode: "files", openIntent: null },
+      {
+        _tag: "OpenSearch",
+        query: "https://github.com/acme/web/pull/7",
+      },
+    );
+    expect(first).toEqual({
+      open: true,
+      mode: "command",
+      openIntent: { kind: "search", query: "https://github.com/acme/web/pull/7" },
+    });
+    const second = reduceCommandPaletteUiState(first, {
+      _tag: "OpenSearch",
+      query: "https://github.com/acme/web/pull/8",
+    });
+    expect(second.openIntent).toEqual({
+      kind: "search",
+      query: "https://github.com/acme/web/pull/8",
+    });
+    expect(
+      reduceCommandPaletteUiState(second, { _tag: "SetOpen", open: false }).openIntent,
+    ).toBeNull();
+  });
+
   it("routes open intents to command mode", () => {
     const filesOpen = reduceCommandPaletteUiState(closedState, {
       _tag: "ToggleMode",
@@ -142,6 +171,20 @@ describe("enumerateCommandPaletteItems", () => {
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
 
+function makeProject(overrides: Partial<Project> = {}): Project {
+  return {
+    id: PROJECT_ID,
+    environmentId: LOCAL_ENVIRONMENT_ID,
+    title: "Project",
+    workspaceRoot: "/workspace/project",
+    defaultModelSelection: null,
+    scripts: [],
+    createdAt: "2026-03-01T00:00:00.000Z",
+    updatedAt: "2026-03-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.make("thread-1"),
@@ -168,10 +211,33 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     branch: null,
     worktreePath: null,
     checkpoints: [],
+    pullRequests: [],
     activities: [],
     ...overrides,
   };
 }
+
+describe("buildProjectActionItems", () => {
+  it("shows the grouped display name but keeps the real title for icons", () => {
+    const project = makeProject({ title: "fleet", workspaceRoot: "/Users/theo/Code/p/fleet" });
+    const iconTitles: string[] = [];
+    const [item] = buildProjectActionItems({
+      projects: [{ ...project, displayName: "t3dotgg/fleet" }],
+      valuePrefix: "project",
+      icon: (candidate) => {
+        iconTitles.push(candidate.title);
+        return null;
+      },
+      runProject: async () => undefined,
+    });
+
+    expect(item?.title).toBe("t3dotgg/fleet");
+    expect(item?.searchTerms).toEqual(
+      expect.arrayContaining(["t3dotgg/fleet", "fleet", "/Users/theo/Code/p/fleet"]),
+    );
+    expect(iconTitles).toEqual(["fleet"]);
+  });
+});
 
 describe("buildThreadActionItems", () => {
   it("excludes temporary threads from the palette thread list", () => {
@@ -295,6 +361,98 @@ describe("buildThreadActionItems", () => {
     expect(groups[0]?.items.map((item) => item.value)).toEqual(["thread:project-context-only"]);
   });
 
+  it("ranks an order-independent setting title match above a split context match", () => {
+    const settingsSearchItems = [
+      {
+        kind: "action" as const,
+        value: "setting:context-match",
+        searchTerms: ["Pairing settings", "remote backend"],
+        title: "Context match",
+        icon: null,
+        run: async () => undefined,
+      },
+      {
+        kind: "action" as const,
+        value: "setting:remote-pairing",
+        searchTerms: ["Remote pairing", "connections"],
+        title: "Remote pairing",
+        icon: null,
+        run: async () => undefined,
+      },
+    ];
+
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "pairing remote",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      settingsSearchItems,
+      threadSearchItems: [],
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.value).toBe("settings-search");
+    expect(groups[0]?.items.map((item) => item.value)).toEqual([
+      "setting:remote-pairing",
+      "setting:context-match",
+    ]);
+  });
+
+  it("keeps accent-insensitive setting results", () => {
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "thè\u{1ab0}mes",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      settingsSearchItems: [
+        {
+          kind: "action",
+          value: "setting:theme",
+          searchTerms: ["Themes", "Appearance"],
+          title: "Themes",
+          icon: null,
+          run: async () => undefined,
+        },
+      ],
+      threadSearchItems: [],
+    });
+
+    expect(groups[0]?.items.map((item) => item.value)).toEqual(["setting:theme"]);
+  });
+
+  it("normalizes case independently of the host locale", () => {
+    const toLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    const localeLowerCase = vi
+      .spyOn(String.prototype, "toLocaleLowerCase")
+      .mockImplementation(function (this: string) {
+        return toLocaleLowerCase.call(this, "tr");
+      });
+    try {
+      const groups = filterCommandPaletteGroups({
+        activeGroups: [],
+        query: "GIT",
+        isInSubmenu: false,
+        projectSearchItems: [],
+        threadSearchItems: [],
+        settingsSearchItems: [
+          {
+            kind: "action",
+            value: "setting:version-control",
+            title: "Version control",
+            searchTerms: ["git"],
+            icon: null,
+            run: async () => undefined,
+          },
+        ],
+      });
+      expect(groups.flatMap((group) => group.items.map((item) => item.value))).toEqual([
+        "setting:version-control",
+      ]);
+    } finally {
+      localeLowerCase.mockRestore();
+    }
+  });
+
   it("keeps message excerpts searchable without replacing thread metadata", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search" })],
@@ -330,6 +488,20 @@ describe("buildThreadActionItems", () => {
     });
 
     expect(item?.description).toBe("RUNE:feat/search:wt");
+  });
+
+  it("prefers renderDescription when provided", () => {
+    const [item] = buildThreadActionItems({
+      threads: [makeThread({ branch: "feat/search", worktreePath: "/tmp/wt" })],
+      projectTitleById: new Map([[PROJECT_ID, "RUNE Code"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      renderDescription: (thread, { projectTitle }) =>
+        `${projectTitle}:${thread.branch}:${thread.worktreePath ? "wt" : "local"}`,
+      runThread: async (_thread) => undefined,
+    });
+
+    expect(item?.description).toBe("RUNE Code:feat/search:wt");
   });
 
   it("filters archived threads out of thread search items", () => {

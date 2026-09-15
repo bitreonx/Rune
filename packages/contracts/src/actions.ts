@@ -359,7 +359,7 @@ export const ActionRunErrorCode = Schema.Literals([
 ]);
 export type ActionRunErrorCode = typeof ActionRunErrorCode.Type;
 
-export class ActionRunError extends Schema.TaggedErrorClass<ActionRunError>()("ActionRunError", {
+export class ActionRunError extends Schema.TaggedError<ActionRunError>()("ActionRunError", {
   actionId: ActionId,
   code: ActionRunErrorCode,
   message: TrimmedNonEmptyString,
@@ -514,7 +514,7 @@ export const ActionRegistryErrorCode = Schema.Literals([
 ]);
 export type ActionRegistryErrorCode = typeof ActionRegistryErrorCode.Type;
 
-export class ActionRegistryError extends Schema.TaggedErrorClass<ActionRegistryError>()(
+export class ActionRegistryError extends Schema.TaggedError<ActionRegistryError>()(
   "ActionRegistryError",
   {
     code: ActionRegistryErrorCode,

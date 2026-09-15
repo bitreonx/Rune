@@ -4,8 +4,8 @@ import { FolderPlusIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 
 import { openCommandPalette } from "~/commandPaletteBus";
-import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useClientSettings } from "~/hooks/useSettings";
+import { hasExplicitComposerModelSelection } from "~/lib/chatThreadActions";
 import { selectProjectGroupingSettings } from "~/logicalProject";
 import {
   buildSidebarProjectPickerEntries,
@@ -13,6 +13,7 @@ import {
 } from "~/sidebarProjectGrouping";
 import { useProjects, useThreadShells } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
 import {
   Menu,
@@ -26,11 +27,13 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface DraftHeroHeadlineProps {
+  readonly draftId: DraftId | null;
   readonly activeProjectRef: ScopedProjectRef | null;
   readonly activeProjectTitle: string | null;
 }
 
 export function DraftHeroHeadline({
+  draftId,
   activeProjectRef,
   activeProjectTitle,
 }: DraftHeroHeadlineProps) {
@@ -40,7 +43,12 @@ export function DraftHeroHeadline({
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
-  const handleNewThread = useNewThreadHandler();
+  const setLogicalProjectDraftThreadId = useComposerDraftStore(
+    (store) => store.setLogicalProjectDraftThreadId,
+  );
+  const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
+  const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
+  const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
 
   const environmentLabelById = useMemo(

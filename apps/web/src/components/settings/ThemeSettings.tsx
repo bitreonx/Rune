@@ -14,6 +14,7 @@ import { cn } from "../../lib/utils";
 import { APP_BASE_NAME } from "../../branding";
 import {
   getThemeDefinition,
+  singleAppearanceOf,
   getThemeModes,
   removeCustomThemes,
   serializeThemeFile,
@@ -39,6 +40,7 @@ import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { ThemeImportDialog } from "./ThemeImportDialog";
+import { searchableSetting } from "./settingsSearch";
 import { useThemeEditorStore } from "./themeEditorStore";
 import {
   STANDARD_THEME_CARDS,
@@ -588,7 +590,7 @@ export function ThemeLibrary({
       return;
     }
     for (const appearance of ["light", "dark"] as const) {
-      const half = themeHalves?.[appearance];
+      const half = storedHalves[appearance];
       if (half === undefined) continue;
       // Writing a base preference clears the whole mix, so halves that name
       // a surviving theme are written back; removed halves fall back to base.
@@ -630,7 +632,10 @@ export function ThemeLibrary({
       // the base would still own that appearance. Convert the base into an
       // explicit half on the other side so this side falls back to default.
       if (cardId === null && baseCardId !== null) {
-        const otherOwner = themeHalves?.[otherAppearance] ?? baseCardId;
+        // Read raw, before persistTheme clears the mix: the other half may
+        // name a published theme that has not streamed in yet, and falling
+        // back to the base would silently rewrite it.
+        const otherOwner = readThemeHalvesRaw()[otherAppearance] ?? baseCardId;
         if (!persistTheme(appearanceMode === "system" ? "system" : appearanceMode)) return;
         if (!setThemeHalf(otherAppearance, otherOwner)) {
           // Best-effort rollback: restore the whole-theme selection rather
@@ -652,7 +657,6 @@ export function ThemeLibrary({
       setTheme,
       setThemeHalf,
       theme,
-      themeHalves,
     ],
   );
 
@@ -710,11 +714,7 @@ export function ThemeLibrary({
   );
 
   const renderModeTiles = () => (
-    <div
-      aria-label="Appearance mode"
-      className="mx-auto grid w-full max-w-[56rem] grid-cols-3 gap-3 px-3 sm:px-4"
-      role="group"
-    >
+    <div aria-label="Appearance mode" className="grid w-full grid-cols-3 gap-3" role="group">
       {(["system", "light", "dark"] as const).map((mode) => {
         const isActive = appearanceMode === mode;
         return (

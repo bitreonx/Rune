@@ -4,6 +4,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   ORPHANED_PROVIDER_SESSION_ERROR,
   type ModelSelection,
+  type OrchestrationProjectShell,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -43,6 +44,7 @@ import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReape
 import * as TemporaryThreadSweeper from "./orchestration/Services/TemporaryThreadSweeper.ts";
 import { forkParked } from "./serverActivation.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
+import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -50,7 +52,7 @@ import {
   issueHeadlessServeAccessInfo,
 } from "./startupAccess.ts";
 
-export class ServerRuntimeStartupError extends Schema.TaggedErrorClass<ServerRuntimeStartupError>()(
+export class ServerRuntimeStartupError extends Schema.TaggedError<ServerRuntimeStartupError>()(
   "ServerRuntimeStartupError",
   {
     mode: ServerConfig.RuntimeMode,
@@ -69,6 +71,13 @@ export class ServerRuntimeStartup extends Context.Service<
   {
     readonly awaitCommandReady: Effect.Effect<void, ServerRuntimeStartupError>;
     readonly markHttpListening: Effect.Effect<void>;
+    readonly markRunningProviderSessionsForContinuation: Effect.Effect<
+      ReadonlyArray<ThreadId>,
+      ServerUpdateThreadContinuationError
+    >;
+    readonly clearProviderSessionContinuationMarkers: (
+      threadIds: ReadonlyArray<ThreadId>,
+    ) => Effect.Effect<void, ServerUpdateThreadContinuationError>;
     readonly enqueueCommand: <A, E>(
       effect: Effect.Effect<A, E>,
     ) => Effect.Effect<A, E | ServerRuntimeStartupError>;
@@ -139,7 +148,7 @@ export const makeCommandGate = Effect.gen(function* () {
   } satisfies CommandGate;
 });
 
-export const recordStartupHeartbeat = Effect.gen(function* () {
+const recordStartupHeartbeat = Effect.gen(function* () {
   const analytics = yield* AnalyticsService.AnalyticsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
 
@@ -162,15 +171,7 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
   });
 });
 
-export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
-  Effect.annotateSpans({ "startup.phase": "heartbeat.record" }),
-  Effect.withSpan("server.startup.heartbeat.record"),
-  Effect.ignoreCause({ log: true }),
-  Effect.forkScoped,
-  Effect.asVoid,
-);
-
-export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
+const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
   instanceId: ProviderInstanceId.make("codex"),
   model: DEFAULT_MODEL,
 });
@@ -196,67 +197,105 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
 
   let bootstrapProjectId: ProjectId | undefined;
   let bootstrapThreadId: ThreadId | undefined;
+  let bootstrapProjectCreated = false;
+  let bootstrapThreadCreated = false;
 
   if (serverConfig.autoBootstrapProjectFromCwd) {
+    const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
+    const defaultModelSelection =
+      settings.defaultModelSelection ?? getAutoBootstrapThreadModelSelection();
     yield* Effect.gen(function* () {
       const existingProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
         serverConfig.cwd,
       );
       let nextProjectId: ProjectId;
-      let nextProjectDefaultModelSelection: ModelSelection;
+      let nextThreadModelSelection: ModelSelection;
 
       if (Option.isNone(existingProject)) {
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         nextProjectId = ProjectId.make(yield* randomUUID);
         const bootstrapProjectTitle = path.basename(serverConfig.cwd) || "project";
-        nextProjectDefaultModelSelection = getAutoBootstrapDefaultModelSelection();
+        nextThreadModelSelection = defaultModelSelection;
         yield* orchestrationEngine.dispatch({
           type: "project.create",
           commandId: CommandId.make(yield* randomUUID),
           projectId: nextProjectId,
           title: bootstrapProjectTitle,
           workspaceRoot: serverConfig.cwd,
-          defaultModelSelection: nextProjectDefaultModelSelection,
           createdAt,
         });
+        bootstrapProjectId = nextProjectId;
+        bootstrapProjectCreated = true;
       } else {
         nextProjectId = existingProject.value.id;
-        nextProjectDefaultModelSelection =
-          existingProject.value.defaultModelSelection ?? getAutoBootstrapDefaultModelSelection();
+        bootstrapProjectId = nextProjectId;
+        nextThreadModelSelection =
+          existingProject.value.defaultModelSelection ?? defaultModelSelection;
       }
 
-      const existingThreadId =
-        yield* projectionReadModelQuery.getFirstActiveThreadIdByProjectId(nextProjectId);
-      if (Option.isNone(existingThreadId)) {
-        const createdAt = DateTime.formatIso(yield* DateTime.now);
-        const createdThreadId = ThreadId.make(yield* randomUUID);
-        yield* orchestrationEngine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.make(yield* randomUUID),
-          threadId: createdThreadId,
-          projectId: nextProjectId,
-          title: "New thread",
-          modelSelection: nextProjectDefaultModelSelection,
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt,
-        });
-        bootstrapProjectId = nextProjectId;
-        bootstrapThreadId = createdThreadId;
-      } else {
-        bootstrapProjectId = nextProjectId;
-        bootstrapThreadId = existingThreadId.value;
-      }
+      yield* Effect.gen(function* () {
+        const existingThreadId =
+          yield* projectionReadModelQuery.getFirstActiveThreadIdByProjectId(nextProjectId);
+        if (Option.isNone(existingThreadId)) {
+          const createdAt = DateTime.formatIso(yield* DateTime.now);
+          const createdThreadId = ThreadId.make(yield* randomUUID);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(yield* randomUUID),
+            threadId: createdThreadId,
+            projectId: nextProjectId,
+            title: "New thread",
+            modelSelection: nextThreadModelSelection,
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          });
+          bootstrapThreadId = createdThreadId;
+          bootstrapThreadCreated = true;
+        } else {
+          bootstrapThreadId = existingThreadId.value;
+        }
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterrupts(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("startup thread auto-bootstrap failed", {
+                bootstrapProjectId: nextProjectId,
+                cause,
+              }),
+        ),
+      );
     });
   }
 
   return {
     ...(bootstrapProjectId ? { bootstrapProjectId } : {}),
     ...(bootstrapThreadId ? { bootstrapThreadId } : {}),
+    ...(bootstrapProjectId ? { bootstrapProjectCreated } : {}),
+    ...(bootstrapThreadId ? { bootstrapThreadCreated } : {}),
   } as const;
 });
+
+export const completeAutoBootstrapWelcome = <A extends object, E, R>(
+  bootstrap: Effect.Effect<A, E, R>,
+) =>
+  bootstrap.pipe(
+    Effect.matchCauseEffect({
+      onFailure: (cause) =>
+        Cause.hasInterrupts(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("startup auto-bootstrap failed", { cause }).pipe(
+              Effect.as({ bootstrapStatus: "complete" as const }),
+            ),
+      onSuccess: (targets) =>
+        Effect.succeed({
+          ...targets,
+          bootstrapStatus: "complete" as const,
+        }),
+    }),
+  );
 
 const resolveStartupBrowserTarget = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
@@ -483,6 +522,70 @@ interface StartupOptions {
   readonly abort?: (error: ServerRuntimeStartupError) => Effect.Effect<void>;
 }
 
+export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
+  projects: ReadonlyArray<OrchestrationProjectShell>,
+  settings: Pick<
+    typeof DEFAULT_SERVER_SETTINGS,
+    "defaultAutoPull" | "projectAutoPullOverrides"
+  > = DEFAULT_SERVER_SETTINGS,
+) {
+  const git = yield* GitVcsDriver.GitVcsDriver;
+  const workspaceRoots = [
+    ...new Set(
+      projects
+        .filter((project) => resolveProjectAutoPull(settings, project.id, project.autoPull))
+        .map((project) => project.workspaceRoot),
+    ),
+  ];
+
+  yield* Effect.forEach(
+    workspaceRoots,
+    (cwd) =>
+      Effect.gen(function* () {
+        const status = yield* git.statusDetails(cwd);
+        if (
+          !status.isRepo ||
+          !status.isDefaultBranch ||
+          !status.hasUpstream ||
+          status.hasWorkingTreeChanges ||
+          status.aheadCount > 0
+        ) {
+          yield* Effect.logDebug("Skipped automatic project pull", {
+            cwd,
+            reason: !status.isRepo
+              ? "not-a-repository"
+              : !status.isDefaultBranch
+                ? "not-on-default-branch"
+                : !status.hasUpstream
+                  ? "no-upstream"
+                  : status.hasWorkingTreeChanges
+                    ? "working-tree-changes"
+                    : "local-commits",
+          });
+          return;
+        }
+
+        if (status.behindCount <= 0) return;
+
+        const result = yield* git.pullCurrentBranch(cwd);
+        yield* Effect.logDebug("Automatic project pull completed", {
+          cwd,
+          status: result.status,
+          refName: result.refName,
+        });
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Automatic project pull failed", {
+            cwd,
+            cause,
+          }),
+        ),
+      ),
+    { concurrency: 4, discard: true },
+  );
+});
+
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = (options?: StartupOptions) =>
   Effect.gen(function* () {
     const serverConfig = yield* ServerConfig.ServerConfig;
@@ -493,12 +596,25 @@ export const make = (options?: StartupOptions) =>
     const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    const providerSessionDirectory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
     const crypto = yield* Crypto.Crypto;
     const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
 
     const commandGate = yield* makeCommandGate;
     const httpListening = yield* Deferred.make<void>();
     const reactorScope = yield* Scope.make("sequential");
+
+    const syncAutoPullProjects = projectionSnapshotQuery.getShellSnapshot().pipe(
+      Effect.flatMap((snapshot) =>
+        serverSettings.getSettings.pipe(
+          Effect.flatMap((settings) => autoPullProjects(snapshot.projects, settings)),
+        ),
+      ),
+      Effect.catch((cause) =>
+        Effect.logWarning("Failed to load projects for automatic pull", { cause }),
+      ),
+    );
 
     yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
 
@@ -554,36 +670,31 @@ export const make = (options?: StartupOptions) =>
           runStartupPhase(
             "welcome.autobootstrap",
             Effect.gen(function* () {
-              const bootstrapTargets = yield* resolveAutoBootstrapWelcomeTargets.pipe(
-                Effect.provideService(Crypto.Crypto, crypto),
+              const bootstrapCompletion = yield* completeAutoBootstrapWelcome(
+                resolveAutoBootstrapWelcomeTargets.pipe(
+                  Effect.provideService(Crypto.Crypto, crypto),
+                ),
               );
-              if (!bootstrapTargets.bootstrapProjectId && !bootstrapTargets.bootstrapThreadId) {
-                return;
-              }
 
-              yield* Effect.logDebug("startup phase: publishing bootstrapped welcome event", {
-                environmentId: environment.environmentId,
-                cwd: welcomeBase.cwd,
-                projectName: welcomeBase.projectName,
-                bootstrapProjectId: bootstrapTargets.bootstrapProjectId,
-                bootstrapThreadId: bootstrapTargets.bootstrapThreadId,
-              });
+              yield* Effect.logDebug(
+                "startup phase: publishing completed bootstrap welcome event",
+                {
+                  environmentId: environment.environmentId,
+                  cwd: welcomeBase.cwd,
+                  projectName: welcomeBase.projectName,
+                  ...bootstrapCompletion,
+                },
+              );
               yield* lifecycleEvents.publish({
                 version: 1,
                 type: "welcome",
                 payload: {
                   environment,
                   ...welcomeBase,
-                  ...bootstrapTargets,
+                  ...bootstrapCompletion,
                 },
               });
-            }).pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("startup auto-bootstrap welcome failed", {
-                  cause,
-                }),
-              ),
-            ),
+            }).pipe(Effect.ignoreCause({ log: true })),
           ),
         );
       }
@@ -629,7 +740,11 @@ export const make = (options?: StartupOptions) =>
         lifecycleEvents.publish({
           version: 1,
           type: "welcome",
-          payload: { environment, ...welcomeBase },
+          payload: {
+            environment,
+            ...welcomeBase,
+            bootstrapStatus: serverConfig.autoBootstrapProjectFromCwd ? "pending" : "complete",
+          },
         }),
       );
       yield* options?.activate ?? Effect.void;
@@ -681,6 +796,23 @@ export const make = (options?: StartupOptions) =>
     return {
       awaitCommandReady: commandGate.awaitCommandReady,
       markHttpListening: Deferred.succeed(httpListening, undefined),
+      markRunningProviderSessionsForContinuation: markRunningProviderSessionsForContinuation.pipe(
+        Effect.provideService(
+          ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+          projectionSnapshotQuery,
+        ),
+        Effect.provideService(
+          ProviderSessionDirectory.ProviderSessionDirectory,
+          providerSessionDirectory,
+        ),
+      ),
+      clearProviderSessionContinuationMarkers: (threadIds) =>
+        clearProviderSessionContinuationMarkers(threadIds).pipe(
+          Effect.provideService(
+            ProviderSessionDirectory.ProviderSessionDirectory,
+            providerSessionDirectory,
+          ),
+        ),
       enqueueCommand: commandGate.enqueueCommand,
     } satisfies ServerRuntimeStartup["Service"];
   });

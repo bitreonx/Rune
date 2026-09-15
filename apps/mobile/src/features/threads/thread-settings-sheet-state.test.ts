@@ -12,7 +12,7 @@ function modelOption(
   return {
     key: `codex:${model}`,
     label: model,
-    subtitle: "Codex",
+    subtitle: "",
     providerKey: "codex",
     providerLabel: "Codex",
     providerDriver: "codex",
@@ -80,5 +80,21 @@ describe("thread settings sheet state", () => {
         pressedIsApplied: false,
       }),
     ).toBe(pressed);
+  });
+
+  it("cannot save a staged model after sign-out removes it from the catalog", () => {
+    const pending = modelOption("gemini-native");
+    const group = { providerKey: "codex", providerLabel: "Codex", models: [pending] };
+
+    expect(canCommitPendingModel(pending, [group])).toBe(true);
+    expect(canCommitPendingModel(pending, [])).toBe(false);
+    expect(
+      canCommitPendingModel(pending, [
+        {
+          ...group,
+          models: [{ ...pending, isUnavailable: true }],
+        },
+      ]),
+    ).toBe(false);
   });
 });

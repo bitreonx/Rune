@@ -1,4 +1,6 @@
+import { Spinner } from "~/components/ui/spinner";
 import type {
+  ChatFileAttachment,
   EditorId,
   EnvironmentId,
   ResolvedKeybindingsConfig,
@@ -29,7 +31,7 @@ import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
-import { resolvePathLinkTarget } from "~/terminal-links";
+import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -40,7 +42,6 @@ import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
-import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
@@ -75,6 +76,7 @@ interface FilePreviewPanelProps {
   threadTitle?: string | null;
   onToggleScope?: () => void;
   relativePath: string | null;
+  attachment?: ChatFileAttachment;
   threadRef: ScopedThreadRef;
   composerDraftTarget: ScopedThreadRef | DraftId;
   keybindings: ResolvedKeybindingsConfig;
@@ -92,6 +94,11 @@ const RENDER_MARKDOWN_STORAGE_KEY = "rune.renderMarkdown";
 const FILE_TREE_WIDTH_STORAGE_KEY = "rune:file-tree-width";
 /** 22rem — the tree's width before it became user-resizable. */
 const FILE_TREE_DEFAULT_WIDTH = 352;
+
+function renderedToggleLabel(isMarkdown: boolean, rendered: boolean): string {
+  if (isMarkdown) return rendered ? "Show markdown source" : "Show rendered markdown";
+  return rendered ? "Show HTML source" : "Show rendered page";
+}
 
 function initialExplorerOpen(): boolean {
   try {
@@ -162,6 +169,7 @@ export default function FilePreviewPanel({
   threadTitle = null,
   onToggleScope,
   relativePath,
+  attachment,
   threadRef,
   composerDraftTarget,
   keybindings,
@@ -195,6 +203,11 @@ export default function FilePreviewPanel({
     (isWorkspaceExactPreviewPath(relativePath ?? "") || descriptor.kind === "binary");
   const file = useProjectFileQuery(environmentId, cwd, relativePath, !isBinaryPreview);
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
+  const showExplorer = shouldShowFileExplorer({
+    relativePath,
+    explorerOpen,
+    attachmentOpen: attachment !== undefined,
+  });
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
@@ -282,13 +295,25 @@ export default function FilePreviewPanel({
   );
 
   const canOpenInBrowser =
-    relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
-  const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
-  const breadcrumbs = useMemo(
-    () => (relativePath ? fileBreadcrumbs(projectName, relativePath) : []),
-    [projectName, relativePath],
-  );
+    relativePath !== null &&
+    attachment === undefined &&
+    !isVideo &&
+    isPreviewSupportedInRuntime() &&
+    isBrowserPreviewFile(relativePath);
+  const absolutePath =
+    relativePath && attachment === undefined ? resolvePathLinkTarget(relativePath, cwd) : null;
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  useWorkspaceMutationRefresh({
+    enabled:
+      attachment === undefined &&
+      relativePath !== null &&
+      !isMedia &&
+      !isPdf &&
+      !selectedFilePending,
+    mutationId: workspaceMutationId,
+    refresh: file.refresh,
+    resourceKey: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
+  });
 
   useEffect(() => {
     const currentCrumb = breadcrumbRef.current?.querySelector<HTMLElement>(
@@ -315,6 +340,7 @@ export default function FilePreviewPanel({
       const result = await openFileInPreview({
         threadRef,
         filePath: absolutePath,
+        workspaceRoot: cwd,
         httpBaseUrl: environmentHttpBaseUrl,
         createAssetUrl,
         openPreview,
@@ -331,7 +357,7 @@ export default function FilePreviewPanel({
         }),
       );
     })();
-  }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
+  }, [absolutePath, createAssetUrl, cwd, environmentHttpBaseUrl, openPreview, threadRef]);
 
   const handleCopyViewerPath = useCallback(() => {
     if (!relativePath) return;
@@ -480,28 +506,30 @@ export default function FilePreviewPanel({
               <TooltipPopup>Open file in preview browser</TooltipPopup>
             </Tooltip>
           ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  className="shrink-0"
-                  pressed={explorerOpen}
-                  onPressedChange={toggleExplorer}
-                  aria-label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
-                  variant="ghost"
-                  size="sm"
-                >
-                  <FolderTree className="size-3.5" />
-                </Toggle>
-              }
-            />
-            <TooltipPopup>
-              {explorerOpen ? "Hide file explorer" : "Show file explorer"}
-            </TooltipPopup>
-          </Tooltip>
+          {!isHostFile ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    className="shrink-0"
+                    pressed={explorerOpen}
+                    onPressedChange={toggleExplorer}
+                    aria-label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    <FolderTree className="size-3.5" />
+                  </Toggle>
+                }
+              />
+              <TooltipPopup>
+                {explorerOpen ? "Hide file explorer" : "Show file explorer"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
       ) : null}
-      {relativePath && file.data?.truncated ? (
+      {relativePath && !isMedia && !renderBrowserFile && file.data?.truncated ? (
         <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-[11px] text-warning-foreground">
           Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
         </div>
@@ -590,6 +618,7 @@ export default function FilePreviewPanel({
           ) : showPreview && descriptor ? (
             descriptor.kind === "markdown" && threadRef ? (
               <RenderedMarkdownSurface
+                key={relativePath}
                 environmentId={environmentId}
                 cwd={cwd}
                 relativePath={relativePath}
@@ -659,7 +688,7 @@ export default function FilePreviewPanel({
             />
           )}
         </div>
-        {explorerOpen || relativePath === null ? (
+        {showExplorer ? (
           <aside
             className={cn(
               "relative flex min-h-0 shrink-0 bg-background/80",

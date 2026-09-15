@@ -705,10 +705,8 @@ function IntelligenceMetric({ label, value }: { readonly label: string; readonly
 }
 
 /**
- * Says plainly when the totals are incomplete: an environment that failed, or
- * one whose transcripts another environment already reported. Environments
- * that are still answering never reach this notice; the page shows the
- * loading skeleton until every one is terminal.
+ * Explains failed or incompatible environments and deduplicated transcripts.
+ * Shown inside the environment filter so arriving results do not move the page.
  */
 function UsageCoverageNotice({
   environments,

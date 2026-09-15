@@ -7,6 +7,7 @@ import {
   resolveLockedWorkspaceLabel,
   type EnvMode,
 } from "./BranchToolbar.logic";
+import { composerFloatingLayerProps } from "./chat/composerEventScope";
 import {
   Select,
   SelectGroup,
@@ -17,7 +18,7 @@ import {
   SelectValue,
 } from "./ui/select";
 
-export const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
+const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
 
 interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;
@@ -55,16 +56,21 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         data-composer-context-control
       >
         {activeWorktreePath ? (
-          <>
-            <FolderGitIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
-          </>
+          <FolderGitIcon className="size-3 shrink-0" />
         ) : (
-          <>
-            <FolderIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
-          </>
+          <FolderIcon className="size-3 shrink-0" />
         )}
+        <span
+          data-composer-label
+          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+        >
+          <span
+            data-composer-label-motion
+            className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+          >
+            {resolveLockedWorkspaceLabel(activeWorktreePath)}
+          </span>
+        </span>
       </span>
     );
   }
@@ -85,7 +91,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       <SelectTrigger
         variant="ghost"
         size="xs"
-        className="min-w-0 shrink font-medium"
+        className="min-w-0 shrink font-normal text-xs!"
         aria-label="Workspace"
         data-composer-context-control
       >
@@ -108,7 +114,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           </span>
         </span>
       </SelectTrigger>
-      <SelectPopup>
+      <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
         <SelectGroup>
           <SelectGroupLabel>Workspace</SelectGroupLabel>
           <SelectItem value="local">

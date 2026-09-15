@@ -49,9 +49,9 @@ import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { SourceControlIcon } from "../../components/SourceControlIcon";
-import { useThemeColor } from "../../lib/useThemeColor";
 import { uuidv4 } from "../../lib/uuid";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
@@ -66,6 +66,7 @@ interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
   readonly label: string;
   readonly platform: string;
+  readonly machine: EnvironmentMachineKind;
   readonly baseDirectory: string | null;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionError: string | null;
@@ -159,8 +160,6 @@ function ListRow(props: {
   readonly right?: ReactNode;
   readonly onPress?: () => void;
 }) {
-  const chevronColor = useThemeColor("--color-chevron");
-
   return (
     <Pressable
       disabled={props.disabled}
@@ -192,7 +191,12 @@ function ListRow(props: {
         {"right" in props ? (
           props.right
         ) : !props.disabled ? (
-          <SymbolView name="chevron.right" size={13} tintColor={chevronColor} type="monochrome" />
+          <SymbolView
+            name="chevron.right"
+            size={13}
+            tintColorClassName={"accent-chevron"}
+            type="monochrome"
+          />
         ) : null}
       </View>
     </Pressable>
@@ -205,8 +209,6 @@ function PrimaryActionButton(props: {
   readonly loading?: boolean;
   readonly onPress: () => void;
 }) {
-  const primaryForeground = useThemeColor("--color-primary-foreground");
-
   return (
     <Pressable
       disabled={props.disabled}
@@ -214,7 +216,7 @@ function PrimaryActionButton(props: {
       className="h-12 items-center justify-center rounded-full bg-primary active:opacity-70 disabled:opacity-45"
     >
       {props.loading ? (
-        <ActivityIndicator color={String(primaryForeground)} />
+        <ActivityIndicator colorClassName={String("accent-primary-foreground")} />
       ) : (
         <Text className="text-base font-rune-bold text-primary-foreground">{props.label}</Text>
       )}
@@ -352,6 +354,7 @@ function useEnvironmentOptions(): ReadonlyArray<EnvironmentOption> {
         environmentId: connection.environmentId,
         label: connection.environmentLabel,
         platform: platformFromOs(config?.environment.platform.os ?? null),
+        machine: resolveEnvironmentMachineKind(config ?? null),
         baseDirectory: config?.settings.addProjectBaseDirectory ?? null,
         connectionState: runtime?.connectionState ?? "available",
         connectionError: runtime?.connectionError ?? null,
@@ -414,7 +417,6 @@ function SourceControlRow(props: {
   readonly isFirst: boolean;
 }) {
   const navigation = useNavigation();
-  const iconColor = useThemeColor("--color-icon");
   const title =
     props.source === "url" ? "Git URL" : `${addProjectRemoteSourceLabel(props.source)} repository`;
   const subtitle =
@@ -423,9 +425,9 @@ function SourceControlRow(props: {
       : `Clone ${addProjectRemoteSourceLabel(props.source)} ${props.hint}`;
   const icon =
     props.source === "url" ? (
-      <SymbolView name="link" size={17} tintColor={iconColor} type="monochrome" />
+      <SymbolView name="link" size={17} tintColorClassName={"accent-icon"} type="monochrome" />
     ) : (
-      <SourceControlIcon kind={props.source} size={18} color={String(iconColor)} />
+      <SourceControlIcon kind={props.source} size={18} colorClassName="accent-icon" />
     );
 
   if (!props.ready) {
@@ -454,8 +456,6 @@ function SourceControlRow(props: {
 
 export function AddProjectSourceScreen() {
   const navigation = useNavigation();
-  const accentColor = useThemeColor("--color-icon-muted");
-  const iconColor = useThemeColor("--color-icon");
   const { environmentOptions, selectedEnvironment, setSelectedEnvironmentId } =
     useSelectedEnvironment();
   const discoveryState = useEnvironmentQuery(
@@ -493,11 +493,10 @@ export function AddProjectSourceScreen() {
                       })
                 }
                 icon={
-                  <SymbolView
-                    name="server.rack"
+                  <EnvironmentMachineSymbol
+                    kind={environment.machine}
                     size={17}
-                    tintColor={iconColor}
-                    type="monochrome"
+                    tintColorClassName="accent-icon"
                   />
                 }
                 selected={environment.environmentId === selectedEnvironment?.environmentId}
@@ -508,7 +507,7 @@ export function AddProjectSourceScreen() {
                     <SymbolView
                       name="checkmark"
                       size={14}
-                      tintColor={iconColor}
+                      tintColorClassName={"accent-icon"}
                       type="monochrome"
                     />
                   ) : null
@@ -530,7 +529,7 @@ export function AddProjectSourceScreen() {
                 <SymbolView
                   name="folder.badge.plus"
                   size={17}
-                  tintColor={iconColor}
+                  tintColorClassName={"accent-icon"}
                   type="monochrome"
                 />
               }
@@ -560,7 +559,9 @@ export function AddProjectSourceScreen() {
               ),
             )}
           </ListSection>
-          {discoveryState.isPending ? <ActivityIndicator color={accentColor} /> : null}
+          {discoveryState.isPending ? (
+            <ActivityIndicator colorClassName={"accent-icon-muted"} />
+          ) : null}
         </>
       ) : null}
     </AddProjectShell>
@@ -745,7 +746,6 @@ function FolderBrowser(props: {
   }) => Promise<boolean>;
   readonly pinnedDirectoryName?: string;
 }) {
-  const accentColor = useThemeColor("--color-icon-muted");
   const browsePath = useMemo(
     () => getFilesystemBrowsePath(props.pathInput, props.environment.platform),
     [props.environment.platform, props.pathInput],
@@ -781,7 +781,7 @@ function FolderBrowser(props: {
       <ListSection>
         {browseState.isPending && browseState.data === null ? (
           <View className="items-center py-5">
-            <ActivityIndicator color={accentColor} />
+            <ActivityIndicator colorClassName={"accent-icon-muted"} />
           </View>
         ) : null}
         {browsePath.canBrowseUp ? (
@@ -791,7 +791,7 @@ function FolderBrowser(props: {
               <SymbolView
                 name="arrow.turn.left.up"
                 size={17}
-                tintColor={accentColor}
+                tintColorClassName={"accent-icon-muted"}
                 type="monochrome"
               />
             }
@@ -810,7 +810,14 @@ function FolderBrowser(props: {
           <ListRow
             key={entry.fullPath}
             title={entry.name}
-            icon={<SymbolView name="folder" size={17} tintColor={accentColor} type="monochrome" />}
+            icon={
+              <SymbolView
+                name="folder"
+                size={17}
+                tintColorClassName={"accent-icon-muted"}
+                type="monochrome"
+              />
+            }
             isFirst={index === 0 && !browsePath.canBrowseUp}
             right={null}
             onPress={() => {

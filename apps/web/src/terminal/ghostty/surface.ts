@@ -1,4 +1,5 @@
 import { isMacPlatform } from "../../lib/utils";
+import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
 import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../terminal-links";
 import {
   GhosttyTerminalCore,
@@ -254,17 +255,22 @@ function terminalColumnOffset(row: GhosttySnapshot["rowData"][number], column: n
   return offset;
 }
 
-export function terminalLinkAtPosition(
-  rows: GhosttySnapshot["rowData"],
-  rowIndex: number,
-  column: number,
-): string | null {
-  return terminalLinkAtPositionWithRange(rows, rowIndex, column)?.text ?? null;
-}
-
 export interface TerminalLinkWithRange {
   readonly text: string;
   readonly range: GhosttyCellRange;
+}
+
+function isSameTerminalLink(
+  left: TerminalLinkWithRange,
+  right: TerminalLinkWithRange | null,
+): boolean {
+  return (
+    right?.text === left.text &&
+    right.range.start.x === left.range.start.x &&
+    right.range.start.y === left.range.start.y &&
+    right.range.end.x === left.range.end.x &&
+    right.range.end.y === left.range.end.y
+  );
 }
 
 function terminalColumnAtOffset(row: GhosttySnapshot["rowData"][number], offset: number): number {
@@ -335,10 +341,6 @@ export function terminalLinkAtPositionWithRange(
   return null;
 }
 
-export function terminalLinkAtColumn(row: GhosttySnapshot["rowData"][number], column: number) {
-  return terminalLinkAtPosition([row], 0, column);
-}
-
 export function isTerminalCopyShortcut(
   event: Pick<KeyboardEvent, "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   platform = navigator.platform,
@@ -398,6 +400,15 @@ export function isTerminalPasteShortcut(
   }
   if (key !== "v") return false;
   return isMacPlatform(platform) ? event.metaKey : event.ctrlKey && event.shiftKey;
+}
+
+/**
+ * Middle-click paste is an X11/Wayland convention. macOS and Windows have no
+ * primary selection and use the button for autoscroll, so only desktops that
+ * expect the gesture get it.
+ */
+function isMiddleClickPastePlatform(): boolean {
+  return /linux|bsd/i.test(navigator.platform);
 }
 
 export function isTerminalCompositionCommitInput(event: Pick<InputEvent, "inputType">): boolean {
@@ -485,22 +496,6 @@ export function terminalWheelArrowData(rows: number, applicationCursorKeys: bool
   return sequence.repeat(Math.abs(rows));
 }
 
-export function isTerminalLinkPointerGesture(
-  event: Pick<MouseEvent, "ctrlKey" | "metaKey">,
-  platform = navigator.platform,
-): boolean {
-  return isMacPlatform(platform)
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey;
-}
-
-export function shouldShowTerminalLinkHover(
-  mouseTracking: boolean,
-  linkModifierActive: boolean,
-): boolean {
-  return !mouseTracking || linkModifierActive;
-}
-
 export function ghosttyMouseButton(button: number): number | null {
   switch (button) {
     case 0:
@@ -525,14 +520,17 @@ export interface TerminalSelectionClickSequence {
   readonly y: number;
 }
 
+const TERMINAL_LINK_DRAG_THRESHOLD_PX = 4;
+
 export function advanceTerminalSelectionClickSequence(
   previous: TerminalSelectionClickSequence | null,
   event: Pick<PointerEvent, "clientX" | "clientY" | "timeStamp">,
 ): TerminalSelectionClickSequence {
   const repeats =
     previous !== null &&
-    event.timeStamp - previous.time <= 500 &&
-    Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= 4;
+    event.timeStamp - previous.time <= SELECTION_MULTI_CLICK_INTERVAL_MS &&
+    Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <=
+      TERMINAL_LINK_DRAG_THRESHOLD_PX;
   return {
     count: repeats ? (previous.count >= 3 ? 1 : previous.count + 1) : 1,
     time: event.timeStamp,
@@ -549,6 +547,8 @@ export interface GhosttySelectionPosition {
 export interface GhosttyTerminalSurfaceOptions {
   readonly theme: GhosttyTheme;
   readonly font?: GhosttyTerminalFont;
+  /** Read after font and WASM loading. Hosts can supply a getter for the latest value. */
+  readonly visible?: boolean;
   readonly onData: (data: string) => void;
   readonly onResize: (cols: number, rows: number) => void;
   readonly onSelectionChange: () => void;
@@ -577,6 +577,8 @@ export class GhosttyTerminalSurface {
   private readonly context: CanvasRenderingContext2D;
   private readonly core: GhosttyTerminalCore;
   private readonly options: GhosttyTerminalSurfaceOptions;
+  private visible: boolean;
+  private hasSize = false;
   private metrics: GhosttyCellMetrics;
   private fontFamily: string;
   private requestedFontFamily: string | undefined;
@@ -619,9 +621,14 @@ export class GhosttyTerminalSurface {
   private mouseReportingPointerId: number | null = null;
   private mouseReportingButton: number | null = null;
   private linkActivationPointerId: number | null = null;
+  private linkActivationLink: TerminalLinkWithRange | null = null;
+  private linkActivationOrigin: {
+    x: number;
+    y: number;
+    clickCount: number;
+  } | null = null;
   private hoveredLink: TerminalLinkWithRange | null = null;
   private hoverPointer: { x: number; y: number } | null = null;
-  private linkModifierActive = false;
   private selectionClickSequence: TerminalSelectionClickSequence | null = null;
   private selectionMoved = false;
   private composing = false;
@@ -669,6 +676,7 @@ export class GhosttyTerminalSurface {
     this.mouseAnyEventTracking = core.isMouseAnyEventTracking();
     this.metrics = metrics;
     this.options = options;
+    this.visible = options.visible ?? true;
     this.theme = options.theme;
     this.fontFamily = fontFamily;
     this.requestedFontFamily = options.font?.family;
@@ -751,8 +759,22 @@ export class GhosttyTerminalSurface {
       options,
     );
     surface.fit();
-    surface.requestRender();
     return surface;
+  }
+
+  /** Pause canvas work without interrupting output parsing or terminal replies. */
+  setVisible(visible: boolean): void {
+    if (this.disposed || this.visible === visible) return;
+    this.visible = visible;
+    this.cursorOn = true;
+    this.forceFullRender = true;
+    this.scrollbarDirty = true;
+    if (!visible) {
+      this.cancelRender();
+      this.setSelectionAutoscroll(0);
+      return;
+    }
+    this.fit();
   }
 
   write(data: string): void {
@@ -853,10 +875,16 @@ export class GhosttyTerminalSurface {
   };
 
   fit(): boolean {
-    if (this.disposed) return false;
+    if (this.disposed || !this.visible) return false;
     const width = this.mount.clientWidth;
     const height = this.mount.clientHeight;
-    if (width <= 0 || height <= 0) return false;
+    if (width <= 0 || height <= 0) {
+      this.hasSize = false;
+      this.forceFullRender = true;
+      this.cancelRender();
+      return false;
+    }
+    this.hasSize = true;
     const ratio = window.devicePixelRatio || 1;
     const pixelWidth = Math.max(1, Math.round(width * ratio));
     const pixelHeight = Math.max(1, Math.round(height * ratio));
@@ -893,7 +921,7 @@ export class GhosttyTerminalSurface {
     // Rendering synchronously keeps the repaint inside the same frame as the
     // layout change: ResizeObserver fires before paint, so the browser never
     // composites the old backing store stretched into the new element box.
-    if (shouldRender) this.renderFrame();
+    if (shouldRender || this.forceFullRender) this.renderFrame();
     return true;
   }
 
@@ -912,6 +940,7 @@ export class GhosttyTerminalSurface {
   }
 
   focus(): void {
+    if (this.disposed || !this.visible) return;
     this.input.focus({ preventScroll: true });
   }
 
@@ -1126,8 +1155,7 @@ export class GhosttyTerminalSurface {
       // the surface unmounts inside the debounce window.
       this.options.onResize(this.cols, this.rows);
     }
-    if (this.frame !== 0) window.cancelAnimationFrame(this.frame);
-    if (this.cursorTimer !== null) window.clearTimeout(this.cursorTimer);
+    this.cancelRender();
     if (this.compositionSuppressionTimer !== null) {
       window.clearTimeout(this.compositionSuppressionTimer);
     }
@@ -1145,7 +1173,6 @@ export class GhosttyTerminalSurface {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
-    this.updateLinkModifier(event);
     // Presses handled outside the terminal must also swallow their release:
     // beforeKey runs side effects (keybindings, navigation sends), so it cannot
     // be consulted again on keyup, and Kitty report-event-types sessions would
@@ -1248,7 +1275,6 @@ export class GhosttyTerminalSurface {
   };
 
   private readonly onKeyUp = (event: KeyboardEvent) => {
-    this.updateLinkModifier(event);
     if (this.suppressedKeyCodes.delete(event.code)) return;
     if (isTerminalCompositionKey(event, this.composing)) {
       return;
@@ -1270,7 +1296,6 @@ export class GhosttyTerminalSurface {
 
   private readonly onBlur = () => {
     this.focused = false;
-    this.linkModifierActive = false;
     this.refreshHoveredLink();
     // Suppressions survive blur deliberately: a shortcut that moves focus (for
     // example terminal-toggle) must still swallow its own keyup if focus comes
@@ -1390,22 +1415,46 @@ export class GhosttyTerminalSurface {
       this.canvas.setPointerCapture(event.pointerId);
       return;
     }
+    if (event.button === 1 && isMiddleClickPastePlatform()) {
+      // Left uncancelled on purpose: cancelling pointerdown drops the
+      // compatibility mousedown, which is what activates a split pane.
+      this.pasteTerminalSelection();
+      return;
+    }
     if (event.button !== 0) return;
-    if (isTerminalLinkPointerGesture(event)) {
+    const clickCount = this.recordSelectionClick(event);
+    const link = this.linkAt(event.clientX, event.clientY);
+    if (link && !event.shiftKey && clickCount === 1) {
       event.preventDefault();
       event.stopPropagation();
       this.linkActivationPointerId = event.pointerId;
+      this.linkActivationLink = link;
+      this.linkActivationOrigin = {
+        x: event.clientX,
+        y: event.clientY,
+        clickCount,
+      };
       this.canvas.setPointerCapture(event.pointerId);
       return;
     }
     this.clearHoveredLink();
-    const cell = this.cellAt(event.clientX, event.clientY);
-    this.selectionMoved = false;
+    this.beginSelection(event, clickCount);
+    this.canvas.setPointerCapture(event.pointerId);
+  };
+
+  private recordSelectionClick(
+    event: Pick<PointerEvent, "clientX" | "clientY" | "timeStamp">,
+  ): number {
     this.selectionClickSequence = advanceTerminalSelectionClickSequence(
       this.selectionClickSequence,
       event,
     );
-    const clickCount = this.selectionClickSequence.count;
+    return this.selectionClickSequence.count;
+  }
+
+  private beginSelection(event: { clientX: number; clientY: number }, clickCount: number): void {
+    const cell = this.cellAt(event.clientX, event.clientY);
+    this.selectionMoved = false;
     this.selectionMode = clickCount >= 3 ? "line" : clickCount === 2 ? "word" : "cell";
     const range =
       this.selectionMode === "line"
@@ -1433,12 +1482,31 @@ export class GhosttyTerminalSurface {
       }
     }
     this.forceFullRender = true;
-    this.canvas.setPointerCapture(event.pointerId);
     this.requestRender();
-  };
+  }
 
   private readonly onPointerMove = (event: PointerEvent) => {
-    if (this.linkActivationPointerId === event.pointerId) return;
+    if (this.linkActivationPointerId === event.pointerId) {
+      const origin = this.linkActivationOrigin;
+      if (
+        origin === null ||
+        Math.hypot(event.clientX - origin.x, event.clientY - origin.y) <=
+          TERMINAL_LINK_DRAG_THRESHOLD_PX
+      ) {
+        return;
+      }
+      this.linkActivationPointerId = null;
+      this.linkActivationLink = null;
+      this.linkActivationOrigin = null;
+      this.clearHoveredLink();
+      this.beginSelection(
+        {
+          clientX: origin.x,
+          clientY: origin.y,
+        },
+        origin.clickCount,
+      );
+    }
     // Hover motion is only reportable in any-event tracking (DEC 1003); normal and
     // button-event tracking never report motion without a captured pressed button.
     const anyEventTracking = this.synchronizeMouseTrackingState();
@@ -1448,7 +1516,6 @@ export class GhosttyTerminalSurface {
     ) {
       event.preventDefault();
       this.hoverPointer = { x: event.clientX, y: event.clientY };
-      this.linkModifierActive = isTerminalLinkPointerGesture(event);
       // A drag whose press was already sent to the terminal application cannot
       // turn into link activation midway through, so link feedback would lie.
       this.setHoveredLink(null);
@@ -1523,14 +1590,6 @@ export class GhosttyTerminalSurface {
 
   private updateHoverCursor(event: PointerEvent): void {
     this.hoverPointer = { x: event.clientX, y: event.clientY };
-    this.linkModifierActive = isTerminalLinkPointerGesture(event);
-    this.refreshHoveredLink();
-  }
-
-  private updateLinkModifier(event: Pick<KeyboardEvent, "ctrlKey" | "metaKey">): void {
-    const active = isTerminalLinkPointerGesture(event);
-    if (active === this.linkModifierActive) return;
-    this.linkModifierActive = active;
     this.refreshHoveredLink();
   }
 
@@ -1547,10 +1606,7 @@ export class GhosttyTerminalSurface {
 
   private refreshHoveredLink(): void {
     const pointer = this.hoverPointer;
-    const link =
-      pointer && shouldShowTerminalLinkHover(this.core.isMouseTracking(), this.linkModifierActive)
-        ? this.linkAt(pointer.x, pointer.y)
-        : null;
+    const link = pointer ? this.linkAt(pointer.x, pointer.y) : null;
     this.setHoveredLink(link);
   }
 
@@ -1574,13 +1630,17 @@ export class GhosttyTerminalSurface {
     if (this.linkActivationPointerId === event.pointerId) {
       event.preventDefault();
       event.stopPropagation();
+      const link = this.linkActivationLink;
       this.linkActivationPointerId = null;
+      this.linkActivationLink = null;
+      this.linkActivationOrigin = null;
       if (this.canvas.hasPointerCapture(event.pointerId)) {
         this.canvas.releasePointerCapture(event.pointerId);
       }
       if (event.type !== "pointercancel") {
-        const link = this.linkAt(event.clientX, event.clientY);
-        if (link) this.options.onLinkActivate(link.text, event);
+        if (link && isSameTerminalLink(link, this.linkAt(event.clientX, event.clientY))) {
+          this.options.onLinkActivate(link.text, event);
+        }
       }
       return;
     }
@@ -1597,13 +1657,16 @@ export class GhosttyTerminalSurface {
         this.clearHoveredLink();
       } else {
         this.hoverPointer = { x: event.clientX, y: event.clientY };
-        this.linkModifierActive = isTerminalLinkPointerGesture(event);
         this.refreshHoveredLink();
       }
       return;
     }
     if (this.canvas.hasPointerCapture(event.pointerId)) {
       this.canvas.releasePointerCapture(event.pointerId);
+    }
+    if (event.button === 1 && isMiddleClickPastePlatform()) {
+      event.preventDefault();
+      return;
     }
     if (event.button !== 0) return;
     if (!this.selectionMoved && this.selectionMode === "cell") {
@@ -1641,8 +1704,21 @@ export class GhosttyTerminalSurface {
   };
 
   private readonly onMouseDown = (event: MouseEvent) => {
-    if (event.button === 0) event.preventDefault();
+    // Cancelling the middle button here stops autoscroll while still letting
+    // the event bubble to the drawer handler that activates a split pane.
+    if (event.button === 0 || (event.button === 1 && isMiddleClickPastePlatform())) {
+      event.preventDefault();
+    }
     this.focus();
+  };
+
+  /**
+   * Chromium pastes PRIMARY into the focused editable on a middle mouseup, and
+   * the hidden textarea is focused, so leaving the default alive would deliver
+   * a second paste through onPaste on top of the one onPointerDown sent.
+   */
+  private readonly onMouseUp = (event: MouseEvent) => {
+    if (event.button === 1 && isMiddleClickPastePlatform()) event.preventDefault();
   };
 
   private readonly onContextMenu = (event: MouseEvent) => {
@@ -1734,6 +1810,7 @@ export class GhosttyTerminalSurface {
     this.canvas.addEventListener("pointercancel", this.onPointerUp);
     this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
     this.canvas.addEventListener("mousedown", this.onMouseDown);
+    this.canvas.addEventListener("mouseup", this.onMouseUp);
     this.canvas.addEventListener("contextmenu", this.onContextMenu);
     this.scrollbar.addEventListener("pointerdown", this.onScrollbarPointerDown);
     this.scrollbar.addEventListener("pointermove", this.onScrollbarPointerMove);
@@ -1759,6 +1836,7 @@ export class GhosttyTerminalSurface {
     this.canvas.removeEventListener("pointercancel", this.onPointerUp);
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.canvas.removeEventListener("mousedown", this.onMouseDown);
+    this.canvas.removeEventListener("mouseup", this.onMouseUp);
     this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     this.scrollbar.removeEventListener("pointerdown", this.onScrollbarPointerDown);
     this.scrollbar.removeEventListener("pointermove", this.onScrollbarPointerMove);
@@ -1823,18 +1901,38 @@ export class GhosttyTerminalSurface {
   }
 
   private requestRender(): void {
-    if (this.disposed || this.frame !== 0) return;
+    if (this.disposed || !this.visible || !this.hasSize || this.frame !== 0) return;
     this.frame = window.requestAnimationFrame(() => {
       this.frame = 0;
       this.renderFrame();
     });
   }
 
-  private renderFrame(): void {
-    if (this.disposed) return;
+  private cancelRender(): void {
     if (this.frame !== 0) {
       window.cancelAnimationFrame(this.frame);
       this.frame = 0;
+    }
+    if (this.cursorTimer !== null) {
+      window.clearTimeout(this.cursorTimer);
+      this.cursorTimer = null;
+    }
+  }
+
+  private renderFrame(): void {
+    if (this.disposed || !this.visible) return;
+    if (this.frame !== 0) {
+      window.cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    }
+    // Hidden thread drawers stay mounted so switching back is instant, but a
+    // display:none canvas has nothing to show. Ghostty keeps parsing; the
+    // ResizeObserver refits and repaints in full once the mount has a size.
+    if (this.mount.clientWidth === 0 || this.mount.clientHeight === 0) {
+      this.hasSize = false;
+      this.forceFullRender = true;
+      this.cancelRender();
+      return;
     }
     this.snapshot = this.core.snapshot();
     // A cursor that is not blinking right now must be drawn, never caught in an
@@ -1912,7 +2010,7 @@ export class GhosttyTerminalSurface {
 
   private blinkEnabled(): boolean {
     const snapshot = this.snapshot;
-    if (!snapshot) return false;
+    if (!snapshot || !this.visible || !this.hasSize) return false;
     return shouldBlinkTerminalCursor({
       focused: this.focused,
       cursorBlinking: snapshot.cursorBlinking,

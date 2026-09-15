@@ -2,7 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind } from "@rune/contracts";
 
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
-import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import {
+  searchSlashCommandItems,
+  slashCommandItemsForPromptPosition,
+} from "./composerSlashCommandSearch";
 
 describe("searchSlashCommandItems", () => {
   const claudeDriver = ProviderDriverKind.make("claudeAgent");

@@ -205,7 +205,7 @@ export const ThreadListForPickerResult = Schema.Struct({
 });
 export type ThreadListForPickerResult = typeof ThreadListForPickerResult.Type;
 
-export class CrossThreadError extends Schema.TaggedErrorClass<CrossThreadError>()(
+export class CrossThreadError extends Schema.TaggedError<CrossThreadError>()(
   "CrossThreadError",
   {
     message: TrimmedNonEmptyString,

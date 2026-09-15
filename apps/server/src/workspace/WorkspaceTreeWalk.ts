@@ -16,7 +16,7 @@ export const WORKSPACE_TREE_MAX_ENTRIES = 25_000;
  */
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", ".venv", "venv", "__pycache__"]);
 
-export class WorkspaceTreeWalkError extends Schema.TaggedErrorClass<WorkspaceTreeWalkError>()(
+export class WorkspaceTreeWalkError extends Schema.TaggedError<WorkspaceTreeWalkError>()(
   "WorkspaceTreeWalkError",
   {
     rootPath: Schema.String,

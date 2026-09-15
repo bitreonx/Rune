@@ -15,22 +15,29 @@ function missingImageCount(entry: PromptStashEntry): number {
 }
 
 function stashEntrySnippet(entry: PromptStashEntry): string {
-  const trimmed = entry.prompt.trim().replace(/\s+/g, " ");
+  const trimmed = assistantCitationsToPlainText(entry.prompt).trim().replace(/\s+/g, " ");
   if (trimmed.length > 0) {
     return trimmed.length > SNIPPET_MAX_CHARS ? `${trimmed.slice(0, SNIPPET_MAX_CHARS)}…` : trimmed;
   }
   const imageCount = entry.attachments.length + entry.droppedImageNames.length;
-  return imageCount > 0 ? `(${imageCount} image${imageCount === 1 ? "" : "s"})` : "(empty)";
+  const fileCount = entry.files?.length ?? 0;
+  const attachmentCount = imageCount + fileCount;
+  if (attachmentCount === 0) {
+    return "(empty)";
+  }
+  const label = imageCount > 0 && fileCount > 0 ? "attachment" : fileCount > 0 ? "file" : "image";
+  return `(${attachmentCount} ${label}${attachmentCount === 1 ? "" : "s"})`;
 }
 
 /**
- * Popover listing the stashed prompts. Keyboard-first: opened by ⌘S on an
- * empty composer, navigated with arrows, restored with Enter, dismissed
- * with Escape. The listener runs capture-phase on window so it wins over
- * the Lexical editor's handlers while the menu is open.
+ * Attached banner listing the stashed prompts. Opened by the stash badge or ⌘S
+ * when the empty composer cannot restore a single entry. Navigated with arrows,
+ * restored with Enter, dismissed with Escape. The listener runs capture-phase
+ * on window so it wins over the Lexical editor's handlers while the menu is open.
  */
 export const ComposerStashMenu = memo(function ComposerStashMenu(props: {
   entries: ReadonlyArray<PromptStashEntry>;
+  stashShortcutLabel: string | null;
   onRestore: (entry: PromptStashEntry) => void;
   onDelete: (entry: PromptStashEntry) => void;
   onClose: () => void;
@@ -76,11 +83,17 @@ export const ComposerStashMenu = memo(function ComposerStashMenu(props: {
         if (entries.length === 0) return;
         event.preventDefault();
         event.stopPropagation();
-        const currentIndex = entries.findIndex((entry) => entry.id === highlightedId);
+        const currentIndex = entries.findIndex((entry) => entry.id === highlightedEntry?.id);
         const offset = event.key === "ArrowDown" ? 1 : -1;
         const normalizedIndex = currentIndex >= 0 ? currentIndex : offset === 1 ? -1 : 0;
         const nextIndex = (normalizedIndex + offset + entries.length) % entries.length;
         setHighlightedId(entries[nextIndex]?.id ?? null);
+        const nextButton =
+          drawerRef.current?.querySelectorAll<HTMLButtonElement>("[data-stash-restore]")[nextIndex];
+        nextButton?.scrollIntoView({ block: "nearest" });
+        if (drawerRef.current?.contains(document.activeElement)) {
+          nextButton?.focus({ preventScroll: true });
+        }
         return;
       }
       if (event.key === "Enter") {
@@ -104,7 +117,7 @@ export const ComposerStashMenu = memo(function ComposerStashMenu(props: {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [entries, highlightedEntry, highlightedId, onClose, onDelete, onRestore]);
+  }, [entries, highlightedEntry, onClose, onDelete, onRestore]);
 
   return (
     <Command autoHighlight={false} mode="none">

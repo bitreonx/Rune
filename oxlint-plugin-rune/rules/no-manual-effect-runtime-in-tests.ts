@@ -87,11 +87,26 @@ export default defineRule({
       description:
         "Disallow manually creating or running Effect runtimes in tests; use @effect/vitest.",
     },
+    schema: [
+      {
+        type: "object",
+        properties: {
+          maxOccurrences: {
+            type: "integer",
+            minimum: 0,
+            description:
+              "Legacy debt ceiling for this file: occurrences beyond this count are reported.",
+          },
+        },
+        additionalProperties: false,
+      },
+    ],
+    defaultOptions: [{ maxOccurrences: 0 }],
   },
   create(context) {
     if (!TEST_FILE_PATTERN.test(context.filename)) return {};
 
-    const allowedCount = baselineFor(context.filename);
+    const allowedCount = readMaxOccurrences(context.options);
     let occurrenceCount = 0;
 
     return {

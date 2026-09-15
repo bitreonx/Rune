@@ -110,7 +110,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       ),
     );
 
-  const upsert: ProviderSessionDirectoryShape["upsert"] = Effect.fn(function* (binding) {
+  const upsert: ProviderSessionDirectoryShape["upsert"] = Effect.fn(function* (binding, options) {
     const existing = yield* repository
       .getByThreadId({ threadId: binding.threadId })
       .pipe(Effect.mapError(toPersistenceError("ProviderSessionDirectory.upsert:getByThreadId")));
@@ -181,6 +181,15 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       ),
     );
 
+  const recordImportedTranscript: ProviderSessionDirectoryShape["recordImportedTranscript"] = (
+    input,
+  ) =>
+    repository
+      .recordImportedTranscript(input)
+      .pipe(
+        Effect.mapError(toPersistenceError("ProviderSessionDirectory.recordImportedTranscript")),
+      );
+
   const listThreadIds: ProviderSessionDirectoryShape["listThreadIds"] = () =>
     repository.list().pipe(
       Effect.mapError(toPersistenceError("ProviderSessionDirectory.listThreadIds:list")),
@@ -201,6 +210,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
 
   return {
     upsert,
+    recordImportedTranscript,
     getProvider,
     getBinding,
     listThreadIds,
@@ -212,7 +222,3 @@ export const ProviderSessionDirectoryLive = Layer.effect(
   ProviderSessionDirectory,
   makeProviderSessionDirectory,
 );
-
-export function makeProviderSessionDirectoryLive() {
-  return Layer.effect(ProviderSessionDirectory, makeProviderSessionDirectory);
-}

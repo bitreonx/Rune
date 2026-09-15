@@ -7,12 +7,13 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
-import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
+import { serverEnvironment } from "../../state/server";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 
 function connectionStatusLabel(environment: ConnectedEnvironmentSummary): string | null {
@@ -36,10 +37,9 @@ export function ConnectionEnvironmentRow(props: {
 }) {
   const [label, setLabel] = useState(props.environment.environmentLabel);
   const [url, setUrl] = useState(props.environment.displayUrl);
-
-  const mutedColor = useThemeColor("--color-icon-subtle");
-  const primaryFg = useThemeColor("--color-primary-foreground");
-  const dangerFg = useThemeColor("--color-danger-foreground");
+  const serverConfig = useAtomValue(
+    serverEnvironment.configValueAtom(props.environment.environmentId),
+  );
   const statusLabel = connectionStatusLabel(props.environment);
   const statusTraceId = props.environment.connectionErrorTraceId;
   const hasConnectionFailure = props.environment.connectionError !== null;
@@ -85,7 +85,7 @@ export function ConnectionEnvironmentRow(props: {
             <Text
               className={cn(
                 "text-xs",
-                hasConnectionFailure ? "text-rose-500 dark:text-rose-400" : "text-foreground-muted",
+                hasConnectionFailure ? "text-danger-foreground" : "text-foreground-muted",
               )}
               numberOfLines={props.expanded ? undefined : 1}
               selectable={props.expanded}
@@ -117,7 +117,7 @@ export function ConnectionEnvironmentRow(props: {
         <SymbolView
           name="chevron.down"
           size={12}
-          tintColor={mutedColor}
+          tintColorClassName={"accent-icon-subtle"}
           type="monochrome"
           style={{
             transform: [{ rotate: props.expanded ? "180deg" : "0deg" }],
@@ -188,7 +188,7 @@ export function ConnectionEnvironmentRow(props: {
               <SymbolView
                 name="arrow.clockwise"
                 size={14}
-                tintColor={mutedColor}
+                tintColorClassName={"accent-icon-subtle"}
                 type="monochrome"
               />
             </Pressable>
@@ -197,7 +197,12 @@ export function ConnectionEnvironmentRow(props: {
               className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger active:opacity-70"
               onPress={() => props.onRemove(props.environment.environmentId)}
             >
-              <SymbolView name="trash" size={14} tintColor={dangerFg} type="monochrome" />
+              <SymbolView
+                name="trash"
+                size={14}
+                tintColorClassName={"accent-danger-foreground"}
+                type="monochrome"
+              />
             </Pressable>
           </View>
         </Animated.View>

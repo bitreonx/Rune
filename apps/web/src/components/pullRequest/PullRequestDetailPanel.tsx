@@ -114,6 +114,7 @@ import {
   pullRequestComposerTarget,
   pullRequestFindingKey,
   pullRequestHandoffLabels,
+  PULL_REQUEST_MERGE_METHOD_LABELS,
   readableFailure,
   resolveBaseFreshness,
   type PullRequestFinding,
@@ -151,12 +152,6 @@ const ACTION_SUCCESS_LABELS: Record<PullRequestAction, string> = {
   "enable-auto-merge":
     "Auto-merge turned on — merges as soon as this is ready, sooner if it already is",
   "disable-auto-merge": "Auto-merge turned off",
-};
-
-const MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, string> = {
-  merge: "Merge",
-  squash: "Squash",
-  rebase: "Rebase",
 };
 
 /** Said as the thing that did not happen, rather than as the operation that returned an error. */
@@ -1025,7 +1020,7 @@ export function PullRequestDetailPanel({
   const selectedMergeMethod = allowedMergeMethods.includes(mergeMethod)
     ? mergeMethod
     : (allowedMergeMethods[0] ?? "merge");
-  const selectedMergeMethodLabel = MERGE_METHOD_LABELS[selectedMergeMethod];
+  const selectedMergeMethodLabel = PULL_REQUEST_MERGE_METHOD_LABELS[selectedMergeMethod];
   const conflicting = detail?.state === "open" && detail.mergeability === "conflicting";
   // Only an outright yes arms it. A host that reports nothing has not said the merge is already
   // spoken for, and an off switch for something that may not be on says the wrong thing twice.
@@ -1428,7 +1423,7 @@ export function PullRequestDetailPanel({
                                     icon and the label need their own row to share a line. */}
                                 <span className="flex min-w-0 items-center gap-2">
                                   <GitMergeIcon className="size-3.5" />
-                                  <span>{MERGE_METHOD_LABELS[method]}</span>
+                                  <span>{PULL_REQUEST_MERGE_METHOD_LABELS[method]}</span>
                                 </span>
                               </MenuRadioItem>
                             ))}

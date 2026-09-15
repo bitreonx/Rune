@@ -7,11 +7,11 @@ import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
+  getDesktopUpdateReleaseHistoryUrl,
   getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
-  shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 
@@ -26,6 +26,7 @@ const baseState: DesktopUpdateState = {
   availableVersion: null,
   downloadedVersion: null,
   releaseNotes: [],
+  omittedReleaseCount: 0,
   downloadPercent: null,
   checkedAt: null,
   message: null,
@@ -40,7 +41,6 @@ describe("desktop update button state", () => {
       status: "available",
       availableVersion: "1.1.0",
     };
-    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
   });
 
@@ -53,7 +53,6 @@ describe("desktop update button state", () => {
       errorContext: "download",
       canRetry: true,
     };
-    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
     expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
   });
@@ -68,7 +67,6 @@ describe("desktop update button state", () => {
       errorContext: "install",
       canRetry: true,
     };
-    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("install");
     expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
   });
@@ -109,7 +107,18 @@ describe("desktop update button state", () => {
     expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
   });
 
-  it("hides the button for non-actionable check errors", () => {
+  it("hides the install action while checking for a newer release", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "checking",
+      availableVersion: "1.1.0",
+      downloadedVersion: "1.1.0",
+      downloadPercent: 100,
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
+  });
+
+  it("has no action for non-actionable check errors", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "error",
@@ -117,7 +126,6 @@ describe("desktop update button state", () => {
       errorContext: "check",
       canRetry: true,
     };
-    expect(shouldShowDesktopUpdateButton(state)).toBe(false);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
   });
 
@@ -128,7 +136,6 @@ describe("desktop update button state", () => {
       availableVersion: "1.1.0",
       downloadPercent: 42.5,
     };
-    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
     expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
   });
@@ -200,6 +207,12 @@ describe("desktop update UI helpers", () => {
   it("omits the release URL when the updater does not report a version", () => {
     expect(getDesktopUpdateReleaseUrl(null)).toBeNull();
     expect(getDesktopUpdateReleaseUrl("  ")).toBeNull();
+  });
+
+  it("builds the release history URL", () => {
+    expect(getDesktopUpdateReleaseHistoryUrl()).toBe(
+      "https://github.com/pingdotgg/t3code/releases",
+    );
   });
 
   it("toasts only for actionable updater errors", () => {

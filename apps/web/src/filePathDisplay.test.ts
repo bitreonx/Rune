@@ -58,4 +58,10 @@ describe("resolveWorkspaceRelativePath", () => {
       ),
     ).toBe("apps/web/src/session-logic.ts");
   });
+
+  it("keeps double-slash POSIX paths case-sensitive", () => {
+    expect(formatWorkspaceRelativePath("//tmp/project/probe.txt", "//tmp/Project")).toBe(
+      "//tmp/project/probe.txt",
+    );
+  });
 });

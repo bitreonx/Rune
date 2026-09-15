@@ -5,6 +5,7 @@ import * as NodeCrypto from "node:crypto";
 import { beforeEach, vi } from "vite-plus/test";
 import { describe, expect, it } from "@effect/vitest";
 import Constants from "expo-constants";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -33,15 +34,26 @@ import {
   mergeAgentAwarenessRegistrationPreferences,
   refreshActiveLiveActivityRemoteRegistration,
   refreshAgentAwarenessRegistration,
-  normalizeAgentAwarenessRelayBaseUrl,
   registerAgentAwarenessConnection,
   registerLiveActivityPushToken,
   releaseAgentAwarenessRelayTokenProvider,
   setAgentAwarenessRelayTokenProvider,
   shouldRegisterAgentAwarenessDeviceForProvider,
   unregisterAgentAwarenessConnection,
+  updateAgentAwarenessRegistrationPreferences,
 } from "./remoteRegistration";
 import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
+import {
+  configureAndroidAgentNotifications,
+  clearAndroidAgentNotifications,
+} from "./androidNotifications";
+
+vi.mock("./androidNotifications", () => ({
+  supportsAndroidAgentNotifications: vi.fn(() => true),
+  configureAndroidAgentNotifications: vi.fn(),
+  clearAndroidAgentNotifications: vi.fn(),
+}));
 
 const secureStore = vi.hoisted(() => new Map<string, string>());
 const widgetMocks = vi.hoisted(() => ({
@@ -139,8 +151,12 @@ vi.mock("expo-secure-store", () => ({
 
 vi.mock("react-native", () => ({
   Platform: {
-    OS: "ios",
-    Version: "18.0",
+    get OS() {
+      return "ios";
+    },
+    get Version() {
+      return "18.0";
+    },
   },
   AppState: {
     addEventListener: (_event: string, listener: (state: string) => void) => {
@@ -236,6 +252,11 @@ const runBackgroundOperations = Effect.fn("TestRemoteRegistration.runBackgroundO
 
 describe("makeRelayDeviceRegistrationRequest", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(Notifications.getDevicePushTokenAsync).mockResolvedValue({
+      type: "ios",
+      data: "apns-token",
+    });
     vi.unstubAllGlobals();
     vi.stubGlobal("__DEV__", false);
     secureStore.clear();
@@ -361,13 +382,6 @@ describe("makeRelayDeviceRegistrationRequest", () => {
         notifyOnFailure: true,
       },
     });
-  });
-
-  it("normalizes relay base URLs for APNs registration requests", () => {
-    expect(normalizeAgentAwarenessRelayBaseUrl(" https://relay.example.test/// ")).toBe(
-      "https://relay.example.test",
-    );
-    expect(normalizeAgentAwarenessRelayBaseUrl("   ")).toBeNull();
   });
 
   it("overrides persisted preferences for an in-flight registration", () => {

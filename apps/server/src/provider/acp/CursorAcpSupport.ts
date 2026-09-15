@@ -15,6 +15,17 @@ import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
 type CursorAcpRuntimeCursorSettings = Pick<CursorSettings, "apiEndpoint" | "binaryPath">;
 
+function cursorAcpPermissionArgs(runtimeMode?: RuntimeMode): ReadonlyArray<string> {
+  switch (runtimeMode) {
+    case "auto":
+      return ["--auto-review"];
+    case "full-access":
+      return ["--force"];
+    default:
+      return [];
+  }
+}
+
 export interface CursorAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
   "authMethodId" | "clientCapabilities" | "spawn"
@@ -22,6 +33,7 @@ export interface CursorAcpRuntimeInput extends Omit<
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly cursorSettings: CursorAcpRuntimeCursorSettings | null | undefined;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly runtimeMode?: RuntimeMode;
 }
 
 export interface CursorAcpModelSelectionErrorContext {
@@ -34,11 +46,13 @@ export function buildCursorAcpSpawnInput(
   cursorSettings: CursorAcpRuntimeCursorSettings | null | undefined,
   cwd: string,
   environment?: NodeJS.ProcessEnv,
+  runtimeMode?: RuntimeMode,
 ): AcpSessionRuntime.AcpSpawnInput {
   return {
     command: cursorSettings?.binaryPath || "cursor-agent",
     args: [
       ...(cursorSettings?.apiEndpoint ? (["-e", cursorSettings.apiEndpoint] as const) : []),
+      ...cursorAcpPermissionArgs(runtimeMode),
       "acp",
     ],
     cwd,
@@ -57,7 +71,12 @@ export const makeCursorAcpRuntime = (
     const acpContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,
-        spawn: buildCursorAcpSpawnInput(input.cursorSettings, input.cwd, input.environment),
+        spawn: buildCursorAcpSpawnInput(
+          input.cursorSettings,
+          input.cwd,
+          input.environment,
+          input.runtimeMode,
+        ),
         authMethodId: "cursor_login",
         clientCapabilities: CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
       }).pipe(

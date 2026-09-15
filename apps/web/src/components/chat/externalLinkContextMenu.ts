@@ -1,17 +1,26 @@
 import type { ContextMenuItem } from "@rune/contracts";
 
-export type ExternalLinkContextMenuAction = "open-in-preview" | "open-external" | "copy-link";
+export type ExternalLinkContextMenuAction =
+  | "open-in-preview"
+  | "open-external"
+  | "copy-link"
+  | "link-to-thread"
+  | "unlink-from-thread";
 
 export type ExternalLinkContextMenuFailureOperation =
   | "show-link-context-menu"
   | "open-link-in-preview"
   | "open-link-external"
-  | "copy-link";
+  | "copy-link"
+  | "link-pull-request-to-thread"
+  | "unlink-pull-request-from-thread";
 
 const FAILURE_OPERATION_BY_ACTION = {
   "open-in-preview": "open-link-in-preview",
   "open-external": "open-link-external",
   "copy-link": "copy-link",
+  "link-to-thread": "link-pull-request-to-thread",
+  "unlink-from-thread": "unlink-pull-request-from-thread",
 } as const satisfies Record<ExternalLinkContextMenuAction, ExternalLinkContextMenuFailureOperation>;
 
 const EXTERNAL_LINK_CONTEXT_MENU_ITEMS = [
@@ -46,6 +55,7 @@ interface ShowExternalLinkContextMenuOptions {
   readonly openInPreview: (href: string) => Promise<void>;
   readonly openExternal: (href: string) => Promise<void>;
   readonly copyLink: (href: string) => Promise<unknown>;
+  readonly updateThreadLink?: (href: string, linked: boolean) => Promise<void>;
   readonly reportFailure: (
     operation: ExternalLinkContextMenuFailureOperation,
     cause: unknown,
@@ -55,7 +65,7 @@ interface ShowExternalLinkContextMenuOptions {
 export function resolveExternalWebLinkHost(href: string | undefined): string | null {
   if (!href) return null;
   try {
-    const url = new URL(href);
+    const url = new URL(href.startsWith("//") ? `https:${href}` : href);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     return url.hostname || null;
   } catch {
@@ -71,6 +81,7 @@ export async function showExternalLinkContextMenu({
   openInPreview,
   openExternal,
   copyLink,
+  updateThreadLink,
   reportFailure,
 }: ShowExternalLinkContextMenuOptions): Promise<void> {
   let action: ExternalLinkContextMenuAction | null;
@@ -88,6 +99,8 @@ export async function showExternalLinkContextMenu({
       await openExternal(href);
     } else if (action === "copy-link") {
       await copyLink(href);
+    } else if (action === "link-to-thread" || action === "unlink-from-thread") {
+      await updateThreadLink?.(href, action === "link-to-thread");
     }
   } catch (cause) {
     if (action) reportFailure(FAILURE_OPERATION_BY_ACTION[action], cause);

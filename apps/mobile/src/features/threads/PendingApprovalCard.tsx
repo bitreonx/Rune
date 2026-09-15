@@ -36,9 +36,12 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
         {props.approval.appName ?? props.approval.requestKind}
       </Text>
       {props.approval.detail ? (
-        <Text className="font-sans text-sm leading-normal text-neutral-600 dark:text-neutral-400">
+        <Text className="font-sans text-sm leading-normal text-foreground-secondary">
           {props.approval.detail}
         </Text>
+      ) : null}
+      {warning ? (
+        <Text className="font-sans text-xs leading-normal text-warning-foreground">{warning}</Text>
       ) : null}
       <View className="flex-row flex-wrap gap-2.5">
         {options.map((option) => (

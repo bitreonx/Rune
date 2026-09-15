@@ -11,13 +11,10 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
-import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
-import * as DesktopConfig from "../app/DesktopConfig.ts";
-import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
-import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
@@ -294,6 +291,29 @@ describe("DesktopUpdates", () => {
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
+  it.effect("subscribe delivers the latest state plus subsequent changes", () => {
+    const harness = makeHarness();
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+
+        const { latest, changes } = yield* updates.subscribe;
+        assert.equal(latest.status, "idle");
+
+        const nextState = yield* Stream.runHead(changes).pipe(Effect.forkChild);
+        yield* flushCallbacks;
+        harness.emit("update-available", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        const observed = yield* Fiber.join(nextState);
+        assert.equal(Option.getOrThrow(observed).status, "available");
+        assert.equal(Option.getOrThrow(observed).availableVersion, "1.2.4");
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
   it.effect("updates and broadcasts state from updater events", () => {
     const harness = makeHarness();
 
@@ -336,6 +356,11 @@ describe("DesktopUpdates", () => {
               version: "1.2.4-nightly.20260709.765",
               note: "- [codex] Upgrade Clerk stack by @juliusmarminge in #3821",
             },
+            { version: "1.2.4-nightly.20260709.764", note: "- Change 764" },
+            { version: "1.2.4-nightly.20260709.763", note: "- Change 763" },
+            { version: "1.2.4-nightly.20260709.762", note: "- Change 762" },
+            { version: "1.2.4-nightly.20260709.761", note: "- Change 761" },
+            { version: "1.2.4-nightly.20260709.760", note: "- Change 760" },
           ],
         });
         yield* flushCallbacks;
@@ -346,13 +371,21 @@ describe("DesktopUpdates", () => {
           {
             version: "1.2.4-nightly.20260709.766",
             items: ["feat(client): persist offline environment data by @juliusmarminge in #3795"],
+            totalItems: 1,
           },
           {
             version: "1.2.4-nightly.20260709.765",
             items: ["[codex] Upgrade Clerk stack by @juliusmarminge in #3821"],
+            totalItems: 1,
           },
+          { version: "1.2.4-nightly.20260709.764", items: ["Change 764"], totalItems: 1 },
+          { version: "1.2.4-nightly.20260709.763", items: ["Change 763"], totalItems: 1 },
+          { version: "1.2.4-nightly.20260709.762", items: ["Change 762"], totalItems: 1 },
+          { version: "1.2.4-nightly.20260709.761", items: ["Change 761"], totalItems: 1 },
         ]);
+        assert.equal(state.omittedReleaseCount, 1);
         assert.deepEqual(harness.sentStates.at(-1)?.releaseNotes, state.releaseNotes);
+        assert.equal(harness.sentStates.at(-1)?.omittedReleaseCount, 1);
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
@@ -725,6 +758,120 @@ describe("DesktopUpdates", () => {
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
+  it.effect("keeps windows and restarts backends when quitAndInstall fails", () => {
+    const harness = makeHarness({
+      quitAndInstall: Effect.fail(
+        new ElectronUpdater.ElectronUpdaterQuitAndInstallError({
+          channel: "latest",
+          isSilent: true,
+          isForceRunAfter: true,
+          cause: new Error("installer refused"),
+        }),
+      ),
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const desktopState = yield* DesktopState.DesktopState;
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        const result = yield* updates.install;
+        assert.isTrue(result.accepted);
+        assert.isFalse(yield* Ref.get(desktopState.quitting));
+        assert.deepEqual(harness.installSteps, ["quitAndInstall", "startBackend"]);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("holds the install reservation until failed-install recovery finishes", () => {
+    const recoveryStarted = Deferred.makeUnsafe<void>();
+    const releaseRecovery = Deferred.makeUnsafe<void>();
+    const harness = makeHarness({
+      quitAndInstall: Effect.fail(
+        new ElectronUpdater.ElectronUpdaterQuitAndInstallError({
+          channel: "latest",
+          isSilent: true,
+          isForceRunAfter: true,
+          cause: new Error("installer refused"),
+        }),
+      ),
+      startBackend: Deferred.succeed(recoveryStarted, undefined).pipe(
+        Effect.andThen(Deferred.await(releaseRecovery)),
+      ),
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        const failedInstall = yield* updates.install.pipe(Effect.forkChild);
+        yield* Deferred.await(recoveryStarted);
+        assert.isFalse(yield* updates.isInstallActive);
+
+        const overlappingInstall = yield* updates.install;
+        assert.isFalse(overlappingInstall.accepted);
+        assert.equal(harness.quitAndInstalls(), 1);
+        harness.emit("error", new Error("duplicate native installer error"));
+        yield* flushCallbacks;
+        assert.deepEqual(harness.installSteps, ["quitAndInstall", "startBackend"]);
+
+        yield* Deferred.succeed(releaseRecovery, undefined);
+        const failedResult = yield* Fiber.join(failedInstall);
+        assert.equal(failedResult.state.errorContext, "install");
+
+        const retry = yield* updates.install;
+        assert.isTrue(retry.accepted);
+        assert.equal(harness.quitAndInstalls(), 2);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("recovers when quitAndInstall reports failure through an updater event", () => {
+    const harness = makeHarness();
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const desktopState = yield* DesktopState.DesktopState;
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        yield* updates.install;
+        assert.deepEqual(harness.installSteps, ["quitAndInstall"]);
+        harness.emit("error", new Error("native installer refused"));
+        yield* flushCallbacks;
+
+        assert.isFalse(yield* Ref.get(desktopState.quitting));
+        assert.deepEqual(harness.installSteps, ["quitAndInstall", "startBackend"]);
+        assert.equal((yield* updates.getState).errorContext, "install");
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("rejects a prepared install when the downloaded version changed", () => {
+    const harness = makeHarness();
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.5" });
+        yield* flushCallbacks;
+
+        const result = yield* updates.installPrepared("1.2.4");
+        assert.isFalse(result.accepted);
+        assert.equal(harness.quitAndInstalls(), 0);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
   it.effect("persists channel changes through the settings service", () => {
     const harness = makeHarness();
 
@@ -846,7 +993,6 @@ describe("DesktopUpdates", () => {
         const error = yield* updates.setChannel("nightly").pipe(Effect.flip);
 
         assert.instanceOf(error, DesktopUpdates.DesktopUpdateChannelPersistenceError);
-        assert.isTrue(DesktopUpdates.isDesktopUpdateSetChannelError(error));
         assert.equal(error.channel, "nightly");
         assert.strictEqual(error.cause, settingsFailure);
         assert.strictEqual(error.cause.cause, diskFailure);

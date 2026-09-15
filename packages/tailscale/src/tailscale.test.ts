@@ -8,6 +8,7 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
+import { HostProcessPlatform } from "@rune/shared/hostProcess";
 
 import {
   buildTailscaleHttpsBaseUrl,
@@ -98,14 +99,22 @@ function neverFinishingMockHandle() {
   });
 }
 
+// The executable name depends on the host platform (`tailscale.exe` on
+// Windows), so pin it: these tests assert the posix spelling.
+function spawnerLayer(spawner: ChildProcessSpawner.ChildProcessSpawner["Service"]) {
+  return Layer.merge(
+    Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    Layer.succeed(HostProcessPlatform, "linux"),
+  );
+}
+
 function mockSpawnerLayer(
   handler: (
     command: string,
     args: ReadonlyArray<string>,
   ) => { stdout?: string; stderr?: string; code?: number },
 ) {
-  return Layer.succeed(
-    ChildProcessSpawner.ChildProcessSpawner,
+  return spawnerLayer(
     ChildProcessSpawner.make((command) => {
       const childProcess = command as unknown as {
         readonly command: string;
@@ -194,10 +203,7 @@ describe("tailscale", () => {
       method: "spawn",
       cause: systemCause,
     });
-    const layer = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make(() => Effect.fail(cause)),
-    );
+    const layer = spawnerLayer(ChildProcessSpawner.make(() => Effect.fail(cause)));
 
     return Effect.gen(function* () {
       const error = yield* readTailscaleStatus.pipe(Effect.flip, Effect.provide(layer));
@@ -297,10 +303,7 @@ describe("tailscale", () => {
   it.effect("times out tailscale status through TestClock", () => {
     const layer = Layer.merge(
       TestClock.layer(),
-      Layer.succeed(
-        ChildProcessSpawner.ChildProcessSpawner,
-        ChildProcessSpawner.make(() => Effect.succeed(neverFinishingMockHandle())),
-      ),
+      spawnerLayer(ChildProcessSpawner.make(() => Effect.succeed(neverFinishingMockHandle()))),
     );
 
     return Effect.gen(function* () {

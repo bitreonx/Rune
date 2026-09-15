@@ -25,7 +25,6 @@ import {
   CircleCheckIcon,
   CopyIcon,
   InfoIcon,
-  LoaderCircleIcon,
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
@@ -135,7 +134,7 @@ const toastManager: Omit<ManagedToast, "add" | "update"> & Pick<ManagedToast, "a
 const TOAST_ICONS = {
   error: CircleAlertIcon,
   info: InfoIcon,
-  loading: LoaderCircleIcon,
+  loading: Spinner,
   success: CircleCheckIcon,
   warning: TriangleAlertIcon,
 } as const;

@@ -1,5 +1,9 @@
+import { makeAggregateState } from "./agentActivityAggregate.ts";
+export {
+  makeAggregateState,
+  TERMINAL_AGENT_ACTIVITY_DISPLAY_TTL_MS,
+} from "./agentActivityAggregate.ts";
 import type {
-  RelayAgentActivityAggregateState,
   RelayAgentActivityState,
   RelayDeliveryResult,
   RelayPublishResponse,
@@ -8,22 +12,18 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
-import {
-  isExpiredAgentActivityState,
-  isTerminalPhase,
-  MAX_ACTIVITY_ROWS,
-  sanitizeAgentActivityAggregateState,
-} from "./agentActivityPayloads.ts";
+import { isTerminalPhase } from "./agentActivityPayloads.ts";
 
 export { isExpiredAgentActivityState } from "./agentActivityPayloads.ts";
 import * as AgentActivityRows from "./AgentActivityRows.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as LiveActivities from "./LiveActivities.ts";
 import * as ApnsDeliveries from "./ApnsDeliveries.ts";
+import * as FcmDeliveries from "./FcmDeliveries.ts";
 
 export type AgentActivityPublishError =
+  | FcmDeliveries.FcmDeliveryError
   | AgentActivityRows.AgentActivityRowUpsertPersistenceError
   | AgentActivityRows.AgentActivityRowDeletePersistenceError
   | AgentActivityRows.AgentActivityRowListPersistenceError
@@ -52,13 +52,16 @@ export const make = Effect.gen(function* () {
   const links = yield* EnvironmentLinks.EnvironmentLinks;
   const liveActivities = yield* LiveActivities.LiveActivities;
   const apnsDeliveries = yield* ApnsDeliveries.ApnsDeliveries;
+  const fcmDeliveries = yield* FcmDeliveries.FcmDeliveries;
 
   const publishForDeliveryUser = Effect.fnUntraced(function* (input: {
     readonly deliveryUser: EnvironmentLinks.AgentAwarenessDeliveryUserRecord;
     readonly state: RelayAgentActivityState | null;
     readonly nowMs: number;
   }) {
-    const activeStates = yield* rows.listForUser({ userId: input.deliveryUser.userId });
+    const activeStates = input.deliveryUser.liveActivitiesEnabled
+      ? yield* rows.listForUser({ userId: input.deliveryUser.userId })
+      : [];
     const liveActivityAggregate = input.deliveryUser.liveActivitiesEnabled
       ? makeAggregateState({
           activeStates,
@@ -79,8 +82,11 @@ export const make = Effect.gen(function* () {
     const targets = yield* liveActivities.listTargets({ userId: input.deliveryUser.userId });
     const deliveriesByTarget = yield* Effect.forEach(
       targets,
-      (target) =>
-        Effect.all(
+      Effect.fnUntraced(function* (target) {
+        if (target.platform === "android") {
+          return [yield* fcmDeliveries.enqueue({ target, state: input.state })];
+        }
+        return yield* Effect.all(
           [
             apnsDeliveries.sendForTarget({
               target,
@@ -95,7 +101,8 @@ export const make = Effect.gen(function* () {
                 }),
           ],
           { concurrency: 2 },
-        ),
+        );
+      }),
       { concurrency: 4 },
     );
     return deliveriesByTarget.flat();
@@ -120,6 +127,9 @@ export const make = Effect.gen(function* () {
       if (target === null) {
         return null;
       }
+      if (target.platform === "android") {
+        return yield* fcmDeliveries.enqueue({ target, state: null, replay: true });
+      }
       const now = yield* DateTime.now;
       const aggregate = makeAggregateState({
         activeStates,
@@ -130,6 +140,7 @@ export const make = Effect.gen(function* () {
         target,
         aggregate,
         nowMs: now.epochMilliseconds,
+        replay: true,
       });
     }),
     publish: Effect.fn("relay.agent_activity_publisher.publish")(function* (input) {

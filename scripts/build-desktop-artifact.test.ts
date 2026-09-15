@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off - Tests use Node's glob matcher to verify electron-builder exclusions.
+import * as NodeCrypto from "node:crypto";
+import * as NodePath from "node:path";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -8,7 +12,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   BundleNotSelfContainedError,
@@ -20,12 +24,17 @@ import {
   DESKTOP_ELECTRON_LANGUAGES,
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
+  LINUX_CAPTURE_EXTRA_RESOURCES,
+  LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
+  MAC_FILE_EXCLUSIONS,
   InvalidMacPasskeyRpDomainError,
   InvalidMacPasskeyPublishableKeyError,
   InvalidMockUpdateServerPortError,
   UnsupportedDesktopBuildArchitectureError,
   isMacPasskeySigningConfigurationError,
   LinuxIconResizeError,
+  LinuxDesktopBuildPrerequisitesMissingError,
+  MacDesktopBuildPrerequisitesMissingError,
   MacPasskeySigningConfigurationResolutionError,
   MissingMacPasskeyProvisioningProfileError,
   packWindowsServerAsar,
@@ -33,6 +42,7 @@ import {
   resolveClerkPasskeyNativeArtifacts,
   resolveMacPasskeySigningConfiguration,
   resolveDesktopRuntimeDependencies,
+  resolveMacStageDependencies,
   resolveFffNativeDependencies,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
@@ -65,7 +75,30 @@ import {
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { HostProcessArchitecture, HostProcessPlatform } from "@rune/shared/hostProcess";
 
-function mockProcess(exitCode: number) {
+// A minimal stand-in for the staged sidecar roots packed into the WSL archive.
+const stageWslRuntimeTreeFixture = Effect.fn("stageWslRuntimeTreeFixture")(function* (
+  root: string,
+  serverSource: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  yield* fs.makeDirectory(path.join(root, "apps/server/dist"), { recursive: true });
+  yield* fs.writeFileString(path.join(root, "apps/server/dist/bin.mjs"), serverSource);
+  yield* fs.makeDirectory(path.join(root, "node_modules/node-pty/prebuilds/linux-x64"), {
+    recursive: true,
+  });
+  yield* fs.writeFileString(
+    path.join(root, "node_modules/node-pty/package.json"),
+    '{"name":"node-pty"}\n',
+  );
+  yield* fs.writeFileString(
+    path.join(root, "node_modules/node-pty/prebuilds/linux-x64/pty.node"),
+    "pty",
+  );
+});
+
+function mockProcess(exitCode: number, stdout = "") {
+  const encodedStdout = new TextEncoder().encode(stdout);
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(1),
     exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(exitCode)),
@@ -73,7 +106,7 @@ function mockProcess(exitCode: number) {
     kill: () => Effect.void,
     unref: Effect.succeed(Effect.void),
     stdin: Sink.drain,
-    stdout: Stream.empty,
+    stdout: stdout ? Stream.make(encodedStdout) : Stream.empty,
     stderr: Stream.empty,
     all: Stream.empty,
     getInputFd: () => Sink.drain,
@@ -219,6 +252,45 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         channel: "nightly",
       });
     }),
+  );
+
+  it.effect("omits update feeds for pull request preview builds", () =>
+    Effect.gen(function* () {
+      const preview = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.33-pr.8182.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const release = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.33",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.notProperty(preview, "publish");
+      assert.deepStrictEqual(release.publish, [
+        {
+          provider: "github",
+          owner: "pingdotgg",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
+        ),
+      ),
+    ),
   );
 
   it("omits bundled workspace packages from staged desktop dependencies", () => {
@@ -393,8 +465,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     );
   });
 
-  it("limits Electron locales and excludes the unused Claude SDK executable", () => {
+  it("limits Electron locales and excludes separately packaged resources", () => {
     assert.deepStrictEqual(DESKTOP_ELECTRON_LANGUAGES, ["en-US"]);
+    // Every platform staging input is emitted once at resources/, so adding one
+    // without its exclusion silently packs a second copy into app.asar. The
+    // snapshot below cannot catch that on its own: adding a resource and
+    // forgetting the exclusion leaves the exclusion list untouched, so it still
+    // matches. Assert the invariant first, where the failure names the culprit.
+    for (const resource of [
+      ...WSL_RUNTIME_EXTRA_RESOURCES,
+      ...LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
+    ]) {
+      assert.include(
+        DESKTOP_FILE_EXCLUSIONS,
+        `!${resource.from}`,
+        `${resource.from} ships via extraResources and must be excluded from app.asar`,
+      );
+    }
+
     assert.deepStrictEqual(DESKTOP_FILE_EXCLUSIONS, [
       "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
       "!apps/desktop/prod-resources/windows-server",
@@ -438,6 +526,17 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         false,
         undefined,
         undefined,
+        true,
+      );
+      const winWithoutWslPrebuild = yield* createBuildConfig(
+        "win",
+        "nsis",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
       );
 
       // All platforms keep app.asar fully packed; Windows ships the server
@@ -489,10 +588,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
         { name: "RUNE", schemes: ["rune", "rune-dev"] },
       ]);
-      for (const config of [mac, linux, win]) {
+      assert.deepStrictEqual(mac.files, [...DESKTOP_FILE_EXCLUSIONS, ...MAC_FILE_EXCLUSIONS]);
+      assert.deepStrictEqual(linux.files, DESKTOP_FILE_EXCLUSIONS);
+      assert.deepStrictEqual(win.files, DESKTOP_FILE_EXCLUSIONS);
+      assert.deepStrictEqual(winWithoutWslPrebuild.files, win.files);
+      assert.notProperty(mac.mac as Record<string, unknown>, "sign");
+      for (const config of [linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
-        assert.deepStrictEqual(config.files, DESKTOP_FILE_EXCLUSIONS);
       }
+      assert.deepStrictEqual(mac.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
@@ -1146,6 +1250,25 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
+  it.effect("uses the nightly DMG background for nightly macOS builds", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3-nightly.20260815.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.equal(
+        (config.dmg as Record<string, unknown>).background,
+        "dmg/dmg-background-nightly.png",
+      );
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("keeps executable resource editing enabled for unsigned Windows builds", () =>
     Effect.gen(function* () {
       const config = yield* createBuildConfig(
@@ -1185,6 +1308,206 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resourceMonitorExecutableName("mac"), "rune-resource-monitor");
     assert.equal(resourceMonitorExecutableName("win"), "rune-resource-monitor.exe");
   });
+
+  it("packages the WSL server and production dependencies as one compressed runtime", () => {
+    assert.equal(WSL_RUNTIME_ARCHIVE_NAME, "wsl-runtime.tar.gz");
+    assert.equal(WSL_RUNTIME_ARCHIVE_HASH_NAME, "wsl-runtime.tar.gz.sha256");
+    assert.deepStrictEqual(WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE, {
+      from: "apps/desktop/prod-resources/wsl-runtime.tar.gz",
+      to: "wsl-runtime.tar.gz",
+    });
+    assert.deepStrictEqual(WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE, {
+      from: "apps/desktop/prod-resources/wsl-runtime.tar.gz.sha256",
+      to: "wsl-runtime.tar.gz.sha256",
+    });
+    // The archive is only usable alongside a Linux pty.node, so both the
+    // staging and the packaging config hang off this one decision.
+    assert.isTrue(bundlesWslRuntime({ arch: "x64", prebuildPath: "/tmp/pty.node" }));
+    assert.isTrue(bundlesWslRuntime({ arch: "arm64", prebuildPath: "/tmp/pty.node" }));
+    assert.isFalse(bundlesWslRuntime({ arch: "x64", prebuildPath: undefined }));
+    assert.isFalse(bundlesWslRuntime({ arch: "universal", prebuildPath: "/tmp/pty.node" }));
+
+    assert.deepStrictEqual(buildWslRuntimeArchiveArgs(), [
+      "-czf",
+      "apps/desktop/prod-resources/wsl-runtime.tar.gz",
+      "--exclude=node_modules/@anthropic-ai/claude-agent-sdk-*",
+      "--exclude=node_modules/.bin*",
+      "--exclude=node_modules/.pnpm*",
+      "--exclude=node_modules/.modules.yaml*",
+      "--exclude=node_modules/.pnpm-workspace-state-v1.json*",
+      "--exclude=node_modules/node-pty/prebuilds/darwin-*",
+      "--exclude=node_modules/node-pty/prebuilds/win32-*",
+      "--exclude=node_modules/node-pty/build*",
+      "--exclude=node_modules/node-pty/third_party/conpty*",
+      "--exclude=node_modules/@ff-labs/fff-bin-win32-*",
+      "--exclude=node_modules/@yuuang/ffi-rs-win32-*",
+      "--exclude=node_modules/@msgpackr-extract/msgpackr-extract-win32-*",
+      "apps/server/dist",
+      "node_modules",
+    ]);
+  });
+
+  it("parses Windows bsdtar member listings with CRLF line endings", () => {
+    assert.deepStrictEqual(
+      parseWslRuntimeArchiveMembers(
+        "./apps/server/dist/bin.mjs\r\nnode_modules/node-pty/package.json\r\n",
+      ),
+      ["apps/server/dist/bin.mjs", "node_modules/node-pty/package.json"],
+    );
+  });
+
+  it("keeps Windows tar targets colon-free so GNU tar does not read them as remote hosts", () => {
+    assert.equal(
+      wslRuntimeArchiveTarTarget("..\\app\\apps\\desktop\\prod-resources\\wsl-runtime.tar.gz"),
+      "../app/apps/desktop/prod-resources/wsl-runtime.tar.gz",
+    );
+    assert.equal(
+      wslRuntimeArchiveTarTarget("../app/apps/desktop/prod-resources/wsl-runtime.tar.gz"),
+      "../app/apps/desktop/prod-resources/wsl-runtime.tar.gz",
+    );
+  });
+
+  // The staged source tree and the archive live in sibling stage directories,
+  // so this covers the real call: on Windows the archive path is an absolute
+  // C:\... path, and handing that to tar is what made Git's GNU tar try to
+  // reach a host named "C".
+  it.effect("spawns tar with an archive target relative to the staged source tree", () => {
+    const commands: Array<{
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+      readonly options: { readonly cwd?: string };
+    }> = [];
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stageRoot = yield* fs.makeTempDirectoryScoped({ prefix: "RUNE-wsl-runtime-archive-" });
+        const sourceDir = path.join(stageRoot, "server");
+        const stageAppDir = path.join(stageRoot, "app");
+        const archivePath = path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE.from);
+        const hashPath = path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE.from);
+        yield* stageWslRuntimeTreeFixture(sourceDir, "export const serve = 1;\n");
+
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            const childProcess = command as unknown as (typeof commands)[number];
+            commands.push(childProcess);
+            // Stand in for tar: write the archive by resolving the -f target
+            // against the cwd tar was spawned in, exactly as tar would.
+            const target = path.resolve(childProcess.options.cwd ?? "", childProcess.args[1] ?? "");
+            return Effect.as(fs.writeFileString(target, "wsl-runtime-archive"), mockProcess(0));
+          }),
+        );
+
+        yield* stageWslRuntimeArchive({ sourceDir, archivePath, hashPath }).pipe(
+          Effect.provide(spawnerLayer),
+        );
+
+        const tarCommand = commands.find((command) => command.command === "tar");
+        if (tarCommand === undefined) return assert.fail("tar was not spawned");
+
+        const target = tarCommand.args[1] ?? "";
+        assert.equal(tarCommand.options.cwd, sourceDir);
+        assert.notInclude(target, ":");
+        assert.isFalse(path.isAbsolute(target));
+        // Relative or not, tar has to land the archive where the build expects it.
+        assert.equal(path.resolve(sourceDir, target), archivePath);
+        assert.isTrue(yield* fs.exists(archivePath));
+
+        // The archive digest both gates installation and names the cache.
+        const hash = yield* fs.readFileString(hashPath);
+        assert.match(hash.trim(), /^[0-9a-f]{64}$/);
+      }),
+    );
+  });
+
+  it.effect("ships only Linux runtime members in the WSL archive", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "RUNE-wsl-runtime-members-" });
+        const sourceDir = path.join(root, "server");
+        const archivePath = path.join(root, "wsl-runtime.tar.gz");
+        const hashPath = `${archivePath}.sha256`;
+        yield* stageWslRuntimeTreeFixture(sourceDir, "export const serve = 1;\n");
+
+        const members = [
+          "node_modules/node-pty/prebuilds/darwin-x64/pty.node",
+          "node_modules/node-pty/prebuilds/win32-x64/pty.node",
+          "node_modules/node-pty/build/Release/pty.node",
+          "node_modules/node-pty/third_party/conpty/win10-x64/conpty.dll",
+          "node_modules/@ff-labs/fff-bin-win32-x64/fff.dll",
+          "node_modules/@ff-labs/fff-bin-linux-x64-gnu/libfff.so",
+          "node_modules/@yuuang/ffi-rs-win32-x64-msvc/ffi.dll",
+          "node_modules/@yuuang/ffi-rs-linux-x64-gnu/libffi.so",
+          "node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/addon.node",
+          "node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/addon.node",
+          "node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/index.js",
+          "node_modules/.bin/tool",
+          "node_modules/.pnpm/lock.yaml",
+          "node_modules/.modules.yaml",
+          "node_modules/.pnpm-workspace-state-v1.json",
+        ] as const;
+        yield* Effect.forEach(
+          members,
+          (member) =>
+            Effect.gen(function* () {
+              const memberPath = path.join(sourceDir, member);
+              yield* fs.makeDirectory(path.dirname(memberPath), { recursive: true });
+              yield* fs.writeFileString(memberPath, member);
+            }),
+          { discard: true },
+        );
+
+        yield* stageWslRuntimeArchive({ sourceDir, archivePath, hashPath });
+        const process = yield* spawner.spawn(
+          ChildProcess.make("tar", ["-tzf", archivePath], {
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "pipe",
+          }),
+        );
+        const listing = yield* process.stdout.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (output, chunk) => output + chunk,
+          ),
+        );
+        assert.equal(Number(yield* process.exitCode), 0);
+
+        assert.include(listing, "apps/server/dist/bin.mjs");
+        assert.include(listing, "node_modules/node-pty/prebuilds/linux-x64/pty.node");
+        assert.include(listing, "node_modules/@ff-labs/fff-bin-linux-x64-gnu/libfff.so");
+        assert.include(listing, "node_modules/@yuuang/ffi-rs-linux-x64-gnu/libffi.so");
+        assert.include(
+          listing,
+          "node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/addon.node",
+        );
+        for (const excluded of [
+          "prebuilds/darwin-",
+          "prebuilds/win32-",
+          "node-pty/build",
+          "third_party/conpty",
+          "fff-bin-win32-",
+          "ffi-rs-win32-",
+          "msgpackr-extract-win32-",
+          "claude-agent-sdk-",
+          "node_modules/.bin",
+          "node_modules/.pnpm",
+          "node_modules/.modules.yaml",
+          "node_modules/.pnpm-workspace-state-v1.json",
+        ]) {
+          assert.notInclude(listing, excluded);
+        }
+      }),
+    ),
+  );
+
   it("promotes target fff binaries to direct staged dependencies", () => {
     assert.deepStrictEqual(resolveFffNativeDependencies("mac", "arm64", "0.9.4"), {
       "@ff-labs/fff-bin-darwin-arm64": "0.9.4",

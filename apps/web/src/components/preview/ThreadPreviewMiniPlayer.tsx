@@ -1,10 +1,12 @@
 "use client";
 
 import type { ScopedThreadRef } from "@rune/contracts";
+import { FILL_PREVIEW_VIEWPORT } from "@rune/contracts";
 import { PanelRightIcon, PictureInPicture2, XIcon } from "lucide-react";
 import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useRef, useState } from "react";
 
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
+import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
@@ -19,6 +21,7 @@ import {
   clampPreviewMiniPlayerSize,
   PREVIEW_MINI_PLAYER_DEFAULT_SIZE,
   PREVIEW_MINI_PLAYER_EDGE_GAP,
+  resolvePreviewMiniPlayerSourceSize,
 } from "./previewMiniPlayerLayout";
 
 interface DragState {
@@ -57,11 +60,25 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
   const snapshot = previewState.sessions[tabId] ?? null;
   const runtimeTabId = previewRuntimeTabId(threadRef, previewState.serverEpoch, tabId);
   const desktopOverlay = previewState.desktopByTabId[tabId] ?? null;
+  const fittedSourceContent = useBrowserSurfaceStore(
+    (state) => state.byTabId[runtimeTabId]?.fittedSourceContent ?? null,
+  );
+  const source = resolvePreviewMiniPlayerSourceSize(
+    snapshot?.viewport ?? FILL_PREVIEW_VIEWPORT,
+    fittedSourceContent,
+    desktopOverlay?.zoomFactor ?? 1,
+  );
   const position = miniPlayer?.tabId === tabId ? miniPlayer.position : null;
-  const size =
-    miniPlayer?.tabId === tabId && miniPlayer.size
-      ? miniPlayer.size
-      : PREVIEW_MINI_PLAYER_DEFAULT_SIZE;
+  const sourceAspectRatio = source.width > 0 && source.height > 0 ? source.width / source.height : 1.6;
+  const storedWidth = miniPlayer?.tabId === tabId ? miniPlayer.width : null;
+  const defaultWidth = Math.min(
+    PREVIEW_MINI_PLAYER_DEFAULT_SIZE.width,
+    PREVIEW_MINI_PLAYER_DEFAULT_SIZE.height * sourceAspectRatio,
+  );
+  const size = {
+    width: storedWidth ?? Math.round(defaultWidth),
+    height: Math.round((storedWidth ?? defaultWidth) / sourceAspectRatio),
+  };
   const close = () => {
     usePreviewMiniPlayerStore.getState().close(threadRef);
   };
@@ -95,7 +112,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
         { width: parent.clientWidth, height: parent.clientHeight },
         bottomInset,
       );
-      usePreviewMiniPlayerStore.getState().resize(threadRef, tabId, nextSize);
+      usePreviewMiniPlayerStore.getState().resize(threadRef, tabId, nextSize.width);
       if (!position) {
         setDefaultLayoutVersion(`${parent.clientWidth}:${parent.clientHeight}`);
         return;
@@ -206,7 +223,7 @@ export function ThreadPreviewMiniPlayer({ threadRef, tabId, bottomInset }: Props
       { width: parent.clientWidth, height: parent.clientHeight },
       bottomInset,
     );
-    usePreviewMiniPlayerStore.getState().resize(threadRef, tabId, nextSize);
+    usePreviewMiniPlayerStore.getState().resize(threadRef, tabId, nextSize.width);
     const nextPosition = clampPreviewMiniPlayerPosition(
       { x: resize.playerX, y: resize.playerY },
       { width: parent.clientWidth, height: parent.clientHeight },

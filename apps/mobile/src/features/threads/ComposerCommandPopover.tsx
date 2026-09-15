@@ -127,6 +127,7 @@ const CommandRow = memo(function CommandRow(props: {
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={props.onPress}
       style={({ pressed }) => ({
         flexDirection: "row",
@@ -142,7 +143,12 @@ const CommandRow = memo(function CommandRow(props: {
       {props.item.type === "path" ? (
         <PierreEntryIcon path={props.item.path} kind={props.item.kind} size={16} />
       ) : iconName ? (
-        <SymbolView name={iconName} size={14} tintColor={iconColor} type="monochrome" />
+        <SymbolView
+          name={iconName}
+          size={14}
+          tintColorClassName={"accent-icon-subtle"}
+          type="monochrome"
+        />
       ) : null}
       <Text className="shrink-0 text-base font-rune-medium text-foreground" numberOfLines={1}>
         {props.isSlashSkill && props.item.type === "skill" ? (

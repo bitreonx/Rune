@@ -69,6 +69,8 @@ export interface PendingUserInputCardProps {
     customAnswer: string,
   ) => void;
   readonly onSubmit: () => Promise<unknown>;
+  /** Closes an async question without a reply. Hidden for native callback questions. */
+  readonly onDismiss: () => Promise<unknown>;
 }
 
 /**

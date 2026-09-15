@@ -1,7 +1,11 @@
-import { assert, describe, it } from "vite-plus/test";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { assert, describe, it } from "vite-plus/test";
+
 import {
+  makeDevelopmentEnvironmentScript,
   makeDevelopmentLauncherScript,
   resolveElectronBinaryPath,
   resolveMacLauncherIconPaths,
@@ -15,6 +19,20 @@ describe("electron development launcher", () => {
   });
 
   it("uses captured values only as fallbacks for a live runner environment", () => {
+    const environmentScript = makeDevelopmentEnvironmentScript({
+      VITE_DEV_SERVER_URL: "http://127.0.0.1:8526",
+      T3CODE_PORT: "16566",
+      RUNE_HOME: "/tmp/RUNE",
+    });
+
+    assert.include(
+      environmentScript,
+      "if [ -z \"${VITE_DEV_SERVER_URL:-}\" ]; then export VITE_DEV_SERVER_URL='http://127.0.0.1:8526'; fi",
+    );
+    assert.notInclude(environmentScript, "\nexport VITE_DEV_SERVER_URL=");
+  });
+
+  it("keeps the launcher script free of volatile environment values", () => {
     const script = makeDevelopmentLauncherScript({
       electronBinaryPath: "/repo/node_modules/electron/Electron",
       mainEntryPath: "/repo/apps/desktop/dist-electron/main.cjs",
@@ -28,9 +46,9 @@ describe("electron development launcher", () => {
 
     assert.include(
       script,
-      "if [ -z \"${VITE_DEV_SERVER_URL:-}\" ]; then export VITE_DEV_SERVER_URL='http://127.0.0.1:8526'; fi",
+      "if [ -f '/repo/apps/desktop/.electron-runtime/dev-environment.sh' ]; then . '/repo/apps/desktop/.electron-runtime/dev-environment.sh'; fi",
     );
-    assert.notInclude(script, "\nexport VITE_DEV_SERVER_URL=");
+    assert.notInclude(script, "VITE_DEV_SERVER_URL");
     assert.include(
       script,
       "exec '/repo/node_modules/electron/Electron' --rune-dev-root='/repo/apps/desktop' '/repo/apps/desktop/dist-electron/main.cjs' \"$@\"",
@@ -87,7 +105,7 @@ describe("electron development launcher", () => {
       electronBinaryPath: paths.runtimeElectronBinaryPath,
       mainEntryPath: "/repo/apps/desktop/dist-electron/main.cjs",
       desktopRoot: "/repo/apps/desktop",
-      environment: {},
+      environmentFilePath: "/repo/apps/desktop/.electron-runtime/dev-environment.sh",
     });
     assert.include(script, "exec '" + paths.runtimeElectronBinaryPath + "'");
     assert.notInclude(script, "node_modules/electron");

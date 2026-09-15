@@ -3,6 +3,7 @@ import {
   isProviderAvailable,
   resolveProviderInstanceEnabled,
   type ModelSelection,
+  type ProjectId,
   type ProviderDriverKind,
   type ServerProvider,
   ServerSettings,
@@ -22,6 +23,27 @@ import {
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 const decodeServerSettingsJson = Schema.decodeUnknownOption(ServerSettingsJson);
+
+export function resolveProjectAgentBrowserAccess(
+  settings: Pick<ServerSettings, "enableAgentBrowserAccess" | "projectAgentBrowserAccessOverrides">,
+  projectId: ProjectId,
+): boolean {
+  return (
+    settings.projectAgentBrowserAccessOverrides[projectId] ?? settings.enableAgentBrowserAccess
+  );
+}
+
+export function resolveProjectAutoPull(
+  settings: Pick<ServerSettings, "defaultAutoPull" | "projectAutoPullOverrides">,
+  projectId: ProjectId,
+  legacyAutoPull: boolean | undefined,
+): boolean {
+  // Existing opt-ins stay enabled until explicitly overridden or reset.
+  return (
+    settings.projectAutoPullOverrides[projectId] ??
+    (legacyAutoPull === true || settings.defaultAutoPull)
+  );
+}
 
 type LegacyProviderSettings = ServerSettings["providers"][keyof ServerSettings["providers"]];
 
@@ -69,14 +91,14 @@ export interface PersistedServerObservabilitySettings {
   readonly otlpMetricsUrl: string | undefined;
 }
 
-export function normalizePersistedServerSettingString(
+function normalizePersistedServerSettingString(
   value: string | null | undefined,
 ): string | undefined {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function extractPersistedServerObservabilitySettings(input: {
+function extractPersistedServerObservabilitySettings(input: {
   readonly observability?: {
     readonly otlpTracesUrl?: string;
     readonly otlpMetricsUrl?: string;
@@ -120,6 +142,22 @@ function mergeModelSelectionOptionsById(input: {
     merged.set(selection.id, selection.value);
   }
   return [...merged.entries()].map(([id, value]) => ({ id, value }));
+}
+
+/** Upsert each patched entry; `null` removes it. Entries the patch omits are untouched. */
+function mergeSettingsEntries<Value>(
+  current: Readonly<Record<string, Value>>,
+  patch: Readonly<Record<string, Value | null>>,
+): Record<string, Value> {
+  const next = new Map(Object.entries(current));
+  for (const [id, config] of Object.entries(patch)) {
+    if (config === null) {
+      next.delete(id);
+    } else {
+      next.set(id, config);
+    }
+  }
+  return Object.fromEntries(next);
 }
 
 export function applyServerSettingsPatch(

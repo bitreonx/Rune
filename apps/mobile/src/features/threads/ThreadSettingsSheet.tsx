@@ -1,4 +1,5 @@
 import type {
+  EnvironmentId,
   ModelSelection,
   ProviderOptionDescriptor,
   ProviderOptionSelection,
@@ -204,7 +205,6 @@ function DisclosureRow(props: {
   readonly onPress: () => void;
   readonly isLast?: boolean;
 }) {
-  const iconSubtle = useThemeColor("--color-icon-subtle");
   return (
     <Pressable
       accessibilityRole="button"
@@ -221,7 +221,12 @@ function DisclosureRow(props: {
           {props.value}
         </Text>
       ) : null}
-      <SymbolView name="chevron.right" size={12} tintColor={iconSubtle} type="monochrome" />
+      <SymbolView
+        name="chevron.right"
+        size={12}
+        tintColorClassName={"accent-icon-subtle"}
+        type="monochrome"
+      />
     </Pressable>
   );
 }
@@ -413,6 +418,13 @@ function ThreadSettingsSessionProvider(
   );
   const commitPendingModel = useCallback(() => {
     if (pendingModel) {
+      if (!canCommitPendingModel(pendingModel, props.providerGroups)) {
+        Alert.alert(
+          "Model unavailable",
+          "Set up this provider on web or desktop, or select another model.",
+        );
+        return false;
+      }
       void Haptics.selectionAsync();
       props.onSelectModel(pendingModel);
     }

@@ -107,6 +107,7 @@ describe("session cookie isolation", () => {
         port: 3773,
         host: "127.0.0.1",
         instanceKey: "/tmp/desktop",
+        environmentId: "environment-one",
         development: true,
       }),
     ).toBe("rune_session_3773");

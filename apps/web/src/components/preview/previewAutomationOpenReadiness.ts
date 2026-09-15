@@ -1,5 +1,6 @@
 import {
   FILL_PREVIEW_VIEWPORT,
+  type PreviewAutomationOperation,
   type PreviewAutomationOpenInput,
   type PreviewSessionSnapshot,
   type PreviewViewportSetting,
@@ -27,6 +28,24 @@ export function shouldOpenPreviewMiniPlayer(
   autoShowFloatingPreview = true,
 ): boolean {
   return input.open ?? input.show ?? autoShowFloatingPreview;
+}
+
+export function explicitlySuppressesPreviewMiniPlayer(
+  input: PreviewAutomationOpenInput,
+): boolean {
+  return input.open === false || input.show === false;
+}
+
+export function shouldAutoShowPreviewForAutomationUse({
+  operation,
+  autoShowFloatingPreview,
+  presentationSuppressed,
+}: {
+  operation: PreviewAutomationOperation;
+  autoShowFloatingPreview: boolean;
+  presentationSuppressed: boolean;
+}): boolean {
+  return operation !== "open" && autoShowFloatingPreview && !presentationSuppressed;
 }
 
 export function previewAutomationOpenNeedsOverlay(

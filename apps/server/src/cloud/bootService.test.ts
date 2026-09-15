@@ -97,6 +97,7 @@ it("escapes XML in host paths", () => {
 const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
   platform: NodeJS.Platform = "linux",
   usePinnedLauncher = false,
+  installerPath = macInstallerPath,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -159,6 +160,99 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
 });
 
 it.layer(NodeServices.layer)("boot service install", (it) => {
+  it.effect(
+    "fails before installing files or validating a runtime when lingering needs an administrator",
+    () =>
+      Effect.gen(function* () {
+        const { service, fs, statePath, commands, control, runtime } = yield* makeHarness();
+        const before = yield* service.status;
+        control.linger = "no";
+        control.failCommand = "loginctl enable-linger --no-ask-password 501";
+        yield* fs.remove(runtime.sentinelPath);
+
+        const error = yield* service.install().pipe(Effect.flip);
+
+        expect(error).toMatchObject({
+          _tag: "BootServicePrerequisiteError",
+          problem: "linger-disabled",
+        });
+        expect(error.message).toContain('sudo loginctl enable-linger "$(id -un)"');
+        expect(error.message).toContain("last login session ends");
+        expect(yield* fs.exists(before.unitPath)).toBe(false);
+        expect(yield* fs.exists(statePath)).toBe(false);
+        expect(
+          commands.some((command) => command.startsWith("npm ") || command.includes("--version")),
+        ).toBe(false);
+        expect(
+          commands.some(
+            (command) => command.includes("daemon-reload") || command.includes("restart"),
+          ),
+        ).toBe(false);
+        expect(yield* fs.readFileString(before.logPath)).toContain("[linger-disabled]");
+      }),
+  );
+
+  it.effect(
+    "detects a partial install and preserves the running service when repair lacks permission",
+    () =>
+      Effect.gen(function* () {
+        const { service, fs, statePath, commands, control } = yield* makeHarness();
+        const plan = yield* service.install();
+        const before = yield* fs.readFileString(statePath);
+        const unit = yield* fs.readFileString(plan.unitPath);
+        control.linger = "no";
+        control.failCommand = "loginctl enable-linger --no-ask-password 501";
+
+        expect(yield* service.status).toMatchObject({
+          current: false,
+          problems: ["linger-disabled"],
+        });
+        commands.length = 0;
+        expect((yield* service.install().pipe(Effect.flip))._tag).toBe(
+          "BootServicePrerequisiteError",
+        );
+        expect(yield* fs.readFileString(statePath)).toBe(before);
+        expect(yield* fs.readFileString(plan.unitPath)).toBe(unit);
+        expect(commands).not.toContain("systemctl --user stop rune.service");
+      }),
+  );
+
+  it.effect("enables lingering before installing and repairs stopped or disabled services", () =>
+    Effect.gen(function* () {
+      const { service, commands, control } = yield* makeHarness();
+      control.linger = "no";
+      yield* service.install();
+      expect(control.linger).toBe("yes");
+      expect(commands.indexOf("loginctl enable-linger --no-ask-password 501")).toBeLessThan(
+        commands.indexOf("systemctl --user daemon-reload"),
+      );
+
+      control.enabled = false;
+      control.active = false;
+      expect(yield* service.status).toMatchObject({
+        current: false,
+        problems: ["service-disabled", "service-stopped"],
+      });
+      yield* service.install();
+      expect((yield* service.status).current).toBe(true);
+    }),
+  );
+
+  it.effect.each([
+    { command: "systemctl --user show-environment", problem: "user-manager-unavailable" },
+    { command: "loginctl show-user 501 --property=Linger --value", problem: "linger-unavailable" },
+  ])("reports failed prerequisite probes without installing: $command", ({ command, problem }) =>
+    Effect.gen(function* () {
+      const { service, fs, statePath, control } = yield* makeHarness();
+      control.failCommand = command;
+      expect(yield* service.install().pipe(Effect.flip)).toMatchObject({
+        _tag: "BootServicePrerequisiteError",
+        problem,
+      });
+      expect(yield* fs.exists(statePath)).toBe(false);
+    }),
+  );
+
   it.effect("installs, reports current state, and uninstalls", () =>
     Effect.gen(function* () {
       const { service, fs, statePath, commands, timeouts } = yield* makeHarness();
@@ -169,7 +263,10 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         activeVersion: "1.2.3",
       });
       expect(yield* fs.readFileString(plan.launcherPath)).toBe("export {};\n");
-      expect((yield* service.status).current).toBe(true);
+      expect(yield* service.status).toMatchObject({
+        current: true,
+        installedVersion: "1.2.3",
+      });
       // @effect-diagnostics-next-line preferSchemaOverJson:off - fixed launcher-owned test document.
       const pendingState = JSON.stringify({
         protocol: SERVICE_LAUNCHER_PROTOCOL,
@@ -198,7 +295,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
   it.effect("copies the launcher from the prepared pinned runtime", () =>
     Effect.gen(function* () {
       const { service, fs } = yield* makeHarness("linux", true);
-      const plan = yield* service.install;
+      const plan = yield* service.install();
 
       expect(yield* fs.readFileString(plan.launcherPath)).toBe(
         "export const source = 'pinned runtime';\n",
@@ -209,11 +306,11 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
   it.effect("restarts an installed service when repair fails", () =>
     Effect.gen(function* () {
       const { service, commands, control } = yield* makeHarness();
-      yield* service.install;
+      yield* service.install();
       commands.length = 0;
       control.failCommand = "systemctl --user daemon-reload";
 
-      const error = yield* service.install.pipe(Effect.flip);
+      const error = yield* service.install().pipe(Effect.flip);
       expect(error._tag).toBe("BootServiceCommandError");
       expect(commands.filter((command) => command.startsWith("systemctl "))).toEqual([
         "systemctl --user stop rune.service",
@@ -226,7 +323,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
   it.effect("restarts without overwriting a pending remote update", () =>
     Effect.gen(function* () {
       const { service, fs, statePath, commands } = yield* makeHarness();
-      yield* service.install;
+      yield* service.install();
       // @effect-diagnostics-next-line preferSchemaOverJson:off - fixed launcher-owned test document.
       const pendingState = JSON.stringify({
         protocol: SERVICE_LAUNCHER_PROTOCOL - 1,
@@ -239,7 +336,8 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         },
       });
       yield* fs.writeFileString(statePath, pendingState);
-      commands.length = 0;
+      for (const allowDowngrade of [false, true]) {
+        commands.length = 0;
 
       expect((yield* service.install.pipe(Effect.flip))._tag).toBe("BootServiceUpdatePendingError");
       expect(serviceStateHasPendingUpdate(yield* fs.readFileString(statePath))).toBe(true);

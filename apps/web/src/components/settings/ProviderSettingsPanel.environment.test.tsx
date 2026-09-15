@@ -31,15 +31,29 @@ const settingsState = vi.hoisted(() => ({
   updateSettings: vi.fn(),
 }));
 
+const settingsSearchState = vi.hoisted(() => ({
+  targetId: null as string | null,
+  effects: [] as Array<() => void>,
+}));
+
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
   const { reactHookHarness } = await import("../../test/reactHookHarness");
   return {
     ...actual,
     useCallback: reactHookHarness.useCallback,
+    useEffect: (effect: () => void) => settingsSearchState.effects.push(effect),
     useMemo: reactHookHarness.useMemo,
     useRef: reactHookHarness.useRef,
     useState: reactHookHarness.useState,
+  };
+});
+
+vi.mock("./settingsLayout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./settingsLayout")>();
+  return {
+    ...actual,
+    useSettingsSearchTargetId: () => settingsSearchState.targetId,
   };
 });
 
@@ -122,12 +136,16 @@ function provider(): ServerProvider {
 
 function renderPanel(options?: {
   readonly readOnly?: boolean;
+  readonly targetInstanceId?: ProviderInstanceId;
 }): ReactElement<Record<string, unknown>> {
   hooks.beginRender();
   return EnvironmentProviderSettings({
     environmentId,
     environmentLabel: "Remote device",
     ...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly }),
+    ...(options?.targetInstanceId === undefined
+      ? {}
+      : { targetInstanceId: options.targetInstanceId }),
   }) as ReactElement<Record<string, unknown>>;
 }
 
@@ -161,6 +179,8 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.readEnvironmentIds = [];
     settingsState.updateEnvironmentIds = [];
     settingsState.updateSettings.mockReset();
+    settingsSearchState.targetId = null;
+    settingsSearchState.effects = [];
     commands.refresh.mockReset().mockResolvedValue({ _tag: "Success" });
     commands.updateProvider.mockReset().mockResolvedValue({ _tag: "Success" });
   });
@@ -183,7 +203,10 @@ describe("EnvironmentProviderSettings routing", () => {
     (refreshButton?.props.onClick as (() => void) | undefined)?.();
     await flushPromises();
 
-    expect(commands.refresh).toHaveBeenCalledWith({ environmentId, input: {} });
+    expect(commands.refresh).toHaveBeenCalledWith({
+      environmentId,
+      input: { refreshModels: true },
+    });
 
     const providerCard = visitElements(
       harnesses,
@@ -194,7 +217,13 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(commands.updateProvider).not.toHaveBeenCalled();
   });
 
-  it("renders the provider layout inert with a limited-permissions notice when read only", () => {
+  it("opens the requested provider instance instead of the first provider", () => {
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+    };
     atoms.providers = [provider()];
     const panel = renderPanel({ readOnly: true });
     const harnesses = renderHarnesses(panel);
@@ -223,6 +252,23 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(
       visitElements(panel, (element) => element.props.title === "Limited permissions"),
     ).toBeNull();
+    expect(visitElements(panel, isRefreshButton)).not.toBeNull();
+    expect(visitElements(panel, isAddProviderButton)).not.toBeNull();
+  });
+
+  it("keeps Advanced visible when search targets the provider health interval", () => {
+    let panel = renderPanel();
+    expect(visitElements(panel, (element) => element.props.title === "Advanced")).not.toBeNull();
+    expect(
+      visitElements(panel, (element) => element.props.id === "provider-health-check-interval"),
+    ).not.toBeNull();
+
+    settingsSearchState.targetId = "provider-health-check-interval";
+    panel = renderPanel();
+    expect(visitElements(panel, (element) => element.props.title === "Advanced")).not.toBeNull();
+    expect(
+      visitElements(panel, (element) => element.props.id === "provider-health-check-interval"),
+    ).not.toBeNull();
   });
 
   it("keeps instance management on the dedicated harness page", () => {

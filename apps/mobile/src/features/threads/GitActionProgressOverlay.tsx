@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
+import { GlassView } from "expo-glass-effect";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
@@ -9,7 +9,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { APP_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
-import { useThemeColor } from "../../lib/useThemeColor";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
@@ -76,7 +77,7 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
   const isDarkMode = themeAppearance === "dark";
   const content = (
     <>
-      <OverlayIcon phase={progress.phase} iconColor={iconColor} />
+      <OverlayIcon phase={progress.phase} />
 
       <View className="flex-1 gap-0.5">
         {progress.label ? (
@@ -92,32 +93,41 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
       </View>
 
       {progress.prUrl ? (
-        <SymbolView name="arrow.up.right" size={13} tintColor={iconColor} type="monochrome" />
+        <SymbolView
+          name="arrow.up.right"
+          size={13}
+          tintColorClassName={"accent-icon"}
+          type="monochrome"
+        />
       ) : null}
     </>
   );
 
-  if (isLiquidGlassSupported) {
+  if (NATIVE_LIQUID_GLASS_SUPPORTED) {
     return (
       <Animated.View
         layout={OVERLAY_LAYOUT_TRANSITION}
         style={{
-          backgroundColor: glassTint,
-          borderColor: glassBorder,
           borderCurve: "continuous",
           borderRadius: 26,
-          borderWidth: StyleSheet.hairlineWidth,
-          overflow: "hidden",
+          elevation: 12,
+          shadowColor,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: isDarkMode ? 0.42 : 0.2,
+          shadowRadius: 18,
         }}
       >
-        <AnimatedLiquidGlassView
+        <AnimatedGlassView
           colorScheme={isDarkMode ? "dark" : "light"}
-          effect="regular"
-          interactive
+          glassEffectStyle="regular"
+          isInteractive
           layout={OVERLAY_LAYOUT_TRANSITION}
+          tintColor={glassTint}
           style={{
+            borderColor: glassBorder,
             borderCurve: "continuous",
             borderRadius: 26,
+            borderWidth: StyleSheet.hairlineWidth,
             overflow: "hidden",
           }}
         >
@@ -127,15 +137,13 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
           >
             {content}
           </Animated.View>
-        </AnimatedLiquidGlassView>
+        </AnimatedGlassView>
       </Animated.View>
     );
   }
 
   const bgClass =
-    progress.phase === "error"
-      ? "bg-red-50 dark:bg-red-950/80 border-red-200 dark:border-red-800"
-      : "bg-card border-border";
+    progress.phase === "error" ? "border-danger-border bg-danger" : "bg-card border-border";
 
   return (
     <Animated.View
@@ -147,13 +155,10 @@ function OverlayContent(props: { readonly progress: GitActionProgress }) {
   );
 }
 
-function OverlayIcon(props: {
-  readonly phase: GitActionProgress["phase"];
-  readonly iconColor: ReturnType<typeof useThemeColor>;
-}) {
+function OverlayIcon(props: { readonly phase: GitActionProgress["phase"] }) {
   switch (props.phase) {
     case "running":
-      return <ActivityIndicator size="small" />;
+      return <ActivityIndicator size="small" colorClassName={"accent-icon"} />;
     case "success":
       return (
         <View className="h-6 w-6 items-center justify-center rounded-full bg-green-500">
@@ -162,11 +167,11 @@ function OverlayIcon(props: {
       );
     case "error":
       return (
-        <View className="h-6 w-6 items-center justify-center rounded-full bg-red-500">
+        <View className="h-6 w-6 items-center justify-center rounded-full bg-danger">
           <SymbolView
             name="exclamationmark.triangle"
             size={12}
-            tintColor="white"
+            tintColorClassName="accent-danger-foreground"
             type="monochrome"
           />
         </View>

@@ -1,3 +1,4 @@
+import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
@@ -704,7 +705,7 @@ export default function FileBrowserPanel({
     },
     paths: [],
     search: false,
-    unsafeCSS: TREE_UNSAFE_CSS,
+    unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
   });
   useEffect(() => {
     model.setGitStatus(gitStatus);
@@ -868,6 +869,12 @@ export default function FileBrowserPanel({
   };
 
   const search = useFileTreeSearch(model);
+  const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
+    areAllDirectoriesExpanded(currentModel, directoryPaths),
+  );
+  const toggleAllDirectories = () => {
+    setAllDirectoriesExpanded(model, directoryPaths, !allDirectoriesExpanded);
+  };
   const handleSearchValueChange = (value: string) => {
     if (value.trim().length === 0) {
       search.close();
@@ -1196,6 +1203,32 @@ export default function FileBrowserPanel({
           onValueChange={handleSearchValueChange}
           onClose={search.close}
         />
+        {directoryPaths.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={
+                    allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"
+                  }
+                  onClick={toggleAllDirectories}
+                />
+              }
+            >
+              {allDirectoriesExpanded ? (
+                <ChevronsDownUpIcon className="size-3.5" />
+              ) : (
+                <ChevronsUpDownIcon className="size-3.5" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup>
+              {allDirectoriesExpanded ? "Collapse all folders" : "Expand all folders"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
       </div>
       {treeArea.kind === "error" ? (
         <div

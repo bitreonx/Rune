@@ -96,7 +96,6 @@ const styles = StyleSheet.create({
   line: {
     alignSelf: "center",
     height: "100%",
-    opacity: 0.7,
     width: StyleSheet.hairlineWidth,
   },
   activeLine: {

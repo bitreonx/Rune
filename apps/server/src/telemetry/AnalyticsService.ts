@@ -66,6 +66,22 @@ export class AnalyticsService extends Context.Service<
   );
 }
 
+function serverOsFromNodePlatform(platform: string): ClientOs {
+  switch (platform) {
+    case "darwin":
+      return "macOS";
+    case "win32":
+      return "Windows";
+    case "linux":
+      return "Linux";
+    case "android":
+      return "Android";
+    default:
+      return "other";
+  }
+}
+
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig;
   const httpClient = yield* HttpClient.HttpClient;
@@ -121,6 +137,11 @@ export const make = Effect.gen(function* () {
           arch: hostArchitecture,
           runeCodeVersion: packageJson.version,
           clientType,
+          serverOs: serverOsFromNodePlatform(hostPlatform),
+          serverArch: hostArchitecture,
+          serverWslDistro: Option.getOrUndefined(telemetryConfig.wslDistroName),
+          serverAppVersion: packageJson.version,
+          serverMode: serverConfig.mode,
         },
         timestamp: event.capturedAt,
       })),

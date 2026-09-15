@@ -1,5 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off - the executed suite runs the generated install script through a real POSIX shell.
 import { describe, it } from "@effect/vitest";
-import { expect } from "vite-plus/test";
+import { afterAll, expect } from "vite-plus/test";
+import * as NodeChildProcess from "node:child_process";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -10,19 +12,69 @@ import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
-  buildWslNodeEnvPreamble,
+  buildWslRuntimeInstallScript,
+  buildWslRuntimeInvalidateScript,
+  buildWslRuntimePruneScript,
   DesktopWslDistroListError,
   formatMissingToolsReason,
-  formatNodePtyProbeFailureReason,
-  formatWslShellTransportFailureReason,
   parseNodePath,
   parseNodeVersion,
   parseResolvedPath,
   parseToolchainReport,
+  parseWslRuntimeRoot,
   probeWslDistros,
 } from "./DesktopWslEnvironment.ts";
 
 const encoder = new TextEncoder();
+
+// The install script only fails the way this file cares about when a real shell
+// runs it, so find one that has the tools it needs: bash directly on Linux, and
+// the WSL distro on a Windows dev box, where Git Bash ships no flock. Anywhere
+// else the executed suite skips and the generated-text assertions stand alone.
+const REQUIRED_SHELL_TOOLS = ["flock", "sha256sum", "tar", "mktemp"] as const;
+
+const posixShellRunner = (() => {
+  // Candidates rather than a platform switch: wsl.exe simply fails to spawn
+  // where it does not exist, which is the same answer as a shell missing flock.
+  const candidates = [
+    { file: "bash", args: [] as ReadonlyArray<string> },
+    { file: "wsl.exe", args: ["-e", "bash"] as ReadonlyArray<string> },
+  ];
+  const probe = [
+    "[ -d /proc/1 ] || exit 1",
+    ...REQUIRED_SHELL_TOOLS.map((tool) => `command -v ${tool} >/dev/null || exit 1`),
+  ].join("\n");
+  return (
+    candidates.find((candidate) => {
+      const result = NodeChildProcess.spawnSync(candidate.file, [...candidate.args, "-c", probe], {
+        encoding: "utf8",
+      });
+      return result.status === 0;
+    }) ?? null
+  );
+})();
+
+const runShell = (script: string) => {
+  if (posixShellRunner === null) throw new Error("no POSIX shell runner available");
+  // The install script arrives on stdin in production too, which is what lets
+  // its own /proc scan not match itself.
+  const result = NodeChildProcess.spawnSync(
+    posixShellRunner.file,
+    [...posixShellRunner.args, "-s"],
+    { input: script, encoding: "utf8" },
+  );
+  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+};
+
+const sh = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+const readField = (stdout: string, field: string) => {
+  const line = stdout.split("\n").find((candidate) => candidate.startsWith(`${field}:`));
+  if (line === undefined) throw new Error(`missing ${field} in fixture output: ${stdout}`);
+  return line.slice(field.length + 1).trim();
+};
+
+const SERVER_ENTRY_SOURCE = 'console.log("rune wsl runtime test server");';
 
 const makeDistroListSpawner = (result: { readonly stdout?: string; readonly exitCode?: number }) =>
   ChildProcessSpawner.make(() =>
@@ -88,12 +140,19 @@ describe("probeWslDistros", () => {
   });
 });
 
-describe("formatNodePtyProbeFailureReason", () => {
-  it("identifies a packaged build that omitted the Linux node-pty prebuild", () => {
-    const reason = formatNodePtyProbeFailureReason(4);
-
-    expect(reason).toContain("packaged Linux node-pty binary was not included");
-    expect(reason).toContain("--wsl-prebuild");
+describe("WSL runtime cache", () => {
+  it.each([
+    [
+      "install",
+      (id: string) => buildWslRuntimeInstallScript("/runtime.tar.gz", id, "b".repeat(64)),
+    ],
+    ["prune", buildWslRuntimePruneScript],
+    ["invalidate", buildWslRuntimeInvalidateScript],
+  ] as const)("sanitizes cache ids in the %s script", (_, buildScript) => {
+    const runtimeId = "1.2.3/x64; touch /tmp/nope";
+    const script = buildScript(runtimeId);
+    expect(script).toContain("/1.2.3_x64__touch__tmp_nope");
+    expect(script).not.toContain(runtimeId);
   });
 
   it("leaves other node-pty load failures to the compatibility diagnostic", () => {
@@ -118,6 +177,33 @@ describe("buildWslNodeEnvPreamble", () => {
     expect(preamble.indexOf("RUNE_NODE_ENGINE_RANGE=")).toBeLessThan(
       preamble.lastIndexOf("ensure_remote_node_path || true"),
     );
+
+    expect(script).toContain('runtime_parent="$HOME/.rune/wsl-runtime"');
+    expect(script).toContain('  [ -f "$ready_marker" ] &&');
+    expect(script).toContain('  [ -f "$runtime_root/apps/server/dist/bin.mjs" ] &&');
+    expect(script).toContain('  [ -f "$runtime_root/node_modules/node-pty/package.json" ] &&');
+    expect(script).toContain('    node_pty_payload_present "$runtime_root"');
+    expect(script).toContain("if runtime_is_ready; then");
+    expect(script).toContain("trap 'exit 1' HUP INT TERM");
+    expect(script).toContain('exec 9> "$runtime_lock"');
+    expect(script).toContain("flock -x 9");
+    expect(script).not.toContain('rm -rf "$runtime_lock"');
+    expect(script).toContain('mv -T "$runtime_root" "$runtime_stale"');
+    expect(script).toContain('mktemp -d "$runtime_parent/.1.2.3-x64.tmp.XXXXXX"');
+    expect(script).toContain(
+      "tar -xzf '/mnt/c/Program Files/RUNE Code/wsl-runtime.tar.gz' -C \"$runtime_tmp\"",
+    );
+    expect(script).toContain('test -f "$runtime_tmp/apps/server/dist/bin.mjs"');
+    expect(script).toContain('test -f "$runtime_tmp/node_modules/node-pty/package.json"');
+    expect(script).toContain('mv -T "$runtime_tmp" "$runtime_root"');
+    expect(script).not.toContain('rm -rf "$runtime_root"');
+
+    const lockAcquired = script.indexOf("flock -x 9");
+    const readinessAfterLock = script.indexOf("if runtime_is_ready; then", lockAcquired + 1);
+    const existingRuntimeMoved = script.indexOf('mv -T "$runtime_root" "$runtime_stale"');
+    expect(lockAcquired).toBeGreaterThan(-1);
+    expect(readinessAfterLock).toBeGreaterThan(lockAcquired);
+    expect(existingRuntimeMoved).toBeGreaterThan(readinessAfterLock);
   });
 
   it("keeps the shared resolver permissive when no Node engine range is provided", () => {

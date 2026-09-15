@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  attachmentFileExtension,
   createAttachmentId,
   createPendingAttachmentId,
   parseAttachmentUuid,

@@ -93,7 +93,7 @@ export type ProjectActionExecutorResult =
   | ProjectActionExecutorResultBlocked
   | ProjectActionExecutorResultStarted;
 
-export class ProjectActionPreparationError extends Schema.TaggedErrorClass<ProjectActionPreparationError>()(
+export class ProjectActionPreparationError extends Schema.TaggedError<ProjectActionPreparationError>()(
   "ProjectActionPreparationError",
   {
     actionId: Schema.String,
@@ -108,7 +108,7 @@ export class ProjectActionPreparationError extends Schema.TaggedErrorClass<Proje
   },
 ) {}
 
-export class ProjectActionUnsupportedError extends Schema.TaggedErrorClass<ProjectActionUnsupportedError>()(
+export class ProjectActionUnsupportedError extends Schema.TaggedError<ProjectActionUnsupportedError>()(
   "ProjectActionUnsupportedError",
   {
     actionId: Schema.String,

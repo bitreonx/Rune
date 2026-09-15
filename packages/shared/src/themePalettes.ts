@@ -10,6 +10,28 @@ export const MOBILE_DEFAULT_THEME_ID = "rune";
  */
 export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
 
+/** Appearance keywords, built-ins, and legacy palette aliases are reserved
+ * so published themes cannot shadow a palette clients already know. */
+export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
+  "system",
+  "light",
+  "dark",
+  ...BUILT_IN_THEME_IDS,
+  "t3-chat",
+  "t3-chat-dark",
+  "t3-grove",
+  "t3-ocean",
+  "t3-ember",
+  "t3-iris",
+]);
+
+/** Theme ids reserved by the built-in and mobile palettes cannot be published
+ * as user themes because clients would resolve them to another palette. */
+export const UNPUBLISHABLE_THEME_IDS: ReadonlySet<string> = new Set([
+  ...RESERVED_THEME_IDS,
+  MOBILE_DEFAULT_THEME_ID,
+]);
+
 export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
 export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];
 export type ThemeAppearance = "light" | "dark";
